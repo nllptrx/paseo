@@ -32,6 +32,8 @@ describe("checkout status projection", () => {
 
     expect(payload).toHaveProperty("repoOwner", "internal-owner");
     expect(payload).toHaveProperty("repoName", "internal-repo");
+    expect(payload).toHaveProperty("forge", "github");
+    expect(payload).toHaveProperty("projectPath", "internal-owner/internal-repo");
     expect(payload).toHaveProperty("mergeable", "MERGEABLE");
     expect(CheckoutPrStatusSchema.parse(payload)).toEqual(payload);
   });
@@ -79,6 +81,8 @@ describe("checkout status projection", () => {
     });
 
     expect(payload).toMatchObject({
+      forge: "github",
+      projectPath: "getpaseo/paseo",
       number: 993,
       mergeable: "MERGEABLE",
       checksStatus: "pending",

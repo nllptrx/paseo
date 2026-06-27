@@ -642,6 +642,7 @@ describe("workspace git watch targets", () => {
     expect(statusUpdate?.payload.prStatus).toEqual({
       cwd: REPO_CWD,
       status: {
+        forge: "github",
         number: 456,
         url: "https://github.com/acme/repo/pull/456",
         title: "Runtime centralization",
@@ -719,6 +720,7 @@ describe("workspace git watch targets", () => {
     ).toEqual({
       cwd: REPO_CWD,
       status: {
+        forge: "github",
         number: undefined,
         url: "https://github.com/acme/repo/pull/456",
         title: "Runtime centralization",

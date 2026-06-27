@@ -116,6 +116,7 @@ export function normalizeCheckoutPrStatusPayload(
     return null;
   }
   const payload: CheckoutPrStatusPayloadStatus = {
+    forge: "github",
     number: status.number,
     url: status.url,
     title: status.title,
@@ -131,6 +132,10 @@ export function normalizeCheckoutPrStatusPayload(
     checksStatus: status.checksStatus,
     reviewDecision: status.reviewDecision,
   };
+  const hasProjectPath = status.repoOwner !== undefined && status.repoName !== undefined;
+  if (hasProjectPath) {
+    payload.projectPath = `${status.repoOwner}/${status.repoName}`;
+  }
   if (status.github) {
     payload.github = status.github;
   }

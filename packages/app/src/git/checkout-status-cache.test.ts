@@ -41,6 +41,7 @@ function prStatus(overrides: Partial<CheckoutPrStatusPayload> = {}): CheckoutPrS
   return {
     cwd,
     status: {
+      forge: "github",
       url: "https://github.com/getpaseo/paseo/pull/42",
       title: "My PR",
       state: "open",

@@ -11,6 +11,51 @@ import {
 } from "./messages.js";
 
 describe("checkout PR schemas", () => {
+  test("defaults missing forge identity for old daemon payloads", () => {
+    const parsed = CheckoutPrStatusSchema.parse({
+      url: "https://github.com/getpaseo/paseo/pull/42",
+      title: "Ship it",
+      state: "open",
+      baseRefName: "main",
+      headRefName: "feature/ship-it",
+      isMerged: false,
+    });
+
+    expect(parsed.forge).toBe("github");
+  });
+
+  test("round-trips forge and neutral project identity", () => {
+    const payload = {
+      forge: "github",
+      projectPath: "getpaseo/paseo",
+      url: "https://github.com/getpaseo/paseo/pull/42",
+      title: "Ship it",
+      state: "open",
+      baseRefName: "main",
+      headRefName: "feature/ship-it",
+      isMerged: false,
+      isDraft: false,
+      mergeable: "UNKNOWN" as const,
+      checks: [],
+    };
+
+    expect(CheckoutPrStatusSchema.parse(payload)).toEqual(payload);
+  });
+
+  test("accepts unknown future forge identities", () => {
+    const parsed = CheckoutPrStatusSchema.parse({
+      forge: "someforge",
+      url: "https://someforge.example/getpaseo/paseo/pulls/42",
+      title: "Ship it",
+      state: "open",
+      baseRefName: "main",
+      headRefName: "feature/ship-it",
+      isMerged: false,
+    });
+
+    expect(parsed.forge).toBe("someforge");
+  });
+
   test("parses PR status payloads without mergeability", () => {
     expect(
       CheckoutPrStatusSchema.parse({

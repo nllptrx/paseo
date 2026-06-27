@@ -3294,6 +3294,9 @@ const CheckoutPrGithubStatusSchema = z
   .optional();
 
 export const CheckoutPrStatusSchema = z.object({
+  // COMPAT(forge): added in v0.1.102, remove the default after 2026-12-27 once daemon floor >= v0.1.102.
+  forge: z.string().optional().default("github"),
+  projectPath: z.string().optional(),
   number: z.number().optional(),
   url: z.string(),
   title: z.string(),

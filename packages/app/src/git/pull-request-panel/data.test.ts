@@ -33,6 +33,7 @@ const githubStatus: CheckoutPrStatus["github"] = {
 };
 
 const baseStatus: CheckoutPrStatus = {
+  forge: "github",
   number: 42,
   url: "https://github.com/getpaseo/paseo/pull/42",
   title: "Wire PR pane data",
