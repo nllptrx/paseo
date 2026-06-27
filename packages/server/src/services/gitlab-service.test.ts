@@ -50,6 +50,52 @@ const OPEN_MR = {
   head_pipeline: { status: "success" },
 };
 
+const PIPELINE_WITH_JOBS = {
+  id: 306,
+  status: "failed",
+  ref: "feat/sample-change",
+  sha: "85e734528c160941f997703c63563d2587736a3e",
+  web_url: "https://gitlab.example.com/example-group/example-project/-/pipelines/306",
+  jobs: [
+    {
+      id: 929,
+      name: "lint",
+      stage: "test",
+      status: "success",
+      allow_failure: false,
+      web_url: "https://gitlab.example.com/example-group/example-project/-/jobs/929",
+      duration: 12.3,
+    },
+    {
+      id: 931,
+      name: "unit",
+      stage: "test",
+      status: "failed",
+      allow_failure: false,
+      web_url: "https://gitlab.example.com/example-group/example-project/-/jobs/931",
+      duration: 38.2,
+    },
+    {
+      id: 932,
+      name: "flaky",
+      stage: "test",
+      status: "failed",
+      allow_failure: true,
+      web_url: "https://gitlab.example.com/example-group/example-project/-/jobs/932",
+      duration: 5,
+    },
+    {
+      id: 933,
+      name: "deploy-prod",
+      stage: "deploy",
+      status: "skipped",
+      allow_failure: false,
+      web_url: "https://gitlab.example.com/example-group/example-project/-/jobs/933",
+      duration: null,
+    },
+  ],
+};
+
 describe("createGitLabService", () => {
   it("maps a glab merge request view to the neutral current PR status", async () => {
     const { service } = makeService(() => ok(JSON.stringify(OPEN_MR)));
@@ -162,6 +208,8 @@ describe("createGitLabService", () => {
           approvalsRequired: 0,
           approvalsGiven: 0,
           pipelineStatus: "success",
+          pipelineId: null,
+          pipelineUrl: null,
           mergeWhenPipelineSucceeds: false,
         },
       },
@@ -186,12 +234,126 @@ describe("createGitLabService", () => {
             approvalsRequired: 0,
             approvalsGiven: 0,
             pipelineStatus: "running",
+            pipelineId: null,
+            pipelineUrl: null,
             mergeWhenPipelineSucceeds: false,
           },
         },
       }),
     ).rejects.toThrow(/ready for direct merge/);
     expect(calls).toHaveLength(0);
+  });
+
+  it("surfaces the head pipeline id and url on the gitlab status facts", async () => {
+    const { service } = makeService(() =>
+      ok(
+        JSON.stringify({
+          ...OPEN_MR,
+          head_pipeline: {
+            id: 306,
+            status: "running",
+            web_url: "https://gitlab.example.com/example-group/example-project/-/pipelines/306",
+          },
+        }),
+      ),
+    );
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "release/v0.4.0",
+    });
+
+    expect(status?.checksStatus).toBe("pending");
+    expect(status?.forgeSpecific).toMatchObject({
+      forge: "gitlab",
+      pipelineStatus: "running",
+      pipelineId: 306,
+      pipelineUrl: "https://gitlab.example.com/example-group/example-project/-/pipelines/306",
+    });
+  });
+
+  it("fetches a pipeline's stages and jobs as neutral check details", async () => {
+    const { service, calls } = makeService(() => ok(JSON.stringify(PIPELINE_WITH_JOBS)));
+
+    const details = await service.getGitHubCheckDetails({
+      cwd: "/repo",
+      checkRunId: 306,
+    });
+
+    expect(calls[0]).toEqual([
+      "ci",
+      "get",
+      "--pipeline-id",
+      "306",
+      "--with-job-details",
+      "-F",
+      "json",
+    ]);
+    expect(details).toMatchObject({
+      checkRunId: 306,
+      name: "Pipeline (feat/sample-change)",
+      failedJobs: [],
+      annotations: [],
+      truncated: false,
+    });
+    expect(details.pipeline).toMatchObject({
+      id: 306,
+      status: "failed",
+      rawStatus: "failed",
+      ref: "feat/sample-change",
+      stages: [
+        {
+          name: "test",
+          status: "failed",
+          jobs: [
+            { id: 929, name: "lint" },
+            {
+              id: 931,
+              name: "unit",
+              status: "failed",
+              allowFailure: false,
+              durationSeconds: 38.2,
+            },
+            { id: 932, name: "flaky", status: "failed", allowFailure: true },
+          ],
+        },
+        {
+          name: "deploy",
+          status: "skipped",
+          jobs: [{ id: 933, name: "deploy-prod", durationSeconds: null }],
+        },
+      ],
+    });
+  });
+
+  it("does not fail a stage when only allow_failure jobs failed", async () => {
+    const { service } = makeService(() =>
+      ok(
+        JSON.stringify({
+          ...PIPELINE_WITH_JOBS,
+          status: "success",
+          jobs: [
+            {
+              id: 940,
+              name: "lint",
+              stage: "test",
+              status: "success",
+              allow_failure: false,
+            },
+            {
+              id: 941,
+              name: "optional",
+              stage: "test",
+              status: "failed",
+              allow_failure: true,
+            },
+          ],
+        }),
+      ),
+    );
+
+    const details = await service.getGitHubCheckDetails({ cwd: "/repo", checkRunId: 306 });
+    expect(details.pipeline?.stages[0]?.status).toBe("success");
   });
 
   it("reports authentication via a host-scoped glab auth status", async () => {

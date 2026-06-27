@@ -436,6 +436,83 @@ describe("checkout PR schemas", () => {
     });
   });
 
+  test("accepts a GitLab pipeline through the existing check-details response", () => {
+    expect(
+      CheckoutGithubGetCheckDetailsRequestSchema.parse({
+        type: "checkout.github.get_check_details.request",
+        cwd: "/tmp/repo",
+        checkRunId: 306,
+        requestId: "request-pipeline",
+      }),
+    ).toEqual({
+      type: "checkout.github.get_check_details.request",
+      cwd: "/tmp/repo",
+      checkRunId: 306,
+      requestId: "request-pipeline",
+    });
+
+    const details = CheckoutGithubGetCheckDetailsResponseSchema.parse({
+      type: "checkout.github.get_check_details.response",
+      payload: {
+        cwd: "/tmp/repo",
+        success: true,
+        details: {
+          checkRunId: 306,
+          name: "Pipeline (feat/x)",
+          annotations: [],
+          failedJobs: [],
+          truncated: false,
+          pipeline: {
+            id: 306,
+            status: "future_pipeline_status",
+            rawStatus: "future_pipeline_status",
+            stages: [
+              {
+                name: "test",
+                status: "future_stage_status",
+                jobs: [
+                  {
+                    id: 929,
+                    name: "unit",
+                    stage: "test",
+                    status: "future_job_status",
+                    rawStatus: "future_job_status",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        error: null,
+        requestId: "request-pipeline",
+      },
+    }).payload.details;
+
+    expect(details?.pipeline).toMatchObject({
+      id: 306,
+      status: "future_pipeline_status",
+      stages: [{ jobs: [{ status: "future_job_status", allowFailure: false }] }],
+    });
+  });
+
+  test("keeps pipeline absent for legacy and GitHub check-details responses", () => {
+    const details = CheckoutGithubGetCheckDetailsResponseSchema.parse({
+      type: "checkout.github.get_check_details.response",
+      payload: {
+        cwd: "/tmp/repo",
+        success: true,
+        details: {
+          checkRunId: 12345,
+          name: "server tests",
+        },
+        error: null,
+        requestId: "legacy-check-details",
+      },
+    }).payload.details;
+
+    expect(details).not.toHaveProperty("pipeline");
+  });
+
   test("rejects invalid GitHub check details request identities", () => {
     const request = {
       type: "checkout.github.get_check_details.request",

@@ -70,6 +70,12 @@ export interface GitLabStatusFacts {
   approvalsRequired: number;
   approvalsGiven: number;
   pipelineStatus: string | null;
+  /**
+   * Id of the MR's head pipeline, used to fetch the full pipeline (stages →
+   * jobs) on demand. Null when the MR has no pipeline yet.
+   */
+  pipelineId: number | null;
+  pipelineUrl: string | null;
   mergeWhenPipelineSucceeds: boolean;
 }
 
@@ -230,8 +236,12 @@ export type GetPullRequestTimelineOptions = {
 
 export type GetCheckDetailsOptions = {
   cwd: string;
-  repoOwner: string;
-  repoName: string;
+  /**
+   * GitHub-only: the GitHub adapter addresses the check run by owner/name. The
+   * GitLab adapter resolves the project from the cwd's remote and ignores these.
+   */
+  repoOwner?: string;
+  repoName?: string;
   checkRunId: number;
   workflowRunId?: number;
 } & ForgeReadOptions;
@@ -257,6 +267,54 @@ export interface CheckFailedJob {
   logTruncated?: boolean;
 }
 
+/**
+ * Normalized lifecycle of a CI job/pipeline, neutral across forges. Adapters
+ * map their forge's raw status strings onto this; readers keep the raw string
+ * too (see {@link PipelineJob.rawStatus}) for display fidelity.
+ */
+export type PipelineJobStatus =
+  | "success"
+  | "failed"
+  | "running"
+  | "pending"
+  | "canceled"
+  | "skipped"
+  | "manual"
+  | "created"
+  | "unknown";
+
+export interface PipelineJob {
+  id: number;
+  name: string;
+  stage: string;
+  status: PipelineJobStatus;
+  rawStatus: string;
+  url: string | null;
+  allowFailure: boolean;
+  durationSeconds: number | null;
+}
+
+export interface PipelineStage {
+  name: string;
+  status: PipelineJobStatus;
+  jobs: PipelineJob[];
+}
+
+/**
+ * A CI pipeline as a stage → job tree. Forges that model CI as a pipeline
+ * (GitLab) populate this; forges that model it as flat check runs (GitHub)
+ * leave {@link CheckDetails.pipeline} undefined and use the check-run fields.
+ */
+export interface PipelineDetails {
+  id: number;
+  status: PipelineJobStatus;
+  rawStatus: string;
+  url: string | null;
+  ref: string | null;
+  sha: string | null;
+  stages: PipelineStage[];
+}
+
 export interface CheckDetails {
   checkRunId: number;
   workflowRunId?: number | null;
@@ -273,6 +331,12 @@ export interface CheckDetails {
   annotations: CheckAnnotation[];
   failedJobs: CheckFailedJob[];
   truncated: boolean;
+  /**
+   * Structured pipeline (stages → jobs) for forges that model CI as a pipeline.
+   * GitLab populates it; GitHub leaves it undefined and keeps using the flat
+   * check-run fields above.
+   */
+  pipeline?: PipelineDetails | null;
 }
 
 export interface SearchResult {

@@ -741,7 +741,14 @@ export const ar: TranslationResources = {
         },
         sections: {
           checks: "الشيكات",
+          pipeline: "خط المعالجة",
           reviews: "التعليقات",
+        },
+        empty: {
+          noJobs: "لا توجد مهام",
+          loadingPipeline: "جارٍ تحميل خط المعالجة...",
+          pipelineJobsLoadFailed: "تعذر تحميل مهام خط المعالجة",
+          allowedToFail: "مسموح بالفشل",
         },
         accessibility: {
           pullRequest: "سحب الطلب #{{number}}",

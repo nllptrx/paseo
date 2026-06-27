@@ -3284,8 +3284,8 @@ export class DaemonClient {
   async checkoutGithubGetCheckDetails(
     input: {
       cwd: string;
-      repoOwner: string;
-      repoName: string;
+      repoOwner?: string;
+      repoName?: string;
       checkRunId: number;
       workflowRunId?: number;
     },

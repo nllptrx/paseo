@@ -735,7 +735,14 @@ export const zhCN: TranslationResources = {
         },
         sections: {
           checks: "Checks",
+          pipeline: "流水线",
           reviews: "Reviews",
+        },
+        empty: {
+          noJobs: "无作业",
+          loadingPipeline: "正在加载流水线...",
+          pipelineJobsLoadFailed: "无法加载流水线作业",
+          allowedToFail: "允许失败",
         },
         accessibility: {
           pullRequest: "Pull request #{{number}}",

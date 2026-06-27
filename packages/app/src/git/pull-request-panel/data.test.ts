@@ -8,6 +8,8 @@ import {
   formatAge,
   getActivityVerb,
   getStateLabel,
+  isPipelineActiveStatus,
+  mapPipelineStatus,
   mapPrPaneData,
 } from "./data";
 
@@ -426,6 +428,93 @@ describe("mapPrPaneData", () => {
     );
 
     expect(data?.activity).toEqual([]);
+  });
+
+  it("surfaces a GitLab pipeline summary from the gitlab forge facts", () => {
+    const data = mapPrPaneData(
+      status({
+        url: "https://gitlab.com/group/repo/-/merge_requests/7",
+        github: undefined,
+        forgeSpecific: {
+          forge: "gitlab",
+          detailedMergeStatus: "mergeable",
+          hasConflicts: false,
+          blockingDiscussionsResolved: true,
+          approvalsRequired: 0,
+          approvalsGiven: 0,
+          pipelineStatus: "running",
+          pipelineId: 306,
+          pipelineUrl: "https://gitlab.com/group/repo/-/pipelines/306",
+          mergeWhenPipelineSucceeds: false,
+        },
+      }),
+      baseTimeline,
+      undefined,
+      "gitlab",
+    );
+
+    expect(data?.gitlabPipeline).toEqual({
+      id: 306,
+      status: "pending",
+      rawStatus: "running",
+      url: "https://gitlab.com/group/repo/-/pipelines/306",
+    });
+  });
+
+  it("omits the GitLab pipeline summary when the MR has no head pipeline", () => {
+    const data = mapPrPaneData(
+      status({
+        url: "https://gitlab.com/group/repo/-/merge_requests/7",
+        github: undefined,
+        forgeSpecific: {
+          forge: "gitlab",
+          detailedMergeStatus: "mergeable",
+          hasConflicts: false,
+          blockingDiscussionsResolved: true,
+          approvalsRequired: 0,
+          approvalsGiven: 0,
+          pipelineStatus: null,
+          pipelineId: null,
+          pipelineUrl: null,
+          mergeWhenPipelineSucceeds: false,
+        },
+      }),
+      baseTimeline,
+      undefined,
+      "gitlab",
+    );
+
+    expect(data?.gitlabPipeline).toBeUndefined();
+  });
+});
+
+describe("mapPipelineStatus", () => {
+  it("maps GitLab and neutral pipeline statuses onto check statuses", () => {
+    expect(mapPipelineStatus("success")).toBe("success");
+    expect(mapPipelineStatus("passed")).toBe("success");
+    expect(mapPipelineStatus("failed")).toBe("failure");
+    expect(mapPipelineStatus("canceled")).toBe("skipped");
+    expect(mapPipelineStatus("skipped")).toBe("skipped");
+    expect(mapPipelineStatus("manual")).toBe("skipped");
+    expect(mapPipelineStatus("running")).toBe("pending");
+    expect(mapPipelineStatus("pending")).toBe("pending");
+    expect(mapPipelineStatus("created")).toBe("pending");
+    expect(mapPipelineStatus("waiting_for_resource")).toBe("pending");
+    expect(mapPipelineStatus("preparing")).toBe("pending");
+    expect(mapPipelineStatus("scheduled")).toBe("pending");
+    expect(mapPipelineStatus("anything-else")).toBe("pending");
+  });
+
+  it("marks running and queued pipeline statuses as live for polling", () => {
+    expect(isPipelineActiveStatus("running")).toBe(true);
+    expect(isPipelineActiveStatus("pending")).toBe(true);
+    expect(isPipelineActiveStatus("created")).toBe(true);
+    expect(isPipelineActiveStatus("waiting_for_resource")).toBe(true);
+    expect(isPipelineActiveStatus("preparing")).toBe(true);
+    expect(isPipelineActiveStatus("scheduled")).toBe(true);
+    expect(isPipelineActiveStatus("success")).toBe(false);
+    expect(isPipelineActiveStatus("failed")).toBe(false);
+    expect(isPipelineActiveStatus("canceled")).toBe(false);
   });
 });
 

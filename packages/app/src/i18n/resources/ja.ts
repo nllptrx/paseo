@@ -753,7 +753,14 @@ export const ja: TranslationResources = {
         },
         sections: {
           checks: "チェック",
+          pipeline: "パイプライン",
           reviews: "レビュー",
+        },
+        empty: {
+          noJobs: "ジョブなし",
+          loadingPipeline: "パイプラインを読み込み中...",
+          pipelineJobsLoadFailed: "パイプラインのジョブを読み込めませんでした",
+          allowedToFail: "失敗を許可",
         },
         accessibility: {
           pullRequest: "プルリクエスト#{{number}}",

@@ -760,7 +760,14 @@ export const ru: TranslationResources = {
         },
         sections: {
           checks: "Чеки",
+          pipeline: "Пайплайн",
           reviews: "Отзывы",
+        },
+        empty: {
+          noJobs: "Нет задач",
+          loadingPipeline: "Загрузка пайплайна...",
+          pipelineJobsLoadFailed: "Не удалось загрузить задачи пайплайна",
+          allowedToFail: "допускается сбой",
         },
         accessibility: {
           pullRequest: "Запрос на извлечение №{{number}}",

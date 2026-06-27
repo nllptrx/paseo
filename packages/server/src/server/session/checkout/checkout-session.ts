@@ -1064,7 +1064,8 @@ export class CheckoutSession {
     const { cwd, repoOwner, repoName, checkRunId, workflowRunId, requestId } = msg;
 
     try {
-      const details = await this.github.getGitHubCheckDetails({
+      const { service } = await this.resolveForgeService(cwd);
+      const details = await service.getGitHubCheckDetails({
         cwd,
         repoOwner,
         repoName,

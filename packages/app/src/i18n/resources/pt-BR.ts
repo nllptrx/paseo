@@ -759,7 +759,14 @@ export const ptBR: TranslationResources = {
         },
         sections: {
           checks: "Verificações",
+          pipeline: "Pipeline",
           reviews: "Revisões",
+        },
+        empty: {
+          noJobs: "Sem jobs",
+          loadingPipeline: "Carregando pipeline...",
+          pipelineJobsLoadFailed: "Não foi possível carregar os jobs do pipeline",
+          allowedToFail: "permitido falhar",
         },
         accessibility: {
           pullRequest: "Pull request #{{number}}",

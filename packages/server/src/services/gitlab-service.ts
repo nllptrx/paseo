@@ -18,6 +18,10 @@ import type {
   ListIssuesOptions,
   ListPullRequestsOptions,
   MergePullRequestOptions,
+  PipelineDetails,
+  PipelineJob,
+  PipelineJobStatus,
+  PipelineStage,
   PullRequestAutoMergeResult,
   PullRequestChecksStatus,
   PullRequestCreateResult,
@@ -94,7 +98,36 @@ export interface CreateGitLabServiceOptions {
   resolveRemoteUrl?: (cwd: string) => Promise<string | null>;
 }
 
-const GitLabPipelineSchema = z.object({ status: z.string().optional() }).passthrough();
+const GitLabPipelineSchema = z
+  .object({
+    id: z.number().optional(),
+    status: z.string().optional(),
+    web_url: z.string().optional(),
+  })
+  .passthrough();
+
+const GitLabPipelineJobSchema = z
+  .object({
+    id: z.number(),
+    name: z.string(),
+    stage: z.string(),
+    status: z.string(),
+    allow_failure: z.boolean().optional(),
+    web_url: z.string().nullable().optional(),
+    duration: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+const GitLabPipelineDetailsSchema = z
+  .object({
+    id: z.number(),
+    status: z.string(),
+    ref: z.string().nullable().optional(),
+    sha: z.string().nullable().optional(),
+    web_url: z.string().nullable().optional(),
+    jobs: z.array(GitLabPipelineJobSchema).optional().default([]),
+  })
+  .passthrough();
 
 const GitLabMergeRequestSchema = z
   .object({
@@ -270,7 +303,118 @@ function toGitLabStatusFacts(mr: GitLabMergeRequest): GitLabStatusFacts {
     approvalsRequired: mr.approvals_required ?? 0,
     approvalsGiven: mr.approvals_given ?? 0,
     pipelineStatus: mr.head_pipeline?.status ?? null,
+    pipelineId: mr.head_pipeline?.id ?? null,
+    pipelineUrl: mr.head_pipeline?.web_url ?? null,
     mergeWhenPipelineSucceeds: mr.merge_when_pipeline_succeeds ?? false,
+  };
+}
+
+function normalizePipelineJobStatus(raw: string): PipelineJobStatus {
+  switch (raw) {
+    case "success":
+    case "passed":
+      return "success";
+    case "failed":
+      return "failed";
+    case "running":
+      return "running";
+    case "pending":
+    case "waiting_for_resource":
+    case "preparing":
+    case "scheduled":
+      return "pending";
+    case "created":
+      return "created";
+    case "canceled":
+    case "cancelled":
+      return "canceled";
+    case "skipped":
+      return "skipped";
+    case "manual":
+      return "manual";
+    default:
+      return "unknown";
+  }
+}
+
+const STAGE_STATUS_PRIORITY: PipelineJobStatus[] = [
+  "running",
+  "failed",
+  "pending",
+  "created",
+  "manual",
+  "canceled",
+  "skipped",
+  "success",
+];
+
+function aggregateStageStatus(jobs: PipelineJob[]): PipelineJobStatus {
+  const present = new Set(
+    jobs.map((job) => (job.status === "failed" && job.allowFailure ? "success" : job.status)),
+  );
+  for (const status of STAGE_STATUS_PRIORITY) {
+    if (present.has(status)) {
+      return status;
+    }
+  }
+  return "unknown";
+}
+
+function toPipelineDetails(pipeline: z.infer<typeof GitLabPipelineDetailsSchema>): PipelineDetails {
+  // glab returns jobs newest-first; ascending id restores creation order.
+  const jobs: PipelineJob[] = [...pipeline.jobs]
+    .sort((a, b) => a.id - b.id)
+    .map((job) => ({
+      id: job.id,
+      name: job.name,
+      stage: job.stage,
+      status: normalizePipelineJobStatus(job.status),
+      rawStatus: job.status,
+      url: job.web_url ?? null,
+      allowFailure: job.allow_failure ?? false,
+      durationSeconds: job.duration ?? null,
+    }));
+
+  const stages: PipelineStage[] = [];
+  const stageIndex = new Map<string, PipelineStage>();
+  for (const job of jobs) {
+    let stage = stageIndex.get(job.stage);
+    if (!stage) {
+      stage = { name: job.stage, status: "unknown", jobs: [] };
+      stageIndex.set(job.stage, stage);
+      stages.push(stage);
+    }
+    stage.jobs.push(job);
+  }
+  for (const stage of stages) {
+    stage.status = aggregateStageStatus(stage.jobs);
+  }
+
+  return {
+    id: pipeline.id,
+    status: normalizePipelineJobStatus(pipeline.status),
+    rawStatus: pipeline.status,
+    url: pipeline.web_url ?? null,
+    ref: pipeline.ref ?? null,
+    sha: pipeline.sha ?? null,
+    stages,
+  };
+}
+
+function toCheckDetails(pipeline: z.infer<typeof GitLabPipelineDetailsSchema>): CheckDetails {
+  return {
+    checkRunId: pipeline.id,
+    workflowRunId: null,
+    name: pipeline.ref ? `Pipeline (${pipeline.ref})` : `Pipeline #${pipeline.id}`,
+    status: pipeline.status,
+    conclusion: pipeline.status,
+    url: pipeline.web_url ?? null,
+    detailsUrl: pipeline.web_url ?? null,
+    output: null,
+    annotations: [],
+    failedJobs: [],
+    truncated: false,
+    pipeline: toPipelineDetails(pipeline),
   };
 }
 
@@ -590,8 +734,21 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
       return notSupported("Merge request timeline");
     },
 
-    getGitHubCheckDetails(_input: GetCheckDetailsOptions): Promise<CheckDetails> {
-      return notSupported("Pipeline check details");
+    async getGitHubCheckDetails(input: GetCheckDetailsOptions): Promise<CheckDetails> {
+      const pipeline = await runJson(
+        [
+          "ci",
+          "get",
+          "--pipeline-id",
+          String(input.checkRunId),
+          "--with-job-details",
+          "-F",
+          "json",
+        ],
+        { cwd: input.cwd },
+        GitLabPipelineDetailsSchema,
+      );
+      return toCheckDetails(pipeline);
     },
 
     searchIssuesAndPrs(_input: SearchIssuesAndPrsOptions): Promise<SearchResult> {

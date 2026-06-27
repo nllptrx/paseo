@@ -1549,8 +1549,10 @@ const GitHubRepoSegmentSchema = z.string().regex(/^[A-Za-z0-9._-]+$/);
 export const CheckoutGithubGetCheckDetailsRequestSchema = z.object({
   type: z.literal("checkout.github.get_check_details.request"),
   cwd: z.string(),
-  repoOwner: GitHubRepoSegmentSchema,
-  repoName: GitHubRepoSegmentSchema,
+  // GitHub addresses check runs by owner/name. GitLab resolves the project from
+  // cwd and omits these GitHub-only single-segment fields.
+  repoOwner: GitHubRepoSegmentSchema.optional(),
+  repoName: GitHubRepoSegmentSchema.optional(),
   checkRunId: z.number().int().positive(),
   workflowRunId: z.number().int().positive().optional(),
   requestId: z.string(),
@@ -3306,6 +3308,8 @@ const CheckoutPrGitlabStatusObjectSchema = z.object({
   approvalsRequired: z.number().optional().default(0),
   approvalsGiven: z.number().optional().default(0),
   pipelineStatus: z.string().nullable().optional().default(null),
+  pipelineId: z.number().nullable().optional().default(null),
+  pipelineUrl: z.string().nullable().optional().default(null),
   mergeWhenPipelineSucceeds: z.boolean().optional().default(false),
 });
 
@@ -3532,6 +3536,36 @@ const CheckoutGithubCheckJobSchema = z.object({
   logTruncated: z.boolean().optional(),
 });
 
+// COMPAT(gitlabPipeline): added in v0.1.102, remove no later than 2026-12-28
+// once the supported daemon floor includes structured GitLab pipelines.
+// Statuses stay open strings so future forge values cannot break parsing.
+const CheckoutPipelineJobSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  stage: z.string(),
+  status: z.string(),
+  rawStatus: z.string(),
+  url: z.string().nullable().optional().default(null),
+  allowFailure: z.boolean().optional().default(false),
+  durationSeconds: z.number().nullable().optional().default(null),
+});
+
+const CheckoutPipelineStageSchema = z.object({
+  name: z.string(),
+  status: z.string(),
+  jobs: z.array(CheckoutPipelineJobSchema).optional().default([]),
+});
+
+const CheckoutPipelineSchema = z.object({
+  id: z.number(),
+  status: z.string(),
+  rawStatus: z.string(),
+  url: z.string().nullable().optional().default(null),
+  ref: z.string().nullable().optional().default(null),
+  sha: z.string().nullable().optional().default(null),
+  stages: z.array(CheckoutPipelineStageSchema).optional().default([]),
+});
+
 export const CheckoutGithubCheckDetailsSchema = z.object({
   checkRunId: z.number(),
   workflowRunId: z.number().nullable().optional(),
@@ -3551,6 +3585,8 @@ export const CheckoutGithubCheckDetailsSchema = z.object({
   annotations: z.array(CheckoutGithubCheckAnnotationSchema).optional().default([]),
   failedJobs: z.array(CheckoutGithubCheckJobSchema).optional().default([]),
   truncated: z.boolean().optional().default(false),
+  // No default: server CheckDetails keeps this optional and GitHub leaves it absent.
+  pipeline: CheckoutPipelineSchema.nullable().optional(),
 });
 
 export const CheckoutGithubGetCheckDetailsResponseSchema = z.object({
@@ -4588,6 +4624,9 @@ export type CheckoutGithubGetCheckDetailsRequest = z.infer<
   typeof CheckoutGithubGetCheckDetailsRequestSchema
 >;
 export type CheckoutGithubCheckDetails = z.infer<typeof CheckoutGithubCheckDetailsSchema>;
+export type CheckoutPipeline = z.infer<typeof CheckoutPipelineSchema>;
+export type CheckoutPipelineStage = z.infer<typeof CheckoutPipelineStageSchema>;
+export type CheckoutPipelineJob = z.infer<typeof CheckoutPipelineJobSchema>;
 export type CheckoutGithubGetCheckDetailsResponse = z.infer<
   typeof CheckoutGithubGetCheckDetailsResponseSchema
 >;

@@ -55,6 +55,17 @@ export interface PrPaneActivity {
   };
 }
 
+/**
+ * Summary of a GitLab MR's head pipeline. The full stage → job tree is fetched
+ * lazily when the pipeline section is opened.
+ */
+export interface GitlabPipelineSummary {
+  id: number;
+  status: CheckStatus;
+  rawStatus: string;
+  url: string | null;
+}
+
 export interface PrPaneData {
   provider: PullRequestProviderMetadata;
   /**
@@ -74,6 +85,8 @@ export interface PrPaneData {
   reviewDecision: "approved" | "changes_requested" | "pending";
   awaitingReviewers: string[];
   checks: PrPaneCheck[];
+  /** Present only for GitLab MRs with a head pipeline. */
+  gitlabPipeline?: GitlabPipelineSummary;
   activity: PrPaneActivity[];
 }
 
@@ -108,6 +121,7 @@ export function mapPrPaneData(
   }
 
   const timelineMatchesStatus = timeline?.prNumber === number;
+  const gitlabPipeline = mapGitlabPipelineSummary(status);
 
   return {
     provider: GITHUB_PROVIDER,
@@ -123,10 +137,62 @@ export function mapPrPaneData(
     // Requested reviewers are intentionally unwired until the server exposes them.
     awaitingReviewers: [],
     checks: (status.checks ?? []).flatMap(mapCheck),
+    ...(gitlabPipeline ? { gitlabPipeline } : {}),
     activity: timelineMatchesStatus
       ? timeline.items.flatMap((item) => mapActivity(item, nowMs))
       : [],
   };
+}
+
+function mapGitlabPipelineSummary(
+  status: NonNullable<CheckoutPrStatus>,
+): GitlabPipelineSummary | undefined {
+  const facts = status.forgeSpecific;
+  if (facts?.forge !== "gitlab" || facts.pipelineId == null) {
+    return undefined;
+  }
+  const rawStatus = facts.pipelineStatus ?? "";
+  return {
+    id: facts.pipelineId,
+    status: mapPipelineStatus(rawStatus),
+    rawStatus,
+    url: facts.pipelineUrl ?? null,
+  };
+}
+
+export function mapPipelineStatus(status: string): CheckStatus {
+  switch (status) {
+    case "success":
+    case "passed":
+      return "success";
+    case "failed":
+      return "failure";
+    case "running":
+    case "pending":
+    case "created":
+    case "waiting_for_resource":
+    case "preparing":
+    case "scheduled":
+      return "pending";
+    case "canceled":
+    case "cancelled":
+    case "skipped":
+    case "manual":
+      return "skipped";
+    default:
+      return "pending";
+  }
+}
+
+export function isPipelineActiveStatus(status: string): boolean {
+  return (
+    status === "running" ||
+    status === "pending" ||
+    status === "created" ||
+    status === "waiting_for_resource" ||
+    status === "preparing" ||
+    status === "scheduled"
+  );
 }
 
 export function deriveAvatarColor(login: string): string {

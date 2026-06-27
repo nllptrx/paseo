@@ -767,7 +767,14 @@ export const fr: TranslationResources = {
         },
         sections: {
           checks: "Chèques",
+          pipeline: "Pipeline",
           reviews: "Avis",
+        },
+        empty: {
+          noJobs: "Aucune tâche",
+          loadingPipeline: "Chargement du pipeline...",
+          pipelineJobsLoadFailed: "Impossible de charger les tâches du pipeline",
+          allowedToFail: "autorisé à échouer",
         },
         accessibility: {
           pullRequest: "Demande de tirage #{{number}}",

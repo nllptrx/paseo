@@ -69,8 +69,17 @@ import {
   canAddPullRequestActivityToChat,
   canAddPullRequestCheckLogsToChat,
 } from "./context-attachment";
-import { getActivityVerb, getStateLabel } from "./data";
-import type { CheckStatus, PrPaneActivity, PrPaneCheck, PrPaneData, PrState } from "./data";
+import type { CheckoutPipelineJob, CheckoutPipelineStage } from "@getpaseo/protocol/messages";
+import { getActivityVerb, getStateLabel, isPipelineActiveStatus, mapPipelineStatus } from "./data";
+import type {
+  CheckStatus,
+  GitlabPipelineSummary,
+  PrPaneActivity,
+  PrPaneCheck,
+  PrPaneData,
+  PrState,
+} from "./data";
+import { useGitLabPipeline } from "./use-pipeline";
 import {
   buildPrTimeline,
   type PrReviewEntry,
@@ -209,6 +218,9 @@ export function PullRequestPane({
   const daemonClient = useHostRuntimeClient(serverId);
   const canFetchGitHubCheckDetails = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.githubCheckDetails === true,
+  );
+  const gitlabEnabled = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.gitlab === true,
   );
   const addWorkspaceAttachment = useWorkspaceAttachmentsStore(
     (state) => state.addWorkspaceAttachment,
@@ -513,50 +525,60 @@ export function PullRequestPane({
           )}
         </Pressable>
 
-        <Section
-          title="Checks"
-          open={checksOpen}
-          onToggle={handleToggleChecks}
-          summary={
-            <>
-              <SummaryPill
-                count={passed}
-                icon={SUMMARY_SUCCESS_ICON}
-                variant="success"
-                testID="pr-pane-check-passed"
-              />
-              <SummaryPill
-                count={failed}
-                icon={SUMMARY_DANGER_ICON}
-                variant="danger"
-                testID="pr-pane-check-failed"
-              />
-              <SummaryPill
-                count={pending}
-                icon={SUMMARY_WARNING_ICON}
-                variant="warning"
-                testID="pr-pane-check-pending"
-              />
-            </>
-          }
-        >
-          {data.checks.length === 0 ? (
-            <Text style={styles.emptyText}>No checks</Text>
-          ) : (
-            data.checks.map((check) => {
-              const checkKey = getCheckIdentity(check);
-              return (
-                <CheckRow
-                  key={checkKey}
-                  check={check}
-                  attachEnabled={attachEnabled}
-                  isAddingLogsToChat={loadingCheckKeys.has(checkKey)}
-                  onAddLogsToChat={handleAddCheckLogsToChat}
+        {data.forge === "gitlab" && gitlabEnabled && data.gitlabPipeline ? (
+          <GitLabPipelineSection
+            serverId={serverId}
+            cwd={cwd}
+            summary={data.gitlabPipeline}
+            open={checksOpen}
+            onToggle={handleToggleChecks}
+          />
+        ) : (
+          <Section
+            title="Checks"
+            open={checksOpen}
+            onToggle={handleToggleChecks}
+            summary={
+              <>
+                <SummaryPill
+                  count={passed}
+                  icon={SUMMARY_SUCCESS_ICON}
+                  variant="success"
+                  testID="pr-pane-check-passed"
                 />
-              );
-            })
-          )}
-        </Section>
+                <SummaryPill
+                  count={failed}
+                  icon={SUMMARY_DANGER_ICON}
+                  variant="danger"
+                  testID="pr-pane-check-failed"
+                />
+                <SummaryPill
+                  count={pending}
+                  icon={SUMMARY_WARNING_ICON}
+                  variant="warning"
+                  testID="pr-pane-check-pending"
+                />
+              </>
+            }
+          >
+            {data.checks.length === 0 ? (
+              <Text style={styles.emptyText}>No checks</Text>
+            ) : (
+              data.checks.map((check) => {
+                const checkKey = getCheckIdentity(check);
+                return (
+                  <CheckRow
+                    key={checkKey}
+                    check={check}
+                    attachEnabled={attachEnabled}
+                    isAddingLogsToChat={loadingCheckKeys.has(checkKey)}
+                    onAddLogsToChat={handleAddCheckLogsToChat}
+                  />
+                );
+              })
+            )}
+          </Section>
+        )}
 
         <View style={styles.divider} />
 
@@ -724,6 +746,180 @@ function CheckStatusIcon({ status }: { status: CheckStatus }) {
   if (status === "failure") return <ThemedCircleX size={14} uniProps={dangerColorMapping} />;
   if (status === "pending") return <ThemedCircleDot size={14} uniProps={warningColorMapping} />;
   return <ThemedCircleSlash size={14} uniProps={foregroundMutedColorMapping} />;
+}
+
+function jobRowPressableStyle({ hovered }: { hovered?: boolean }) {
+  return [styles.pipelineJobRow, Boolean(hovered) && styles.hoverable];
+}
+
+function formatPipelineDuration(seconds: number | null): string {
+  if (seconds === null || seconds <= 0) {
+    return "";
+  }
+  const rounded = Math.round(seconds);
+  if (rounded < 60) {
+    return `${rounded}s`;
+  }
+  const minutes = Math.floor(rounded / 60);
+  const remainder = rounded % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
+interface PipelineJobCounts {
+  passed: number;
+  failed: number;
+  pending: number;
+}
+
+function countPipelineJobs(jobs: CheckoutPipelineJob[]): PipelineJobCounts {
+  const counts: PipelineJobCounts = { passed: 0, failed: 0, pending: 0 };
+  for (const job of jobs) {
+    const status = mapPipelineStatus(job.status);
+    if (status === "success") counts.passed += 1;
+    else if (status === "failure") counts.failed += 1;
+    else if (status === "pending") counts.pending += 1;
+  }
+  return counts;
+}
+
+function GitLabPipelineSection({
+  serverId,
+  cwd,
+  summary,
+  open,
+  onToggle,
+}: {
+  serverId: string;
+  cwd: string;
+  summary: GitlabPipelineSummary;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { t } = useTranslation();
+  const { pipeline, isLoading, error } = useGitLabPipeline({
+    serverId,
+    cwd,
+    pipelineId: summary.id,
+    enabled: open,
+    live: isPipelineActiveStatus(summary.rawStatus),
+  });
+
+  const counts = useMemo(
+    () => countPipelineJobs((pipeline?.stages ?? []).flatMap((stage) => stage.jobs)),
+    [pipeline],
+  );
+
+  const handleOpenPipeline = useCallback(() => {
+    if (summary.url) {
+      void openExternalUrl(summary.url);
+    }
+  }, [summary.url]);
+
+  return (
+    <Section
+      title={t("workspace.git.pr.sections.pipeline")}
+      open={open}
+      onToggle={onToggle}
+      summary={
+        <>
+          <SummaryPill
+            count={counts.passed}
+            icon={SUMMARY_SUCCESS_ICON}
+            variant="success"
+            testID="pr-pane-pipeline-passed"
+          />
+          <SummaryPill
+            count={counts.failed}
+            icon={SUMMARY_DANGER_ICON}
+            variant="danger"
+            testID="pr-pane-pipeline-failed"
+          />
+          <SummaryPill
+            count={counts.pending}
+            icon={SUMMARY_WARNING_ICON}
+            variant="warning"
+            testID="pr-pane-pipeline-pending"
+          />
+        </>
+      }
+    >
+      <Pressable
+        onPress={handleOpenPipeline}
+        style={rowPressableStyle}
+        disabled={!summary.url}
+        testID="pr-pane-pipeline-link"
+      >
+        <CheckStatusIcon status={summary.status} />
+        <Text style={styles.checkName} numberOfLines={1}>
+          {`Pipeline #${summary.id}`}
+        </Text>
+        {summary.rawStatus ? (
+          <Text style={styles.checkWorkflow} numberOfLines={1}>
+            {summary.rawStatus}
+          </Text>
+        ) : null}
+        {summary.url ? (
+          <View style={styles.checkTrailing}>
+            <ThemedExternalLink size={12} uniProps={foregroundMutedColorMapping} />
+          </View>
+        ) : null}
+      </Pressable>
+      {isLoading ? (
+        <Text style={styles.emptyText}>{t("workspace.git.pr.empty.loadingPipeline")}</Text>
+      ) : null}
+      {!isLoading && pipeline && pipeline.stages.length === 0 ? (
+        <Text style={styles.emptyText}>{t("workspace.git.pr.empty.noJobs")}</Text>
+      ) : null}
+      {!isLoading && pipeline && pipeline.stages.length > 0
+        ? pipeline.stages.map((stage) => <PipelineStageGroup key={stage.name} stage={stage} />)
+        : null}
+      {!isLoading && !pipeline && error ? (
+        <Text style={styles.emptyText}>{t("workspace.git.pr.empty.pipelineJobsLoadFailed")}</Text>
+      ) : null}
+    </Section>
+  );
+}
+
+function PipelineStageGroup({ stage }: { stage: CheckoutPipelineStage }) {
+  return (
+    <View>
+      <View style={styles.pipelineStageHeader}>
+        <CheckStatusIcon status={mapPipelineStatus(stage.status)} />
+        <Text style={styles.pipelineStageName} numberOfLines={1}>
+          {stage.name}
+        </Text>
+      </View>
+      {stage.jobs.map((job) => (
+        <PipelineJobRow key={job.id} job={job} />
+      ))}
+    </View>
+  );
+}
+
+function PipelineJobRow({ job }: { job: CheckoutPipelineJob }) {
+  const { t } = useTranslation();
+  const handlePress = useCallback(() => {
+    if (job.url) {
+      void openExternalUrl(job.url);
+    }
+  }, [job.url]);
+  const duration = formatPipelineDuration(job.durationSeconds);
+  return (
+    <Pressable onPress={handlePress} style={jobRowPressableStyle} disabled={!job.url}>
+      <CheckStatusIcon status={mapPipelineStatus(job.status)} />
+      <Text style={styles.checkName} numberOfLines={1}>
+        {job.name}
+      </Text>
+      {job.allowFailure ? (
+        <Text style={styles.checkWorkflow} numberOfLines={1}>
+          {t("workspace.git.pr.empty.allowedToFail")}
+        </Text>
+      ) : null}
+      <View style={styles.checkTrailing}>
+        {duration ? <Text style={styles.checkDuration}>{duration}</Text> : null}
+      </View>
+    </Pressable>
+  );
 }
 
 interface TimelineEntryCallbacks {
@@ -1455,6 +1651,31 @@ const styles = StyleSheet.create((theme) => ({
   },
   checkAddButton: {
     paddingVertical: 0,
+  },
+  pipelineStageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingTop: theme.spacing[2],
+    paddingBottom: theme.spacing[1],
+  },
+  pipelineStageName: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foregroundMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    flexShrink: 1,
+  },
+  pipelineJobRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingVertical: theme.spacing[2],
+    paddingRight: theme.spacing[3],
+    paddingLeft: theme.spacing[6],
+    minHeight: 32,
   },
   activityToolbar: {
     flexDirection: "row",

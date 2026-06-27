@@ -37,6 +37,8 @@ function gitlabFacts(overrides: Partial<GitlabMergeFacts> = {}): GitlabMergeFact
     approvalsRequired: 0,
     approvalsGiven: 0,
     pipelineStatus: "success",
+    pipelineId: null,
+    pipelineUrl: null,
     mergeWhenPipelineSucceeds: false,
     ...overrides,
   };

@@ -748,7 +748,14 @@ export const en = {
         },
         sections: {
           checks: "Checks",
+          pipeline: "Pipeline",
           reviews: "Reviews",
+        },
+        empty: {
+          noJobs: "No jobs",
+          loadingPipeline: "Loading pipeline…",
+          pipelineJobsLoadFailed: "Could not load pipeline jobs",
+          allowedToFail: "allowed to fail",
         },
         accessibility: {
           pullRequest: "Pull request #{{number}}",

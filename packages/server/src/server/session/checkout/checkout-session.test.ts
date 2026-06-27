@@ -23,6 +23,10 @@ import {
 import { expandTilde } from "../../../utils/path.js";
 import type { GitMetadataGenerator } from "./git-metadata-generator.js";
 
+function isCheckDetailsResponse(msg: SessionOutboundMessage): boolean {
+  return msg.type === "checkout.github.get_check_details.response";
+}
+
 interface FakeDiffSubscription {
   cwd: string;
   compare: CheckoutDiffCompareInput;
@@ -776,6 +780,83 @@ describe("CheckoutSession", () => {
           },
         },
       ]);
+    });
+  });
+
+  describe("check details routing", () => {
+    it("routes get-check-details through the resolved GitLab adapter", async () => {
+      const githubCalls: number[] = [];
+      const gitlabCalls: Array<{ cwd: string; checkRunId: number }> = [];
+      const gitlabService: Partial<ForgeService> = {
+        async getGitHubCheckDetails(input) {
+          gitlabCalls.push({ cwd: input.cwd, checkRunId: input.checkRunId });
+          return {
+            checkRunId: input.checkRunId,
+            name: "Pipeline (feat/x)",
+            annotations: [],
+            failedJobs: [],
+            truncated: false,
+            pipeline: {
+              id: input.checkRunId,
+              status: "success",
+              rawStatus: "success",
+              url: "https://gitlab.example.com/g/r/-/pipelines/306",
+              ref: "feat/x",
+              sha: "abc",
+              stages: [
+                {
+                  name: "test",
+                  status: "success",
+                  jobs: [
+                    {
+                      id: 1,
+                      name: "unit",
+                      stage: "test",
+                      status: "success",
+                      rawStatus: "success",
+                      url: null,
+                      allowFailure: false,
+                      durationSeconds: 4,
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+        },
+      };
+      const { checkout, emitted } = makeCheckoutSession({
+        github: {
+          async getGitHubCheckDetails(input) {
+            githubCalls.push(input.checkRunId);
+            throw new Error("github adapter should not be reached for a gitlab cwd");
+          },
+        },
+        git: {
+          resolveForge: async () => ({
+            forge: "gitlab",
+            host: "gitlab.example.com",
+            service: gitlabService as ForgeService,
+          }),
+        },
+      });
+
+      await checkout.handleCheckoutGithubGetCheckDetailsRequest({
+        type: "checkout.github.get_check_details.request",
+        cwd: "/repo",
+        checkRunId: 306,
+        requestId: "cd1",
+      });
+
+      expect(githubCalls).toEqual([]);
+      expect(gitlabCalls).toEqual([{ cwd: "/repo", checkRunId: 306 }]);
+      const response = emitted.find(isCheckDetailsResponse);
+      expect(response).toMatchObject({
+        payload: {
+          success: true,
+          details: { pipeline: { id: 306, stages: [{ name: "test" }] } },
+        },
+      });
     });
   });
 

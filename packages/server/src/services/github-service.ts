@@ -1040,18 +1040,22 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): F
     },
 
     getGitHubCheckDetails(input) {
+      const { repoOwner, repoName } = input;
+      if (!repoOwner || !repoName) {
+        throw new Error("GitHub getGitHubCheckDetails requires repoOwner and repoName");
+      }
       return cached({
         cwd: input.cwd,
         method: "getGitHubCheckDetails",
         args: {
-          repoOwner: input.repoOwner,
-          repoName: input.repoName,
+          repoOwner,
+          repoName,
           checkRunId: input.checkRunId,
           workflowRunId: input.workflowRunId,
         },
         readOptions: input,
         load: async () => {
-          const repoPath = `repos/${input.repoOwner}/${input.repoName}`;
+          const repoPath = `repos/${repoOwner}/${repoName}`;
           const checkRun = parseGitHubCheckRunDetails(
             await run(["api", `${repoPath}/check-runs/${input.checkRunId}`], { cwd: input.cwd }),
           );

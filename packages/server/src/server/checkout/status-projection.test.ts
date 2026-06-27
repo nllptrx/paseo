@@ -132,6 +132,8 @@ describe("checkout status projection", () => {
         approvalsRequired: 1,
         approvalsGiven: 1,
         pipelineStatus: "success",
+        pipelineId: 306,
+        pipelineUrl: "https://gitlab.com/group/subgroup/repo/-/pipelines/306",
         mergeWhenPipelineSucceeds: false,
       },
     });
@@ -190,6 +192,8 @@ describe("checkout status projection", () => {
             approvalsRequired: 0,
             approvalsGiven: 0,
             pipelineStatus: "success",
+            pipelineId: 307,
+            pipelineUrl: "https://gitlab.com/group/proj/-/pipelines/307",
             mergeWhenPipelineSucceeds: false,
           },
         },
