@@ -45,7 +45,7 @@ import { startGitCommandMetrics, stopGitCommandMetrics } from "./run-git-command
 import {
   GitHubCommandError,
   GitHubCliMissingError,
-  type GitHubCurrentPullRequestStatus,
+  type CurrentPullRequestStatus,
   type ForgeService,
 } from "../services/github-service.js";
 import {
@@ -102,7 +102,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function createGitHubServiceForStatus(
-  status: GitHubCurrentPullRequestStatus | null,
+  status: CurrentPullRequestStatus | null,
   options?: { onStatus?: () => void },
 ): ForgeService {
   return {
@@ -134,7 +134,7 @@ function createGitHubServiceForStatus(
   };
 }
 
-function createPullRequestStatus(overrides?: Partial<GitHubCurrentPullRequestStatus>) {
+function createPullRequestStatus(overrides?: Partial<CurrentPullRequestStatus>) {
   return {
     url: "https://github.com/getpaseo/paseo/pull/123",
     title: "Ship feature",
@@ -156,7 +156,7 @@ interface RequestedPullRequestTarget {
 
 interface RecordingPullRequestTargetsOptions {
   requestedTargets: RequestedPullRequestTarget[];
-  statusOverrides?: Partial<GitHubCurrentPullRequestStatus>;
+  statusOverrides?: Partial<CurrentPullRequestStatus>;
 }
 
 function createGitHubServiceRecordingPullRequestTargets(

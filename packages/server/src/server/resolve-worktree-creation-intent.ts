@@ -1,4 +1,4 @@
-import type { ForgeService, GitHubPullRequestCheckoutTarget } from "../services/github-service.js";
+import type { ForgeService, PullRequestCheckoutTarget } from "../services/github-service.js";
 import type { WorktreeSource } from "../utils/worktree.js";
 
 export type WorktreeCreationIntent = WorktreeSource;
@@ -136,7 +136,7 @@ async function resolveGitHubPrCheckoutTarget(params: {
   githubPrNumber: number;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
-}): Promise<GitHubPullRequestCheckoutTarget | null> {
+}): Promise<PullRequestCheckoutTarget | null> {
   if (!params.deps.github.getPullRequestCheckoutTarget) {
     return null;
   }
@@ -160,7 +160,7 @@ async function resolveDefaultBranch(
 async function resolveGitHubPrHeadRef(params: {
   refName?: string;
   githubPrNumber: number;
-  checkoutTarget?: GitHubPullRequestCheckoutTarget | null;
+  checkoutTarget?: PullRequestCheckoutTarget | null;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
 }): Promise<string> {
@@ -180,7 +180,7 @@ async function resolveGitHubPrHeadRef(params: {
 
 function buildGitHubPrLocalBranchName(params: {
   headRef: string;
-  checkoutTarget: GitHubPullRequestCheckoutTarget | null;
+  checkoutTarget: PullRequestCheckoutTarget | null;
 }): string {
   const owner = params.checkoutTarget?.isCrossRepository
     ? normalizeGitHubOwnerForBranch(params.checkoutTarget.headOwnerLogin)

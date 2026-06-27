@@ -12,7 +12,7 @@ import {
   resolveGitHubRepo,
   type GitHubCommandRunner,
   type GitHubCommandRunnerOptions,
-  type GitHubCurrentPullRequestStatus,
+  type CurrentPullRequestStatus,
 } from "./github-service.js";
 import { CheckoutPrStatusResponseSchema } from "@getpaseo/protocol/messages";
 
@@ -140,8 +140,8 @@ function currentPullRequestGithubFactsJson(overrides: Record<string, unknown> = 
 }
 
 function createCurrentPullRequestStatus(
-  overrides: Partial<GitHubCurrentPullRequestStatus> = {},
-): GitHubCurrentPullRequestStatus {
+  overrides: Partial<CurrentPullRequestStatus> = {},
+): CurrentPullRequestStatus {
   return {
     number: 42,
     repoOwner: "acme",
@@ -162,8 +162,8 @@ function createCurrentPullRequestStatus(
 }
 
 function githubStatusFacts(
-  overrides: Partial<NonNullable<GitHubCurrentPullRequestStatus["github"]>> = {},
-): NonNullable<GitHubCurrentPullRequestStatus["github"]> {
+  overrides: Partial<NonNullable<CurrentPullRequestStatus["github"]>> = {},
+): NonNullable<CurrentPullRequestStatus["github"]> {
   return {
     mergeStateStatus: "CLEAN",
     autoMergeRequest: null,
@@ -3069,8 +3069,8 @@ describe("ForgeService", () => {
 
   it("type: force true requires a reason", () => {
     // @ts-expect-error force: true requires reason
-    const invalid: GitHubReadOptions = { force: true };
-    const valid: GitHubReadOptions = { force: true, reason: "test" };
+    const invalid: ForgeReadOptions = { force: true };
+    const valid: ForgeReadOptions = { force: true, reason: "test" };
 
     expect(invalid.force).toBe(true);
     expect(valid.reason).toBe("test");

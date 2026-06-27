@@ -12,7 +12,7 @@ import {
   GitHubCommandError,
   createGitHubService,
   resolveGitHubRepo,
-  type GitHubCurrentPullRequestStatus,
+  type CurrentPullRequestStatus,
   type GitHubPullRequestStatusFacts,
   type ForgeService,
   type PullRequestMergeable,
@@ -3085,7 +3085,7 @@ async function getPullRequestStatusUncached(
   }
   try {
     const lookupTarget = await resolvePullRequestStatusLookupTarget(cwd, head, context);
-    let status: GitHubCurrentPullRequestStatus | null;
+    let status: CurrentPullRequestStatus | null;
     if (options?.force) {
       const reason = options.reason;
       if (!reason) {
