@@ -106,8 +106,8 @@ export function buildCheckoutPrStatusPayloadFromSnapshot({
   // only when no resolved forge is on the snapshot. Single source of truth for
   // both the payload-level forge and the nested status.forge.
   const forge =
-    snapshot.github.pullRequest?.forgeSpecific?.forge ??
     snapshot.github.forge ??
+    snapshot.github.pullRequest?.forgeSpecific?.forge ??
     resolveForgeId(snapshot.git.remoteUrl);
   return {
     cwd,

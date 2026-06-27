@@ -1,0 +1,702 @@
+import { z } from "zod";
+import { findExecutable } from "../executable-resolution/executable-resolution.js";
+import { runGitCommand } from "../utils/run-git-command.js";
+import { execCommand } from "../utils/spawn.js";
+import { isGiteaStatusFacts } from "./forge-service.js";
+import type {
+  CheckDetails,
+  CreatePullRequestOptions,
+  CurrentPullRequestStatus,
+  DisablePullRequestAutoMergeOptions,
+  EnablePullRequestAutoMergeOptions,
+  ForgeReadOptions,
+  ForgeService,
+  GetCheckDetailsOptions,
+  GetPullRequestOptions,
+  GetPullRequestTimelineOptions,
+  GiteaStatusFacts,
+  IssueSummary,
+  ListIssuesOptions,
+  ListPullRequestsOptions,
+  MergePullRequestOptions,
+  PullRequestChecksStatus,
+  PullRequestCreateResult,
+  PullRequestMergeable,
+  PullRequestMergeResult,
+  PullRequestSummary,
+  PullRequestTimeline,
+  SearchIssuesAndPrsOptions,
+  SearchResult,
+} from "./forge-service.js";
+
+const TEA_ENV = {
+  GIT_TERMINAL_PROMPT: "0",
+} as const;
+
+const TEA_COMMAND_TIMEOUT_MS = 30_000;
+
+/**
+ * Fields requested from `tea pr list -o json`. tea's default field set omits the
+ * ones the neutral mapping needs (url, mergeable, base, head, ci, body), so they
+ * must be requested explicitly — otherwise tea silently emits the short default
+ * set and the mapping loses data.
+ */
+const PR_LIST_FIELDS =
+  "index,state,author,url,title,body,mergeable,base,head,created,updated,labels,comments,ci";
+
+const ISSUE_LIST_FIELDS = "index,state,author,url,title,body,labels,comments,created,updated";
+
+const PR_STATUS_LOOKUP_LIMIT = 50;
+
+export class TeaCliMissingError extends Error {
+  readonly kind = "missing-cli";
+
+  constructor() {
+    super("Gitea CLI (tea) is not installed or not in PATH");
+    this.name = "TeaCliMissingError";
+  }
+}
+
+export class TeaAuthenticationError extends Error {
+  readonly kind = "auth-failure";
+  readonly stderr: string;
+
+  constructor(params: { stderr: string }) {
+    super("Gitea CLI authentication failed");
+    this.name = "TeaAuthenticationError";
+    this.stderr = params.stderr;
+  }
+}
+
+export class TeaCommandError extends Error {
+  readonly kind = "command-error";
+  readonly args: string[];
+  readonly cwd: string;
+  readonly exitCode: number | null;
+  readonly stderr: string;
+
+  constructor(params: { args: string[]; cwd: string; exitCode: number | null; stderr: string }) {
+    super(`Gitea CLI command failed: tea ${params.args.join(" ")}`);
+    this.name = "TeaCommandError";
+    this.args = [...params.args];
+    this.cwd = params.cwd;
+    this.exitCode = params.exitCode;
+    this.stderr = params.stderr;
+  }
+}
+
+export interface TeaCommandRunnerOptions {
+  cwd: string;
+  envOverlay?: Record<string, string>;
+}
+
+export interface TeaCommandResult {
+  stdout: string;
+  stderr: string;
+}
+
+export type TeaCommandRunner = (
+  args: string[],
+  options: TeaCommandRunnerOptions,
+) => Promise<TeaCommandResult>;
+
+export interface CreateGiteaServiceOptions {
+  runner?: TeaCommandRunner;
+  resolveTeaPath?: () => Promise<string | null>;
+  resolveRemoteUrl?: (cwd: string) => Promise<string | null>;
+}
+
+/**
+ * `tea pr list -o json` flattens every value to a string (e.g. `index:"5"`,
+ * `mergeable:"false"`, `comments:"0"`), unlike the single-PR view which is
+ * natively typed. The list schema therefore parses strings and the mapping
+ * coerces; `.passthrough()` tolerates the extra fields tea always includes.
+ */
+const GiteaPrListItemSchema = z
+  .object({
+    index: z.string(),
+    state: z.string(),
+    url: z.string(),
+    title: z.string(),
+    body: z.string().optional().default(""),
+    mergeable: z.string().optional(),
+    base: z.string().optional(),
+    head: z.string().optional(),
+    created: z.string().optional(),
+    updated: z.string().optional(),
+    labels: z.string().optional(),
+    ci: z.string().optional(),
+  })
+  .passthrough();
+
+const GiteaIssueListItemSchema = z
+  .object({
+    index: z.string(),
+    state: z.string(),
+    url: z.string(),
+    title: z.string(),
+    body: z.string().optional().default(""),
+    labels: z.string().optional(),
+    updated: z.string().optional(),
+  })
+  .passthrough();
+
+const GiteaLoginSchema = z
+  .object({
+    name: z.string().optional(),
+    url: z.string().optional(),
+    ssh_host: z.string().optional(),
+  })
+  .passthrough();
+
+type GiteaPrListItem = z.infer<typeof GiteaPrListItemSchema>;
+type GiteaIssueListItem = z.infer<typeof GiteaIssueListItemSchema>;
+
+async function resolveTeaPath(): Promise<string | null> {
+  return findExecutable("tea");
+}
+
+async function runTeaCommand(
+  args: string[],
+  options: TeaCommandRunnerOptions,
+): Promise<TeaCommandResult> {
+  return execCommand("tea", args, {
+    cwd: options.cwd,
+    envOverlay: { ...TEA_ENV, ...options.envOverlay },
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: TEA_COMMAND_TIMEOUT_MS,
+  });
+}
+
+async function defaultResolveRemoteUrl(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await runGitCommand(["config", "--get", "remote.origin.url"], { cwd });
+    const url = stdout.trim();
+    return url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+export function parseGiteaHostFromRemoteUrl(url: string): string | null {
+  const sshMatch = url.match(/^[^@\s]+@([^:/\s]+):/);
+  if (sshMatch) {
+    return sshMatch[1];
+  }
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * tea numeric fields arrive as strings in list output. Returns null for a
+ * missing/non-numeric value so callers can decide on a fallback.
+ */
+function parseGiteaInt(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === "") {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseGiteaBool(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === "true";
+}
+
+function splitGiteaLabels(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(",")
+    .map((label) => label.trim())
+    .filter((label) => label.length > 0);
+}
+
+/**
+ * tea reports a PR head as `owner:branch` for cross-repo PRs and a bare branch
+ * for same-repo ones. The neutral head ref is always just the branch name.
+ */
+function stripHeadOwner(head: string | undefined): string {
+  if (!head) {
+    return "";
+  }
+  const colon = head.indexOf(":");
+  return colon >= 0 ? head.slice(colon + 1) : head;
+}
+
+function mapGiteaState(state: string): string {
+  const normalized = state.toLowerCase();
+  if (normalized === "open") {
+    return "open";
+  }
+  if (normalized === "merged") {
+    return "merged";
+  }
+  return "closed";
+}
+
+function mapGiteaMergeable(item: GiteaPrListItem): PullRequestMergeable {
+  if (item.mergeable === undefined) {
+    return "UNKNOWN";
+  }
+  return parseGiteaBool(item.mergeable) ? "MERGEABLE" : "CONFLICTING";
+}
+
+function mapGiteaCiStatus(ci: string | undefined): PullRequestChecksStatus {
+  switch (ci?.toLowerCase()) {
+    case "success":
+      return "success";
+    case "failure":
+    case "error":
+      return "failure";
+    case "pending":
+    case "running":
+      return "pending";
+    default:
+      return "none";
+  }
+}
+
+/** Parse owner/name from a Gitea PR/issue URL (`https://host/owner/repo/pulls/N`). */
+function parseGiteaRepoFromUrl(url: string): { owner?: string; name?: string } {
+  try {
+    const segments = new URL(url).pathname.split("/").filter((segment) => segment.length > 0);
+    if (segments.length >= 2) {
+      return { owner: segments[0], name: segments[1] };
+    }
+  } catch {
+    // fall through
+  }
+  return {};
+}
+
+function toPullRequestSummary(item: GiteaPrListItem): PullRequestSummary {
+  return {
+    number: parseGiteaInt(item.index) ?? 0,
+    title: item.title,
+    url: item.url,
+    state: mapGiteaState(item.state),
+    body: item.body || null,
+    baseRefName: item.base ?? "",
+    headRefName: stripHeadOwner(item.head),
+    labels: splitGiteaLabels(item.labels),
+    updatedAt: item.updated ?? "",
+  };
+}
+
+function toIssueSummary(item: GiteaIssueListItem): IssueSummary {
+  return {
+    number: parseGiteaInt(item.index) ?? 0,
+    title: item.title,
+    url: item.url,
+    state: mapGiteaState(item.state),
+    body: item.body || null,
+    labels: splitGiteaLabels(item.labels),
+    updatedAt: item.updated ?? "",
+  };
+}
+
+function toGiteaStatusFacts(item: GiteaPrListItem): GiteaStatusFacts {
+  return {
+    mergeable: parseGiteaBool(item.mergeable),
+    hasMerged: mapGiteaState(item.state) === "merged",
+    ciStatus: item.ci && item.ci.length > 0 ? item.ci : null,
+  };
+}
+
+function toCurrentPullRequestStatus(item: GiteaPrListItem): CurrentPullRequestStatus {
+  const { owner, name } = parseGiteaRepoFromUrl(item.url);
+  const state = mapGiteaState(item.state);
+  return {
+    number: parseGiteaInt(item.index) ?? undefined,
+    ...(owner ? { repoOwner: owner } : {}),
+    ...(name ? { repoName: name } : {}),
+    ...(owner && name ? { projectPath: `${owner}/${name}` } : {}),
+    url: item.url,
+    title: item.title,
+    state,
+    baseRefName: item.base ?? "",
+    headRefName: stripHeadOwner(item.head),
+    isMerged: state === "merged",
+    mergeable: mapGiteaMergeable(item),
+    checks: [],
+    checksStatus: mapGiteaCiStatus(item.ci),
+    reviewDecision: null,
+    forgeSpecific: { forge: "gitea", ...toGiteaStatusFacts(item) },
+  };
+}
+
+/**
+ * Server-side guard for a Gitea direct merge, mirroring the gh/glab adapters:
+ * refuse the merge unless Gitea reports the PR as mergeable. The resolved status
+ * can go stale between the client check and execution, and the RPC can be called
+ * directly, so the guard lives here rather than only in the UI policy.
+ */
+function assertGiteaDirectMergeReady(input: Pick<MergePullRequestOptions, "status">): void {
+  const facts = input.status?.forgeSpecific;
+  if (!isGiteaStatusFacts(facts)) {
+    throw new Error("Gitea merge facts are unavailable for this pull request");
+  }
+  if (facts.hasMerged) {
+    throw new Error("This pull request is already merged");
+  }
+  if (!facts.mergeable) {
+    throw new Error("Gitea does not report this pull request as ready for direct merge");
+  }
+}
+
+function isAuthFailureText(text: string): boolean {
+  return /\b(401|unauthorized|not logged in|authentication failed|no token|invalid token|no logins?)\b/i.test(
+    text,
+  );
+}
+
+function bufferOrStringToString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value instanceof Buffer) {
+    return value.toString("utf8");
+  }
+  return "";
+}
+
+function normalizeTeaCommandError(error: unknown, context: { args: string[]; cwd: string }): Error {
+  if (error instanceof TeaAuthenticationError || error instanceof TeaCliMissingError) {
+    return error;
+  }
+  if (error instanceof TeaCommandError) {
+    if (isAuthFailureText(error.stderr)) {
+      return new TeaAuthenticationError({ stderr: error.stderr });
+    }
+    return error;
+  }
+  const failure = (error ?? {}) as {
+    code?: string | number;
+    killed?: boolean;
+    stderr?: unknown;
+    message?: string;
+  };
+  if (failure.code === "ENOENT") {
+    return new TeaCliMissingError();
+  }
+  const stderr = bufferOrStringToString(failure.stderr);
+  const message = failure.message ?? "";
+  if (isAuthFailureText(stderr) || isAuthFailureText(message)) {
+    return new TeaAuthenticationError({ stderr });
+  }
+  if (failure.killed === true) {
+    return new TeaCommandError({
+      args: context.args,
+      cwd: context.cwd,
+      exitCode: null,
+      stderr:
+        stderr ||
+        `tea was terminated before completing (timed out after ${TEA_COMMAND_TIMEOUT_MS}ms or exceeded the output limit)`,
+    });
+  }
+  return new TeaCommandError({
+    args: context.args,
+    cwd: context.cwd,
+    exitCode: typeof failure.code === "number" ? failure.code : null,
+    stderr: stderr || message,
+  });
+}
+
+function extractPullRequestUrl(stdout: string): string | null {
+  const match = stdout.match(/https?:\/\/\S+\/pulls\/\d+/);
+  return match ? match[0] : null;
+}
+
+function parseIndexFromUrl(url: string): number | null {
+  const match = url.match(/\/pulls\/(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Probe whether a host is a Gitea instance Paseo can talk to. tea has no
+ * per-repo auth check (it keeps per-instance logins), so a configured tea login
+ * for the host is the signal: it means tea both recognizes the host as Gitea and
+ * holds a usable token for it. Mirrors the role of `glab auth status` for GitLab.
+ */
+export async function probeGiteaHost(host: string): Promise<boolean> {
+  const teaPath = await findExecutable("tea");
+  if (!teaPath) {
+    return false;
+  }
+  try {
+    const { stdout } = await execCommand("tea", ["login", "list", "-o", "json"], {
+      envOverlay: TEA_ENV,
+      timeout: 10_000,
+    });
+    return hostHasLogin(stdout, host);
+  } catch {
+    return false;
+  }
+}
+
+function hostHasLogin(stdout: string, host: string): boolean {
+  let data: unknown;
+  try {
+    data = JSON.parse(stdout);
+  } catch {
+    return false;
+  }
+  const parsed = z.array(GiteaLoginSchema).safeParse(data);
+  if (!parsed.success) {
+    return false;
+  }
+  const target = host.toLowerCase();
+  return parsed.data.some((login) => {
+    const candidates = [login.ssh_host, login.name];
+    if (login.url) {
+      try {
+        candidates.push(new URL(login.url).hostname);
+      } catch {
+        // ignore malformed login url
+      }
+    }
+    return candidates.some((candidate) => candidate?.toLowerCase() === target);
+  });
+}
+
+export function createGiteaService(options: CreateGiteaServiceOptions = {}): ForgeService {
+  const runner = options.runner ?? runTeaCommand;
+  const resolveTea = options.resolveTeaPath ?? resolveTeaPath;
+  const resolveRemoteUrl = options.resolveRemoteUrl ?? defaultResolveRemoteUrl;
+
+  async function run(args: string[], runOptions: TeaCommandRunnerOptions): Promise<string> {
+    const teaPath = await resolveTea();
+    if (!teaPath) {
+      throw new TeaCliMissingError();
+    }
+    try {
+      const result = await runner(args, runOptions);
+      return result.stdout.trim();
+    } catch (error) {
+      throw normalizeTeaCommandError(error, { args, cwd: runOptions.cwd });
+    }
+  }
+
+  function runJsonParse<T>(
+    args: string[],
+    runOptions: TeaCommandRunnerOptions,
+    stdout: string,
+    schema: z.ZodType<T>,
+  ): T {
+    let data: unknown;
+    try {
+      data = JSON.parse(stdout);
+    } catch {
+      throw new TeaCommandError({
+        args,
+        cwd: runOptions.cwd,
+        exitCode: null,
+        stderr: `tea did not return valid JSON (${stdout.length} bytes)`,
+      });
+    }
+    const parsed = schema.safeParse(data);
+    if (!parsed.success) {
+      throw new TeaCommandError({
+        args,
+        cwd: runOptions.cwd,
+        exitCode: null,
+        stderr: `tea JSON did not match the expected schema: ${parsed.error.message}`,
+      });
+    }
+    return parsed.data;
+  }
+
+  async function runJsonArray<T>(
+    args: string[],
+    runOptions: TeaCommandRunnerOptions,
+    itemSchema: z.ZodType<T>,
+  ): Promise<T[]> {
+    const stdout = await run(args, runOptions);
+    if (!stdout) {
+      return [];
+    }
+    return runJsonParse(args, runOptions, stdout, z.array(itemSchema));
+  }
+
+  async function listPullRequestItems(input: {
+    cwd: string;
+    state: "open" | "closed" | "all";
+    query?: string;
+    limit?: number;
+  }): Promise<GiteaPrListItem[]> {
+    const args = ["pr", "list", "--fields", PR_LIST_FIELDS, "--state", input.state, "-o", "json"];
+    if (typeof input.limit === "number") {
+      args.push("--limit", String(input.limit));
+    }
+    const items = await runJsonArray(args, { cwd: input.cwd }, GiteaPrListItemSchema);
+    const query = input.query?.trim().toLowerCase();
+    if (!query) {
+      return items;
+    }
+    return items.filter((item) => item.title.toLowerCase().includes(query));
+  }
+
+  async function loadCurrentPullRequestStatus(input: {
+    cwd: string;
+    headRef: string;
+  }): Promise<CurrentPullRequestStatus | null> {
+    const items = await listPullRequestItems({
+      cwd: input.cwd,
+      state: "all",
+      limit: PR_STATUS_LOOKUP_LIMIT,
+    });
+    const match = items.find((item) => stripHeadOwner(item.head) === input.headRef);
+    return match ? toCurrentPullRequestStatus(match) : null;
+  }
+
+  function notSupported(method: string): never {
+    throw new Error(`${method} is not supported on Gitea yet`);
+  }
+
+  return {
+    async isAuthenticated(input: { cwd: string } & ForgeReadOptions): Promise<boolean> {
+      const teaPath = await resolveTea();
+      if (!teaPath) {
+        return false;
+      }
+      const remoteUrl = await resolveRemoteUrl(input.cwd);
+      const host = remoteUrl ? parseGiteaHostFromRemoteUrl(remoteUrl) : null;
+      if (!host) {
+        return false;
+      }
+      try {
+        const stdout = await run(["login", "list", "-o", "json"], { cwd: input.cwd });
+        return hostHasLogin(stdout, host);
+      } catch {
+        return false;
+      }
+    },
+
+    getCurrentPullRequestStatus(input): Promise<CurrentPullRequestStatus | null> {
+      return loadCurrentPullRequestStatus({ cwd: input.cwd, headRef: input.headRef });
+    },
+
+    async getPullRequest(input: GetPullRequestOptions): Promise<PullRequestSummary> {
+      const items = await listPullRequestItems({
+        cwd: input.cwd,
+        state: "all",
+        limit: PR_STATUS_LOOKUP_LIMIT,
+      });
+      const match = items.find((item) => parseGiteaInt(item.index) === input.number);
+      if (!match) {
+        throw new TeaCommandError({
+          args: ["pr", "list"],
+          cwd: input.cwd,
+          exitCode: null,
+          stderr: `Gitea pull request #${input.number} was not found`,
+        });
+      }
+      return toPullRequestSummary(match);
+    },
+
+    async getPullRequestHeadRef(input: GetPullRequestOptions): Promise<string> {
+      const summary = await this.getPullRequest(input);
+      return summary.headRefName;
+    },
+
+    listPullRequests(input: ListPullRequestsOptions): Promise<PullRequestSummary[]> {
+      return listPullRequestItems({
+        cwd: input.cwd,
+        state: "open",
+        query: input.query,
+        limit: input.limit,
+      }).then((items) => items.map(toPullRequestSummary));
+    },
+
+    async listIssues(input: ListIssuesOptions): Promise<IssueSummary[]> {
+      const args = [
+        "issue",
+        "list",
+        "--fields",
+        ISSUE_LIST_FIELDS,
+        "--state",
+        "open",
+        "-o",
+        "json",
+      ];
+      if (typeof input.limit === "number") {
+        args.push("--limit", String(input.limit));
+      }
+      const items = await runJsonArray(args, { cwd: input.cwd }, GiteaIssueListItemSchema);
+      const query = input.query?.trim().toLowerCase();
+      const filtered = query
+        ? items.filter((item) => item.title.toLowerCase().includes(query))
+        : items;
+      return filtered.map(toIssueSummary);
+    },
+
+    async createPullRequest(input: CreatePullRequestOptions): Promise<PullRequestCreateResult> {
+      const args = [
+        "pr",
+        "create",
+        "--title",
+        input.title,
+        "--description",
+        input.body ?? "",
+        "--head",
+        input.head,
+        "--base",
+        input.base,
+      ];
+      const stdout = await run(args, { cwd: input.cwd });
+      const url = extractPullRequestUrl(stdout);
+      if (!url) {
+        throw new TeaCommandError({
+          args,
+          cwd: input.cwd,
+          exitCode: null,
+          stderr: "tea reported a created pull request but returned no URL",
+        });
+      }
+      const number = parseIndexFromUrl(url);
+      if (number === null) {
+        throw new TeaCommandError({
+          args,
+          cwd: input.cwd,
+          exitCode: null,
+          stderr: `tea returned a pull request URL without an index: ${url}`,
+        });
+      }
+      return { url, number };
+    },
+
+    async mergePullRequest(input: MergePullRequestOptions): Promise<PullRequestMergeResult> {
+      assertGiteaDirectMergeReady(input);
+      const args = ["pr", "merge", String(input.prNumber), "--style", input.mergeMethod];
+      await run(args, { cwd: input.cwd });
+      return { success: true };
+    },
+
+    getPullRequestTimeline(_input: GetPullRequestTimelineOptions): Promise<PullRequestTimeline> {
+      return notSupported("getPullRequestTimeline");
+    },
+
+    getGitHubCheckDetails(_input: GetCheckDetailsOptions): Promise<CheckDetails> {
+      return notSupported("getGitHubCheckDetails");
+    },
+
+    searchIssuesAndPrs(_input: SearchIssuesAndPrsOptions): Promise<SearchResult> {
+      return notSupported("searchIssuesAndPrs");
+    },
+
+    enablePullRequestAutoMerge(_input: EnablePullRequestAutoMergeOptions): never {
+      return notSupported("enablePullRequestAutoMerge");
+    },
+
+    disablePullRequestAutoMerge(_input: DisablePullRequestAutoMergeOptions): never {
+      return notSupported("disablePullRequestAutoMerge");
+    },
+
+    invalidate(_input: { cwd: string }): void {},
+  };
+}

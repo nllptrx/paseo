@@ -80,13 +80,30 @@ export interface GitLabStatusFacts {
 }
 
 /**
+ * Gitea merge facts as reported by `tea pr list -o json`. Gitea models CI as a
+ * single aggregate status string rather than a pipeline tree.
+ */
+export interface GiteaStatusFacts {
+  mergeable: boolean;
+  hasMerged: boolean;
+  ciStatus: string | null;
+}
+
+/**
  * Discriminated home for a forge's native merge facts on the neutral PR status.
  * Each adapter populates its own arm; readers narrow on `forge` to reach the
  * facts a given forge actually reports.
  */
 export type ForgeSpecificStatusFacts =
   | ({ forge: "github" } & GitHubPullRequestStatusFacts)
-  | ({ forge: "gitlab" } & GitLabStatusFacts);
+  | ({ forge: "gitlab" } & GitLabStatusFacts)
+  | ({ forge: "gitea" } & GiteaStatusFacts);
+
+export function isGiteaStatusFacts(
+  facts: ForgeSpecificStatusFacts | null | undefined,
+): facts is { forge: "gitea" } & GiteaStatusFacts {
+  return facts?.forge === "gitea";
+}
 
 export interface CurrentPullRequestStatus {
   number?: number;

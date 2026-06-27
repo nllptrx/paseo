@@ -224,7 +224,31 @@ describe("checkout PR schemas", () => {
     expect(parsed.github).toBeUndefined();
   });
 
-  test("degrades an unknown forge to absent rather than failing the parse", () => {
+  test("parses the gitea arm of forgeSpecific", () => {
+    const parsed = CheckoutPrStatusSchema.parse({
+      number: 5,
+      url: "https://codeberg.org/example/repo/pulls/5",
+      title: "Add sample change",
+      state: "open",
+      baseRefName: "main",
+      headRefName: "feat/sample-change",
+      isMerged: false,
+      forgeSpecific: {
+        forge: "gitea",
+        mergeable: true,
+        hasMerged: false,
+        ciStatus: "success",
+      },
+    });
+    expect(parsed.forgeSpecific).toEqual({
+      forge: "gitea",
+      mergeable: true,
+      hasMerged: false,
+      ciStatus: "success",
+    });
+  });
+
+  test("preserves an unknown forge arm without failing the parse", () => {
     const parsed = CheckoutPrStatusSchema.parse({
       number: 9,
       url: "https://example.com/forge/9",
@@ -235,7 +259,7 @@ describe("checkout PR schemas", () => {
       isMerged: false,
       forgeSpecific: { forge: "bitbucket", somethingNew: true },
     });
-    expect(parsed.forgeSpecific).toBeUndefined();
+    expect(parsed.forgeSpecific).toEqual({ forge: "bitbucket", somethingNew: true });
   });
 
   test("parses optional GitHub check identifiers on PR checks", () => {

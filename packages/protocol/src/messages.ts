@@ -3313,16 +3313,31 @@ const CheckoutPrGitlabStatusObjectSchema = z.object({
   mergeWhenPipelineSucceeds: z.boolean().optional().default(false),
 });
 
-// COMPAT(forgeSpecific): added in v0.1.102, remove after 2026-12-27. A discriminated
-// union over the forge. `.catch(undefined)` keeps an unknown forge (a future adapter)
-// from breaking the parse in either direction — it degrades to absent rather than
-// throwing — and unknown fields within an arm are stripped, not rejected. The `github`
-// field above stays populated alongside this for clients predating forgeSpecific; drop
-// that mirror once the daemon floor >= v0.1.102.
+const CheckoutPrGiteaStatusObjectSchema = z.object({
+  mergeable: z.boolean().optional().default(false),
+  hasMerged: z.boolean().optional().default(false),
+  ciStatus: z.string().nullable().optional().default(null),
+});
+
+const CheckoutPrUnknownForgeSpecificSchema = z
+  .object({ forge: z.string() })
+  .passthrough()
+  .refine(
+    ({ forge }) =>
+      forge !== "github" && forge !== "gitlab" && forge !== "gitea" && forge !== "forgejo",
+  );
+
+// COMPAT(forgeSpecific): added in v0.1.102, remove after 2026-12-27. Known
+// adapters get validated typed arms; an unknown adapter retains passthrough facts
+// so newer registry entries do not break older neutral clients. Malformed known
+// arms still degrade to absent via `.catch(undefined)`. The `github` field above
+// stays populated alongside this for clients predating forgeSpecific.
 const CheckoutPrForgeSpecificSchema = z
   .union([
     CheckoutPrGithubStatusObjectSchema.extend({ forge: z.literal("github") }),
     CheckoutPrGitlabStatusObjectSchema.extend({ forge: z.literal("gitlab") }),
+    CheckoutPrGiteaStatusObjectSchema.extend({ forge: z.literal("gitea") }),
+    CheckoutPrUnknownForgeSpecificSchema,
   ])
   .optional()
   .catch(undefined);

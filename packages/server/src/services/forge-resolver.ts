@@ -1,7 +1,10 @@
 import { runGitCommand } from "../utils/run-git-command.js";
 import type { ForgeService } from "./forge-service.js";
-import { createForgeService, isKnownForge } from "./forge-registry.js";
-import { probeGitLabHost } from "./gitlab-service.js";
+import {
+  createForgeService,
+  forgeForRegisteredHost,
+  probeRegisteredForgeHost,
+} from "./forge-registry.js";
 
 export interface ForgeResolution {
   /** Registered forge id, e.g. "github" or "gitlab". */
@@ -30,16 +33,6 @@ export interface ForgeResolver {
   resolveFromRemoteUrlAsync(remoteUrl: string | null): Promise<ForgeResolution | null>;
 }
 
-/**
- * Default probe: a host that {@link probeGitLabHost} recognizes is a GitLab
- * instance, even when its name carries no "gitlab" hint (self-managed hosts like
- * git.example.com). Returns null when glab is absent or the host isn't a
- * configured GitLab instance.
- */
-async function defaultProbeForge(host: string): Promise<string | null> {
-  return (await probeGitLabHost(host)) ? "gitlab" : null;
-}
-
 // A positive probe (host IS a known forge) is cached permanently; a negative one
 // expires so a CLI installed/authenticated later is picked up without a restart.
 const NEGATIVE_PROBE_TTL_MS = 60_000;
@@ -56,21 +49,9 @@ export function parseRemoteHost(url: string): string | null {
   }
 }
 
-/**
- * Map a remote host to a forge id. github.com is GitHub; any host whose name
- * contains "gitlab" (gitlab.com and self-managed instances like
- * gitlab.example.com) is GitLab. Anything else is unknown -> null, so foreign
- * remotes never get routed to an adapter that can't serve them. Richer
- * detection (per-host CLI probes) arrives with additional adapters.
- */
+/** Map a remote host through the matchers owned by registered adapters. */
 export function forgeForHost(host: string): string | null {
-  if (host === "github.com") {
-    return "github";
-  }
-  if (/gitlab/i.test(host)) {
-    return "gitlab";
-  }
-  return null;
+  return forgeForRegisteredHost(host);
 }
 
 async function defaultResolveRemoteUrl(cwd: string): Promise<string | null> {
@@ -86,7 +67,7 @@ async function defaultResolveRemoteUrl(cwd: string): Promise<string | null> {
 export function createForgeResolver(options: CreateForgeResolverOptions = {}): ForgeResolver {
   const resolveRemoteUrl = options.resolveRemoteUrl ?? defaultResolveRemoteUrl;
   const create = options.createService ?? createForgeService;
-  const probeForge = options.probeForge ?? defaultProbeForge;
+  const probeForge = options.probeForge ?? probeRegisteredForgeHost;
   const services = new Map<string, ForgeService>();
   // Cache the per-host probe result so the synchronous resolveFromRemoteUrl can
   // reuse a forge discovered by an earlier async resolve. Positive results are
@@ -110,9 +91,6 @@ export function createForgeResolver(options: CreateForgeResolverOptions = {}): F
   }
 
   function buildResolution(forge: string, host: string): ForgeResolution | null {
-    if (!isKnownForge(forge)) {
-      return null;
-    }
     let service = services.get(forge);
     if (!service) {
       const created = create(forge);

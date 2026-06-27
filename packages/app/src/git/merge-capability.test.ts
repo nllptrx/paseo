@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   deriveMergeCapability,
+  type GiteaMergeFacts,
   type GithubMergeFacts,
   type GitlabMergeFacts,
 } from "./merge-capability";
@@ -40,6 +41,16 @@ function gitlabFacts(overrides: Partial<GitlabMergeFacts> = {}): GitlabMergeFact
     pipelineId: null,
     pipelineUrl: null,
     mergeWhenPipelineSucceeds: false,
+    ...overrides,
+  };
+}
+
+function giteaFacts(overrides: Partial<GiteaMergeFacts> = {}): GiteaMergeFacts {
+  return {
+    forge: "gitea",
+    mergeable: true,
+    hasMerged: false,
+    ciStatus: "success",
     ...overrides,
   };
 }
@@ -191,5 +202,21 @@ describe("deriveMergeCapability (gitlab)", () => {
     expect(cap?.mergeBlockedByQueue).toBe(false);
     expect(cap?.canEnableAutoMerge).toBe(false);
     expect(cap?.canDisableAutoMerge).toBe(false);
+  });
+});
+
+describe("deriveMergeCapability (gitea)", () => {
+  it("allows direct merge only when the pull request is mergeable and unmerged", () => {
+    expect(deriveMergeCapability(giteaFacts())?.directMergeReady).toBe(true);
+    expect(deriveMergeCapability(giteaFacts({ mergeable: false }))?.directMergeReady).toBe(false);
+    expect(deriveMergeCapability(giteaFacts({ hasMerged: true }))?.directMergeReady).toBe(false);
+  });
+
+  it("offers direct merge styles without auto-merge", () => {
+    const capability = deriveMergeCapability(giteaFacts());
+    expect(capability?.allowedMethods).toEqual(["merge", "squash", "rebase"]);
+    expect(capability?.canEnableAutoMerge).toBe(false);
+    expect(capability?.autoMergeEnabled).toBe(false);
+    expect(capability?.canDisableAutoMerge).toBe(false);
   });
 });

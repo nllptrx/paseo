@@ -15,6 +15,21 @@ export type GithubMergeFacts = Extract<ForgeSpecificStatusFacts, { forge: "githu
 /** GitLab merge facts — the `gitlab` arm of {@link ForgeSpecificStatusFacts}. */
 export type GitlabMergeFacts = Extract<ForgeSpecificStatusFacts, { forge: "gitlab" }>;
 
+/** Gitea merge facts used by both the Gitea and Forgejo top-level forges. */
+export type GiteaMergeFacts = Extract<ForgeSpecificStatusFacts, { forge: "gitea" }>;
+
+function isGithubMergeFacts(facts: ForgeSpecificStatusFacts): facts is GithubMergeFacts {
+  return facts.forge === "github" && "repository" in facts;
+}
+
+function isGitlabMergeFacts(facts: ForgeSpecificStatusFacts): facts is GitlabMergeFacts {
+  return facts.forge === "gitlab" && "detailedMergeStatus" in facts;
+}
+
+function isGiteaMergeFacts(facts: ForgeSpecificStatusFacts): facts is GiteaMergeFacts {
+  return facts.forge === "gitea" && "mergeable" in facts;
+}
+
 /**
  * Legacy GitHub merge facts from the pre-forgeSpecific `status.github` field. An
  * old daemon emits only this; a new client synthesizes the github arm from it so
@@ -97,6 +112,20 @@ function deriveGitlabMergeCapability(gitlab: GitlabMergeFacts): MergeCapability 
   };
 }
 
+const GITEA_MERGE_METHODS: CheckoutPrMergeMethod[] = ["merge", "squash", "rebase"];
+
+function deriveGiteaMergeCapability(gitea: GiteaMergeFacts): MergeCapability {
+  return {
+    directMergeReady: gitea.mergeable && !gitea.hasMerged,
+    canEnableAutoMerge: false,
+    autoMergeEnabled: false,
+    canDisableAutoMerge: false,
+    mergeBlockedByQueue: false,
+    allowedMethods: GITEA_MERGE_METHODS,
+    preferredMethod: null,
+  };
+}
+
 /**
  * Build the neutral merge capability from a forge's PR status facts. Returns
  * null when the forge supplied no merge facts (e.g. a host that exposes none, or
@@ -117,11 +146,14 @@ export function deriveMergeCapability(
     }
     return null;
   }
-  if (forgeSpecific.forge === "github") {
+  if (isGithubMergeFacts(forgeSpecific)) {
     return deriveGithubMergeCapability(forgeSpecific);
   }
-  if (forgeSpecific.forge === "gitlab") {
+  if (isGitlabMergeFacts(forgeSpecific)) {
     return deriveGitlabMergeCapability(forgeSpecific);
+  }
+  if (isGiteaMergeFacts(forgeSpecific)) {
+    return deriveGiteaMergeCapability(forgeSpecific);
   }
   return null;
 }

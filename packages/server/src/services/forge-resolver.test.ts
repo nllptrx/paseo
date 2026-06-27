@@ -13,10 +13,14 @@ describe("parseRemoteHost", () => {
 });
 
 describe("forgeForHost", () => {
-  it("maps github.com to github and gitlab hosts to gitlab", () => {
+  it("maps registered forge hosts without resolver-specific branches", () => {
     expect(forgeForHost("github.com")).toBe("github");
     expect(forgeForHost("gitlab.example.com")).toBe("gitlab");
     expect(forgeForHost("gitlab.com")).toBe("gitlab");
+    expect(forgeForHost("gitea.com")).toBe("gitea");
+    expect(forgeForHost("forgejo.example.org")).toBe("forgejo");
+    expect(forgeForHost("gitea-forgejo.example.org")).toBe("forgejo");
+    expect(forgeForHost("codeberg.org")).toBe("forgejo");
   });
 
   it("returns null for hosts with no known adapter", () => {
@@ -41,6 +45,35 @@ describe("createForgeResolver", () => {
     });
     const resolution = await resolver.resolve("/repo");
     expect(resolution).toMatchObject({ forge: "gitlab", host: "gitlab.example.com" });
+  });
+
+  it("resolves Gitea and Forgejo remotes to their registered top-level forges", async () => {
+    const gitea = createForgeResolver({
+      resolveRemoteUrl: async () => "https://gitea.com/example/repo.git",
+    });
+    const forgejo = createForgeResolver({
+      resolveRemoteUrl: async () => "git@codeberg.org:example/repo.git",
+    });
+
+    await expect(gitea.resolve("/gitea")).resolves.toMatchObject({
+      forge: "gitea",
+      host: "gitea.com",
+    });
+    await expect(forgejo.resolve("/forgejo")).resolves.toMatchObject({
+      forge: "forgejo",
+      host: "codeberg.org",
+    });
+  });
+
+  it("resolves an overlapping gitea-forgejo hostname as Forgejo", async () => {
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@gitea-forgejo.example.org:example/repo.git",
+    });
+
+    await expect(resolver.resolve("/repo")).resolves.toMatchObject({
+      forge: "forgejo",
+      host: "gitea-forgejo.example.org",
+    });
   });
 
   it("returns null when the cwd has no origin remote", async () => {

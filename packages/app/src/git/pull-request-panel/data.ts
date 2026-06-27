@@ -4,6 +4,11 @@ import type {
 } from "@getpaseo/protocol/messages";
 import { type Forge, getForgePresentation } from "@/git/forge";
 
+type ForgeSpecificStatusFacts = NonNullable<
+  NonNullable<CheckoutPrStatusResponse["payload"]["status"]>["forgeSpecific"]
+>;
+type GitlabStatusFacts = Extract<ForgeSpecificStatusFacts, { forge: "gitlab" }>;
+
 export type PrState = "open" | "draft" | "merged" | "closed";
 export type CheckStatus = "success" | "failure" | "pending" | "skipped";
 export type ReviewState = "approved" | "changes_requested" | "commented";
@@ -157,7 +162,7 @@ function mapGitlabApprovals(
   status: NonNullable<CheckoutPrStatus>,
 ): { given: number; required: number } | undefined {
   const facts = status.forgeSpecific;
-  if (facts?.forge !== "gitlab") {
+  if (!isGitlabStatusFacts(facts)) {
     return undefined;
   }
   const required = facts.approvalsRequired ?? 0;
@@ -171,7 +176,7 @@ function mapGitlabPipelineSummary(
   status: NonNullable<CheckoutPrStatus>,
 ): GitlabPipelineSummary | undefined {
   const facts = status.forgeSpecific;
-  if (facts?.forge !== "gitlab" || facts.pipelineId == null) {
+  if (!isGitlabStatusFacts(facts) || facts.pipelineId == null) {
     return undefined;
   }
   const rawStatus = facts.pipelineStatus ?? "";
@@ -181,6 +186,12 @@ function mapGitlabPipelineSummary(
     rawStatus,
     url: facts.pipelineUrl ?? null,
   };
+}
+
+function isGitlabStatusFacts(
+  facts: ForgeSpecificStatusFacts | null | undefined,
+): facts is GitlabStatusFacts {
+  return facts?.forge === "gitlab" && "detailedMergeStatus" in facts;
 }
 
 export function mapPipelineStatus(status: string): CheckStatus {
