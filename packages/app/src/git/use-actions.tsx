@@ -2,10 +2,12 @@ import { useState, useCallback, useEffect, useMemo, type ReactElement } from "re
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTranslation } from "react-i18next";
 import { withUnistyles } from "react-native-unistyles";
+import { ForgejoIcon } from "@/components/icons/forgejo-icon";
+import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { GitHubIcon } from "@/components/icons/github-icon";
 import { GitLabIcon } from "@/components/icons/gitlab-icon";
 import type { Theme } from "@/styles/theme";
-import type { Forge } from "@/git/forge";
+import { getForgePresentation, type Forge } from "@/git/forge";
 import { type CheckoutGitActionStatus, useCheckoutGitActionsStore } from "@/git/actions-store";
 import { type CheckoutStatusPayload, useCheckoutStatusQuery } from "@/git/use-status-query";
 import { type CheckoutPrStatusPayload, useCheckoutPrStatusQuery } from "@/git/use-pr-status-query";
@@ -33,8 +35,12 @@ export type { GitActionId, GitAction, GitActions } from "@/git/policy";
 
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedGitLabIcon = withUnistyles(GitLabIcon);
+const ThemedGiteaIcon = withUnistyles(GiteaIcon);
+const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
 const forgeMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const gitlabBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitlab });
+const giteaBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitea });
+const forgejoBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeForgejo });
 
 /**
  * The leading icon for every change-request action (create/view/merge) is the
@@ -42,11 +48,17 @@ const gitlabBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGi
  * orange. The merge variants all share this one icon, so we build it once.
  */
 function renderForgePrIcon(forge: Forge): ReactElement {
-  return forge === "gitlab" ? (
-    <ThemedGitLabIcon size={16} uniProps={gitlabBrandColorMapping} />
-  ) : (
-    <ThemedGitHubIcon size={16} uniProps={forgeMutedColorMapping} />
-  );
+  const icon = getForgePresentation(forge).icon;
+  if (icon === "gitlab") {
+    return <ThemedGitLabIcon size={16} uniProps={gitlabBrandColorMapping} />;
+  }
+  if (icon === "gitea") {
+    return <ThemedGiteaIcon size={16} uniProps={giteaBrandColorMapping} />;
+  }
+  if (icon === "forgejo") {
+    return <ThemedForgejoIcon size={16} uniProps={forgejoBrandColorMapping} />;
+  }
+  return <ThemedGitHubIcon size={16} uniProps={forgeMutedColorMapping} />;
 }
 
 function forgeActionKey(forge: Forge, githubKey: string, gitlabKey: string): string {

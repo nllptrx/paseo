@@ -81,7 +81,7 @@ import { useWebScrollViewScrollbar } from "@/components/use-web-scrollbar";
 import { GitActionsSplitButton } from "@/git/actions-split-button";
 import { BranchSwitcher } from "@/components/branch-switcher";
 import { useGitActions } from "@/git/use-actions";
-import { getForgePresentation, type Forge } from "@/git/forge";
+import { buildForgeSignInCommand, getForgePresentation, type Forge } from "@/git/forge";
 import type { ForgeAuthState } from "@getpaseo/protocol/messages";
 import { useCheckoutGitActionsStore } from "@/git/actions-store";
 import { useToast } from "@/contexts/toast-context";
@@ -1696,23 +1696,15 @@ function buildForgeSetupMessage(input: {
   host: string | null;
   t: TFunction;
 }): string {
-  const { brandLabel } = getForgePresentation(input.forge);
+  const { brandLabel, cli } = getForgePresentation(input.forge);
   if (input.action === "generic") {
     return input.t("workspace.git.gitlab.setupCallout");
   }
-  const cli = input.forge === "gitlab" ? "glab" : "gh";
   if (input.action === "install_cli") {
     return input.t("workspace.git.forgeSetup.installCli", { cli, brand: brandLabel });
   }
   const command = buildForgeSignInCommand(input.forge, input.host);
   return input.t("workspace.git.forgeSetup.signIn", { command, brand: brandLabel });
-}
-
-function buildForgeSignInCommand(forge: Forge, host: string | null): string {
-  if (forge !== "gitlab") {
-    return "gh auth login";
-  }
-  return host ? `glab auth login --hostname ${host}` : "glab auth login";
 }
 
 function buildDiffModeTriggerStyle(): PressableStyleFn {

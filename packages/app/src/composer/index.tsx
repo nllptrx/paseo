@@ -41,6 +41,8 @@ import {
   type DraftAgentControlsProps,
 } from "@/composer/agent-controls";
 import { ContextWindowMeter } from "@/components/context-window-meter";
+import { ForgejoIcon } from "@/components/icons/forgejo-icon";
+import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
 import { useSessionStore } from "@/stores/session-store";
 import { useFilePicker } from "@/hooks/use-file-picker";
@@ -115,7 +117,7 @@ import { useIsDictationReady } from "@/hooks/use-is-dictation-ready";
 import { useGithubSearchQuery } from "@/git/use-github-search-query";
 import { useCheckoutStatusQuery } from "@/git/use-status-query";
 import { useCheckoutPrStatusQuery } from "@/git/use-pr-status-query";
-import { type ForgePresentation, getForgePresentation } from "@/git/forge";
+import { type ForgeIconKind, type ForgePresentation, getForgePresentation } from "@/git/forge";
 import { useComposerGithubAutoAttach } from "./github/auto-attach";
 import { resolveClientSlashCommand, type ClientSlashCommand } from "@/client-slash-commands";
 
@@ -1769,12 +1771,7 @@ export function Composer({
       {
         id: "github",
         label: t(forgePresentation.composer.addIssueOrChangeRequestKey),
-        icon:
-          forgePresentation.icon === "gitlab" ? (
-            <ThemedGitlab size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />
-          ) : (
-            <ThemedGithub size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />
-          ),
+        icon: renderForgeAttachmentIcon(forgePresentation.icon),
         onSelect: () => {
           setIsGithubPickerOpen(true);
         },
@@ -2224,10 +2221,25 @@ const ThemedImageIcon = withUnistyles(ImageIcon);
 const ThemedFileText = withUnistyles(FileText);
 const ThemedGithub = withUnistyles(Github);
 const ThemedGitlab = withUnistyles(Gitlab);
+const ThemedGiteaIcon = withUnistyles(GiteaIcon);
+const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
 
 const iconForegroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const iconForegroundMutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const iconAccentForegroundMapping = (theme: Theme) => ({ color: theme.colors.accentForeground });
+
+function renderForgeAttachmentIcon(icon: ForgeIconKind): ReactElement {
+  if (icon === "gitlab") {
+    return <ThemedGitlab size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />;
+  }
+  if (icon === "gitea") {
+    return <ThemedGiteaIcon size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />;
+  }
+  if (icon === "forgejo") {
+    return <ThemedForgejoIcon size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />;
+  }
+  return <ThemedGithub size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />;
+}
 
 const githubPrPillIcon = (
   <ThemedGitPullRequest size={ICON_SIZE.sm} uniProps={iconForegroundMutedMapping} />

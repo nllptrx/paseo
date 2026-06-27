@@ -18,15 +18,15 @@ interface PrStatusLike {
   checks?: Array<{ name: string; status: string; url: string | null }>;
   checksStatus?: string;
   reviewDecision?: string | null;
+  forge?: string;
 }
 
 function parsePullRequestNumber(url: string): number | null {
   try {
     const pathname = new URL(url).pathname;
-    // GitHub uses /pull/N; GitLab uses /-/merge_requests/N. Match either so a
-    // GitLab MR summary yields a hint (and thus a brand mark) like a GitHub PR.
-    const match =
-      pathname.match(/\/pull\/(\d+)(?:\/|$)/) ?? pathname.match(/\/merge_requests\/(\d+)(?:\/|$)/);
+    // GitHub uses /pull/N, Gitea/Forgejo /pulls/N, GitLab /-/merge_requests/N.
+    // Match any so a non-GitHub change-request summary yields a hint (and brand mark).
+    const match = pathname.match(/\/(?:pull|pulls|merge_requests)\/(\d+)(?:\/|$)/);
     if (!match) {
       return null;
     }
@@ -60,7 +60,7 @@ export function selectPrHintFromStatus(
     url: status.url,
     number,
     state,
-    forge: normalizeForge(forge),
+    forge: normalizeForge(forge ?? status.forge),
     checks: status.checks,
     checksStatus: status.checksStatus as PrHint["checksStatus"],
     reviewDecision: status.reviewDecision as PrHint["reviewDecision"],

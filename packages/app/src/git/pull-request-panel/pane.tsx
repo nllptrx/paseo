@@ -50,6 +50,8 @@ import { useCheckoutGitActionsStore } from "@/git/actions-store";
 import { isNative } from "@/constants/platform";
 import { useIsCompactFormFactor, WORKSPACE_SECONDARY_HEADER_HEIGHT } from "@/constants/layout";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { ForgejoIcon } from "@/components/icons/forgejo-icon";
+import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { GitLabIcon } from "@/components/icons/gitlab-icon";
 import { getForgePresentation } from "@/git/forge";
 import { PrActivitySkeleton } from "./activity-skeleton";
@@ -111,10 +113,14 @@ const ThemedMoreHorizontal = withUnistyles(MoreHorizontal);
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const ThemedGitLabIcon = withUnistyles(GitLabIcon);
+const ThemedGiteaIcon = withUnistyles(GiteaIcon);
+const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const gitlabBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitlab });
+const giteaBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitea });
+const forgejoBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeForgejo });
 const successColorMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
 const dangerColorMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
 const warningColorMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
@@ -520,8 +526,14 @@ export function PullRequestPane({
                 <Text style={stateLabelStyle(data.state)} testID="pr-pane-state">
                   {getStateLabel(data.state)}
                 </Text>
-                {data.forge === "gitlab" ? (
+                {forgePresentation.icon === "gitlab" ? (
                   <ThemedGitLabIcon size={12} uniProps={gitlabBrandColorMapping} />
+                ) : null}
+                {forgePresentation.icon === "gitea" ? (
+                  <ThemedGiteaIcon size={12} uniProps={giteaBrandColorMapping} />
+                ) : null}
+                {forgePresentation.icon === "forgejo" ? (
+                  <ThemedForgejoIcon size={12} uniProps={forgejoBrandColorMapping} />
                 ) : null}
                 {data.gitlabApprovals ? (
                   <View style={styles.approvalsBadge} testID="pr-pane-approvals">

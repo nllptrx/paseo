@@ -26,6 +26,7 @@ export interface UsePrPaneDataOptions {
 
 export interface UsePrPaneDataResult {
   data: PrPaneData | null;
+  forge: Forge;
   prNumber: number | null;
   isLoading: boolean;
   activityLoading: boolean;
@@ -175,6 +176,7 @@ export function selectPrPaneState(input: SelectPrPaneStateInput): UsePrPaneDataR
 
   return {
     data,
+    forge: input.forge ?? "github",
     prNumber: identity.prNumber,
     isLoading: input.statusIsLoading || timelinePending,
     activityLoading: timelinePending,

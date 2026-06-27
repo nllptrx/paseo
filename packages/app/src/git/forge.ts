@@ -9,9 +9,23 @@
  * as before.
  */
 import { isGitHubHost, parseGitRemoteLocation } from "@getpaseo/protocol/git-remote";
+import { buildGitHubBlobUrl, buildGitHubBranchTreeUrl } from "@/git/github-url";
 
 export type Forge = "github" | "gitlab" | "gitea" | "forgejo";
 export type ForgeIconKind = "github" | "gitlab" | "gitea" | "forgejo";
+
+interface ForgeBlobUrlInput {
+  remoteUrl: string | null | undefined;
+  branch: string | null | undefined;
+  path: string;
+  lineStart?: number;
+  lineEnd?: number;
+}
+
+interface ForgeBranchTreeUrlInput {
+  remoteUrl: string | null | undefined;
+  branch: string | null | undefined;
+}
 
 export function normalizeForge(raw: string | null | undefined): Forge {
   if (raw === "gitlab" || raw === "gitea" || raw === "forgejo") {
@@ -66,6 +80,8 @@ export interface ForgePresentation {
       | "composer.github.searchPlaceholderMr";
     titleKey: "composer.github.title" | "composer.github.titleMr";
   };
+  buildBlobUrl: ((input: ForgeBlobUrlInput) => string | null) | null;
+  buildBranchTreeUrl: ((input: ForgeBranchTreeUrlInput) => string | null) | null;
 }
 
 function buildTeaForgePresentation(
@@ -87,6 +103,8 @@ function buildTeaForgePresentation(
       searchPlaceholderKey: "composer.github.searchPlaceholder",
       titleKey: "composer.github.title",
     },
+    buildBlobUrl: null,
+    buildBranchTreeUrl: null,
   };
 }
 
@@ -105,6 +123,8 @@ const PRESENTATION: Record<Forge, ForgePresentation> = {
       searchPlaceholderKey: "composer.github.searchPlaceholder",
       titleKey: "composer.github.title",
     },
+    buildBlobUrl: buildGitHubBlobUrl,
+    buildBranchTreeUrl: buildGitHubBranchTreeUrl,
   },
   gitlab: {
     forge: "gitlab",
@@ -120,6 +140,8 @@ const PRESENTATION: Record<Forge, ForgePresentation> = {
       searchPlaceholderKey: "composer.github.searchPlaceholderMr",
       titleKey: "composer.github.titleMr",
     },
+    buildBlobUrl: null,
+    buildBranchTreeUrl: null,
   },
   gitea: buildTeaForgePresentation("gitea", "Gitea", "gitea"),
   forgejo: buildTeaForgePresentation("forgejo", "Forgejo", "forgejo"),

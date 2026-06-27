@@ -128,9 +128,11 @@ const lightStatusColors = {
   statusDanger: "#b91c1c", // red-700
   statusWarning: "#d97706", // amber-600
   statusMerged: "#7c3aed", // purple-600
-  // Forge brand mark — the GitLab tanuki orange, used to colour the GitLab logo
-  // wherever the GitHub logo would otherwise sit neutral.
+  // Forge brand marks — used to colour each forge's logo wherever the GitHub
+  // logo would otherwise sit neutral.
   forgeGitlab: "#FC6D26", // GitLab orange
+  forgeGitea: "#609926", // Gitea green
+  forgeForgejo: "#FB923C", // Forgejo orange
 };
 
 const darkStatusColors = {
@@ -139,6 +141,8 @@ const darkStatusColors = {
   statusWarning: "#f59e0b", // amber-500
   statusMerged: "#9333ea", // purple-600
   forgeGitlab: "#FC6D26", // GitLab orange
+  forgeGitea: "#609926", // Gitea green
+  forgeForgejo: "#FB923C", // Forgejo orange
 };
 
 // Semantic color tokens - Layer-based system

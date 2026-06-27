@@ -18,6 +18,8 @@ import {
   Monitor,
   SquareTerminal,
 } from "lucide-react-native";
+import { ForgejoIcon } from "@/components/icons/forgejo-icon";
+import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { GitHubIcon } from "@/components/icons/github-icon";
 import { GitLabIcon } from "@/components/icons/gitlab-icon";
 import { WorkspaceHoverCard } from "@/components/workspace-hover-card";
@@ -26,6 +28,7 @@ import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list"
 import { useAppSettings } from "@/hooks/use-settings";
 import type { Theme } from "@/styles/theme";
 import type { PrHint } from "@/git/use-pr-status-query";
+import { getForgePresentation, normalizeForge, type ForgeIconKind } from "@/git/forge";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
@@ -55,6 +58,8 @@ const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedGitLabIcon = withUnistyles(GitLabIcon);
+const ThemedGiteaIcon = withUnistyles(GiteaIcon);
+const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
 const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
@@ -63,6 +68,19 @@ const ThemedFolder = withUnistyles(Folder);
 const ThemedFolderGit2 = withUnistyles(FolderGit2);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
+
+function renderChecksBadgeForgeIcon(icon: ForgeIconKind) {
+  if (icon === "gitlab") {
+    return <ThemedGitLabIcon size={10} uniProps={redColorMapping} />;
+  }
+  if (icon === "gitea") {
+    return <ThemedGiteaIcon size={10} uniProps={redColorMapping} />;
+  }
+  if (icon === "forgejo") {
+    return <ThemedForgejoIcon size={10} uniProps={redColorMapping} />;
+  }
+  return <ThemedGitHubIcon size={10} uniProps={redColorMapping} />;
+}
 
 type SidebarWorkspaceScriptIconKind = "service" | "command";
 
@@ -334,13 +352,10 @@ function ChecksBadge({ checks, forge }: { checks: PrHint["checks"]; forge: PrHin
   if (!checks || checks.length === 0) return null;
   const failed = checks.filter((check) => check.status === "failure").length;
   if (failed === 0) return null;
+  const icon = getForgePresentation(normalizeForge(forge)).icon;
   return (
     <View style={checksBadgeStyles.badge}>
-      {forge === "gitlab" ? (
-        <ThemedGitLabIcon size={10} uniProps={redColorMapping} />
-      ) : (
-        <ThemedGitHubIcon size={10} uniProps={redColorMapping} />
-      )}
+      {renderChecksBadgeForgeIcon(icon)}
       <Text style={checksBadgeStyles.text}>{failed} failed</Text>
     </View>
   );
