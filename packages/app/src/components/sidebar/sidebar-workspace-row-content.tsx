@@ -19,6 +19,7 @@ import {
   SquareTerminal,
 } from "lucide-react-native";
 import { GitHubIcon } from "@/components/icons/github-icon";
+import { GitLabIcon } from "@/components/icons/gitlab-icon";
 import { WorkspaceHoverCard } from "@/components/workspace-hover-card";
 import { SyncedLoader } from "@/components/synced-loader";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
@@ -53,6 +54,7 @@ const purpleColorMapping = (theme: Theme) => ({ color: theme.colors.palette.purp
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
+const ThemedGitLabIcon = withUnistyles(GitLabIcon);
 const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
@@ -152,7 +154,7 @@ export const SidebarWorkspaceRowContent = memo(function SidebarWorkspaceRowConte
           {workspace.prHint ? (
             <View style={styles.workspacePrBadgeRow}>
               <PrBadge hint={workspace.prHint} />
-              <ChecksBadge checks={workspace.prHint.checks} />
+              <ChecksBadge checks={workspace.prHint.checks} forge={workspace.prHint.forge} />
             </View>
           ) : null}
         </View>
@@ -328,13 +330,17 @@ function PrBadge({ hint }: { hint: PrHint }) {
   );
 }
 
-function ChecksBadge({ checks }: { checks: PrHint["checks"] }) {
+function ChecksBadge({ checks, forge }: { checks: PrHint["checks"]; forge: PrHint["forge"] }) {
   if (!checks || checks.length === 0) return null;
   const failed = checks.filter((check) => check.status === "failure").length;
   if (failed === 0) return null;
   return (
     <View style={checksBadgeStyles.badge}>
-      <ThemedGitHubIcon size={10} uniProps={redColorMapping} />
+      {forge === "gitlab" ? (
+        <ThemedGitLabIcon size={10} uniProps={redColorMapping} />
+      ) : (
+        <ThemedGitHubIcon size={10} uniProps={redColorMapping} />
+      )}
       <Text style={checksBadgeStyles.text}>{failed} failed</Text>
     </View>
   );

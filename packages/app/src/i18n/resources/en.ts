@@ -615,6 +615,19 @@ export const en = {
           pending: "Merging PR...",
           success: "PR merged",
         },
+        viewMr: "View MR",
+        createMr: {
+          label: "Create MR",
+          pending: "Creating MR...",
+          success: "MR Created",
+        },
+        mergeMr: {
+          squash: "Merge MR (squash)",
+          merge: "Merge MR (merge)",
+          rebase: "Merge MR (rebase)",
+          pending: "Merging MR...",
+          success: "MR merged",
+        },
         autoMerge: {
           enableSquash: "Auto merge (squash)",
           enableMerge: "Auto merge (merge)",
@@ -759,6 +772,14 @@ export const en = {
           statusLoadFailed: "Unable to load pull request status",
           activityLoadFailed: "Unable to load pull request activity",
         },
+      },
+      forgeSetup: {
+        installCli: "Install the {{cli}} CLI to use {{brand}} features.",
+        signIn: "Run {{command}} to use {{brand}} features.",
+      },
+      gitlab: {
+        setupCallout:
+          "GitLab features are unavailable. Make sure the glab CLI is installed and authenticated on this host.",
       },
     },
   },

@@ -17,6 +17,7 @@ import {
   getCheckoutShortstat,
   getCheckoutStatus,
   getPullRequestStatus,
+  forgeAuthStateFromError,
   hasOriginRemote,
   listBranchSuggestions,
   resolveRepositoryDefaultBranch,
@@ -25,10 +26,17 @@ import {
 } from "../utils/checkout-git.js";
 import {
   createGitHubService,
-  type GitHubPullRequestStatusFacts,
+  type ForgeAuthState,
   type ForgeService,
+  type ForgeSpecificStatusFacts,
   type PullRequestMergeable,
 } from "../services/github-service.js";
+import { createForgeService } from "../services/forge-registry.js";
+import {
+  createForgeResolver,
+  type ForgeResolution,
+  type ForgeResolver,
+} from "../services/forge-resolver.js";
 import { parseGitRevParsePath } from "../utils/git-rev-parse-path.js";
 import { runGitCommand } from "../utils/run-git-command.js";
 import { resolveGitHubRemote, type GitHubRemoteIdentity } from "../utils/github-remote.js";
@@ -80,10 +88,18 @@ export interface WorkspaceGitRuntimeSnapshot {
   };
   github: {
     featuresEnabled: boolean;
+    authState?: ForgeAuthState;
+    /**
+     * Forge resolved for this workspace from its remote — including the per-host
+     * probe, so self-managed GitLab hosts (no "gitlab" in the name) are labeled
+     * correctly. The wire projection prefers this over the bare name heuristic.
+     */
+    forge?: string;
     pullRequest: {
       number?: number;
       repoOwner?: string;
       repoName?: string;
+      projectPath?: string;
       url: string;
       title: string;
       state: string;
@@ -101,7 +117,7 @@ export interface WorkspaceGitRuntimeSnapshot {
       }>;
       checksStatus?: "none" | "pending" | "success" | "failure";
       reviewDecision?: "approved" | "changes_requested" | "pending" | null;
-      github?: GitHubPullRequestStatusFacts;
+      forgeSpecific?: ForgeSpecificStatusFacts;
     } | null;
     error: { message: string } | null;
   };
@@ -120,6 +136,7 @@ export interface WorkspaceGitService {
     cwd: string,
     options?: WorkspaceGitSnapshotOptions,
   ): Promise<WorkspaceGitRuntimeSnapshot>;
+  resolveForge(cwd: string): Promise<ForgeResolution | null>;
   getCheckoutDiff(
     cwd: string,
     options: CheckoutDiffCompare,
@@ -356,6 +373,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
   private readonly paseoHome: string;
   private readonly worktreesRoot: string | undefined;
   private readonly deps: WorkspaceGitServiceDependencies;
+  private readonly forgeResolver: ForgeResolver;
   private readonly snapshotUpdatedListeners = new Set<WorkspaceGitSnapshotUpdatedListener>();
   private readonly workspaceTargets = new Map<string, WorkspaceGitTarget>();
   private readonly repoTargets = new Map<string, RepoGitTarget>();
@@ -395,6 +413,13 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     this.paseoHome = options.paseoHome;
     this.worktreesRoot = options.worktreesRoot;
     this.deps = resolveWorkspaceGitServiceDeps(options.deps);
+    this.forgeResolver = createForgeResolver({
+      createService: (forge) => (forge === "github" ? this.deps.github : createForgeService(forge)),
+    });
+  }
+
+  resolveForge(cwd: string): Promise<ForgeResolution | null> {
+    return this.forgeResolver.resolve(resolve(cwd));
   }
 
   registerWorkspace(
@@ -1688,20 +1713,34 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     facts: CheckoutSnapshotFacts,
   ): Promise<void> {
     const githubRemote = target.cachedGitHubRemote?.identity ?? null;
+    const resolution = await this.forgeResolver.resolveFromRemoteUrlAsync(
+      target.latestGit?.remoteUrl ?? null,
+    );
+    // GitHub keeps its existing remote-identity gate so behavior is unchanged;
+    // every other forge gates on the resolver alone.
+    let forgeService: ForgeService | null = resolution?.service ?? null;
+    if (resolution?.forge === "github" && !githubRemote) {
+      forgeService = null;
+    }
     const forceGitHub = request.force && request.includeGitHub;
-    if (forceGitHub) {
-      this.deps.github.invalidate({ cwd: target.cwd });
+    if (forceGitHub && forgeService) {
+      forgeService.invalidate({ cwd: target.cwd });
     }
 
-    target.latestGithub = await loadGitHubSnapshot({
+    const githubSnapshot = await loadGitHubSnapshot({
       cwd: target.cwd,
-      githubRemote,
+      forgeService,
       now: this.deps.now(),
       deps: this.deps,
       force: forceGitHub,
       reason: request.reason,
       facts,
     });
+    // Carry the resolved forge (probe-aware) so the wire projection labels
+    // self-managed GitLab hosts correctly instead of falling back to "github".
+    target.latestGithub = resolution
+      ? { ...githubSnapshot, forge: resolution.forge }
+      : githubSnapshot;
     target.latestGithubLoadedAtMs = this.deps.now().getTime();
   }
 
@@ -1913,55 +1952,58 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
 
 async function loadGitHubSnapshot(options: {
   cwd: string;
-  githubRemote: GitHubRemoteIdentity | null;
+  forgeService: ForgeService | null;
   now: Date;
-  deps: Pick<WorkspaceGitServiceDependencies, "getPullRequestStatus" | "github">;
+  deps: Pick<WorkspaceGitServiceDependencies, "getPullRequestStatus">;
   force?: boolean;
   reason?: string;
   facts?: CheckoutSnapshotFacts;
 }): Promise<WorkspaceGitRuntimeSnapshot["github"]> {
-  if (!options.githubRemote) {
-    return {
-      featuresEnabled: false,
-      pullRequest: null,
-      error: null,
-    };
+  const forgeService = options.forgeService;
+  if (!forgeService) {
+    return buildGitHubSnapshot("no_remote", null, null);
   }
 
+  // GitHub's isAuthenticated throws the precise CLI-missing / auth error; GitLab's
+  // returns false without throwing (the precise kind surfaces from the PR-status
+  // lookup below instead), so a non-throw here is not a guarantee of auth.
   try {
-    await options.deps.github.isAuthenticated({ cwd: options.cwd });
-  } catch {
-    return {
-      featuresEnabled: false,
-      pullRequest: null,
-      error: null,
-    };
+    await forgeService.isAuthenticated({ cwd: options.cwd });
+  } catch (error) {
+    return buildGitHubSnapshot(forgeAuthStateFromError(error), null, null);
   }
 
   try {
     const result = await options.deps.getPullRequestStatus(
       options.cwd,
-      options.deps.github,
+      forgeService,
       {
         force: options.force,
         reason: options.reason,
       },
       { facts: options.facts },
     );
-    return {
-      featuresEnabled: true,
-      pullRequest: result.status,
-      error: null,
-    };
+    return buildGitHubSnapshot(result.authState, result.status, null);
   } catch (error) {
-    return {
-      featuresEnabled: true,
-      pullRequest: null,
-      error: {
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
+    // The auth probe succeeded, so a failure here is a command error, not an
+    // auth problem — surface it as an error while keeping features enabled.
+    return buildGitHubSnapshot("authenticated", null, {
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
+}
+
+function buildGitHubSnapshot(
+  authState: ForgeAuthState,
+  pullRequest: WorkspaceGitRuntimeSnapshot["github"]["pullRequest"],
+  error: WorkspaceGitRuntimeSnapshot["github"]["error"],
+): WorkspaceGitRuntimeSnapshot["github"] {
+  return {
+    featuresEnabled: authState === "authenticated",
+    authState,
+    pullRequest,
+    error,
+  };
 }
 
 function parseWorkspaceGitStashList(
@@ -2023,21 +2065,13 @@ function buildNotGitSnapshot(cwd: string): WorkspaceGitRuntimeSnapshot {
 }
 
 function buildGitHubUnavailableSnapshot(): WorkspaceGitRuntimeSnapshot["github"] {
-  return {
-    featuresEnabled: false,
-    pullRequest: null,
-    error: null,
-  };
+  return buildGitHubSnapshot("no_remote", null, null);
 }
 
 function buildGitHubSnapshotFromStatus(
   status: WorkspaceGitRuntimeSnapshot["github"]["pullRequest"],
 ): WorkspaceGitRuntimeSnapshot["github"] {
-  return {
-    featuresEnabled: true,
-    pullRequest: status,
-    error: null,
-  };
+  return buildGitHubSnapshot("authenticated", status, null);
 }
 
 function buildWorkspaceGitHubPollKey(remoteUrl: string, target: WorkspaceGitHubPollTarget): string {

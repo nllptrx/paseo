@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import type { CheckoutPrStatusResponse } from "@getpaseo/protocol/messages";
 import { checkoutPrStatusQueryKey } from "@/git/query-keys";
+import { normalizeForge } from "@/git/forge";
 import { selectPrHintFromStatus, type PrHint } from "@/git/pr-hint";
 
 interface UseCheckoutPrStatusQueryOptions {
@@ -15,7 +16,7 @@ export type CheckoutPrStatusPayload = CheckoutPrStatusResponse["payload"];
 export { selectPrHintFromStatus, type PrHint } from "@/git/pr-hint";
 
 function selectWorkspacePrHint(payload: CheckoutPrStatusPayload): PrHint | null {
-  return selectPrHintFromStatus(payload.status);
+  return selectPrHintFromStatus(payload.status, payload.forge);
 }
 
 export function useCheckoutPrStatusQuery({
@@ -47,6 +48,8 @@ export function useCheckoutPrStatusQuery({
   return {
     status: query.data?.status ?? null,
     githubFeaturesEnabled: query.data?.githubFeaturesEnabled ?? true,
+    authState: query.data?.authState,
+    forge: normalizeForge(query.data?.forge),
     payloadError: query.data?.error ?? null,
     isLoading: query.isLoading,
     isFetching: query.isFetching,

@@ -115,6 +115,7 @@ function createPullRequestStatusResult(title = "Update feature"): PullRequestSta
       headRefName: "feature",
       isMerged: false,
     },
+    authState: "authenticated",
     githubFeaturesEnabled: true,
   };
 }
@@ -173,6 +174,9 @@ function createSnapshot(
     },
   };
 
+  const featuresEnabled = overrides?.github?.featuresEnabled ?? base.github.featuresEnabled;
+  const authState =
+    overrides?.github?.authState ?? (featuresEnabled ? "authenticated" : "no_remote");
   return {
     cwd,
     git: {
@@ -182,6 +186,8 @@ function createSnapshot(
     github: {
       ...base.github,
       ...overrides?.github,
+      featuresEnabled,
+      authState,
       pullRequest:
         overrides?.github && "pullRequest" in overrides.github
           ? (overrides.github.pullRequest ?? null)

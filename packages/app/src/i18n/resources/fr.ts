@@ -622,6 +622,19 @@ export const fr: TranslationResources = {
           pending: "Fusion de PR...",
           success: "PR fusionné",
         },
+        viewMr: "Voir MR",
+        createMr: {
+          label: "Créer MR",
+          pending: "Création de MR...",
+          success: "MR créé",
+        },
+        mergeMr: {
+          squash: "Fusionner MR (squash)",
+          merge: "Fusionner MR (merge)",
+          rebase: "Fusionner MR (rebase)",
+          pending: "Fusion de MR...",
+          success: "MR fusionné",
+        },
         autoMerge: {
           enableSquash: "Fusion automatique (squash)",
           enableMerge: "Fusion automatique (merge)",
@@ -778,6 +791,14 @@ export const fr: TranslationResources = {
           statusLoadFailed: "Impossible de charger le statut de la demande d'extraction",
           activityLoadFailed: "Impossible de charger l'activité de demande d'extraction",
         },
+      },
+      forgeSetup: {
+        installCli: "Installez la CLI {{cli}} pour utiliser les fonctionnalités {{brand}}.",
+        signIn: "Exécutez {{command}} pour utiliser les fonctionnalités {{brand}}.",
+      },
+      gitlab: {
+        setupCallout:
+          "Les fonctionnalités GitLab ne sont pas disponibles. Assurez-vous que la CLI glab est installée et authentifiée sur cet hôte.",
       },
     },
   },

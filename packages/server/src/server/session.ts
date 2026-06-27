@@ -3732,6 +3732,10 @@ export class Session {
       diffStat: snapshot.git.diffStat ?? null,
       gitRuntime: this.buildWorkspaceGitRuntimePayload(snapshot) ?? undefined,
       githubRuntime: this.buildWorkspaceGitHubRuntimePayload(snapshot),
+      // Reuse the forge already resolved on the snapshot (probe-aware; GitHub-only
+      // resolves to "github") so the sidebar/hover-card brand mark matches the
+      // status projection without a second resolve.
+      forge: snapshot.github.forge,
     };
   }
 

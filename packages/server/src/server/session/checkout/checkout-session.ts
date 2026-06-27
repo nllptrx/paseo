@@ -135,6 +135,19 @@ export class CheckoutSession {
     this.logger = options.logger;
   }
 
+  // Pick the forge adapter for a cwd: GitHub (and unknown remotes) keep the
+  // injected GitHub adapter so behavior is unchanged; other forges use the
+  // adapter the workspace resolver selected from the remote host.
+  private async resolveForgeService(
+    cwd: string,
+  ): Promise<{ forge: string; service: ForgeService }> {
+    const resolution = await this.workspaceGitService.resolveForge(cwd);
+    if (!resolution || resolution.forge === "github") {
+      return { forge: "github", service: this.github };
+    }
+    return { forge: resolution.forge, service: resolution.service };
+  }
+
   async handleStatusRequest(msg: CheckoutStatusRequest): Promise<void> {
     const { cwd, requestId } = msg;
     const resolvedCwd = expandTilde(cwd);
@@ -755,6 +768,7 @@ export class CheckoutSession {
         if (!body) body = generated.body;
       }
 
+      const { forge, service } = await this.resolveForgeService(cwd);
       const result = await createPullRequest(
         cwd,
         {
@@ -762,7 +776,9 @@ export class CheckoutSession {
           body,
           base: msg.baseRef,
         },
-        this.github,
+        service,
+        undefined,
+        forge,
       );
       await this.gitMutation.notifyGitMutation(cwd, "create-pr", { invalidateGithub: true });
 
@@ -801,8 +817,11 @@ export class CheckoutSession {
         includeGitHub: true,
         reason: "merge-pr-validation",
       });
-      this.assertCurrentPullRequestHasGithubMergeFacts(pullRequest);
-      await this.github.mergePullRequest({
+      const { forge, service } = await this.resolveForgeService(cwd);
+      if (forge === "github") {
+        this.assertCurrentPullRequestHasGithubMergeFacts(pullRequest);
+      }
+      await service.mergePullRequest({
         cwd,
         prNumber: pullRequest.number,
         mergeMethod: msg.mergeMethod,
@@ -835,7 +854,7 @@ export class CheckoutSession {
   private assertCurrentPullRequestHasGithubMergeFacts(
     pullRequest: CurrentWorkspacePullRequest,
   ): void {
-    if (!pullRequest.github) {
+    if (pullRequest.forgeSpecific?.forge !== "github") {
       throw new Error("GitHub merge facts are unavailable for this pull request");
     }
   }
@@ -944,6 +963,8 @@ export class CheckoutSession {
           cwd,
           status: null,
           githubFeaturesEnabled: true,
+          authState: "authenticated",
+          forge: "github",
           error: toCheckoutError(error),
           requestId,
         },
@@ -975,7 +996,11 @@ export class CheckoutSession {
       return;
     }
 
-    const githubFeaturesEnabled = await this.github.isAuthenticated({ cwd });
+    // Route through the resolved forge so a GitLab workspace hits its
+    // not-supported throw-stub (clean "not supported" message) instead of
+    // running the GitHub CLI against a GitLab remote. GitHub path is unchanged.
+    const { service } = await this.resolveForgeService(cwd);
+    const githubFeaturesEnabled = await service.isAuthenticated({ cwd });
     if (!githubFeaturesEnabled) {
       this.host.emit({
         type: "pull_request_timeline_response",
@@ -996,7 +1021,7 @@ export class CheckoutSession {
     }
 
     try {
-      const timeline = await this.github.getPullRequestTimeline({
+      const timeline = await service.getPullRequestTimeline({
         cwd,
         prNumber,
         repoOwner,
@@ -1078,9 +1103,13 @@ export class CheckoutSession {
   ): Promise<void> {
     const { cwd, query, limit, kinds, requestId } = msg;
 
+    const resolvedCwd = expandTilde(cwd);
+    // Route through the resolved forge so a GitLab workspace hits its
+    // not-supported throw-stub instead of running the GitHub CLI. GitHub path is
+    // unchanged.
+    const { forge, service } = await this.resolveForgeService(resolvedCwd);
     try {
-      const resolvedCwd = expandTilde(cwd);
-      const result = await this.github.searchIssuesAndPrs({
+      const result = await service.searchIssuesAndPrs({
         cwd: resolvedCwd,
         query,
         limit,
@@ -1096,6 +1125,21 @@ export class CheckoutSession {
         },
       });
     } catch (error) {
+      // Search is deferred on non-GitHub forges: the adapter throws "not
+      // supported", which degrades to empty/unavailable results rather than a
+      // surfaced error. GitHub keeps surfacing real failures.
+      if (forge !== "github") {
+        this.host.emit({
+          type: "github_search_response",
+          payload: {
+            items: [],
+            githubFeaturesEnabled: false,
+            error: null,
+            requestId,
+          },
+        });
+        return;
+      }
       this.host.emit({
         type: "github_search_response",
         payload: {

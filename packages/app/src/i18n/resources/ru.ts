@@ -621,6 +621,19 @@ export const ru: TranslationResources = {
           pending: "Объединение PR...",
           success: "PR объединен",
         },
+        viewMr: "Посмотреть MR",
+        createMr: {
+          label: "Создать MR",
+          pending: "Создание MR...",
+          success: "MR создано",
+        },
+        mergeMr: {
+          squash: "Объединить MR (squash)",
+          merge: "Объединить MR (merge)",
+          rebase: "Объединить MR (rebase)",
+          pending: "Объединение MR...",
+          success: "MR объединен",
+        },
         autoMerge: {
           enableSquash: "Автообъединение (squash)",
           enableMerge: "Автообъединение (merge)",
@@ -771,6 +784,14 @@ export const ru: TranslationResources = {
           statusLoadFailed: "Невозможно загрузить статус запроса на включение",
           activityLoadFailed: "Невозможно загрузить активность запроса на включение",
         },
+      },
+      forgeSetup: {
+        installCli: "Установите CLI {{cli}}, чтобы использовать возможности {{brand}}.",
+        signIn: "Выполните {{command}}, чтобы использовать возможности {{brand}}.",
+      },
+      gitlab: {
+        setupCallout:
+          "Функции GitLab недоступны. Убедитесь, что CLI glab установлен и выполнен вход на этом хосте.",
       },
     },
   },

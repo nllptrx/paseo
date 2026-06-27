@@ -614,6 +614,19 @@ export const zhCN: TranslationResources = {
           pending: "正在 merge PR...",
           success: "PR 已 merge",
         },
+        viewMr: "查看 MR",
+        createMr: {
+          label: "创建 MR",
+          pending: "正在创建 MR...",
+          success: "MR 已创建",
+        },
+        mergeMr: {
+          squash: "Merge MR (squash)",
+          merge: "Merge MR (merge)",
+          rebase: "Merge MR (rebase)",
+          pending: "正在 merge MR...",
+          success: "MR 已 merge",
+        },
         autoMerge: {
           enableSquash: "Auto merge (squash)",
           enableMerge: "Auto merge (merge)",
@@ -746,6 +759,13 @@ export const zhCN: TranslationResources = {
           statusLoadFailed: "无法加载 Pull Request 状态",
           activityLoadFailed: "无法加载 Pull Request 活动",
         },
+      },
+      forgeSetup: {
+        installCli: "安装 {{cli}} CLI 以使用 {{brand}} 功能。",
+        signIn: "运行 {{command}} 以使用 {{brand}} 功能。",
+      },
+      gitlab: {
+        setupCallout: "GitLab 功能不可用。请确保此 Host 上已安装并登录 glab CLI。",
       },
     },
   },

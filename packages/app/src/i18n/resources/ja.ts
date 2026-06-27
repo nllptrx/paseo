@@ -620,6 +620,19 @@ export const ja: TranslationResources = {
           pending: "PRをマージ中...",
           success: "PRがマージされました",
         },
+        viewMr: "MRを表示",
+        createMr: {
+          label: "MRを作成",
+          pending: "MRを作成中...",
+          success: "MRが作成されました",
+        },
+        mergeMr: {
+          squash: "MRをマージ（スカッシュ）",
+          merge: "MRをマージ（マージ）",
+          rebase: "MRをマージ（リベース）",
+          pending: "MRをマージ中...",
+          success: "MRがマージされました",
+        },
         autoMerge: {
           enableSquash: "自動マージ（スカッシュ）",
           enableMerge: "自動マージ（マージ）",
@@ -764,6 +777,14 @@ export const ja: TranslationResources = {
           statusLoadFailed: "プルリクエストのステータスを読み込めません",
           activityLoadFailed: "プルリクエストのアクティビティを読み込めません",
         },
+      },
+      forgeSetup: {
+        installCli: "{{brand}} の機能を使うには {{cli}} CLI をインストールしてください。",
+        signIn: "{{brand}} の機能を使うには {{command}} を実行してください。",
+      },
+      gitlab: {
+        setupCallout:
+          "GitLab の機能は利用できません。このホストに glab CLI がインストールされ、認証されていることを確認してください。",
       },
     },
   },

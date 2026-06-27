@@ -13,6 +13,7 @@ import {
   type GitHubCommandRunner,
   type GitHubCommandRunnerOptions,
   type CurrentPullRequestStatus,
+  type GitHubPullRequestStatusFacts,
 } from "./github-service.js";
 import { CheckoutPrStatusResponseSchema } from "@getpaseo/protocol/messages";
 
@@ -162,9 +163,10 @@ function createCurrentPullRequestStatus(
 }
 
 function githubStatusFacts(
-  overrides: Partial<NonNullable<CurrentPullRequestStatus["github"]>> = {},
-): NonNullable<CurrentPullRequestStatus["github"]> {
+  overrides: Partial<GitHubPullRequestStatusFacts> = {},
+): GitHubPullRequestStatusFacts & { forge: "github" } {
   return {
+    forge: "github",
     mergeStateStatus: "CLEAN",
     autoMergeRequest: null,
     viewerCanEnableAutoMerge: false,
@@ -373,7 +375,7 @@ describe("ForgeService", () => {
         prNumber: 42,
         mergeMethod,
         status: createCurrentPullRequestStatus({
-          github: githubStatusFacts(),
+          forgeSpecific: githubStatusFacts(),
         }),
       }),
     ).resolves.toEqual({ success: true });
@@ -419,7 +421,7 @@ describe("ForgeService", () => {
           prNumber: 42,
           mergeMethod: "squash",
           status: createCurrentPullRequestStatus({
-            github: githubStatusFacts({ mergeStateStatus }),
+            forgeSpecific: githubStatusFacts({ mergeStateStatus }),
           }),
         }),
       ).rejects.toThrow("ready for direct merge");
@@ -443,7 +445,7 @@ describe("ForgeService", () => {
         prNumber: 42,
         mergeMethod: "squash",
         status: createCurrentPullRequestStatus({
-          github: githubStatusFacts(overrides),
+          forgeSpecific: githubStatusFacts(overrides),
         }),
       }),
     ).rejects.toThrow("merge queue");
@@ -463,7 +465,7 @@ describe("ForgeService", () => {
         prNumber: 42,
         mergeMethod: "squash",
         status: createCurrentPullRequestStatus({
-          github: githubStatusFacts({
+          forgeSpecific: githubStatusFacts({
             autoMergeRequest: {
               enabledAt: "2026-05-13T12:00:00Z",
               mergeMethod: "SQUASH",
@@ -489,7 +491,7 @@ describe("ForgeService", () => {
         prNumber: 42,
         mergeMethod: "squash",
         status: createCurrentPullRequestStatus({
-          github: githubStatusFacts({
+          forgeSpecific: githubStatusFacts({
             repository: {
               autoMergeAllowed: true,
               mergeCommitAllowed: true,
@@ -521,7 +523,7 @@ describe("ForgeService", () => {
         prNumber: 42,
         mergeMethod,
         status: createCurrentPullRequestStatus({
-          github: githubStatusFacts({
+          forgeSpecific: githubStatusFacts({
             mergeStateStatus: "BLOCKED",
             viewerCanEnableAutoMerge: true,
             repository: {
@@ -556,7 +558,7 @@ describe("ForgeService", () => {
         cwd: "/tmp/repo",
         prNumber: 42,
         status: createCurrentPullRequestStatus({
-          github: githubStatusFacts({
+          forgeSpecific: githubStatusFacts({
             autoMergeRequest: {
               enabledAt: "2026-05-13T12:00:00Z",
               mergeMethod: "SQUASH",
@@ -2167,7 +2169,8 @@ describe("ForgeService", () => {
         },
       ],
       checksStatus: "pending",
-      github: {
+      forgeSpecific: {
+        forge: "github",
         mergeStateStatus: "BLOCKED",
         autoMergeRequest: null,
         viewerCanEnableAutoMerge: true,
@@ -2633,6 +2636,7 @@ describe("ForgeService", () => {
     });
 
     expect(newDaemonResponse.payload.status).toEqual({
+      forge: "github",
       number: 42,
       url: "https://github.com/acme/repo/pull/42",
       title: "New daemon payload",

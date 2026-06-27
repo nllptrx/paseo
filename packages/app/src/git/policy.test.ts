@@ -3,11 +3,15 @@ import { CheckoutPrStatusSchema } from "@getpaseo/protocol/messages";
 import { i18n } from "@/i18n/i18next";
 
 import { buildGitActions, type BuildGitActionsInput } from "./policy";
+import {
+  deriveMergeCapability,
+  type ForgeSpecificStatusFacts,
+  type GithubMergeFacts,
+} from "./merge-capability";
 
-function githubStatus(
-  overrides: Partial<NonNullable<BuildGitActionsInput["pullRequestGithub"]>> = {},
-): NonNullable<BuildGitActionsInput["pullRequestGithub"]> {
+function githubStatus(overrides: Partial<GithubMergeFacts> = {}): GithubMergeFacts {
   return {
+    forge: "github",
     mergeStateStatus: "CLEAN",
     autoMergeRequest: null,
     viewerCanEnableAutoMerge: false,
@@ -27,7 +31,12 @@ function githubStatus(
   };
 }
 
-function createInput(overrides: Partial<BuildGitActionsInput> = {}): BuildGitActionsInput {
+function createInput(
+  overrides: Partial<Omit<BuildGitActionsInput, "mergeCapability">> & {
+    pullRequestGithub?: ForgeSpecificStatusFacts | null;
+  } = {},
+): BuildGitActionsInput {
+  const { pullRequestGithub = null, ...rest } = overrides;
   return {
     isGit: true,
     githubFeaturesEnabled: true,
@@ -38,7 +47,7 @@ function createInput(overrides: Partial<BuildGitActionsInput> = {}): BuildGitAct
     pullRequestIsDraft: false,
     pullRequestIsMerged: false,
     pullRequestMergeable: "UNKNOWN",
-    pullRequestGithub: null,
+    mergeCapability: deriveMergeCapability(pullRequestGithub),
     hasRemote: false,
     isPaseoOwnedWorktree: false,
     isOnBaseBranch: true,
@@ -128,7 +137,7 @@ function createInput(overrides: Partial<BuildGitActionsInput> = {}): BuildGitAct
         handler: () => undefined,
       },
     },
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -697,12 +706,12 @@ describe("git-actions-policy", () => {
         pullRequestIsDraft: oldDaemonStatus.isDraft,
         pullRequestIsMerged: oldDaemonStatus.isMerged,
         pullRequestMergeable: oldDaemonStatus.mergeable,
-        pullRequestGithub: oldDaemonStatus.github,
+        pullRequestGithub: oldDaemonStatus.forgeSpecific,
         shipDefault: "pr",
       }),
     );
 
-    expect(oldDaemonStatus.github).toBeUndefined();
+    expect(oldDaemonStatus.forgeSpecific).toBeUndefined();
     expect(actions.primary).toMatchObject({
       id: "merge-pr-squash",
       label: "Merge PR (squash)",

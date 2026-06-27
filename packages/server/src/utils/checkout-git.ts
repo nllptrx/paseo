@@ -13,10 +13,12 @@ import {
   createGitHubService,
   resolveGitHubRepo,
   type CurrentPullRequestStatus,
-  type GitHubPullRequestStatusFacts,
+  type ForgeAuthState,
   type ForgeService,
+  type ForgeSpecificStatusFacts,
   type PullRequestMergeable,
 } from "../services/github-service.js";
+import { GlabAuthenticationError, GlabCliMissingError } from "../services/gitlab-service.js";
 import { parseGitRevParsePath, resolveGitRevParsePath } from "./git-rev-parse-path.js";
 import { runGitCommand } from "./run-git-command.js";
 import { isPaseoOwnedWorktreeCwd, resolvePaseoWorktreesBaseRoot } from "./worktree.js";
@@ -2948,6 +2950,7 @@ export interface PullRequestStatus {
   number?: number;
   repoOwner?: string;
   repoName?: string;
+  projectPath?: string;
   url: string;
   title: string;
   state: string;
@@ -2959,12 +2962,44 @@ export interface PullRequestStatus {
   checks?: PullRequestCheck[];
   checksStatus?: ChecksStatus;
   reviewDecision?: ReviewDecision;
-  github?: GitHubPullRequestStatusFacts;
+  forgeSpecific?: ForgeSpecificStatusFacts;
 }
 
 export interface PullRequestStatusResult {
   status: PullRequestStatus | null;
+  /** Why forge features are (un)available — drives the onboarding callout. */
+  authState: ForgeAuthState;
+  /** Kept in sync with {@link authState} for back-compat; true iff authenticated. */
   githubFeaturesEnabled: boolean;
+}
+
+function buildPullRequestStatusResult(
+  status: PullRequestStatus | null,
+  authState: ForgeAuthState,
+): PullRequestStatusResult {
+  return { status, authState, githubFeaturesEnabled: authState === "authenticated" };
+}
+
+/** True for the CLI-missing / authentication errors of any supported forge. */
+function isForgeAuthError(error: unknown): boolean {
+  return (
+    error instanceof GitHubCliMissingError ||
+    error instanceof GitHubAuthenticationError ||
+    error instanceof GlabCliMissingError ||
+    error instanceof GlabAuthenticationError
+  );
+}
+
+/**
+ * Map a forge CLI failure to an auth state. A missing-CLI error means the user
+ * must install the tool; anything else surfaced as an auth probe failure means
+ * they must sign in.
+ */
+export function forgeAuthStateFromError(error: unknown): ForgeAuthState {
+  if (error instanceof GitHubCliMissingError || error instanceof GlabCliMissingError) {
+    return "cli_missing";
+  }
+  return "unauthenticated";
 }
 
 export interface PullRequestCheck {
@@ -2984,10 +3019,14 @@ export async function createPullRequest(
   options: CreatePullRequestOptions,
   github: ForgeService = createGitHubService(),
   context?: CheckoutContext,
+  forge: string = "github",
 ): Promise<{ url: string; number: number }> {
   await requireGitRepo(cwd);
-  const repo = await resolveGitHubRepo(cwd);
-  if (!repo) {
+  // Only the GitHub adapter needs an owner/name repo slug; other forges (GitLab)
+  // resolve the project from the cwd, so requiring a GitHub repo here would
+  // wrongly reject every non-GitHub remote before the resolved adapter runs.
+  const repo = forge === "github" ? await resolveGitHubRepo(cwd) : null;
+  if (forge === "github" && !repo) {
     throw new Error("Unable to determine GitHub repo from git remote");
   }
 
@@ -3009,7 +3048,7 @@ export async function createPullRequest(
 
   const result = await github.createPullRequest({
     cwd,
-    repo,
+    repo: repo ?? "",
     title: options.title,
     body: options.body,
     head,
@@ -3068,20 +3107,14 @@ async function getPullRequestStatusUncached(
   context?: CheckoutContext,
 ): Promise<PullRequestStatusResult> {
   if (context?.facts?.isGit === false) {
-    return {
-      status: null,
-      githubFeaturesEnabled: false,
-    };
+    return buildPullRequestStatusResult(null, "no_remote");
   }
   if (!context?.facts?.isGit) {
     await requireGitRepo(cwd);
   }
   const head = context?.facts?.isGit ? context.facts.currentBranch : await getCurrentBranch(cwd);
   if (!head) {
-    return {
-      status: null,
-      githubFeaturesEnabled: false,
-    };
+    return buildPullRequestStatusResult(null, "no_remote");
   }
   try {
     const lookupTarget = await resolvePullRequestStatusLookupTarget(cwd, head, context);
@@ -3104,13 +3137,10 @@ async function getPullRequestStatusUncached(
         reason: options?.reason,
       });
     }
-    return {
-      status,
-      githubFeaturesEnabled: true,
-    };
+    return buildPullRequestStatusResult(status, "authenticated");
   } catch (error) {
-    if (error instanceof GitHubCliMissingError || error instanceof GitHubAuthenticationError) {
-      return { status: null, githubFeaturesEnabled: false };
+    if (isForgeAuthError(error)) {
+      return buildPullRequestStatusResult(null, forgeAuthStateFromError(error));
     }
     throw error;
   }

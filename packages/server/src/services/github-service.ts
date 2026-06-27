@@ -14,10 +14,11 @@ import type {
   ForgeService,
   IssueSummary,
   MergePullRequestOptions,
-  PullRequestCheckoutTarget,
   PullRequestCheck,
-  PullRequestCheckStatus,
+  PullRequestCheckoutTarget,
   PullRequestChecksStatus,
+  PullRequestCheckStatus,
+  PullRequestCommandStatus,
   PullRequestMergeMethod,
   PullRequestReviewDecision,
   PullRequestSummary,
@@ -37,24 +38,27 @@ export type {
   CurrentPullRequestStatus,
   DisablePullRequestAutoMergeOptions,
   EnablePullRequestAutoMergeOptions,
+  ForgeAuthState,
   ForgeReadOptions,
   ForgeService,
+  ForgeSpecificStatusFacts,
   GetCheckDetailsOptions,
   GetPullRequestOptions,
   GetPullRequestTimelineOptions,
+  GitLabStatusFacts,
   IssueSummary,
   ListIssuesOptions,
   ListPullRequestsOptions,
   MergePullRequestOptions,
   PullRequestAutoMergeResult,
-  PullRequestCheckoutTarget,
   PullRequestCheck,
-  PullRequestCheckStatus,
+  PullRequestCheckoutTarget,
   PullRequestChecksStatus,
+  PullRequestCheckStatus,
   PullRequestCommandStatus,
   PullRequestCreateResult,
-  PullRequestMergeMethod,
   PullRequestMergeable,
+  PullRequestMergeMethod,
   PullRequestMergeResult,
   PullRequestReviewDecision,
   PullRequestSummary,
@@ -1362,8 +1366,18 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): F
   return api;
 }
 
+function getGithubStatusFacts(
+  status: PullRequestCommandStatus | null | undefined,
+): GitHubPullRequestStatusFacts | null {
+  const forgeSpecific = status?.forgeSpecific;
+  if (!forgeSpecific || forgeSpecific.forge !== "github") {
+    return null;
+  }
+  return forgeSpecific;
+}
+
 function assertDirectPullRequestMergeReady(input: MergePullRequestOptions): void {
-  const github = input.status?.github;
+  const github = getGithubStatusFacts(input.status);
   if (!github) {
     throw new Error("GitHub merge facts are unavailable for this pull request");
   }
@@ -1385,7 +1399,7 @@ function assertDirectPullRequestMergeReady(input: MergePullRequestOptions): void
 export function assertPullRequestAutoMergeEnableReady(
   input: Pick<EnablePullRequestAutoMergeOptions, "mergeMethod" | "status">,
 ): void {
-  const github = input.status?.github;
+  const github = getGithubStatusFacts(input.status);
   if (!github) {
     throw new Error("GitHub auto-merge facts are unavailable for this pull request");
   }
@@ -1416,7 +1430,7 @@ export function assertPullRequestAutoMergeEnableReady(
 export function assertPullRequestAutoMergeDisableReady(
   input: Pick<DisablePullRequestAutoMergeOptions, "status">,
 ): void {
-  const github = input.status?.github;
+  const github = getGithubStatusFacts(input.status);
   if (!github) {
     throw new Error("GitHub auto-merge facts are unavailable for this pull request");
   }
@@ -1678,7 +1692,7 @@ async function addCurrentPullRequestGithubFacts(options: {
   }
   return {
     ...status,
-    github: facts,
+    forgeSpecific: { forge: "github", ...facts },
   };
 }
 

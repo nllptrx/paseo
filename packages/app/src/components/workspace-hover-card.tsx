@@ -24,6 +24,7 @@ import {
   Server,
 } from "lucide-react-native";
 import { GitHubIcon } from "@/components/icons/github-icon";
+import { GitLabIcon } from "@/components/icons/gitlab-icon";
 import type { Theme } from "@/styles/theme";
 import { DiffStat } from "@/components/diff-stat";
 import { Pressable } from "react-native";
@@ -319,7 +320,11 @@ function WorkspaceHoverCardContent({
           {prHint?.checks && prHint.checks.length > 0 ? (
             <>
               <View style={styles.separator} />
-              <ChecksSummaryPressable checks={prHint.checks} url={prHint.url} />
+              <ChecksSummaryPressable
+                checks={prHint.checks}
+                url={prHint.url}
+                forge={prHint.forge}
+              />
             </>
           ) : null}
         </FloatingSurface>
@@ -344,6 +349,7 @@ function HostRow({ serverId }: { serverId: string }): ReactElement | null {
 
 const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedGitHubIcon = withUnistyles(GitHubIcon);
+const ThemedGitLabIcon = withUnistyles(GitLabIcon);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedCircleDot = withUnistyles(CircleDot);
 const ThemedCircleX = withUnistyles(CircleX);
@@ -489,22 +495,25 @@ function ChecksSummaryPill({
 function ChecksSummaryContent({
   checks,
   hovered,
+  forge,
 }: {
   checks: NonNullable<PrHint["checks"]>;
   hovered: boolean;
+  forge: PrHint["forge"];
 }) {
   const { t } = useTranslation();
   const { passed, failed, pending } = getChecksSummaryCounts(checks);
 
   const labelStyle = hovered ? checksSummaryLabelHoveredCombined : styles.checksSummaryLabel;
   const iconUniProps = hovered ? foregroundColorMapping : foregroundMutedColorMapping;
+  const ForgeMarkIcon = forge === "gitlab" ? ThemedGitLabIcon : ThemedGitHubIcon;
 
   return (
     <>
       {hovered ? (
         <ThemedExternalLink size={12} uniProps={iconUniProps} />
       ) : (
-        <ThemedGitHubIcon size={12} uniProps={iconUniProps} />
+        <ForgeMarkIcon size={12} uniProps={iconUniProps} />
       )}
       <Text style={labelStyle}>{t("workspace.git.pr.sections.checks")}</Text>
       <View style={styles.checksSummaryCounts}>
@@ -519,9 +528,11 @@ function ChecksSummaryContent({
 function ChecksSummaryPressable({
   checks,
   url,
+  forge,
 }: {
   checks: NonNullable<PrHint["checks"]>;
   url: string;
+  forge: PrHint["forge"];
 }) {
   const handlePress = useCallback(() => {
     void openExternalUrl(`${url}/checks`);
@@ -529,9 +540,9 @@ function ChecksSummaryPressable({
 
   const renderChildren = useCallback(
     ({ hovered }: { pressed: boolean; hovered?: boolean }) => (
-      <ChecksSummaryContent checks={checks} hovered={Boolean(hovered)} />
+      <ChecksSummaryContent checks={checks} hovered={Boolean(hovered)} forge={forge} />
     ),
-    [checks],
+    [checks, forge],
   );
 
   return (

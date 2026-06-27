@@ -389,6 +389,23 @@ describe("mapPrPaneData", () => {
     expect(mapPrPaneData(baseStatus, baseTimeline)?.awaitingReviewers).toEqual([]);
   });
 
+  it("defaults the forge to github and omits the project path when neither is supplied", () => {
+    const data = mapPrPaneData(baseStatus, baseTimeline);
+    expect(data?.forge).toBe("github");
+    expect(data?.projectPath).toBeUndefined();
+  });
+
+  it("carries the resolved forge and the nested project path for GitLab", () => {
+    const data = mapPrPaneData(
+      status({ projectPath: "group/subgroup/repo" }),
+      baseTimeline,
+      undefined,
+      "gitlab",
+    );
+    expect(data?.forge).toBe("gitlab");
+    expect(data?.projectPath).toBe("group/subgroup/repo");
+  });
+
   it("rejects stale timeline activity when the timeline PR number differs from status", () => {
     const data = mapPrPaneData(
       baseStatus,

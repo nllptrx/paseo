@@ -620,6 +620,19 @@ export const ptBR: TranslationResources = {
           pending: "Fazendo merge da PR...",
           success: "PR mergeada",
         },
+        viewMr: "Ver MR",
+        createMr: {
+          label: "Criar MR",
+          pending: "Criando MR...",
+          success: "MR criada",
+        },
+        mergeMr: {
+          squash: "Merge",
+          merge: "Merge",
+          rebase: "Merge",
+          pending: "Fazendo merge da MR...",
+          success: "MR mergeada",
+        },
         autoMerge: {
           enableSquash: "Merge automático",
           enableMerge: "Merge automático",
@@ -770,6 +783,14 @@ export const ptBR: TranslationResources = {
           statusLoadFailed: "Não foi possível carregar o status da pull request",
           activityLoadFailed: "Não foi possível carregar a atividade da pull request",
         },
+      },
+      forgeSetup: {
+        installCli: "Instale a CLI {{cli}} para usar os recursos do {{brand}}.",
+        signIn: "Execute {{command}} para usar os recursos do {{brand}}.",
+      },
+      gitlab: {
+        setupCallout:
+          "Os recursos do GitLab não estão disponíveis. Verifique se a CLI glab está instalada e autenticada neste host.",
       },
     },
   },

@@ -616,6 +616,19 @@ export const ar: TranslationResources = {
           pending: "دمج PR...",
           success: "تم دمج PR",
         },
+        viewMr: "عرض MR",
+        createMr: {
+          label: "إنشاء MR",
+          pending: "إنشاء MR...",
+          success: "تم إنشاء MR",
+        },
+        mergeMr: {
+          squash: "دمج MR (squash)",
+          merge: "دمج MR (merge)",
+          rebase: "دمج MR (rebase)",
+          pending: "دمج MR...",
+          success: "تم دمج MR",
+        },
         autoMerge: {
           enableSquash: "دمج تلقائي (squash)",
           enableMerge: "دمج تلقائي (merge)",
@@ -752,6 +765,14 @@ export const ar: TranslationResources = {
           statusLoadFailed: "غير قادر على تحميل حالة طلب السحب",
           activityLoadFailed: "غير قادر على تحميل نشاط طلب السحب",
         },
+      },
+      forgeSetup: {
+        installCli: "ثبّت واجهة سطر الأوامر {{cli}} لاستخدام ميزات {{brand}}.",
+        signIn: "نفّذ {{command}} لاستخدام ميزات {{brand}}.",
+      },
+      gitlab: {
+        setupCallout:
+          "ميزات GitLab غير متاحة. تأكد من تثبيت أداة glab وتسجيل الدخول إليها على هذا المضيف.",
       },
     },
   },

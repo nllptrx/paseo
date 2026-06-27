@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 
 import { CheckoutPrStatusSchema } from "@getpaseo/protocol/messages";
-import { normalizeCheckoutPrStatusPayload } from "./status-projection.js";
+import type { WorkspaceGitRuntimeSnapshot } from "../workspace-git-service.js";
+import {
+  buildCheckoutPrStatusPayloadFromSnapshot,
+  normalizeCheckoutPrStatusPayload,
+} from "./status-projection.js";
 
 describe("checkout status projection", () => {
   test("includes repository identity fields on the PR status wire payload", () => {
@@ -61,7 +65,8 @@ describe("checkout status projection", () => {
       ],
       checksStatus: "pending",
       reviewDecision: "approved",
-      github: {
+      forgeSpecific: {
+        forge: "github",
         mergeStateStatus: "BLOCKED",
         autoMergeRequest: null,
         viewerCanEnableAutoMerge: true,
@@ -86,6 +91,12 @@ describe("checkout status projection", () => {
       number: 993,
       mergeable: "MERGEABLE",
       checksStatus: "pending",
+      forgeSpecific: {
+        forge: "github",
+        mergeStateStatus: "BLOCKED",
+        viewerCanEnableAutoMerge: true,
+      },
+      // COMPAT(forgeSpecific): GitHub facts are still mirrored onto `github` for old clients.
       github: {
         mergeStateStatus: "BLOCKED",
         viewerCanEnableAutoMerge: true,
@@ -97,5 +108,101 @@ describe("checkout status projection", () => {
       },
     });
     expect(CheckoutPrStatusSchema.parse(payload)).toEqual(payload);
+  });
+
+  test("projects GitLab merge facts onto forgeSpecific without a github mirror", () => {
+    const payload = normalizeCheckoutPrStatusPayload({
+      number: 1,
+      repoOwner: "group",
+      repoName: "repo",
+      projectPath: "group/subgroup/repo",
+      url: "https://gitlab.com/group/subgroup/repo/-/merge_requests/1",
+      title: "Add sample change",
+      state: "open",
+      baseRefName: "main",
+      headRefName: "feat/sample-change",
+      isMerged: false,
+      mergeable: "MERGEABLE",
+      checksStatus: "success",
+      forgeSpecific: {
+        forge: "gitlab",
+        detailedMergeStatus: "mergeable",
+        hasConflicts: false,
+        blockingDiscussionsResolved: true,
+        approvalsRequired: 1,
+        approvalsGiven: 1,
+        pipelineStatus: "success",
+        mergeWhenPipelineSucceeds: false,
+      },
+    });
+
+    expect(payload).toHaveProperty("projectPath", "group/subgroup/repo");
+    expect(payload).toMatchObject({
+      forgeSpecific: {
+        forge: "gitlab",
+        detailedMergeStatus: "mergeable",
+        pipelineStatus: "success",
+      },
+    });
+    expect(payload).not.toHaveProperty("github");
+    expect(CheckoutPrStatusSchema.parse(payload)).toEqual(payload);
+  });
+
+  test("labels the nested status.forge with the resolved forge", () => {
+    const payload = normalizeCheckoutPrStatusPayload(
+      {
+        number: 1,
+        url: "https://gitlab.com/group/proj/-/merge_requests/1",
+        title: "MR",
+        state: "open",
+        baseRefName: "main",
+        headRefName: "feat/x",
+        isMerged: false,
+        mergeable: "MERGEABLE",
+      },
+      "gitlab",
+    );
+    expect(payload).toHaveProperty("forge", "gitlab");
+  });
+
+  test("a gitlab-resolved snapshot emits status.forge and payload forge as gitlab", () => {
+    const snapshot = {
+      git: { remoteUrl: "git@gitlab.com:group/proj.git" },
+      github: {
+        featuresEnabled: true,
+        authState: "authenticated",
+        forge: "gitlab",
+        error: null,
+        pullRequest: {
+          number: 7,
+          url: "https://gitlab.com/group/proj/-/merge_requests/7",
+          title: "MR 7",
+          state: "open",
+          baseRefName: "main",
+          headRefName: "feat/seven",
+          isMerged: false,
+          mergeable: "MERGEABLE",
+          forgeSpecific: {
+            forge: "gitlab",
+            detailedMergeStatus: "mergeable",
+            hasConflicts: false,
+            blockingDiscussionsResolved: true,
+            approvalsRequired: 0,
+            approvalsGiven: 0,
+            pipelineStatus: "success",
+            mergeWhenPipelineSucceeds: false,
+          },
+        },
+      },
+    } as unknown as WorkspaceGitRuntimeSnapshot;
+
+    const payload = buildCheckoutPrStatusPayloadFromSnapshot({
+      cwd: "/repo",
+      requestId: "req-1",
+      snapshot,
+    });
+
+    expect(payload.forge).toBe("gitlab");
+    expect(payload.status?.forge).toBe("gitlab");
   });
 });

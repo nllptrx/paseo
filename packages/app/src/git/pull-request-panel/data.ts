@@ -2,6 +2,7 @@ import type {
   CheckoutPrStatusResponse,
   PullRequestTimelineResponse,
 } from "@getpaseo/protocol/messages";
+import type { Forge } from "@/git/forge";
 
 export type PrState = "open" | "draft" | "merged" | "closed";
 export type CheckStatus = "success" | "failure" | "pending" | "skipped";
@@ -56,9 +57,17 @@ export interface PrPaneActivity {
 
 export interface PrPaneData {
   provider: PullRequestProviderMetadata;
+  /**
+   * The forge hosting this change request, driving the PR↔MR relabel, the
+   * number prefix, and the brand mark. Distinct from {@link provider}, which
+   * still tags the source of checks/timeline items (GitHub-only for now).
+   */
+  forge: Forge;
   number: number;
   repoOwner?: string;
   repoName?: string;
+  /** Neutral project identity (GitLab namespaces nest beyond owner/name). */
+  projectPath?: string;
   title: string;
   state: PrState;
   url: string;
@@ -87,6 +96,7 @@ export function mapPrPaneData(
   status: CheckoutPrStatus,
   timeline: PullRequestTimeline | null | undefined,
   nowMs = Date.now(),
+  forge: Forge = "github",
 ): PrPaneData | null {
   if (!status) {
     return null;
@@ -101,9 +111,11 @@ export function mapPrPaneData(
 
   return {
     provider: GITHUB_PROVIDER,
+    forge,
     number,
     repoOwner: status.repoOwner,
     repoName: status.repoName,
+    projectPath: status.projectPath,
     title: status.title,
     state: derivePrState(status),
     url: status.url,

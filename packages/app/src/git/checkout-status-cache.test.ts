@@ -55,6 +55,7 @@ function prStatus(overrides: Partial<CheckoutPrStatusPayload> = {}): CheckoutPrS
       reviewDecision: null,
     },
     githubFeaturesEnabled: true,
+    forge: "github",
     error: null,
     requestId: "pr-status-1",
     ...overrides,

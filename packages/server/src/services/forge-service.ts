@@ -49,10 +49,49 @@ export type PullRequestChecksStatus = "none" | "pending" | "success" | "failure"
 export type PullRequestReviewDecision = "approved" | "changes_requested" | "pending" | null;
 export type PullRequestMergeable = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 
+/**
+ * Why a forge's PR/MR features are (un)available for a workspace. Replaces the
+ * lossy "authenticated yes/no" boolean so the UI can offer the precise next step
+ * (install the CLI vs sign in) instead of a single generic dead-end. "no_remote"
+ * covers anything where the feature simply does not apply (no resolvable forge
+ * remote, or no branch to look up).
+ */
+export type ForgeAuthState = "authenticated" | "unauthenticated" | "cli_missing" | "no_remote";
+
+/**
+ * GitLab merge facts as reported by `glab mr view -F json`. The home for the
+ * gitlab arm of {@link ForgeSpecificStatusFacts}; mirrors the GitHub adapter's
+ * {@link GitHubPullRequestStatusFacts}.
+ */
+export interface GitLabStatusFacts {
+  detailedMergeStatus: string | null;
+  hasConflicts: boolean;
+  blockingDiscussionsResolved: boolean;
+  approvalsRequired: number;
+  approvalsGiven: number;
+  pipelineStatus: string | null;
+  mergeWhenPipelineSucceeds: boolean;
+}
+
+/**
+ * Discriminated home for a forge's native merge facts on the neutral PR status.
+ * Each adapter populates its own arm; readers narrow on `forge` to reach the
+ * facts a given forge actually reports.
+ */
+export type ForgeSpecificStatusFacts =
+  | ({ forge: "github" } & GitHubPullRequestStatusFacts)
+  | ({ forge: "gitlab" } & GitLabStatusFacts);
+
 export interface CurrentPullRequestStatus {
   number?: number;
   repoOwner?: string;
   repoName?: string;
+  /**
+   * The forge's full project path (e.g. nested GitLab namespaces like
+   * `group/subgroup/repo`). Adapters that can report it precisely set it here;
+   * otherwise consumers fall back to deriving it from owner/name.
+   */
+  projectPath?: string;
   url: string;
   title: string;
   state: string;
@@ -64,7 +103,7 @@ export interface CurrentPullRequestStatus {
   checks: PullRequestCheck[];
   checksStatus: PullRequestChecksStatus;
   reviewDecision: PullRequestReviewDecision;
-  github?: GitHubPullRequestStatusFacts;
+  forgeSpecific?: ForgeSpecificStatusFacts;
 }
 
 export type PullRequestTimelineReviewState = "approved" | "changes_requested" | "commented";
@@ -124,7 +163,7 @@ export type PullRequestMergeMethod = "merge" | "squash" | "rebase";
 
 export interface PullRequestCommandStatus {
   mergeable?: PullRequestMergeable;
-  github?: GitHubPullRequestStatusFacts;
+  forgeSpecific?: ForgeSpecificStatusFacts;
 }
 
 export interface MergePullRequestOptions {

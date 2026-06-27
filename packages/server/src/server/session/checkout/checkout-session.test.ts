@@ -855,5 +855,48 @@ describe("CheckoutSession", () => {
         },
       ]);
     });
+
+    it("degrades search to empty/unavailable on a gitlab workspace without running gh", async () => {
+      let githubCalled = false;
+      const { checkout, emitted } = makeCheckoutSession({
+        github: {
+          searchIssuesAndPrs: async () => {
+            githubCalled = true;
+            return { items: [], githubFeaturesEnabled: true };
+          },
+        },
+        git: {
+          resolveForge: async () => ({
+            forge: "gitlab",
+            host: "gitlab.com",
+            service: {
+              searchIssuesAndPrs: async () => {
+                throw new Error("Issue and merge request search is not supported on GitLab yet");
+              },
+            } as never,
+          }),
+        },
+      });
+
+      await checkout.handleGitHubSearchRequest({
+        type: "github_search_request",
+        cwd: "/repo",
+        query: "fix",
+        requestId: "gs2",
+      });
+
+      expect(githubCalled).toBe(false);
+      expect(emitted).toEqual([
+        {
+          type: "github_search_response",
+          payload: {
+            items: [],
+            githubFeaturesEnabled: false,
+            error: null,
+            requestId: "gs2",
+          },
+        },
+      ]);
+    });
   });
 });

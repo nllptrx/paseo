@@ -234,17 +234,21 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
   const checkoutDiffManager = options.checkoutDiffManager ?? {
     scheduleRefreshForCwd: vi.fn(),
   };
-  const workspaceGitService = options.workspaceGitService ?? {
-    getCheckoutDiff: vi.fn(),
-    getSnapshot: vi.fn(),
-    suggestBranchesForCwd: vi.fn(),
-    listStashes: vi.fn(),
-    peekSnapshot: vi.fn(),
-    validateBranchRef: vi.fn(),
-    hasLocalBranch: vi.fn(),
-    resolveRepoRemoteUrl: vi.fn(),
-    resolveRepoRoot: vi.fn(),
-    getWorkspaceGitMetadata: vi.fn(),
+  const workspaceGitService = {
+    resolveForge: vi.fn().mockResolvedValue(null),
+    ...(options.workspaceGitService ?? {
+      getCheckoutDiff: vi.fn(),
+      getSnapshot: vi.fn(),
+      suggestBranchesForCwd: vi.fn(),
+      listStashes: vi.fn(),
+      peekSnapshot: vi.fn(),
+      validateBranchRef: vi.fn(),
+      hasLocalBranch: vi.fn(),
+      resolveForge: vi.fn().mockResolvedValue(null),
+      resolveRepoRemoteUrl: vi.fn(),
+      resolveRepoRoot: vi.fn(),
+      getWorkspaceGitMetadata: vi.fn(),
+    }),
   };
   const messages = options.messages ?? [];
 
@@ -1947,6 +1951,8 @@ diff --git a/file.txt b/file.txt
         base: "main",
       },
       expect.anything(),
+      undefined,
+      "github",
     );
     expect(messages).toContainEqual({
       type: "checkout_pr_create_response",
@@ -2071,6 +2077,8 @@ diff --git a/file.txt b/file.txt
         base: "main",
       },
       expect.anything(),
+      undefined,
+      "github",
     );
     expect(messages).toContainEqual({
       type: "checkout_pr_create_response",
@@ -2135,7 +2143,8 @@ describe("session checkout pull request merge", () => {
         github: {
           pullRequest: {
             number: 42,
-            github: {
+            forgeSpecific: {
+              forge: "github",
               mergeStateStatus: "CLEAN",
               autoMergeRequest: null,
               viewerCanEnableAutoMerge: false,
@@ -2171,7 +2180,8 @@ describe("session checkout pull request merge", () => {
       mergeMethod: "squash",
       status: {
         number: 42,
-        github: {
+        forgeSpecific: {
+          forge: "github",
           mergeStateStatus: "CLEAN",
           autoMergeRequest: null,
           viewerCanEnableAutoMerge: false,
@@ -2216,8 +2226,8 @@ describe("session checkout pull request merge", () => {
     const github = {
       invalidate: vi.fn(),
       mergePullRequest: vi.fn(
-        async (input: { status?: { github?: { mergeStateStatus?: string | null } } }) => {
-          if (input.status?.github?.mergeStateStatus === "BLOCKED") {
+        async (input: { status?: { forgeSpecific?: { mergeStateStatus?: string | null } } }) => {
+          if (input.status?.forgeSpecific?.mergeStateStatus === "BLOCKED") {
             throw new Error("GitHub does not report this pull request as ready for direct merge");
           }
           return { success: true };
@@ -2228,7 +2238,8 @@ describe("session checkout pull request merge", () => {
       github: {
         pullRequest: {
           number: 42,
-          github: {
+          forgeSpecific: {
+            forge: "github",
             mergeStateStatus,
             autoMergeRequest: null,
             viewerCanEnableAutoMerge: false,
@@ -2271,7 +2282,7 @@ describe("session checkout pull request merge", () => {
     expect(github.mergePullRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         status: expect.objectContaining({
-          github: expect.objectContaining({ mergeStateStatus: "BLOCKED" }),
+          forgeSpecific: expect.objectContaining({ mergeStateStatus: "BLOCKED" }),
         }),
       }),
     );
@@ -2347,7 +2358,8 @@ describe("session checkout pull request merge", () => {
         github: {
           pullRequest: {
             number: 42,
-            github: {
+            forgeSpecific: {
+              forge: "github",
               mergeStateStatus: "CLEAN",
               autoMergeRequest: null,
               viewerCanEnableAutoMerge: false,
@@ -2395,7 +2407,8 @@ describe("session checkout pull request merge", () => {
 describe("session checkout pull request auto-merge", () => {
   const autoMergeGithubFacts = (
     overrides: Partial<GitHubPullRequestStatusFacts> = {},
-  ): GitHubPullRequestStatusFacts => ({
+  ): GitHubPullRequestStatusFacts & { forge: "github" } => ({
+    forge: "github",
     mergeStateStatus: "BLOCKED",
     autoMergeRequest: null,
     viewerCanEnableAutoMerge: true,
@@ -2426,7 +2439,7 @@ describe("session checkout pull request auto-merge", () => {
           pullRequest: {
             number: 42,
             mergeable: "MERGEABLE",
-            github: autoMergeGithubFacts(),
+            forgeSpecific: autoMergeGithubFacts(),
           },
         },
       }),
@@ -2448,7 +2461,7 @@ describe("session checkout pull request auto-merge", () => {
       status: {
         number: 42,
         mergeable: "MERGEABLE",
-        github: autoMergeGithubFacts(),
+        forgeSpecific: autoMergeGithubFacts(),
       },
     });
     expect(workspaceGitService.getSnapshot).toHaveBeenNthCalledWith(1, "/tmp/request-worktree", {
@@ -2484,7 +2497,7 @@ describe("session checkout pull request auto-merge", () => {
         github: {
           pullRequest: {
             number: 42,
-            github: autoMergeGithubFacts({
+            forgeSpecific: autoMergeGithubFacts({
               autoMergeRequest: {
                 enabledAt: "2026-05-13T17:00:00Z",
                 mergeMethod: "SQUASH",
@@ -2511,7 +2524,7 @@ describe("session checkout pull request auto-merge", () => {
       prNumber: 42,
       status: {
         number: 42,
-        github: autoMergeGithubFacts({
+        forgeSpecific: autoMergeGithubFacts({
           autoMergeRequest: {
             enabledAt: "2026-05-13T17:00:00Z",
             mergeMethod: "SQUASH",
@@ -2555,7 +2568,7 @@ describe("session checkout pull request auto-merge", () => {
         github: {
           pullRequest: {
             number: 42,
-            github: autoMergeGithubFacts(),
+            forgeSpecific: autoMergeGithubFacts(),
           },
         },
       }),
@@ -2596,7 +2609,7 @@ describe("session checkout pull request auto-merge", () => {
         github: {
           pullRequest: {
             number: 42,
-            github: autoMergeGithubFacts({
+            forgeSpecific: autoMergeGithubFacts({
               repository: {
                 autoMergeAllowed: true,
                 mergeCommitAllowed: true,
@@ -2652,7 +2665,7 @@ describe("session checkout pull request auto-merge", () => {
         github: {
           pullRequest: {
             number: 42,
-            github: autoMergeGithubFacts({
+            forgeSpecific: autoMergeGithubFacts({
               autoMergeRequest: {
                 enabledAt: "2026-05-13T17:00:00Z",
                 mergeMethod: "SQUASH",
@@ -2707,7 +2720,7 @@ describe("session checkout pull request auto-merge", () => {
         github: {
           pullRequest: {
             number: 42,
-            github: autoMergeGithubFacts({
+            forgeSpecific: autoMergeGithubFacts({
               autoMergeRequest: {
                 enabledAt: "2026-05-13T17:00:00Z",
                 mergeMethod: "SQUASH",

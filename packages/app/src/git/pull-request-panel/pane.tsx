@@ -50,6 +50,8 @@ import { useCheckoutGitActionsStore } from "@/git/actions-store";
 import { isNative } from "@/constants/platform";
 import { useIsCompactFormFactor, WORKSPACE_SECONDARY_HEADER_HEIGHT } from "@/constants/layout";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { GitLabIcon } from "@/components/icons/gitlab-icon";
+import { getForgePresentation } from "@/git/forge";
 import { PrActivitySkeleton } from "./activity-skeleton";
 import {
   collapseActivity,
@@ -93,9 +95,11 @@ const ThemedMessageSquarePlus = withUnistyles(MessageSquarePlus);
 const ThemedMoreHorizontal = withUnistyles(MoreHorizontal);
 const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
+const ThemedGitLabIcon = withUnistyles(GitLabIcon);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const gitlabBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitlab });
 const successColorMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
 const dangerColorMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
 const warningColorMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
@@ -428,6 +432,10 @@ export function PullRequestPane({
 
   const statePresentation = PR_STATE_PRESENTATION[data.state];
   const StateIcon = statePresentation.Icon;
+  const forgePresentation = getForgePresentation(data.forge);
+  const repoIdentity =
+    data.projectPath ??
+    (data.repoOwner && data.repoName ? `${data.repoOwner}/${data.repoName}` : null);
 
   return (
     <View style={styles.root} testID="pr-pane">
@@ -478,16 +486,23 @@ export function PullRequestPane({
             <>
               <Text style={styles.title} testID="pr-pane-title">
                 {data.title}
-                <Text style={styles.titleNumber}> #{data.number}</Text>
+                <Text style={styles.titleNumber}>
+                  {" "}
+                  {forgePresentation.numberPrefix}
+                  {data.number}
+                </Text>
               </Text>
               <View style={styles.metaLine}>
                 <StateIcon size={14} uniProps={statePresentation.iconColor} />
                 <Text style={stateLabelStyle(data.state)} testID="pr-pane-state">
                   {getStateLabel(data.state)}
                 </Text>
-                {data.repoOwner && data.repoName ? (
+                {data.forge === "gitlab" ? (
+                  <ThemedGitLabIcon size={12} uniProps={gitlabBrandColorMapping} />
+                ) : null}
+                {repoIdentity ? (
                   <Text style={styles.repoRef} numberOfLines={1}>
-                    {data.repoOwner}/{data.repoName}
+                    {repoIdentity}
                   </Text>
                 ) : null}
                 <View style={hovered ? styles.headerLinkIcon : styles.headerLinkIconHidden}>

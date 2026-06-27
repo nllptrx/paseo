@@ -2351,6 +2351,8 @@ export const ServerInfoStatusPayloadSchema = z
         daemonSelfUpdate: z.boolean().optional(),
         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
         agentForkContext: z.boolean().optional(),
+        // COMPAT(gitlab): added in v0.1.102, drop the gate when daemon floor >= v0.1.102.
+        gitlab: z.boolean().optional(),
       })
       .optional(),
   })
@@ -2650,6 +2652,10 @@ export const WorkspaceDescriptorPayloadSchema = z
     scripts: z.array(WorkspaceScriptPayloadSchema).default([]),
     gitRuntime: WorkspaceGitRuntimePayloadSchema,
     githubRuntime: WorkspaceGitHubRuntimePayloadSchema,
+    // COMPAT(forge): added in v0.1.102, remove after 2026-12-27. The forge resolved
+    // for this workspace, so the sidebar/hover-card render the right brand mark.
+    // Old daemons omit it; absent means the client falls back to GitHub.
+    forge: z.string().optional(),
     project: ProjectPlacementPayloadSchema.optional(),
   })
   .transform((workspace) => ({
@@ -3279,19 +3285,43 @@ const CheckoutPrGithubRepositoryPolicySchema = z
     viewerDefaultMergeMethod: null,
   });
 
-const CheckoutPrGithubStatusSchema = z
-  .object({
-    mergeStateStatus: z.string().nullable().optional().default(null),
-    autoMergeRequest: CheckoutPrGithubAutoMergeRequestSchema,
-    viewerCanEnableAutoMerge: z.boolean().optional().default(false),
-    viewerCanDisableAutoMerge: z.boolean().optional().default(false),
-    viewerCanMergeAsAdmin: z.boolean().optional().default(false),
-    viewerCanUpdateBranch: z.boolean().optional().default(false),
-    repository: CheckoutPrGithubRepositoryPolicySchema,
-    isMergeQueueEnabled: z.boolean().optional().default(false),
-    isInMergeQueue: z.boolean().optional().default(false),
-  })
-  .optional();
+const CheckoutPrGithubStatusObjectSchema = z.object({
+  mergeStateStatus: z.string().nullable().optional().default(null),
+  autoMergeRequest: CheckoutPrGithubAutoMergeRequestSchema,
+  viewerCanEnableAutoMerge: z.boolean().optional().default(false),
+  viewerCanDisableAutoMerge: z.boolean().optional().default(false),
+  viewerCanMergeAsAdmin: z.boolean().optional().default(false),
+  viewerCanUpdateBranch: z.boolean().optional().default(false),
+  repository: CheckoutPrGithubRepositoryPolicySchema,
+  isMergeQueueEnabled: z.boolean().optional().default(false),
+  isInMergeQueue: z.boolean().optional().default(false),
+});
+
+const CheckoutPrGithubStatusSchema = CheckoutPrGithubStatusObjectSchema.optional();
+
+const CheckoutPrGitlabStatusObjectSchema = z.object({
+  detailedMergeStatus: z.string().nullable().optional().default(null),
+  hasConflicts: z.boolean().optional().default(false),
+  blockingDiscussionsResolved: z.boolean().optional().default(true),
+  approvalsRequired: z.number().optional().default(0),
+  approvalsGiven: z.number().optional().default(0),
+  pipelineStatus: z.string().nullable().optional().default(null),
+  mergeWhenPipelineSucceeds: z.boolean().optional().default(false),
+});
+
+// COMPAT(forgeSpecific): added in v0.1.102, remove after 2026-12-27. A discriminated
+// union over the forge. `.catch(undefined)` keeps an unknown forge (a future adapter)
+// from breaking the parse in either direction — it degrades to absent rather than
+// throwing — and unknown fields within an arm are stripped, not rejected. The `github`
+// field above stays populated alongside this for clients predating forgeSpecific; drop
+// that mirror once the daemon floor >= v0.1.102.
+const CheckoutPrForgeSpecificSchema = z
+  .union([
+    CheckoutPrGithubStatusObjectSchema.extend({ forge: z.literal("github") }),
+    CheckoutPrGitlabStatusObjectSchema.extend({ forge: z.literal("gitlab") }),
+  ])
+  .optional()
+  .catch(undefined);
 
 export const CheckoutPrStatusSchema = z.object({
   // COMPAT(forge): added in v0.1.102, remove the default after 2026-12-27 once daemon floor >= v0.1.102.
@@ -3329,12 +3359,29 @@ export const CheckoutPrStatusSchema = z.object({
   repoOwner: z.string().optional(),
   repoName: z.string().optional(),
   github: CheckoutPrGithubStatusSchema,
+  forgeSpecific: CheckoutPrForgeSpecificSchema,
 });
+
+// Why a forge's PR/MR features are (un)available, so the client can offer the
+// precise next step instead of a generic dead-end. Unknown values from a future
+// daemon degrade to absent rather than breaking the parse.
+export const ForgeAuthStateSchema = z
+  .enum(["authenticated", "unauthenticated", "cli_missing", "no_remote"])
+  .optional()
+  .catch(undefined);
+
+export type ForgeAuthState = NonNullable<z.infer<typeof ForgeAuthStateSchema>>;
 
 const CheckoutPrStatusPayloadSchema = z.object({
   cwd: z.string(),
   status: CheckoutPrStatusSchema.nullable(),
   githubFeaturesEnabled: z.boolean(),
+  // COMPAT(forgeAuthState): added in v0.1.102, remove after 2026-12-27. Optional richer
+  // signal that supersedes githubFeaturesEnabled (kept in sync as authState === "authenticated");
+  // drop the boolean once the daemon floor >= v0.1.102.
+  authState: ForgeAuthStateSchema,
+  // COMPAT(forge): added in v0.1.102, remove the default after 2026-12-27 once daemon floor >= v0.1.102.
+  forge: z.string().optional().default("github"),
   error: CheckoutErrorSchema.nullable(),
   requestId: z.string(),
 });

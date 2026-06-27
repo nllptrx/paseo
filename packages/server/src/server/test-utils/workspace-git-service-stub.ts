@@ -68,6 +68,7 @@ export function createNoopWorkspaceGitService(
         remoteUrl: snapshot.git.remoteUrl,
       });
     },
+    resolveForge: async () => null,
     resolveRepoRoot: async (cwd: string) => cwd,
     resolveDefaultBranch: async () => "main",
     resolveRepoRemoteUrl: async () => null,

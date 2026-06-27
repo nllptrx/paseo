@@ -4,12 +4,18 @@ import type {
   SessionOutboundMessage,
 } from "@getpaseo/protocol/messages";
 import type { WorkspaceGitRuntimeSnapshot } from "../workspace-git-service.js";
+import { forgeForHost, parseRemoteHost } from "../../services/forge-resolver.js";
 
 type CheckoutPrStatusPayload = Extract<
   SessionOutboundMessage,
   { type: "checkout_pr_status_response" }
 >["payload"];
 type CheckoutPrStatusPayloadStatus = NonNullable<CheckoutPrStatusPayload["status"]>;
+
+function resolveForgeId(remoteUrl: string | null): string {
+  const host = remoteUrl ? parseRemoteHost(remoteUrl) : null;
+  return (host ? forgeForHost(host) : null) ?? "github";
+}
 
 export function buildCheckoutStatusPayloadFromSnapshot({
   cwd,
@@ -95,10 +101,20 @@ export function buildCheckoutPrStatusPayloadFromSnapshot({
   requestId: string;
   snapshot: WorkspaceGitRuntimeSnapshot;
 }): CheckoutPrStatusResponse["payload"] {
+  // Prefer the forge resolved during snapshot refresh (probe-aware, so
+  // self-managed GitLab hosts are correct); fall back to the bare name heuristic
+  // only when no resolved forge is on the snapshot. Single source of truth for
+  // both the payload-level forge and the nested status.forge.
+  const forge =
+    snapshot.github.pullRequest?.forgeSpecific?.forge ??
+    snapshot.github.forge ??
+    resolveForgeId(snapshot.git.remoteUrl);
   return {
     cwd,
-    status: normalizeCheckoutPrStatusPayload(snapshot.github.pullRequest),
+    status: normalizeCheckoutPrStatusPayload(snapshot.github.pullRequest, forge),
     githubFeaturesEnabled: snapshot.github.featuresEnabled,
+    authState: snapshot.github.authState,
+    forge,
     error: snapshot.github.error
       ? {
           code: "UNKNOWN",
@@ -111,12 +127,13 @@ export function buildCheckoutPrStatusPayloadFromSnapshot({
 
 export function normalizeCheckoutPrStatusPayload(
   status: WorkspaceGitRuntimeSnapshot["github"]["pullRequest"],
+  forge = "github",
 ): CheckoutPrStatusPayloadStatus | null {
   if (!status) {
     return null;
   }
   const payload: CheckoutPrStatusPayloadStatus = {
-    forge: "github",
+    forge,
     number: status.number,
     url: status.url,
     title: status.title,
@@ -132,12 +149,20 @@ export function normalizeCheckoutPrStatusPayload(
     checksStatus: status.checksStatus,
     reviewDecision: status.reviewDecision,
   };
-  const hasProjectPath = status.repoOwner !== undefined && status.repoName !== undefined;
-  if (hasProjectPath) {
+  if (status.projectPath) {
+    payload.projectPath = status.projectPath;
+  } else if (status.repoOwner && status.repoName) {
     payload.projectPath = `${status.repoOwner}/${status.repoName}`;
   }
-  if (status.github) {
-    payload.github = status.github;
+  if (status.forgeSpecific) {
+    payload.forgeSpecific = status.forgeSpecific;
+    // COMPAT(forgeSpecific): added in v0.1.102, remove after 2026-12-27. Keep
+    // mirroring GitHub facts onto `github` for clients that predate forgeSpecific;
+    // drop once the daemon floor >= v0.1.102.
+    if (status.forgeSpecific.forge === "github") {
+      const { forge: _forge, ...githubFacts } = status.forgeSpecific;
+      payload.github = githubFacts;
+    }
   }
   return payload;
 }

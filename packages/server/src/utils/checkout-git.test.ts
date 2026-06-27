@@ -17,6 +17,7 @@ import {
   __resetPullRequestStatusCacheForTests,
   __setPullRequestStatusCacheTtlForTests,
   commitAll,
+  createPullRequest,
   getCachedCheckoutShortstat,
   getCheckoutSnapshotFacts,
   getCurrentBranch,
@@ -42,6 +43,7 @@ import {
   warmCheckoutShortstatInBackground,
 } from "./checkout-git.js";
 import { startGitCommandMetrics, stopGitCommandMetrics } from "./run-git-command.js";
+import { createForgeResolver } from "../services/forge-resolver.js";
 import {
   GitHubCommandError,
   GitHubCliMissingError,
@@ -243,6 +245,75 @@ describe("checkout git utilities", () => {
     await expect(getCheckoutDiff(nonGitDir, { mode: "uncommitted" })).rejects.toBeInstanceOf(
       NotGitRepoError,
     );
+  });
+
+  it("creates a merge request for a non-github forge without resolving a github repo", async () => {
+    setupRemoteTrackingMain(repoDir, tempDir);
+    let receivedRepo: string | undefined;
+    const gitlab = createGitHubServiceForStatus(null);
+    gitlab.createPullRequest = async (input) => {
+      receivedRepo = input.repo;
+      return { url: "https://gitlab.com/group/proj/-/merge_requests/7", number: 7 };
+    };
+
+    const result = await createPullRequest(
+      repoDir,
+      { title: "Add thing", body: "desc", base: "main" },
+      gitlab,
+      undefined,
+      "gitlab",
+    );
+
+    expect(result).toEqual({
+      url: "https://gitlab.com/group/proj/-/merge_requests/7",
+      number: 7,
+    });
+    expect(receivedRepo).toBe("");
+  });
+
+  it("still requires a resolvable github repo for the github forge", async () => {
+    await expect(
+      createPullRequest(repoDir, { title: "x", base: "main" }, createGitHubServiceForStatus(null)),
+    ).rejects.toThrow("Unable to determine GitHub repo");
+  });
+
+  it("resolves a gitlab remote through the resolver and creates via the gitlab adapter", async () => {
+    // origin is a real local bare repo so the push succeeds; the resolver reads a
+    // gitlab remote URL (injected) so it selects the gitlab adapter from the host.
+    setupRemoteTrackingMain(repoDir, tempDir);
+    let adapterReached = false;
+    let receivedRepo: string | undefined;
+    const gitlab = createGitHubServiceForStatus(null);
+    gitlab.createPullRequest = async (input) => {
+      adapterReached = true;
+      receivedRepo = input.repo;
+      return { url: "https://gitlab.com/group/proj/-/merge_requests/9", number: 9 };
+    };
+
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@gitlab.com:group/proj.git",
+      createService: (forge) => (forge === "gitlab" ? gitlab : null),
+    });
+    const resolution = await resolver.resolve(repoDir);
+    expect(resolution).toMatchObject({ forge: "gitlab", host: "gitlab.com" });
+    expect(resolution?.service).toBe(gitlab);
+
+    const result = await createPullRequest(
+      repoDir,
+      { title: "Add thing", body: "desc", base: "main" },
+      resolution?.service,
+      undefined,
+      resolution?.forge,
+    );
+
+    expect(adapterReached).toBe(true);
+    // The gitlab adapter ignores repo (resolves the project from cwd); reaching
+    // it with an empty repo proves resolveGitHubRepo was not on the path.
+    expect(receivedRepo).toBe("");
+    expect(result).toEqual({
+      url: "https://gitlab.com/group/proj/-/merge_requests/9",
+      number: 9,
+    });
   });
 
   it("returns null for getCurrentBranch in a repo with no commits", async () => {
@@ -2199,6 +2270,7 @@ const x = 1;
 
     expect(status).toEqual({
       githubFeaturesEnabled: true,
+      authState: "authenticated",
       status: {
         number: 123,
         url: "https://github.com/getpaseo/paseo/pull/123",
@@ -2593,6 +2665,7 @@ const x = 1;
       expect(fresh.status?.url).toContain("/pull/123");
       expect(cleared).toEqual({
         githubFeaturesEnabled: true,
+        authState: "authenticated",
         status: null,
       });
       expect(callCount).toBe(2);
