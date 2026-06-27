@@ -51,7 +51,7 @@ import {
   buildAgentAttentionNotificationPayload,
   findLatestPermissionRequest,
 } from "@getpaseo/protocol/agent-attention-notification";
-import { createGitHubService, type GitHubService } from "../services/github-service.js";
+import { createGitHubService, type ForgeService } from "../services/github-service.js";
 import {
   extractWsBearerProtocol,
   extractWsBearerToken,
@@ -401,7 +401,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly loopService: LoopService;
   private readonly scheduleService: ScheduleService;
   private readonly checkoutDiffManager: CheckoutDiffManager;
-  private readonly github: GitHubService;
+  private readonly github: ForgeService;
   private readonly workspaceGitService: WorkspaceGitService;
   private readonly downloadTokenStore: DownloadTokenStore;
   private readonly paseoHome: string;
@@ -475,7 +475,7 @@ export class VoiceAssistantWebSocketServer {
     getDaemonTcpHost?: () => string | null,
     resolveScriptHealth?: (hostname: string) => ScriptHealthState | null,
     workspaceGitService?: WorkspaceGitService,
-    github?: GitHubService,
+    github?: ForgeService,
     pushNotificationSender?: PushNotificationSender,
     providerSnapshotManager?: ProviderSnapshotManager,
     daemonRuntimeConfig?: {

@@ -3,7 +3,7 @@ import os from "node:os";
 import path, { join } from "node:path";
 import type { FSWatcher } from "node:fs";
 import type pino from "pino";
-import type { GitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/github-service.js";
 import type {
   CheckoutSnapshotFacts,
   CheckoutStatusGit,
@@ -173,7 +173,7 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
-function createGitHubServiceStub(): GitHubService {
+function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: vi.fn(async () => []),
     listIssues: vi.fn(async () => []),
@@ -205,7 +205,7 @@ interface CreateServiceTestOptions {
   getCheckoutSnapshotFacts?: ReturnType<typeof vi.fn>;
   getCheckoutShortstat?: ReturnType<typeof vi.fn>;
   getPullRequestStatus?: ReturnType<typeof vi.fn>;
-  github?: GitHubService;
+  github?: ForgeService;
   resolveAbsoluteGitDir?: ReturnType<typeof vi.fn>;
   hasOriginRemote?: ReturnType<typeof vi.fn>;
   runGitFetch?: ReturnType<typeof vi.fn>;

@@ -46,7 +46,7 @@ import {
   GitHubCommandError,
   GitHubCliMissingError,
   type GitHubCurrentPullRequestStatus,
-  type GitHubService,
+  type ForgeService,
 } from "../services/github-service.js";
 import {
   createWorktree as createWorktreePrimitive,
@@ -104,7 +104,7 @@ function sleep(ms: number): Promise<void> {
 function createGitHubServiceForStatus(
   status: GitHubCurrentPullRequestStatus | null,
   options?: { onStatus?: () => void },
-): GitHubService {
+): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],
@@ -161,7 +161,7 @@ interface RecordingPullRequestTargetsOptions {
 
 function createGitHubServiceRecordingPullRequestTargets(
   options: RecordingPullRequestTargetsOptions,
-): GitHubService {
+): ForgeService {
   const github = createGitHubServiceForStatus(null);
   github.getCurrentPullRequestStatus = async (request) => {
     options.requestedTargets.push({

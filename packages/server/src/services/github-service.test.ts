@@ -348,7 +348,7 @@ function pullRequestTimelineJson(overrides: Record<string, unknown> = {}): strin
   });
 }
 
-describe("GitHubService", () => {
+describe("ForgeService", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -3064,7 +3064,7 @@ describe("GitHubService", () => {
         headRef: "feature/fork",
         force: true,
       } as never),
-    ).rejects.toThrow("GitHubService forced read requires a reason");
+    ).rejects.toThrow("ForgeService forced read requires a reason");
   });
 
   it("type: force true requires a reason", () => {

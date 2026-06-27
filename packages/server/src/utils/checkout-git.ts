@@ -14,7 +14,7 @@ import {
   resolveGitHubRepo,
   type GitHubCurrentPullRequestStatus,
   type GitHubPullRequestStatusFacts,
-  type GitHubService,
+  type ForgeService,
   type PullRequestMergeable,
 } from "../services/github-service.js";
 import { parseGitRevParsePath, resolveGitRevParsePath } from "./git-rev-parse-path.js";
@@ -2782,7 +2782,7 @@ async function detectAndThrowMergeFromBaseConflict(
   }
 }
 
-export async function pullCurrentBranch(cwd: string, github?: GitHubService): Promise<void> {
+export async function pullCurrentBranch(cwd: string, github?: ForgeService): Promise<void> {
   await requireGitRepo(cwd);
   const currentBranch = await getCurrentBranch(cwd);
   if (!currentBranch || currentBranch === "HEAD") {
@@ -2801,7 +2801,7 @@ export async function pullCurrentBranch(cwd: string, github?: GitHubService): Pr
   }
 }
 
-export async function pushCurrentBranch(cwd: string, github?: GitHubService): Promise<void> {
+export async function pushCurrentBranch(cwd: string, github?: ForgeService): Promise<void> {
   await requireGitRepo(cwd);
   const currentBranch = await getCurrentBranch(cwd);
   if (!currentBranch || currentBranch === "HEAD") {
@@ -2982,7 +2982,7 @@ export type ReviewDecision = "approved" | "changes_requested" | "pending" | null
 export async function createPullRequest(
   cwd: string,
   options: CreatePullRequestOptions,
-  github: GitHubService = createGitHubService(),
+  github: ForgeService = createGitHubService(),
   context?: CheckoutContext,
 ): Promise<{ url: string; number: number }> {
   await requireGitRepo(cwd);
@@ -3021,7 +3021,7 @@ export async function createPullRequest(
 
 export async function getPullRequestStatus(
   cwd: string,
-  github: GitHubService = createGitHubService(),
+  github: ForgeService = createGitHubService(),
   options?: CheckoutReadCacheOptions,
   context?: CheckoutContext,
 ): Promise<PullRequestStatusResult> {
@@ -3063,7 +3063,7 @@ export async function getPullRequestStatus(
 
 async function getPullRequestStatusUncached(
   cwd: string,
-  github: GitHubService,
+  github: ForgeService,
   options?: CheckoutReadCacheOptions,
   context?: CheckoutContext,
 ): Promise<PullRequestStatusResult> {

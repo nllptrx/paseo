@@ -1,6 +1,6 @@
 import type pino from "pino";
 import { getErrorMessage } from "@getpaseo/protocol/error-utils";
-import type { GitHubService } from "../../../services/github-service.js";
+import type { ForgeService } from "../../../services/github-service.js";
 import {
   checkoutResolvedBranch,
   type CheckoutExistingBranchResult,
@@ -42,7 +42,7 @@ type GitMutationGitSource = Pick<
 
 export function createGitMutationService(deps: {
   workspaceGitService: GitMutationGitSource;
-  github: Pick<GitHubService, "invalidate">;
+  github: Pick<ForgeService, "invalidate">;
   logger: pino.Logger;
 }): GitMutationService {
   const { workspaceGitService, github, logger } = deps;

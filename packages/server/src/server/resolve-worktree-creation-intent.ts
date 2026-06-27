@@ -1,4 +1,4 @@
-import type { GitHubPullRequestCheckoutTarget, GitHubService } from "../services/github-service.js";
+import type { ForgeService, GitHubPullRequestCheckoutTarget } from "../services/github-service.js";
 import type { WorktreeSource } from "../utils/worktree.js";
 
 export type WorktreeCreationIntent = WorktreeSource;
@@ -27,7 +27,7 @@ export type ResolveWorktreeCreationIntentInput =
     };
 
 export interface ResolveWorktreeCreationIntentDeps {
-  github: GitHubService;
+  github: ForgeService;
   resolveDefaultBranch: (repoRoot: string) => Promise<string>;
 }
 

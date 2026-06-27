@@ -26,7 +26,7 @@ import {
 import {
   createGitHubService,
   type GitHubPullRequestStatusFacts,
-  type GitHubService,
+  type ForgeService,
   type PullRequestMergeable,
 } from "../services/github-service.js";
 import { parseGitRevParsePath } from "../utils/git-rev-parse-path.js";
@@ -248,7 +248,7 @@ interface WorkspaceGitServiceDependencies {
   resolveRepositoryDefaultBranch: typeof resolveRepositoryDefaultBranch;
   listBranchSuggestions: typeof listBranchSuggestions;
   listPaseoWorktrees: typeof listPaseoWorktrees;
-  github: GitHubService;
+  github: ForgeService;
   resolveAbsoluteGitDir: (cwd: string) => Promise<string | null>;
   hasOriginRemote: (cwd: string) => Promise<boolean>;
   runGitFetch: (cwd: string) => Promise<void>;

@@ -13,13 +13,13 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test, afterEach } from "vitest";
-import type { GitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/github-service.js";
 import { getCheckoutStatus, pushCurrentBranch } from "../utils/checkout-git.js";
 import { UnknownBranchError } from "../utils/worktree.js";
 import { createWorktreeCore as createCoreWorktree } from "./worktree-core.js";
 import { isPlatform } from "../test-utils/platform.js";
 
-function createGitHubServiceStub(): GitHubService {
+function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],
@@ -46,7 +46,7 @@ function createGitHubServiceStub(): GitHubService {
   };
 }
 
-function createCoreDeps(options?: { github?: GitHubService }) {
+function createCoreDeps(options?: { github?: ForgeService }) {
   return {
     github: options?.github ?? createGitHubServiceStub(),
     workspaceGitService: {
@@ -972,11 +972,11 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
       expect(second.worktree).toEqual(first.worktree);
     });
 
-    test("uses an injectable GitHubService dependency for missing PR head refs", async () => {
+    test("uses an injectable ForgeService dependency for missing PR head refs", async () => {
       const { tempDir, repoDir, paseoHome } = createGitHubPrRemoteRepo();
       cleanupPaths.push(tempDir);
       const headRefLookups: Array<{ cwd: string; number: number }> = [];
-      const github: GitHubService = {
+      const github: ForgeService = {
         ...createGitHubServiceStub(),
         getPullRequestHeadRef: async ({ cwd, number }) => {
           headRefLookups.push({ cwd, number });

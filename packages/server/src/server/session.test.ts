@@ -39,7 +39,7 @@ import { isPlatform } from "../test-utils/platform.js";
 import type {
   GitHubCheckDetails,
   GitHubPullRequestStatusFacts,
-  GitHubService,
+  ForgeService,
 } from "../services/github-service.js";
 
 interface SessionHandlerInternals {
@@ -190,7 +190,7 @@ vi.mock("./worktree-bootstrap.js", async (importOriginal) => {
 interface SessionForTestOptions {
   agentManager?: { [K in keyof SessionOptions["agentManager"]]?: unknown };
   agentStorage?: { [K in keyof SessionOptions["agentStorage"]]?: unknown };
-  github?: Partial<GitHubService>;
+  github?: Partial<ForgeService>;
   checkoutDiffManager?: { scheduleRefreshForCwd: ReturnType<typeof vi.fn> };
   workspaceGitService?: {
     getCheckoutDiff?: ReturnType<typeof vi.fn>;
@@ -3757,7 +3757,7 @@ describe("session workspace script handling", () => {
 });
 
 describe("session pull request timeline handling", () => {
-  test("routes GitHub search requests through GitHubService", async () => {
+  test("routes GitHub search requests through ForgeService", async () => {
     const messages: unknown[] = [];
     const github = {
       invalidate: vi.fn(),
@@ -3820,7 +3820,7 @@ describe("session pull request timeline handling", () => {
     });
   });
 
-  test("passes request identity to GitHubService and emits timeline items", async () => {
+  test("passes request identity to ForgeService and emits timeline items", async () => {
     const messages: unknown[] = [];
     const github = {
       invalidate: vi.fn(),
@@ -3991,7 +3991,7 @@ describe("session pull request timeline handling", () => {
       failedJobs: [],
       truncated: false,
     };
-    const github: Partial<GitHubService> = {
+    const github: Partial<ForgeService> = {
       invalidate() {},
       async isAuthenticated() {
         return true;

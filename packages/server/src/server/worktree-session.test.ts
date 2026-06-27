@@ -33,7 +33,7 @@ import type { TerminalManager } from "../terminal/terminal-manager.js";
 import type { TerminalSession } from "../terminal/terminal.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent/agent-storage.js";
 import type { PersistedProjectRecord, PersistedWorkspaceRecord } from "./workspace-registry.js";
-import type { GitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/github-service.js";
 import {
   createPaseoWorktree as createPaseoWorktreeService,
   type CreatePaseoWorktreeFn,
@@ -126,7 +126,7 @@ function createWorkflowForRequestTest(options: {
   };
 }
 
-function createGitHubServiceStub(): GitHubService {
+function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],

@@ -63,7 +63,7 @@ import {
   setAgentModeCommand,
   updateAgentCommand,
 } from "../lifecycle-command.js";
-import type { GitHubService } from "../../../services/github-service.js";
+import type { ForgeService } from "../../../services/github-service.js";
 import type { WorkspaceGitService } from "../../workspace-git-service.js";
 import { WorktreeRequestError } from "../../worktree-errors.js";
 import {
@@ -88,7 +88,7 @@ export interface PaseoToolHostDependencies {
   getDaemonTcpPort?: () => number | null;
   scheduleService?: ScheduleService | null;
   providerSnapshotManager: ProviderSnapshotManager;
-  github?: GitHubService;
+  github?: ForgeService;
   workspaceGitService?: Pick<
     WorkspaceGitService,
     "getSnapshot" | "listWorktrees" | "resolveRepoRoot"

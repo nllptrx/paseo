@@ -35,7 +35,7 @@ import { createWorktree, UnknownBranchError } from "../utils/worktree.js";
 import { WorktreeRequestError, toWorktreeRequestError } from "./worktree-errors.js";
 import type { WorkspaceGitRuntimeSnapshot } from "./workspace-git-service.js";
 import type { GeneratedWorkspaceName } from "./worktree-branch-name-generator.js";
-import type { GitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/github-service.js";
 import { createNoopWorkspaceGitService } from "./test-utils/workspace-git-service-stub.js";
 import {
   asSessionLogger,
@@ -527,7 +527,7 @@ function createSessionForWorkspaceTests(
     terminalManager?: TerminalManager | null;
     projectRegistry?: SessionOptions["projectRegistry"];
     workspaceRegistry?: SessionOptions["workspaceRegistry"];
-    github?: GitHubService;
+    github?: ForgeService;
     paseoHome?: string;
     worktreesRoot?: string;
     renameCurrentBranch?: (
@@ -7101,7 +7101,7 @@ function createWorkspaceCreatePrRepo(): WorkspaceCreatePrRepoFixture {
   return { tempDir, repoDir, paseoHome, headRef, prFileName, prNumber };
 }
 
-function createPrCheckoutGitHubService(params: { headRef: string }): GitHubService {
+function createPrCheckoutGitHubService(params: { headRef: string }): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],

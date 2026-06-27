@@ -799,7 +799,7 @@ export interface CreateGitHubPullRequestOptions {
   body?: string;
 }
 
-export interface GitHubService {
+export interface ForgeService {
   listPullRequests(options: ListGitHubPullRequestsOptions): Promise<GitHubPullRequestSummary[]>;
   listIssues(options: ListGitHubIssuesOptions): Promise<GitHubIssueSummary[]>;
   getPullRequest(options: GetGitHubPullRequestOptions): Promise<GitHubPullRequestSummary>;
@@ -926,7 +926,7 @@ interface ResolvedPullRequestCandidate {
   headRepositoryOwner?: string;
 }
 
-export function createGitHubService(options: CreateGitHubServiceOptions = {}): GitHubService {
+export function createGitHubService(options: CreateGitHubServiceOptions = {}): ForgeService {
   const ttlMs = options.ttlMs ?? DEFAULT_GITHUB_CACHE_TTL_MS;
   const deps: GitHubServiceDependencies = {
     runner: options.runner ?? runGhCommand,
@@ -937,7 +937,7 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): G
   const inFlight = new Map<string, InFlightCacheEntry>();
   const pollTargets = new Map<string, GitHubPollTarget>();
   const checkLogTailCache = new Map<string, { logTail: string; logTruncated: boolean }>();
-  let api!: GitHubService;
+  let api!: ForgeService;
 
   async function cached<T>(params: {
     cwd: string;
@@ -947,7 +947,7 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): G
     load: () => Promise<T>;
   }): Promise<T> {
     if (params.readOptions?.force && !params.readOptions.reason) {
-      throw new Error("GitHubService forced read requires a reason");
+      throw new Error("ForgeService forced read requires a reason");
     }
 
     const key = buildCacheKey({
@@ -1370,7 +1370,7 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): G
 
     async searchIssuesAndPrs(input) {
       if (input.force && !input.reason) {
-        throw new Error("GitHubService forced read requires a reason");
+        throw new Error("ForgeService forced read requires a reason");
       }
 
       const kinds = input.kinds ?? ["github-issue", "github-pr"];

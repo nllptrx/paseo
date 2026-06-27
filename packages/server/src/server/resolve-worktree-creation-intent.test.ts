@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { GitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/github-service.js";
 import {
   MissingCheckoutTargetError,
   resolveWorktreeCreationIntent,
@@ -12,14 +12,14 @@ interface GitHubHeadRefLookup {
 }
 
 interface ResolverHarness {
-  github: GitHubService;
+  github: ForgeService;
   headRefLookups: GitHubHeadRefLookup[];
   resolveDefaultBranch: (repoRoot: string) => Promise<string>;
 }
 
 function createResolverHarness(): ResolverHarness {
   const headRefLookups: GitHubHeadRefLookup[] = [];
-  const github: GitHubService = {
+  const github: ForgeService = {
     listPullRequests: async () => [],
     listIssues: async () => [],
     searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),

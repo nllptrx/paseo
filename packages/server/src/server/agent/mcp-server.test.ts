@@ -33,7 +33,7 @@ import {
 } from "../paseo-worktree-service.js";
 import type { CreatePaseoWorktreeWorkflowFn } from "../worktree-session.js";
 import { WorkspaceGitServiceImpl } from "../workspace-git-service.js";
-import type { GitHubService } from "../../services/github-service.js";
+import type { ForgeService } from "../../services/github-service.js";
 import type { TerminalManager } from "../../terminal/terminal-manager.js";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 
@@ -459,7 +459,7 @@ function createManagedAgent(overrides: Partial<ManagedAgent> = {}): ManagedAgent
   } as ManagedAgent;
 }
 
-function createGitHubServiceStub(): GitHubService {
+function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],

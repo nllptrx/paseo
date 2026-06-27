@@ -6,7 +6,7 @@ import {
   type CheckoutSessionHost,
 } from "./checkout-session.js";
 import type { GitMutationService } from "../git-mutation/git-mutation-service.js";
-import { createGitHubService, type GitHubService } from "../../../services/github-service.js";
+import { createGitHubService, type ForgeService } from "../../../services/github-service.js";
 import type { SessionOutboundMessage } from "../../messages.js";
 import type {
   CheckoutDiffCompareInput,
@@ -81,7 +81,7 @@ interface RecordedGeneratorCalls {
 function makeCheckoutSession(options?: {
   git?: Partial<WorkspaceGitService>;
   diff?: CheckoutDiffSubscriber;
-  github?: Partial<GitHubService>;
+  github?: Partial<ForgeService>;
   host?: Partial<CheckoutSessionHost>;
   gitMutation?: Partial<GitMutationFake>;
   gitMetadataGenerator?: Partial<GitMetadataGenerator>;
@@ -135,7 +135,7 @@ function makeCheckoutSession(options?: {
     },
     ...options?.gitMetadataGenerator,
   };
-  const github: GitHubService = { ...createGitHubService(), ...options?.github };
+  const github: ForgeService = { ...createGitHubService(), ...options?.github };
   const checkout = new CheckoutSession({
     host,
     gitMutation,

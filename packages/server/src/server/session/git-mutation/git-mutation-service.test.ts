@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pino } from "pino";
 import { afterEach, describe, expect, test } from "vitest";
-import type { GitHubService } from "../../../services/github-service.js";
+import type { ForgeService } from "../../../services/github-service.js";
 import type {
   WorkspaceGitBranchValidationResult,
   WorkspaceGitRuntimeSnapshot,
@@ -13,7 +13,7 @@ import type {
 import { createGitMutationService } from "./git-mutation-service.js";
 
 // The production module reads only WorkspaceGitService.{validateBranchRef,getSnapshot,hasLocalBranch}
-// and GitHubService.invalidate. The fakes below implement exactly that slice as in-memory
+// and ForgeService.invalidate. The fakes below implement exactly that slice as in-memory
 // adapters; the happy-path tests cross the real git boundary against a temp repo, since that is
 // where checkoutResolvedBranch / `git checkout -b` actually run.
 
@@ -53,7 +53,7 @@ function createFakeGit(opts: FakeGitOptions = {}) {
 
 function createFakeGithub() {
   const invalidateCalls: Array<{ cwd: string }> = [];
-  const github: Pick<GitHubService, "invalidate"> = {
+  const github: Pick<ForgeService, "invalidate"> = {
     invalidate(options) {
       invalidateCalls.push(options);
     },

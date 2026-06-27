@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   createGitHubService,
   type GitHubCurrentPullRequestStatus,
-  type GitHubService,
+  type ForgeService,
 } from "../services/github-service.js";
 import {
   getCheckoutDiff as getCheckoutDiffUncached,
@@ -194,7 +194,7 @@ function createSnapshot(
   };
 }
 
-function createGitHubServiceStub(): GitHubService {
+function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: vi.fn(async () => []),
     listIssues: vi.fn(async () => []),
@@ -235,7 +235,7 @@ interface CreateServiceOptions {
   resolveRepositoryDefaultBranch?: ReturnType<typeof vi.fn>;
   listBranchSuggestions?: ReturnType<typeof vi.fn>;
   listPaseoWorktrees?: ReturnType<typeof vi.fn>;
-  github?: GitHubService;
+  github?: ForgeService;
   resolveAbsoluteGitDir?: ReturnType<typeof vi.fn>;
   hasOriginRemote?: ReturnType<typeof vi.fn>;
   runGitFetch?: ReturnType<typeof vi.fn>;

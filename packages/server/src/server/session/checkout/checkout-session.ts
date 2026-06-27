@@ -31,7 +31,7 @@ import type { GitMutationService } from "../git-mutation/git-mutation-service.js
 import {
   assertPullRequestAutoMergeDisableReady,
   assertPullRequestAutoMergeEnableReady,
-  type GitHubService,
+  type ForgeService,
   type PullRequestTimelineItem,
 } from "../../../services/github-service.js";
 import {
@@ -88,7 +88,7 @@ export interface CheckoutSessionOptions {
   host: CheckoutSessionHost;
   gitMutation: Pick<GitMutationService, "checkoutExistingBranch" | "notifyGitMutation">;
   workspaceGitService: WorkspaceGitService;
-  github: GitHubService;
+  github: ForgeService;
   checkoutDiffManager: CheckoutDiffSubscriber;
   gitMetadataGenerator: GitMetadataGenerator;
   paseoHome: string;
@@ -115,7 +115,7 @@ export class CheckoutSession {
     "checkoutExistingBranch" | "notifyGitMutation"
   >;
   private readonly workspaceGitService: WorkspaceGitService;
-  private readonly github: GitHubService;
+  private readonly github: ForgeService;
   private readonly checkoutDiffManager: CheckoutDiffSubscriber;
   private readonly gitMetadataGenerator: GitMetadataGenerator;
   private readonly paseoHome: string;

@@ -5,7 +5,7 @@ import path from "node:path";
 import pino, { type Logger } from "pino";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import type { GitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/github-service.js";
 import { createWorktree, type WorktreeConfig } from "../utils/worktree.js";
 import type { ManagedAgent } from "./agent/agent-manager.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent/agent-storage.js";
@@ -34,7 +34,7 @@ function createLogger(): Logger {
   return logger;
 }
 
-function createGitHubServiceStub(): GitHubService {
+function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],

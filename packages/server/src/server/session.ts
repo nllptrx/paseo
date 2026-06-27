@@ -182,7 +182,7 @@ import type pino from "pino";
 import { FileBackedChatService } from "./chat/chat-service.js";
 import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
-import { createGitHubService, type GitHubService } from "../services/github-service.js";
+import { createGitHubService, type ForgeService } from "../services/github-service.js";
 import type { ProviderUsageService } from "../services/quota-fetcher/service.js";
 import {
   summarizeFetchWorkspacesEntries,
@@ -422,7 +422,7 @@ export interface SessionOptions {
   scheduleService: ScheduleService;
   loopService: LoopService;
   checkoutDiffManager: CheckoutDiffManager;
-  github?: GitHubService;
+  github?: ForgeService;
   createAgentMcpTransport?: AgentMcpTransportFactory;
   // Injected so tests can substitute the git branch rename without module mocks;
   // defaults to the real checkout-git implementation.
@@ -547,7 +547,7 @@ export class Session {
   private readonly projectRegistry: ProjectRegistry;
   private readonly workspaceRegistry: WorkspaceRegistry;
   private readonly filesystem: SessionFileSystem;
-  private readonly github: GitHubService;
+  private readonly github: ForgeService;
   private readonly renameCurrentBranch: typeof renameCurrentBranchDefault;
   private readonly generateWorkspaceName: typeof generateBranchNameFromFirstAgentContext;
   private readonly workspaceGitService: WorkspaceGitService;

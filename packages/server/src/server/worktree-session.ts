@@ -22,7 +22,7 @@ import {
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 import type { ServiceProxySubsystem } from "./service-proxy.js";
 import type { WorkspaceScriptRuntimeStore } from "./workspace-script-runtime-store.js";
-import type { GitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/github-service.js";
 import type { CheckoutExistingBranchResult } from "../utils/checkout-git.js";
 import { expandTilde } from "../utils/path.js";
 import {
@@ -91,7 +91,7 @@ interface BuildAgentSessionConfigDependencies {
     baseBranch: string;
     newBranchName: string;
   }) => Promise<void>;
-  github?: Pick<GitHubService, "invalidate">;
+  github?: Pick<ForgeService, "invalidate">;
 }
 
 interface CreatePaseoWorktreeInBackgroundDependencies {

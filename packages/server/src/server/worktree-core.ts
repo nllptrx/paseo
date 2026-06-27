@@ -1,6 +1,6 @@
 import { createNameId } from "mnemonic-id";
 
-import type { GitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/github-service.js";
 import {
   createWorktree,
   resolveExistingWorktreeForSlug,
@@ -30,7 +30,7 @@ export interface CreateWorktreeCoreInput {
 }
 
 export interface CreateWorktreeCoreDeps {
-  github: GitHubService;
+  github: ForgeService;
   workspaceGitService?: Pick<WorkspaceGitService, "resolveRepoRoot" | "resolveDefaultBranch">;
   resolveDefaultBranch?: (repoRoot: string) => Promise<string>;
 }
