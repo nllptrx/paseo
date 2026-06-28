@@ -25,6 +25,11 @@ import type {
   PullRequestMergeResult,
   PullRequestSummary,
   PullRequestTimeline,
+  PullRequestTimelineCommentLocation,
+  PullRequestTimelineError,
+  PullRequestTimelineErrorKind,
+  PullRequestTimelineItem,
+  PullRequestTimelineReviewState,
   SearchIssuesAndPrsOptions,
   SearchResult,
 } from "./forge-service.js";
@@ -47,6 +52,7 @@ const PR_LIST_FIELDS =
 const ISSUE_LIST_FIELDS = "index,state,author,url,title,body,labels,comments,created,updated";
 
 const PR_STATUS_LOOKUP_LIMIT = 50;
+const TIMELINE_PAGE_SIZE = 100;
 
 export class TeaCliMissingError extends Error {
   readonly kind = "missing-cli";
@@ -149,8 +155,66 @@ const GiteaLoginSchema = z
   })
   .passthrough();
 
+const GiteaUserSchema = z
+  .object({
+    login: z.string().optional(),
+    full_name: z.string().optional(),
+    avatar_url: z.string().nullable().optional(),
+    html_url: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const GiteaPullRequestViewSchema = z
+  .object({
+    index: z.number(),
+    url: z.string(),
+  })
+  .passthrough();
+
+const GiteaIssueCommentSchema = z
+  .object({
+    id: z.number(),
+    html_url: z.string().optional(),
+    user: GiteaUserSchema.nullable().optional(),
+    body: z.string().optional().default(""),
+    created_at: z.string().optional(),
+    type: z.string().optional(),
+  })
+  .passthrough();
+
+const GiteaReviewSchema = z
+  .object({
+    id: z.number(),
+    user: GiteaUserSchema.nullable().optional(),
+    state: z.string(),
+    body: z.string().optional().default(""),
+    comments_count: z.number().optional().default(0),
+    submitted_at: z.string().optional(),
+    updated_at: z.string().optional(),
+    html_url: z.string().optional(),
+  })
+  .passthrough();
+
+const GiteaReviewCommentSchema = z
+  .object({
+    id: z.number(),
+    body: z.string().optional().default(""),
+    user: GiteaUserSchema.nullable().optional(),
+    pull_request_review_id: z.number().optional(),
+    created_at: z.string().optional(),
+    updated_at: z.string().optional(),
+    path: z.string().optional(),
+    position: z.number().optional(),
+    html_url: z.string().optional(),
+  })
+  .passthrough();
+
 type GiteaPrListItem = z.infer<typeof GiteaPrListItemSchema>;
 type GiteaIssueListItem = z.infer<typeof GiteaIssueListItemSchema>;
+type GiteaPullRequestView = z.infer<typeof GiteaPullRequestViewSchema>;
+type GiteaIssueComment = z.infer<typeof GiteaIssueCommentSchema>;
+type GiteaReview = z.infer<typeof GiteaReviewSchema>;
+type GiteaReviewComment = z.infer<typeof GiteaReviewCommentSchema>;
 
 async function resolveTeaPath(): Promise<string | null> {
   return findExecutable("tea");
@@ -212,6 +276,122 @@ function parseOptionalTime(value: string | undefined): number {
   }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function timelineApiPath(input: GetPullRequestTimelineOptions, suffix: string): string {
+  const owner = encodeURIComponent(input.repoOwner);
+  const repo = encodeURIComponent(input.repoName);
+  return `repos/${owner}/${repo}/${suffix}`;
+}
+
+function timelinePageQuery(): string {
+  return `page=1&limit=${TIMELINE_PAGE_SIZE}`;
+}
+
+function giteaUserLogin(user: z.infer<typeof GiteaUserSchema> | null | undefined): string {
+  return user?.login ?? user?.full_name ?? "unknown";
+}
+
+function giteaUserUrl(user: z.infer<typeof GiteaUserSchema> | null | undefined): string | null {
+  return user?.html_url ?? null;
+}
+
+function giteaUserAvatar(user: z.infer<typeof GiteaUserSchema> | null | undefined): string | null {
+  return user?.avatar_url ?? null;
+}
+
+function isGiteaSystemComment(comment: GiteaIssueComment): boolean {
+  return comment.type !== undefined && comment.type !== "comment";
+}
+
+function toGiteaReviewState(state: string): PullRequestTimelineReviewState {
+  switch (state.trim().toUpperCase()) {
+    case "APPROVED":
+    case "APPROVE":
+      return "approved";
+    case "REQUEST_CHANGES":
+    case "REQUESTED_CHANGES":
+    case "CHANGES_REQUESTED":
+      return "changes_requested";
+    default:
+      return "commented";
+  }
+}
+
+function toGiteaTimelineComment(
+  comment: GiteaIssueComment,
+  pr: GiteaPullRequestView,
+): PullRequestTimelineItem | null {
+  if (isGiteaSystemComment(comment)) {
+    return null;
+  }
+  return {
+    kind: "comment",
+    id: String(comment.id),
+    author: giteaUserLogin(comment.user),
+    authorUrl: giteaUserUrl(comment.user),
+    avatarUrl: giteaUserAvatar(comment.user),
+    body: comment.body,
+    createdAt: parseOptionalTime(comment.created_at),
+    url: comment.html_url ?? `${pr.url}#issuecomment-${comment.id}`,
+  };
+}
+
+function toGiteaTimelineReview(review: GiteaReview): PullRequestTimelineItem {
+  return {
+    kind: "review",
+    id: String(review.id),
+    author: giteaUserLogin(review.user),
+    authorUrl: giteaUserUrl(review.user),
+    avatarUrl: giteaUserAvatar(review.user),
+    body: review.body,
+    createdAt: parseOptionalTime(review.submitted_at ?? review.updated_at),
+    url: review.html_url ?? "",
+    reviewState: toGiteaReviewState(review.state),
+  };
+}
+
+function toGiteaReviewCommentLocation(
+  comment: GiteaReviewComment,
+): PullRequestTimelineCommentLocation | undefined {
+  if (!comment.path) {
+    return undefined;
+  }
+  return {
+    path: comment.path,
+    ...(comment.position != null ? { line: comment.position } : {}),
+    ...(comment.pull_request_review_id != null
+      ? { threadId: String(comment.pull_request_review_id) }
+      : {}),
+  };
+}
+
+function toGiteaTimelineReviewComment(comment: GiteaReviewComment): PullRequestTimelineItem {
+  const location = toGiteaReviewCommentLocation(comment);
+  return {
+    kind: "comment",
+    id: String(comment.id),
+    author: giteaUserLogin(comment.user),
+    authorUrl: giteaUserUrl(comment.user),
+    avatarUrl: giteaUserAvatar(comment.user),
+    body: comment.body,
+    createdAt: parseOptionalTime(comment.created_at ?? comment.updated_at),
+    url: comment.html_url ?? "",
+    ...(comment.pull_request_review_id != null
+      ? { reviewId: String(comment.pull_request_review_id) }
+      : {}),
+    ...(location ? { location } : {}),
+  };
+}
+
+function compareTimelineItems(
+  left: PullRequestTimelineItem,
+  right: PullRequestTimelineItem,
+): number {
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt - right.createdAt;
+  }
+  return left.id.localeCompare(right.id);
 }
 
 function splitGiteaLabels(value: string | undefined): string[] {
@@ -361,6 +541,30 @@ function isAuthFailureText(text: string): boolean {
   return /\b(401|unauthorized|not logged in|authentication failed|no token|invalid token|no logins?)\b/i.test(
     text,
   );
+}
+
+function classifyGiteaTimelineErrorKind(stderr: string): PullRequestTimelineErrorKind {
+  const normalized = stderr.toLowerCase();
+  if (normalized.includes("404") || normalized.includes("not found")) {
+    return "not_found";
+  }
+  if (normalized.includes("403") || normalized.includes("forbidden") || isAuthFailureText(stderr)) {
+    return "forbidden";
+  }
+  return "unknown";
+}
+
+function mapGiteaTimelineError(error: unknown): PullRequestTimelineError {
+  if (error instanceof TeaAuthenticationError || error instanceof TeaCliMissingError) {
+    return { kind: "forbidden", message: error.message };
+  }
+  if (error instanceof TeaCommandError) {
+    return {
+      kind: classifyGiteaTimelineErrorKind(error.stderr),
+      message: error.stderr || error.message,
+    };
+  }
+  return { kind: "unknown", message: error instanceof Error ? error.message : String(error) };
 }
 
 function bufferOrStringToString(value: unknown): string {
@@ -531,6 +735,15 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
     return runJsonParse(args, runOptions, stdout, z.array(itemSchema));
   }
 
+  async function runJson<T>(
+    args: string[],
+    runOptions: TeaCommandRunnerOptions,
+    schema: z.ZodType<T>,
+  ): Promise<T> {
+    const stdout = await run(args, runOptions);
+    return runJsonParse(args, runOptions, stdout, schema);
+  }
+
   async function listPullRequestItems(input: {
     cwd: string;
     state: "open" | "closed" | "all";
@@ -564,6 +777,26 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       ? items.filter((item) => item.title.toLowerCase().includes(query))
       : items;
     return filtered.map(toIssueSummary);
+  }
+
+  async function listPullRequestReviewComments(input: {
+    cwd: string;
+    repoOwner: string;
+    repoName: string;
+    prNumber: number;
+    reviewId: number;
+  }): Promise<GiteaReviewComment[]> {
+    return runJsonArray(
+      [
+        "api",
+        timelineApiPath(
+          input,
+          `pulls/${input.prNumber}/reviews/${input.reviewId}/comments?${timelinePageQuery()}`,
+        ),
+      ],
+      { cwd: input.cwd },
+      GiteaReviewCommentSchema,
+    );
   }
 
   async function loadCurrentPullRequestStatus(input: {
@@ -684,8 +917,86 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       return { success: true };
     },
 
-    getPullRequestTimeline(_input: GetPullRequestTimelineOptions): Promise<PullRequestTimeline> {
-      return notSupported("getPullRequestTimeline");
+    async getPullRequestTimeline(
+      input: GetPullRequestTimelineOptions,
+    ): Promise<PullRequestTimeline> {
+      const identity = {
+        prNumber: input.prNumber,
+        repoOwner: input.repoOwner,
+        repoName: input.repoName,
+      };
+      try {
+        const pr = await runJson(
+          ["pr", String(input.prNumber), "-o", "json"],
+          { cwd: input.cwd },
+          GiteaPullRequestViewSchema,
+        );
+        const [commentsResult, reviewsResult] = await Promise.allSettled([
+          runJsonArray(
+            [
+              "api",
+              timelineApiPath(input, `issues/${input.prNumber}/comments?${timelinePageQuery()}`),
+            ],
+            { cwd: input.cwd },
+            GiteaIssueCommentSchema,
+          ),
+          runJsonArray(
+            [
+              "api",
+              timelineApiPath(input, `pulls/${input.prNumber}/reviews?${timelinePageQuery()}`),
+            ],
+            { cwd: input.cwd },
+            GiteaReviewSchema,
+          ),
+        ]);
+        if (commentsResult.status === "rejected" && reviewsResult.status === "rejected") {
+          return {
+            ...identity,
+            items: [],
+            truncated: false,
+            error: mapGiteaTimelineError(commentsResult.reason),
+          };
+        }
+        const comments = commentsResult.status === "fulfilled" ? commentsResult.value : [];
+        const reviews = reviewsResult.status === "fulfilled" ? reviewsResult.value : [];
+        const reviewCommentResults = await Promise.allSettled(
+          reviews
+            .filter((review) => review.comments_count > 0)
+            .map((review) =>
+              listPullRequestReviewComments({
+                cwd: input.cwd,
+                repoOwner: input.repoOwner,
+                repoName: input.repoName,
+                prNumber: input.prNumber,
+                reviewId: review.id,
+              }),
+            ),
+        );
+        const reviewCommentGroups = reviewCommentResults
+          .filter((result): result is PromiseFulfilledResult<GiteaReviewComment[]> => {
+            return result.status === "fulfilled";
+          })
+          .map((result) => result.value);
+        const reviewComments = reviewCommentGroups.flat();
+        const items = [
+          ...comments.map((comment) => toGiteaTimelineComment(comment, pr)),
+          ...reviews.map(toGiteaTimelineReview),
+          ...reviewComments.map(toGiteaTimelineReviewComment),
+        ]
+          .filter((item): item is PullRequestTimelineItem => item !== null)
+          .sort(compareTimelineItems);
+        return {
+          ...identity,
+          items,
+          truncated:
+            comments.length >= TIMELINE_PAGE_SIZE ||
+            reviews.length >= TIMELINE_PAGE_SIZE ||
+            reviewCommentGroups.some((group) => group.length >= TIMELINE_PAGE_SIZE),
+          error: null,
+        };
+      } catch (error) {
+        return { ...identity, items: [], truncated: false, error: mapGiteaTimelineError(error) };
+      }
     },
 
     getGitHubCheckDetails(_input: GetCheckDetailsOptions): Promise<CheckDetails> {

@@ -71,6 +71,152 @@ const OPEN_ISSUE = {
   updated: "2026-06-24T09:00:00Z",
 };
 
+const TIMELINE_USER = {
+  id: 213843,
+  login: "example-user",
+  login_name: "",
+  source_id: 0,
+  full_name: "",
+  email: "1+example-user@noreply.gitea.com",
+  avatar_url:
+    "https://gitea.com/avatars/0000000000000000000000000000000000000000000000000000000000000000",
+  html_url: "https://gitea.com/example-user",
+  language: "",
+  is_admin: false,
+  last_login: "0001-01-01T00:00:00Z",
+  created: "2026-06-27T18:29:03Z",
+  restricted: false,
+  active: false,
+  prohibit_login: false,
+  location: "",
+  website: "",
+  description: "",
+  visibility: "public",
+  followers_count: 0,
+  following_count: 0,
+  starred_repos_count: 0,
+  username: "example-user",
+};
+
+// Shape of a `tea pr 1 -o json` response.
+const TIMELINE_PR_VIEW = {
+  id: 161481,
+  index: 1,
+  title: "Timeline fixture PR",
+  state: "open",
+  created: "2026-06-28T16:15:10Z",
+  updated: "2026-06-28T16:16:18Z",
+  labels: [],
+  user: "example-user",
+  body: "Sample pull request body.",
+  assignees: [],
+  url: "https://gitea.com/example-user/sample-repo/pulls/1",
+  base: "main",
+  head: "timeline-fixture",
+  headSha: "5555555555555555555555555555555555555555",
+  diffUrl: "https://gitea.com/example-user/sample-repo/pulls/1.diff",
+  mergeable: true,
+  hasMerged: false,
+  mergedAt: null,
+  closedAt: null,
+  reviews: [
+    {
+      id: 2001,
+      reviewer: "example-user",
+      state: "COMMENT",
+      body: "Timeline fixture general review comment.",
+      created: "2026-06-28T16:15:28Z",
+    },
+    {
+      id: 2002,
+      reviewer: "example-user",
+      state: "COMMENT",
+      body: "Timeline fixture inline review.",
+      created: "2026-06-28T16:16:18Z",
+    },
+  ],
+  comments: [],
+};
+
+// `tea api repos/:owner/:repo/issues/:index/comments` shape.
+const TIMELINE_ISSUE_COMMENTS = [
+  {
+    id: 1001,
+    html_url:
+      "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1001",
+    pull_request_url: "https://gitea.com/example-user/sample-repo/pulls/1",
+    issue_url: "",
+    user: TIMELINE_USER,
+    original_author: "",
+    original_author_id: 0,
+    body: "Timeline fixture issue comment from tea api.",
+    assets: [],
+    created_at: "2026-06-28T16:15:18Z",
+    updated_at: "2026-06-28T16:15:18Z",
+  },
+];
+
+// `tea api repos/:owner/:repo/pulls/:index/reviews` shape.
+const TIMELINE_REVIEWS = [
+  {
+    id: 2001,
+    user: { ...TIMELINE_USER, email: "dev@example.com", language: "en-US", active: true },
+    team: null,
+    state: "COMMENT",
+    body: "Timeline fixture general review comment.",
+    commit_id: "5555555555555555555555555555555555555555",
+    stale: false,
+    official: false,
+    dismissed: false,
+    comments_count: 0,
+    submitted_at: "2026-06-28T16:15:28Z",
+    updated_at: "2026-06-28T16:15:28Z",
+    html_url:
+      "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1002",
+    pull_request_url: "https://gitea.com/example-user/sample-repo/pulls/1",
+  },
+  {
+    id: 2002,
+    user: { ...TIMELINE_USER, email: "dev@example.com", language: "en-US", active: true },
+    team: null,
+    state: "COMMENT",
+    body: "Timeline fixture inline review.",
+    commit_id: "5555555555555555555555555555555555555555",
+    stale: false,
+    official: false,
+    dismissed: false,
+    comments_count: 1,
+    submitted_at: "2026-06-28T16:16:18Z",
+    updated_at: "2026-06-28T16:16:18Z",
+    html_url:
+      "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1004",
+    pull_request_url: "https://gitea.com/example-user/sample-repo/pulls/1",
+  },
+];
+
+// `tea api repos/:owner/:repo/pulls/:index/reviews/:reviewId/comments` shape.
+const TIMELINE_REVIEW_COMMENTS = [
+  {
+    id: 1003,
+    body: "Timeline fixture inline review comment.",
+    user: { ...TIMELINE_USER, email: "dev@example.com", language: "en-US", active: true },
+    resolver: null,
+    pull_request_review_id: 2002,
+    created_at: "2026-06-28T16:16:18Z",
+    updated_at: "2026-06-28T16:16:18Z",
+    path: "README.md",
+    commit_id: "5555555555555555555555555555555555555555",
+    original_commit_id: "",
+    diff_hunk:
+      "@@ -2,2 +2,3 @@\n-Sample timeline fixture\n\\ No newline at end of file\n+Sample timeline fixture.\n+",
+    position: 4,
+    original_position: 0,
+    html_url:
+      "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1003",
+    pull_request_url: "https://gitea.com/example-user/sample-repo/pulls/1",
+  },
+];
+
 const LOGINS = [
   { name: "gitea.com", url: "https://gitea.com", ssh_host: "gitea.com", user: "example-user" },
 ];
@@ -258,6 +404,245 @@ describe("createGiteaService", () => {
       }),
     ).rejects.toThrow(/ready for direct merge/);
     expect(calls).toHaveLength(0);
+  });
+
+  it("maps Gitea PR comments and reviews to a neutral timeline", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "1") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify(TIMELINE_ISSUE_COMMENTS));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?"))
+        return ok(JSON.stringify(TIMELINE_REVIEWS));
+      if (args[0] === "api" && args[1].includes("/reviews/2002/comments"))
+        return ok(JSON.stringify(TIMELINE_REVIEW_COMMENTS));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(calls).toEqual([
+      ["pr", "1", "-o", "json"],
+      [
+        "api",
+        "repos/example-user/sample-repo/issues/1/comments?page=1&limit=100",
+      ],
+      [
+        "api",
+        "repos/example-user/sample-repo/pulls/1/reviews?page=1&limit=100",
+      ],
+      [
+        "api",
+        "repos/example-user/sample-repo/pulls/1/reviews/2002/comments?page=1&limit=100",
+      ],
+    ]);
+    expect(timeline.error).toBeNull();
+    expect(timeline.truncated).toBe(false);
+    expect(timeline.items.map((item) => item.id)).toEqual([
+      "1001",
+      "2001",
+      "1003",
+      "2002",
+    ]);
+    expect(timeline.items[0]).toMatchObject({
+      kind: "comment",
+      author: "example-user",
+      authorUrl: "https://gitea.com/example-user",
+      avatarUrl:
+        "https://gitea.com/avatars/0000000000000000000000000000000000000000000000000000000000000000",
+      body: "Timeline fixture issue comment from tea api.",
+      createdAt: Date.parse("2026-06-28T16:15:18Z"),
+      url: "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1001",
+    });
+    expect(timeline.items[1]).toMatchObject({
+      kind: "review",
+      id: "2001",
+      reviewState: "commented",
+      body: "Timeline fixture general review comment.",
+    });
+    expect(timeline.items[2]).toMatchObject({
+      kind: "comment",
+      id: "1003",
+      reviewId: "2002",
+      location: { path: "README.md", line: 4, threadId: "2002" },
+    });
+  });
+
+  it("keeps issue comments when the Gitea reviews endpoint fails", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "1") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify(TIMELINE_ISSUE_COMMENTS));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?"))
+        throw { code: 1, stderr: "404 reviews endpoint not found" };
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(calls).toHaveLength(3);
+    expect(timeline).toMatchObject({
+      error: null,
+      truncated: false,
+      items: [
+        {
+          kind: "comment",
+          id: "1001",
+          body: "Timeline fixture issue comment from tea api.",
+        },
+      ],
+    });
+  });
+
+  it("keeps review summaries and other comments when one inline review comment fetch fails", async () => {
+    const reviews = TIMELINE_REVIEWS.map((review) => ({ ...review, comments_count: 1 }));
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "1") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify(TIMELINE_ISSUE_COMMENTS));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?"))
+        return ok(JSON.stringify(reviews));
+      if (args[0] === "api" && args[1].includes("/reviews/2001/comments"))
+        throw { code: 1, stderr: "500 failed to fetch inline comments" };
+      if (args[0] === "api" && args[1].includes("/reviews/2002/comments"))
+        return ok(JSON.stringify(TIMELINE_REVIEW_COMMENTS));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(calls).toHaveLength(5);
+    expect(timeline.error).toBeNull();
+    expect(timeline.items.map((item) => item.id)).toEqual([
+      "1001",
+      "2001",
+      "1003",
+      "2002",
+    ]);
+    expect(timeline.items).toContainEqual(
+      expect.objectContaining({
+        kind: "comment",
+        id: "1003",
+        reviewId: "2002",
+      }),
+    );
+  });
+
+  it("maps Gitea review verdict states", async () => {
+    const reviews = [
+      { ...TIMELINE_REVIEWS[0], id: 1, state: "APPROVED", body: "approved", comments_count: 0 },
+      {
+        ...TIMELINE_REVIEWS[1],
+        id: 2,
+        state: "REQUEST_CHANGES",
+        body: "needs work",
+        comments_count: 0,
+      },
+    ];
+    const { service } = makeService((args) => {
+      if (args[0] === "pr") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments")) return ok("[]");
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?"))
+        return ok(JSON.stringify(reviews));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(timeline.items).toMatchObject([
+      { kind: "review", id: "1", reviewState: "approved" },
+      { kind: "review", id: "2", reviewState: "changes_requested" },
+    ]);
+  });
+
+  it("drops Gitea system comments from the neutral timeline", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "pr") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify([{ ...TIMELINE_ISSUE_COMMENTS[0], type: "pull_ref" }]));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?")) return ok("[]");
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(timeline.items).toEqual([]);
+  });
+
+  it.each([
+    ["404 pull request not found", "not_found"],
+    ["403 Forbidden", "forbidden"],
+    ["401 Unauthorized", "forbidden"],
+  ] as const)("returns a neutral %s timeline error", async (stderr, kind) => {
+    const { service } = makeService(() => {
+      throw { code: 1, stderr };
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 99,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(timeline).toMatchObject({
+      prNumber: 99,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+      items: [],
+      truncated: false,
+      error: { kind },
+    });
+  });
+
+  it("flags a full Gitea comments page as truncated", async () => {
+    const comments = Array.from({ length: 100 }, (_, index) => ({
+      ...TIMELINE_ISSUE_COMMENTS[0],
+      id: 2000 + index,
+    }));
+    const { service } = makeService((args) => {
+      if (args[0] === "pr") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify(comments));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?")) return ok("[]");
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(timeline).toMatchObject({
+      truncated: true,
+      error: null,
+    });
   });
 
   it("reports authenticated when a tea login matches the remote host", async () => {
