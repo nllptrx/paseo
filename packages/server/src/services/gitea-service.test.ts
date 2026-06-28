@@ -58,6 +58,119 @@ const CONFLICTING_PR = {
   ci: "failure",
 };
 
+const STATUS_PR_VIEW = {
+  id: 161482,
+  index: 5,
+  title: "Add sample feature",
+  state: "open",
+  created: "2026-06-28T16:25:00Z",
+  updated: "2026-06-28T16:25:04Z",
+  labels: [],
+  user: "example-user",
+  body: "Implements the sample feature",
+  assignees: [],
+  url: "https://gitea.com/example-user/sample-repo/pulls/5",
+  base: "main",
+  head: "feat/sample-change",
+  headSha: "3333333333333333333333333333333333333333",
+  diffUrl: "https://gitea.com/example-user/sample-repo/pulls/5.diff",
+  mergeable: true,
+  hasMerged: false,
+  mergedAt: null,
+  closedAt: null,
+  reviews: [],
+  comments: [],
+};
+
+const STATUS_CREATOR = {
+  id: 213843,
+  login: "example-user",
+  login_name: "",
+  source_id: 0,
+  full_name: "",
+  email: "1+example-user@noreply.gitea.com",
+  avatar_url:
+    "https://gitea.com/avatars/0000000000000000000000000000000000000000000000000000000000000000",
+  html_url: "https://gitea.com/example-user",
+  language: "",
+  is_admin: false,
+  last_login: "0001-01-01T00:00:00Z",
+  created: "2026-06-27T18:29:03Z",
+  restricted: false,
+  active: false,
+  prohibit_login: false,
+  location: "",
+  website: "",
+  description: "",
+  visibility: "public",
+  followers_count: 0,
+  following_count: 0,
+  starred_repos_count: 0,
+  username: "example-user",
+};
+
+const SAMPLE_STATUS_REPO = "sample-repo";
+
+const SAMPLE_COMBINED_STATUS = {
+  state: "pending",
+  sha: "3333333333333333333333333333333333333333",
+  total_count: 2,
+  statuses: [
+    {
+      id: 1,
+      status: "success",
+      target_url: "https://example.invalid/ci/test",
+      description: "Tests passed",
+      url: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}/statuses/3333333333333333333333333333333333333333`,
+      context: "ci/test",
+      creator: STATUS_CREATOR,
+      created_at: "2026-06-28T16:25:03Z",
+      updated_at: "2026-06-28T16:25:03Z",
+    },
+    {
+      id: 2,
+      status: "pending",
+      target_url: "https://example.invalid/ci/lint",
+      description: "Lint running",
+      url: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}/statuses/3333333333333333333333333333333333333333`,
+      context: "ci/lint",
+      creator: STATUS_CREATOR,
+      created_at: "2026-06-28T16:25:04Z",
+      updated_at: "2026-06-28T16:25:04Z",
+    },
+  ],
+  repository: {
+    id: 135972,
+    owner: STATUS_CREATOR,
+    name: SAMPLE_STATUS_REPO,
+    full_name: `example-user/${SAMPLE_STATUS_REPO}`,
+    description: "",
+    empty: false,
+    private: true,
+    fork: false,
+    template: false,
+    mirror: false,
+    size: 27,
+    language: "",
+    languages_url: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}/languages`,
+    html_url: `https://gitea.com/example-user/${SAMPLE_STATUS_REPO}`,
+    url: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}`,
+    ssh_url: `git@gitea.com:example-user/${SAMPLE_STATUS_REPO}.git`,
+    clone_url: `https://gitea.com/example-user/${SAMPLE_STATUS_REPO}.git`,
+    default_branch: "main",
+    has_actions: true,
+    permissions: { admin: true, push: true, pull: true },
+    object_format_name: "sha1",
+  },
+  commit_url: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}/commits/3333333333333333333333333333333333333333`,
+  url: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}/commits/3333333333333333333333333333333333333333/status`,
+};
+
+const SAMPLE_COMMIT_STATUSES = [
+  SAMPLE_COMBINED_STATUS.statuses[1],
+  SAMPLE_COMBINED_STATUS.statuses[0],
+];
+
 const OPEN_ISSUE = {
   index: "3",
   state: "open",
@@ -235,6 +348,10 @@ describe("createGiteaService", () => {
     const { service, calls } = makeService((args) => {
       if (args[0] === "pr" && args[1] === "list")
         return ok(JSON.stringify([OPEN_PR, CONFLICTING_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify(SAMPLE_COMBINED_STATUS));
+      }
       throw new Error(`unexpected call: ${args.join(" ")}`);
     });
 
@@ -252,12 +369,26 @@ describe("createGiteaService", () => {
       headRefName: "feat/sample-change",
       isMerged: false,
       mergeable: "MERGEABLE",
-      checksStatus: "success",
+      checksStatus: "pending",
       reviewDecision: null,
       repoOwner: "example-user",
       repoName: "sample-repo",
       projectPath: "example-user/sample-repo",
     });
+    expect(status?.checks).toEqual([
+      {
+        name: "ci/test",
+        status: "success",
+        url: "https://example.invalid/ci/test",
+        checkRunId: 1,
+      },
+      {
+        name: "ci/lint",
+        status: "pending",
+        url: "https://example.invalid/ci/lint",
+        checkRunId: 2,
+      },
+    ]);
     expect(status?.forgeSpecific).toEqual({
       forge: "gitea",
       mergeable: true,
@@ -268,6 +399,203 @@ describe("createGiteaService", () => {
     expect(calls[0]).toContain("--fields");
     expect(calls[0]).toContain("-o");
     expect(calls[0]).toContain("json");
+    expect(calls[1]).toEqual(["pr", "5", "-o", "json"]);
+    expect(calls[2]).toEqual([
+      "api",
+      "repos/example-user/sample-repo/commits/3333333333333333333333333333333333333333/status",
+    ]);
+  });
+
+  it("maps Gitea combined commit status contexts to flat checks", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify(SAMPLE_COMBINED_STATUS));
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checksStatus).toBe("pending");
+    expect(status?.checks).toEqual([
+      {
+        name: "ci/test",
+        status: "success",
+        url: "https://example.invalid/ci/test",
+        checkRunId: 1,
+      },
+      {
+        name: "ci/lint",
+        status: "pending",
+        url: "https://example.invalid/ci/lint",
+        checkRunId: 2,
+      },
+    ]);
+  });
+
+  it.each([
+    ["failure", "failure", "failure"],
+    ["error", "error", "failure"],
+    ["success", "success", "success"],
+  ] as const)("maps Gitea commit status state %s", async (aggregate, state, expected) => {
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(
+          JSON.stringify({
+            ...SAMPLE_COMBINED_STATUS,
+            state: aggregate,
+            statuses: [{ ...SAMPLE_COMBINED_STATUS.statuses[0], status: state }],
+          }),
+        );
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checksStatus).toBe(expected);
+    expect(status?.checks[0]?.status).toBe(expected);
+  });
+
+  it("falls back to the tea PR ci aggregate when combined status is empty", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify({ state: "pending", statuses: [], total_count: 0 }));
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checks).toEqual([]);
+    expect(status?.checksStatus).toBe("success");
+  });
+
+  it("falls back to the tea PR ci aggregate when combined status returns 404", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        throw { code: 1, stderr: "404 Not Found" };
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checks).toEqual([]);
+    expect(status?.checksStatus).toBe("success");
+  });
+
+  it("returns flat Gitea check details from a commit status entry", async () => {
+    const localHeadSha = "1111111111111111111111111111111111111111";
+    const { service, calls } = makeService(
+      (args) => {
+        if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+        if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+        if (
+          args[0] === "api" &&
+          args[1] === `repos/example-user/sample-repo/commits/${STATUS_PR_VIEW.headSha}/status`
+        ) {
+          return ok(JSON.stringify(SAMPLE_COMBINED_STATUS));
+        }
+        if (
+          args[0] === "api" &&
+          args[1] === `repos/example-user/sample-repo/commits/${localHeadSha}/status`
+        ) {
+          return ok(JSON.stringify({ state: "success", statuses: [], total_count: 0 }));
+        }
+        throw new Error(`unexpected call: ${args.join(" ")}`);
+      },
+      {
+        resolveCurrentBranch: async () => "feat/sample-change",
+      },
+    );
+
+    const details = await service.getGitHubCheckDetails({
+      cwd: "/repo",
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+      checkRunId: 2,
+    });
+
+    expect(details).toEqual({
+      checkRunId: 2,
+      name: "ci/lint",
+      status: "pending",
+      conclusion: "pending",
+      url: "https://example.invalid/ci/lint",
+      detailsUrl: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}/statuses/3333333333333333333333333333333333333333`,
+      output: {
+        title: "ci/lint",
+        summary: "Lint running",
+        text: null,
+      },
+      annotations: [],
+      failedJobs: [],
+      truncated: false,
+    });
+    expect(calls).toEqual([
+      [
+        "pr",
+        "list",
+        "--fields",
+        "index,state,author,url,title,body,mergeable,base,head,created,updated,labels,comments,ci",
+        "--state",
+        "all",
+        "-o",
+        "json",
+        "--limit",
+        "50",
+      ],
+      ["pr", "5", "-o", "json"],
+      ["api", `repos/example-user/sample-repo/commits/${STATUS_PR_VIEW.headSha}/status`],
+    ]);
+  });
+
+  it("keeps the commit-statuses endpoint shape as a fixture", () => {
+    expect(SAMPLE_COMMIT_STATUSES).toEqual([
+      {
+        id: 2,
+        status: "pending",
+        target_url: "https://example.invalid/ci/lint",
+        description: "Lint running",
+        url: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}/statuses/3333333333333333333333333333333333333333`,
+        context: "ci/lint",
+        creator: STATUS_CREATOR,
+        created_at: "2026-06-28T16:25:04Z",
+        updated_at: "2026-06-28T16:25:04Z",
+      },
+      {
+        id: 1,
+        status: "success",
+        target_url: "https://example.invalid/ci/test",
+        description: "Tests passed",
+        url: `https://gitea.com/api/v1/repos/example-user/${SAMPLE_STATUS_REPO}/statuses/3333333333333333333333333333333333333333`,
+        context: "ci/test",
+        creator: STATUS_CREATOR,
+        created_at: "2026-06-28T16:25:03Z",
+        updated_at: "2026-06-28T16:25:03Z",
+      },
+    ]);
   });
 
   it("reports a conflicting PR as CONFLICTING with a failing CI", async () => {

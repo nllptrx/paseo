@@ -30,6 +30,7 @@ import type {
   PullRequestTimelineErrorKind,
   PullRequestTimelineItem,
   PullRequestTimelineReviewState,
+  PullRequestCheck,
   SearchIssuesAndPrsOptions,
   SearchResult,
 } from "./forge-service.js";
@@ -110,6 +111,7 @@ export interface CreateGiteaServiceOptions {
   runner?: TeaCommandRunner;
   resolveTeaPath?: () => Promise<string | null>;
   resolveRemoteUrl?: (cwd: string) => Promise<string | null>;
+  resolveCurrentBranch?: (cwd: string) => Promise<string | null>;
 }
 
 /**
@@ -168,6 +170,27 @@ const GiteaPullRequestViewSchema = z
   .object({
     index: z.number(),
     url: z.string(),
+    headSha: z.string().optional(),
+  })
+  .passthrough();
+
+const GiteaCommitStatusSchema = z
+  .object({
+    id: z.number(),
+    status: z.string(),
+    target_url: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    url: z.string().nullable().optional(),
+    context: z.string().optional().default(""),
+  })
+  .passthrough();
+
+const GiteaCombinedCommitStatusSchema = z
+  .object({
+    state: z.string().optional().default(""),
+    sha: z.string().optional(),
+    total_count: z.number().optional(),
+    statuses: z.array(GiteaCommitStatusSchema).optional().default([]),
   })
   .passthrough();
 
@@ -212,6 +235,8 @@ const GiteaReviewCommentSchema = z
 type GiteaPrListItem = z.infer<typeof GiteaPrListItemSchema>;
 type GiteaIssueListItem = z.infer<typeof GiteaIssueListItemSchema>;
 type GiteaPullRequestView = z.infer<typeof GiteaPullRequestViewSchema>;
+type GiteaCommitStatus = z.infer<typeof GiteaCommitStatusSchema>;
+type GiteaCombinedCommitStatus = z.infer<typeof GiteaCombinedCommitStatusSchema>;
 type GiteaIssueComment = z.infer<typeof GiteaIssueCommentSchema>;
 type GiteaReview = z.infer<typeof GiteaReviewSchema>;
 type GiteaReviewComment = z.infer<typeof GiteaReviewCommentSchema>;
@@ -237,6 +262,16 @@ async function defaultResolveRemoteUrl(cwd: string): Promise<string | null> {
     const { stdout } = await runGitCommand(["config", "--get", "remote.origin.url"], { cwd });
     const url = stdout.trim();
     return url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+async function defaultResolveCurrentBranch(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await runGitCommand(["branch", "--show-current"], { cwd });
+    const branch = stdout.trim();
+    return branch.length > 0 ? branch : null;
   } catch {
     return null;
   }
@@ -447,6 +482,74 @@ function mapGiteaCiStatus(ci: string | undefined): PullRequestChecksStatus {
     default:
       return "none";
   }
+}
+
+function mapGiteaCommitStatus(state: string): PullRequestCheck["status"] {
+  switch (state.toLowerCase()) {
+    case "success":
+      return "success";
+    case "failure":
+    case "error":
+      return "failure";
+    case "pending":
+      return "pending";
+    default:
+      return "pending";
+  }
+}
+
+function mapGiteaCombinedStatus(
+  state: string,
+  checks: PullRequestCheck[],
+): PullRequestChecksStatus {
+  switch (state.toLowerCase()) {
+    case "success":
+      return "success";
+    case "failure":
+    case "error":
+      return "failure";
+    case "pending":
+      return "pending";
+    default:
+      return computeChecksStatus(checks);
+  }
+}
+
+function computeChecksStatus(checks: PullRequestCheck[]): PullRequestChecksStatus {
+  if (checks.length === 0) {
+    return "none";
+  }
+  if (checks.some((check) => check.status === "failure")) {
+    return "failure";
+  }
+  if (checks.some((check) => check.status === "pending")) {
+    return "pending";
+  }
+  return "success";
+}
+
+function toGiteaPullRequestCheck(status: GiteaCommitStatus): PullRequestCheck {
+  return {
+    name: status.context || `status-${status.id}`,
+    status: mapGiteaCommitStatus(status.status),
+    url: status.target_url ?? null,
+    checkRunId: status.id,
+  };
+}
+
+function applyGiteaCommitStatus(
+  status: CurrentPullRequestStatus,
+  combined: GiteaCombinedCommitStatus,
+): CurrentPullRequestStatus {
+  const checks = combined.statuses.map(toGiteaPullRequestCheck);
+  if (checks.length === 0) {
+    return status;
+  }
+  return {
+    ...status,
+    checks,
+    checksStatus: mapGiteaCombinedStatus(combined.state, checks),
+  };
 }
 
 /** Parse owner/name from a Gitea PR/issue URL (`https://host/owner/repo/pulls/N`). */
@@ -680,6 +783,7 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
   const runner = options.runner ?? runTeaCommand;
   const resolveTea = options.resolveTeaPath ?? resolveTeaPath;
   const resolveRemoteUrl = options.resolveRemoteUrl ?? defaultResolveRemoteUrl;
+  const resolveCurrentBranch = options.resolveCurrentBranch ?? defaultResolveCurrentBranch;
 
   async function run(args: string[], runOptions: TeaCommandRunnerOptions): Promise<string> {
     const teaPath = await resolveTea();
@@ -809,7 +913,105 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       limit: PR_STATUS_LOOKUP_LIMIT,
     });
     const match = items.find((item) => stripHeadOwner(item.head) === input.headRef);
-    return match ? toCurrentPullRequestStatus(match) : null;
+    if (!match) {
+      return null;
+    }
+    const status = toCurrentPullRequestStatus(match);
+    return loadCurrentPullRequestChecks(input.cwd, match, status);
+  }
+
+  async function loadCurrentPullRequestChecks(
+    cwd: string,
+    item: GiteaPrListItem,
+    status: CurrentPullRequestStatus,
+  ): Promise<CurrentPullRequestStatus> {
+    const number = parseGiteaInt(item.index);
+    if (number === null || !status.repoOwner || !status.repoName) {
+      return status;
+    }
+    try {
+      const pr = await runJson(
+        ["pr", String(number), "-o", "json"],
+        { cwd },
+        GiteaPullRequestViewSchema,
+      );
+      if (!pr.headSha) {
+        return status;
+      }
+      const combined = await loadCombinedCommitStatus({
+        cwd,
+        repoOwner: status.repoOwner,
+        repoName: status.repoName,
+        sha: pr.headSha,
+      });
+      return applyGiteaCommitStatus(status, combined);
+    } catch {
+      return status;
+    }
+  }
+
+  async function loadCombinedCommitStatus(input: {
+    cwd: string;
+    repoOwner: string;
+    repoName: string;
+    sha: string;
+  }): Promise<GiteaCombinedCommitStatus> {
+    const owner = encodeURIComponent(input.repoOwner);
+    const repo = encodeURIComponent(input.repoName);
+    const sha = encodeURIComponent(input.sha);
+    return runJson(
+      ["api", `repos/${owner}/${repo}/commits/${sha}/status`],
+      { cwd: input.cwd },
+      GiteaCombinedCommitStatusSchema,
+    );
+  }
+
+  async function resolveCurrentPullRequestHeadSha(cwd: string): Promise<string> {
+    const headRef = await resolveCurrentBranch(cwd);
+    if (!headRef) {
+      throw new Error("Gitea check details require a current branch");
+    }
+    const items = await listPullRequestItems({
+      cwd,
+      state: "all",
+      limit: PR_STATUS_LOOKUP_LIMIT,
+    });
+    const match = items.find((item) => stripHeadOwner(item.head) === headRef);
+    const number = match ? parseGiteaInt(match.index) : null;
+    if (!match || number === null) {
+      throw new Error(`Gitea pull request for branch ${headRef} was not found`);
+    }
+    const pr = await runJson(
+      ["pr", String(number), "-o", "json"],
+      { cwd },
+      GiteaPullRequestViewSchema,
+    );
+    if (!pr.headSha) {
+      throw new Error(`Gitea pull request #${number} did not include a head SHA`);
+    }
+    return pr.headSha;
+  }
+
+  function toGiteaCheckDetails(status: GiteaCommitStatus): CheckDetails {
+    return {
+      checkRunId: status.id,
+      name: status.context || `status-${status.id}`,
+      status: status.status,
+      conclusion: mapGiteaCommitStatus(status.status),
+      url: status.target_url ?? null,
+      detailsUrl: status.url ?? null,
+      output:
+        status.description != null
+          ? {
+              title: status.context || null,
+              summary: status.description,
+              text: null,
+            }
+          : null,
+      annotations: [],
+      failedJobs: [],
+      truncated: false,
+    };
   }
 
   function notSupported(method: string): never {
@@ -999,8 +1201,22 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       }
     },
 
-    getGitHubCheckDetails(_input: GetCheckDetailsOptions): Promise<CheckDetails> {
-      return notSupported("getGitHubCheckDetails");
+    async getGitHubCheckDetails(input: GetCheckDetailsOptions): Promise<CheckDetails> {
+      if (!input.repoOwner || !input.repoName) {
+        throw new Error("Gitea getGitHubCheckDetails requires repoOwner and repoName");
+      }
+      const sha = await resolveCurrentPullRequestHeadSha(input.cwd);
+      const combined = await loadCombinedCommitStatus({
+        cwd: input.cwd,
+        repoOwner: input.repoOwner,
+        repoName: input.repoName,
+        sha,
+      });
+      const status = combined.statuses.find((entry) => entry.id === input.checkRunId);
+      if (!status) {
+        throw new Error(`Gitea commit status ${input.checkRunId} was not found`);
+      }
+      return toGiteaCheckDetails(status);
     },
 
     async searchIssuesAndPrs(input: SearchIssuesAndPrsOptions): Promise<SearchResult> {
