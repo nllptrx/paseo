@@ -46,11 +46,22 @@ function createGitHubServiceStub(): ForgeService {
   };
 }
 
-function createCoreDeps(options?: { github?: ForgeService }) {
+function createCoreDeps(options?: {
+  github?: ForgeService;
+  forge?: { forge: string; service: ForgeService };
+}) {
   return {
     github: options?.github ?? createGitHubServiceStub(),
     workspaceGitService: {
       resolveRepoRoot: async (cwd: string) => cwd,
+      resolveForge: async () =>
+        options?.forge
+          ? {
+              forge: options.forge.forge,
+              host: `${options.forge.forge}.example.com`,
+              service: options.forge.service,
+            }
+          : null,
     },
     resolveDefaultBranch: async () => "main",
   };
@@ -160,6 +171,31 @@ function createSameRepoGitHubPrRemoteRepo(): {
   execFileSync("git", ["fetch", "origin"], { cwd: repoDir, stdio: "pipe" });
 
   return { tempDir, repoDir, remoteDir, paseoHome };
+}
+
+function createGitRepoWithOriginFeatureBranch(): {
+  tempDir: string;
+  repoDir: string;
+  paseoHome: string;
+} {
+  const { tempDir, repoDir, paseoHome } = createGitRepo();
+  const featureBranch = "feature/gitlab-mr";
+  execFileSync("git", ["checkout", "-b", featureBranch], { cwd: repoDir, stdio: "pipe" });
+  writeFileSync(path.join(repoDir, "README.md"), "gitlab mr branch\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "gitlab mr branch"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["checkout", "main"], { cwd: repoDir, stdio: "pipe" });
+
+  const remoteDir = path.join(tempDir, "origin.git");
+  execFileSync("git", ["clone", "--bare", repoDir, remoteDir], { stdio: "pipe" });
+  execFileSync("git", ["branch", "-D", featureBranch], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["remote", "add", "origin", remoteDir], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["fetch", "origin"], { cwd: repoDir, stdio: "pipe" });
+
+  return { tempDir, repoDir, paseoHome };
 }
 
 function createForkGitHubPrRemoteRepo(): {
@@ -448,6 +484,49 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
         baseRefName: "main",
       });
       expect(result.worktree.branchName).toBe("pr-123");
+    });
+
+    test("checks out a GitLab MR source branch through the resolved forge service", async () => {
+      const { tempDir, repoDir, paseoHome } = createGitRepoWithOriginFeatureBranch();
+      cleanupPaths.push(tempDir);
+      const gitlab: ForgeService = {
+        ...createGitHubServiceStub(),
+        getPullRequestCheckoutTarget: async ({ number }) => ({
+          number,
+          baseRefName: "main",
+          headRefName: "feature/gitlab-mr",
+          headOwnerLogin: null,
+          headRepositorySshUrl: null,
+          headRepositoryUrl: null,
+          isCrossRepository: false,
+        }),
+      };
+
+      const result = await createCoreWorktree(
+        {
+          cwd: repoDir,
+          action: "checkout",
+          githubPrNumber: 14,
+          paseoHome,
+          runSetup: false,
+        },
+        createCoreDeps({ forge: { forge: "gitlab", service: gitlab } }),
+      );
+
+      const branch = execFileSync("git", ["branch", "--show-current"], {
+        cwd: result.worktree.worktreePath,
+        stdio: "pipe",
+      })
+        .toString()
+        .trim();
+      expect(result.intent).toEqual({
+        kind: "checkout-branch",
+        branchName: "feature/gitlab-mr",
+      });
+      expect(branch).toBe("feature/gitlab-mr");
+      expect(readFileSync(path.join(result.worktree.worktreePath, "README.md"), "utf8")).toBe(
+        "gitlab mr branch\n",
+      );
     });
 
     test("checks out a same-repo GitHub PR with valid origin tracking", async () => {

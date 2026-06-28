@@ -4,6 +4,7 @@ import type { ForgeService } from "../services/github-service.js";
 import {
   MissingCheckoutTargetError,
   resolveWorktreeCreationIntent,
+  UnsupportedForgeCheckoutTargetError,
 } from "./resolve-worktree-creation-intent.js";
 
 interface GitHubHeadRefLookup {
@@ -12,14 +13,18 @@ interface GitHubHeadRefLookup {
 }
 
 interface ResolverHarness {
-  github: ForgeService;
+  forge: string;
+  forgeService: ForgeService;
   headRefLookups: GitHubHeadRefLookup[];
   resolveDefaultBranch: (repoRoot: string) => Promise<string>;
 }
 
-function createResolverHarness(): ResolverHarness {
+function createResolverHarness(overrides?: {
+  forge?: string;
+  forgeService?: Partial<ForgeService>;
+}): ResolverHarness {
   const headRefLookups: GitHubHeadRefLookup[] = [];
-  const github: ForgeService = {
+  const forgeService: ForgeService = {
     listPullRequests: async () => [],
     listIssues: async () => [],
     searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),
@@ -45,10 +50,12 @@ function createResolverHarness(): ResolverHarness {
     mergePullRequest: async () => ({ success: true }),
     isAuthenticated: async () => true,
     invalidate: () => {},
+    ...overrides?.forgeService,
   };
 
   return {
-    github,
+    forge: overrides?.forge ?? "github",
+    forgeService,
     headRefLookups,
     resolveDefaultBranch: async () => "main",
   };
@@ -178,6 +185,61 @@ describe("resolveWorktreeCreationIntent", () => {
       baseRefName: "main",
     });
     expect(deps.headRefLookups).toEqual([]);
+  });
+
+  test("checks out a GitLab MR source branch from the checkout target", async () => {
+    const deps = createResolverHarness({
+      forge: "gitlab",
+      forgeService: {
+        getPullRequestCheckoutTarget: async ({ number }) => ({
+          number,
+          baseRefName: "main",
+          headRefName: "feature/mr-source",
+          headOwnerLogin: null,
+          headRepositorySshUrl: null,
+          headRepositoryUrl: null,
+          isCrossRepository: false,
+        }),
+      },
+    });
+
+    await expect(
+      resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 7 }, repoRoot, deps),
+    ).resolves.toEqual({
+      kind: "checkout-branch",
+      branchName: "feature/mr-source",
+    });
+    expect(deps.headRefLookups).toEqual([]);
+  });
+
+  test("rejects cross-repository GitLab MR checkout targets", async () => {
+    const deps = createResolverHarness({
+      forge: "gitlab",
+      forgeService: {
+        getPullRequestCheckoutTarget: async ({ number }) => ({
+          number,
+          baseRefName: "main",
+          headRefName: "feature/mr-source",
+          headOwnerLogin: null,
+          headRepositorySshUrl: null,
+          headRepositoryUrl: null,
+          isCrossRepository: true,
+        }),
+      },
+    });
+
+    await expect(
+      resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 7 }, repoRoot, deps),
+    ).rejects.toThrow(UnsupportedForgeCheckoutTargetError);
+    expect(deps.headRefLookups).toEqual([]);
+  });
+
+  test("reports unsupported checkout targets for non-GitHub forges without adapter support", async () => {
+    const deps = createResolverHarness({ forge: "gitea" });
+
+    await expect(
+      resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 7 }, repoRoot, deps),
+    ).rejects.toThrow(UnsupportedForgeCheckoutTargetError);
   });
 
   test("rejects checkout without a target", async () => {

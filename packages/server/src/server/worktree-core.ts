@@ -31,7 +31,10 @@ export interface CreateWorktreeCoreInput {
 
 export interface CreateWorktreeCoreDeps {
   github: ForgeService;
-  workspaceGitService?: Pick<WorkspaceGitService, "resolveRepoRoot" | "resolveDefaultBranch">;
+  workspaceGitService?: Pick<
+    WorkspaceGitService,
+    "resolveRepoRoot" | "resolveDefaultBranch" | "resolveForge"
+  >;
   resolveDefaultBranch?: (repoRoot: string) => Promise<string>;
 }
 
@@ -78,8 +81,10 @@ export async function createWorktreeCore(
     };
   }
 
+  const forge = await resolveForge(repoRoot, deps);
   const intent = await resolveWorktreeCreationIntent(intentInput, repoRoot, {
-    ...deps,
+    forge: forge.forge,
+    forgeService: forge.service,
     resolveDefaultBranch: (root) => resolveDefaultBranch(root, deps),
   });
   let normalizedSlug: string;
@@ -123,6 +128,17 @@ export async function createWorktreeCore(
     repoRoot,
     created: true,
   };
+}
+
+async function resolveForge(
+  repoRoot: string,
+  deps: CreateWorktreeCoreDeps,
+): Promise<{ forge: string; service: ForgeService }> {
+  const resolution = await deps.workspaceGitService?.resolveForge(repoRoot);
+  if (!resolution || resolution.forge === "github") {
+    return { forge: "github", service: deps.github };
+  }
+  return { forge: resolution.forge, service: resolution.service };
 }
 
 async function resolveDefaultBranch(

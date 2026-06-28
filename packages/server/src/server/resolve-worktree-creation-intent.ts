@@ -27,7 +27,8 @@ export type ResolveWorktreeCreationIntentInput =
     };
 
 export interface ResolveWorktreeCreationIntentDeps {
-  github: ForgeService;
+  forge: string;
+  forgeService: ForgeService;
   resolveDefaultBranch: (repoRoot: string) => Promise<string>;
 }
 
@@ -37,6 +38,16 @@ export class MissingCheckoutTargetError extends Error {
   constructor() {
     super('action "checkout" requires refName or githubPrNumber');
     this.name = "MissingCheckoutTargetError";
+  }
+}
+
+export class UnsupportedForgeCheckoutTargetError extends Error {
+  readonly forge: string;
+
+  constructor(forge: string) {
+    super(`Checkout from change request is not supported for ${forge} yet`);
+    this.name = "UnsupportedForgeCheckoutTargetError";
+    this.forge = forge;
   }
 }
 
@@ -55,7 +66,7 @@ export async function resolveWorktreeCreationIntent(
 
   if (input.action === "checkout") {
     if (input.githubPrNumber !== undefined) {
-      return resolveGitHubPrCheckoutIntent({
+      return resolvePrCheckoutIntent({
         refName: input.refName,
         githubPrNumber: input.githubPrNumber,
         repoRoot,
@@ -75,7 +86,7 @@ export async function resolveWorktreeCreationIntent(
   }
 
   if (input.githubPrNumber !== undefined) {
-    return resolveGitHubPrCheckoutIntent({
+    return resolvePrCheckoutIntent({
       refName: input.refName,
       githubPrNumber: input.githubPrNumber,
       repoRoot,
@@ -98,14 +109,48 @@ export async function resolveWorktreeCreationIntent(
   };
 }
 
-async function resolveGitHubPrCheckoutIntent(params: {
+interface PrCheckoutIntentParams {
   refName?: string;
   githubPrNumber: number;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
-}): Promise<Extract<WorktreeCreationIntent, { kind: "checkout-github-pr" }>> {
-  const checkoutTarget = await resolveGitHubPrCheckoutTarget(params);
-  const headRef = await resolveGitHubPrHeadRef({
+}
+
+async function resolvePrCheckoutIntent(
+  params: PrCheckoutIntentParams,
+): Promise<WorktreeCreationIntent> {
+  if (params.deps.forge === "github") {
+    return resolveGitHubPrCheckoutIntent(params);
+  }
+  return resolveForgePrCheckoutIntent(params);
+}
+
+async function resolveForgePrCheckoutIntent(
+  params: PrCheckoutIntentParams,
+): Promise<Extract<WorktreeCreationIntent, { kind: "checkout-branch" }>> {
+  const checkoutTarget = await resolvePrCheckoutTarget(params);
+  if (checkoutTarget?.isCrossRepository) {
+    throw new UnsupportedForgeCheckoutTargetError(params.deps.forge);
+  }
+  const headRef = await resolvePrHeadRef({
+    refName: params.refName,
+    githubPrNumber: params.githubPrNumber,
+    checkoutTarget,
+    repoRoot: params.repoRoot,
+    deps: params.deps,
+  });
+
+  return {
+    kind: "checkout-branch",
+    branchName: headRef,
+  };
+}
+
+async function resolveGitHubPrCheckoutIntent(
+  params: PrCheckoutIntentParams,
+): Promise<Extract<WorktreeCreationIntent, { kind: "checkout-github-pr" }>> {
+  const checkoutTarget = await resolvePrCheckoutTarget(params);
+  const headRef = await resolvePrHeadRef({
     refName: params.refName,
     githubPrNumber: params.githubPrNumber,
     checkoutTarget,
@@ -132,15 +177,18 @@ async function resolveGitHubPrCheckoutIntent(params: {
   };
 }
 
-async function resolveGitHubPrCheckoutTarget(params: {
+async function resolvePrCheckoutTarget(params: {
   githubPrNumber: number;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
 }): Promise<PullRequestCheckoutTarget | null> {
-  if (!params.deps.github.getPullRequestCheckoutTarget) {
-    return null;
+  if (!params.deps.forgeService.getPullRequestCheckoutTarget) {
+    if (params.deps.forge === "github") {
+      return null;
+    }
+    throw new UnsupportedForgeCheckoutTargetError(params.deps.forge);
   }
-  return params.deps.github.getPullRequestCheckoutTarget({
+  return params.deps.forgeService.getPullRequestCheckoutTarget({
     cwd: params.repoRoot,
     number: params.githubPrNumber,
   });
@@ -157,7 +205,7 @@ async function resolveDefaultBranch(
   return baseBranch;
 }
 
-async function resolveGitHubPrHeadRef(params: {
+async function resolvePrHeadRef(params: {
   refName?: string;
   githubPrNumber: number;
   checkoutTarget?: PullRequestCheckoutTarget | null;
@@ -172,7 +220,7 @@ async function resolveGitHubPrHeadRef(params: {
   if (checkoutTargetHeadRef) {
     return checkoutTargetHeadRef;
   }
-  return params.deps.github.getPullRequestHeadRef({
+  return params.deps.forgeService.getPullRequestHeadRef({
     cwd: params.repoRoot,
     number: params.githubPrNumber,
   });

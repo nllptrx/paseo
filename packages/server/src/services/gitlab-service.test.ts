@@ -59,6 +59,8 @@ const OPEN_MR = {
   state: "opened",
   source_branch: "release/v0.4.0",
   target_branch: "main",
+  source_project_id: 101,
+  target_project_id: 101,
   draft: false,
   work_in_progress: false,
   has_conflicts: false,
@@ -287,6 +289,46 @@ describe("createGitLabService", () => {
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ number: 14, title: "chore(release): 0.4.0", state: "open" });
     expect(calls[0]).toEqual(["mr", "list", "-F", "json", "-P", "5"]);
+  });
+
+  it("maps a same-repo merge request view to a checkout target", async () => {
+    const { service, calls } = makeService(() => ok(JSON.stringify(OPEN_MR)));
+
+    await expect(
+      service.getPullRequestCheckoutTarget?.({ cwd: "/repo", number: 14 }),
+    ).resolves.toEqual({
+      number: 14,
+      baseRefName: "main",
+      headRefName: "release/v0.4.0",
+      headOwnerLogin: null,
+      headRepositorySshUrl: null,
+      headRepositoryUrl: null,
+      isCrossRepository: false,
+    });
+    expect(calls[0]).toEqual(["mr", "view", "14", "-F", "json"]);
+  });
+
+  it("marks fork merge request checkout targets as cross-repository", async () => {
+    const { service } = makeService(() =>
+      ok(
+        JSON.stringify({
+          ...OPEN_MR,
+          source_project_id: 202,
+          target_project_id: 101,
+        }),
+      ),
+    );
+
+    await expect(
+      service.getPullRequestCheckoutTarget?.({ cwd: "/repo", number: 14 }),
+    ).resolves.toMatchObject({
+      number: 14,
+      headRefName: "release/v0.4.0",
+      isCrossRepository: true,
+      headOwnerLogin: null,
+      headRepositorySshUrl: null,
+      headRepositoryUrl: null,
+    });
   });
 
   it("creates a merge request and parses the URL and iid from glab output", async () => {

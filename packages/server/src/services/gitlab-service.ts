@@ -24,6 +24,7 @@ import type {
   PipelineStage,
   PullRequestAutoMergeResult,
   PullRequestChecksStatus,
+  PullRequestCheckoutTarget,
   PullRequestCreateResult,
   PullRequestMergeable,
   PullRequestMergeResult,
@@ -141,6 +142,8 @@ const GitLabMergeRequestSchema = z
     state: z.string(),
     source_branch: z.string(),
     target_branch: z.string(),
+    source_project_id: z.number().nullable().optional(),
+    target_project_id: z.number().nullable().optional(),
     draft: z.boolean().optional(),
     work_in_progress: z.boolean().optional(),
     has_conflicts: z.boolean().optional(),
@@ -934,6 +937,26 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
     async getPullRequestHeadRef(input: GetPullRequestOptions): Promise<string> {
       const mr = await viewMergeRequest(input.cwd, String(input.number));
       return mr.source_branch;
+    },
+
+    async getPullRequestCheckoutTarget(
+      input: GetPullRequestOptions,
+    ): Promise<PullRequestCheckoutTarget> {
+      const mr = await viewMergeRequest(input.cwd, String(input.number));
+      return {
+        number: mr.iid,
+        baseRefName: mr.target_branch,
+        headRefName: mr.source_branch,
+        headOwnerLogin: null,
+        headRepositorySshUrl: null,
+        headRepositoryUrl: null,
+        isCrossRepository:
+          mr.source_project_id !== undefined &&
+          mr.source_project_id !== null &&
+          mr.target_project_id !== undefined &&
+          mr.target_project_id !== null &&
+          mr.source_project_id !== mr.target_project_id,
+      };
     },
 
     listPullRequests(input: ListPullRequestsOptions): Promise<PullRequestSummary[]> {
