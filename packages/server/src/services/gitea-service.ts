@@ -206,6 +206,14 @@ function parseGiteaBool(value: string | undefined): boolean {
   return value?.trim().toLowerCase() === "true";
 }
 
+function parseOptionalTime(value: string | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function splitGiteaLabels(value: string | undefined): string[] {
   if (!value) {
     return [];
@@ -541,6 +549,23 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
     return items.filter((item) => item.title.toLowerCase().includes(query));
   }
 
+  async function runIssueList(input: {
+    cwd: string;
+    query?: string;
+    limit?: number;
+  }): Promise<IssueSummary[]> {
+    const args = ["issue", "list", "--fields", ISSUE_LIST_FIELDS, "--state", "open", "-o", "json"];
+    if (typeof input.limit === "number") {
+      args.push("--limit", String(input.limit));
+    }
+    const items = await runJsonArray(args, { cwd: input.cwd }, GiteaIssueListItemSchema);
+    const query = input.query?.trim().toLowerCase();
+    const filtered = query
+      ? items.filter((item) => item.title.toLowerCase().includes(query))
+      : items;
+    return filtered.map(toIssueSummary);
+  }
+
   async function loadCurrentPullRequestStatus(input: {
     cwd: string;
     headRef: string;
@@ -613,26 +638,8 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       }).then((items) => items.map(toPullRequestSummary));
     },
 
-    async listIssues(input: ListIssuesOptions): Promise<IssueSummary[]> {
-      const args = [
-        "issue",
-        "list",
-        "--fields",
-        ISSUE_LIST_FIELDS,
-        "--state",
-        "open",
-        "-o",
-        "json",
-      ];
-      if (typeof input.limit === "number") {
-        args.push("--limit", String(input.limit));
-      }
-      const items = await runJsonArray(args, { cwd: input.cwd }, GiteaIssueListItemSchema);
-      const query = input.query?.trim().toLowerCase();
-      const filtered = query
-        ? items.filter((item) => item.title.toLowerCase().includes(query))
-        : items;
-      return filtered.map(toIssueSummary);
+    listIssues(input: ListIssuesOptions): Promise<IssueSummary[]> {
+      return runIssueList(input);
     },
 
     async createPullRequest(input: CreatePullRequestOptions): Promise<PullRequestCreateResult> {
@@ -685,8 +692,82 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       return notSupported("getGitHubCheckDetails");
     },
 
-    searchIssuesAndPrs(_input: SearchIssuesAndPrsOptions): Promise<SearchResult> {
-      return notSupported("searchIssuesAndPrs");
+    async searchIssuesAndPrs(input: SearchIssuesAndPrsOptions): Promise<SearchResult> {
+      if (input.force && !input.reason) {
+        throw new Error("ForgeService forced read requires a reason");
+      }
+
+      const kinds = input.kinds ?? ["github-issue", "github-pr"];
+      const shouldFetchIssues = kinds.includes("github-issue");
+      const shouldFetchMergeRequests = kinds.includes("github-pr");
+      const [issuesResult, mergeRequestsResult] = await Promise.allSettled([
+        shouldFetchIssues
+          ? runIssueList({ cwd: input.cwd, query: input.query, limit: input.limit })
+          : Promise.resolve(null),
+        shouldFetchMergeRequests
+          ? listPullRequestItems({
+              cwd: input.cwd,
+              state: "open",
+              query: input.query,
+              limit: input.limit,
+            }).then((items) => items.map(toPullRequestSummary))
+          : Promise.resolve(null),
+      ]);
+
+      const requestedResults = [
+        shouldFetchIssues ? issuesResult : null,
+        shouldFetchMergeRequests ? mergeRequestsResult : null,
+      ].filter((result) => result !== null);
+      const everyRequestRejectedForAuth =
+        requestedResults.length > 0 &&
+        requestedResults.every(
+          (result) =>
+            result.status === "rejected" &&
+            (result.reason instanceof TeaCliMissingError ||
+              result.reason instanceof TeaAuthenticationError),
+        );
+      if (everyRequestRejectedForAuth) {
+        return { items: [], githubFeaturesEnabled: false };
+      }
+
+      const items: SearchResult["items"] = [];
+      if (shouldFetchIssues && issuesResult.status === "fulfilled") {
+        for (const issue of issuesResult.value ?? []) {
+          items.push({
+            kind: "issue",
+            number: issue.number,
+            title: issue.title,
+            url: issue.url,
+            state: issue.state,
+            body: issue.body,
+            labels: issue.labels,
+            baseRefName: null,
+            headRefName: null,
+            updatedAt: issue.updatedAt,
+          });
+        }
+      }
+      if (shouldFetchMergeRequests && mergeRequestsResult.status === "fulfilled") {
+        for (const pullRequest of mergeRequestsResult.value ?? []) {
+          items.push({
+            kind: "pr",
+            number: pullRequest.number,
+            title: pullRequest.title,
+            url: pullRequest.url,
+            state: pullRequest.state,
+            body: pullRequest.body,
+            labels: pullRequest.labels,
+            baseRefName: pullRequest.baseRefName,
+            headRefName: pullRequest.headRefName,
+            updatedAt: pullRequest.updatedAt,
+          });
+        }
+      }
+      items.sort(
+        (left, right) => parseOptionalTime(right.updatedAt) - parseOptionalTime(left.updatedAt),
+      );
+
+      return { items, githubFeaturesEnabled: true };
     },
 
     enablePullRequestAutoMerge(_input: EnablePullRequestAutoMergeOptions): never {

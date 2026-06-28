@@ -290,4 +290,180 @@ describe("createGiteaService", () => {
       TeaAuthenticationError,
     );
   });
+
+  it("searches issues and pull requests and maps them to neutral results", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "issue") return ok(JSON.stringify([OPEN_ISSUE]));
+      if (args[0] === "pr") return ok(JSON.stringify([OPEN_PR]));
+      throw new Error(`unexpected tea args: ${args.join(" ")}`);
+    });
+
+    const result = await service.searchIssuesAndPrs({ cwd: "/repo", query: "", limit: 10 });
+
+    expect(result.githubFeaturesEnabled).toBe(true);
+    expect(result.items).toEqual([
+      {
+        kind: "pr",
+        number: 5,
+        title: "Add sample feature",
+        url: "https://gitea.com/example-user/sample-repo/pulls/5",
+        state: "open",
+        body: "Implements the sample feature",
+        labels: ["enhancement", "review"],
+        baseRefName: "main",
+        headRefName: "feat/sample-change",
+        updatedAt: "2026-06-26T10:00:00Z",
+      },
+      {
+        kind: "issue",
+        number: 3,
+        title: "Login button misaligned",
+        url: "https://gitea.com/example-user/sample-repo/issues/3",
+        state: "open",
+        body: "On mobile the button overflows",
+        labels: ["bug"],
+        baseRefName: null,
+        headRefName: null,
+        updatedAt: "2026-06-24T09:00:00Z",
+      },
+    ]);
+
+    expect(calls.find((args) => args[0] === "issue")).toEqual([
+      "issue",
+      "list",
+      "--fields",
+      "index,state,author,url,title,body,labels,comments,created,updated",
+      "--state",
+      "open",
+      "-o",
+      "json",
+      "--limit",
+      "10",
+    ]);
+    expect(calls.find((args) => args[0] === "pr")).toEqual([
+      "pr",
+      "list",
+      "--fields",
+      "index,state,author,url,title,body,mergeable,base,head,created,updated,labels,comments,ci",
+      "--state",
+      "open",
+      "-o",
+      "json",
+      "--limit",
+      "10",
+    ]);
+  });
+
+  it("sorts issue and pull request search results by update time", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "issue") return ok(JSON.stringify([OPEN_ISSUE]));
+      if (args[0] === "pr") return ok(JSON.stringify([OPEN_PR]));
+      throw new Error(`unexpected tea args: ${args.join(" ")}`);
+    });
+
+    const result = await service.searchIssuesAndPrs({ cwd: "/repo", query: "" });
+
+    expect(result).toEqual({
+      githubFeaturesEnabled: true,
+      items: [
+        {
+          kind: "pr",
+          number: 5,
+          title: "Add sample feature",
+          url: "https://gitea.com/example-user/sample-repo/pulls/5",
+          state: "open",
+          body: "Implements the sample feature",
+          labels: ["enhancement", "review"],
+          baseRefName: "main",
+          headRefName: "feat/sample-change",
+          updatedAt: "2026-06-26T10:00:00Z",
+        },
+        {
+          kind: "issue",
+          number: 3,
+          title: "Login button misaligned",
+          url: "https://gitea.com/example-user/sample-repo/issues/3",
+          state: "open",
+          body: "On mobile the button overflows",
+          labels: ["bug"],
+          baseRefName: null,
+          headRefName: null,
+          updatedAt: "2026-06-24T09:00:00Z",
+        },
+      ],
+    });
+  });
+
+  it("restricts search to pull requests when only the PR kind is requested", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "pr") return ok(JSON.stringify([OPEN_PR]));
+      throw new Error(`unexpected tea args: ${args.join(" ")}`);
+    });
+
+    const result = await service.searchIssuesAndPrs({
+      cwd: "/repo",
+      query: "sample",
+      kinds: ["github-pr"],
+    });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ kind: "pr", number: 5 });
+    expect(calls).toEqual([
+      [
+        "pr",
+        "list",
+        "--fields",
+        "index,state,author,url,title,body,mergeable,base,head,created,updated,labels,comments,ci",
+        "--state",
+        "open",
+        "-o",
+        "json",
+      ],
+    ]);
+  });
+
+  it("reports forge features disabled when tea is unavailable or unauthenticated", async () => {
+    const missing = makeService(() => ok("[]"), { resolveTeaPath: async () => null }).service;
+    await expect(missing.searchIssuesAndPrs({ cwd: "/repo", query: "x" })).resolves.toEqual({
+      items: [],
+      githubFeaturesEnabled: false,
+    });
+
+    const unauthenticated = makeService(() => {
+      throw { code: 1, stderr: "401 Unauthorized" };
+    }).service;
+    await expect(unauthenticated.searchIssuesAndPrs({ cwd: "/repo", query: "x" })).resolves.toEqual(
+      {
+        items: [],
+        githubFeaturesEnabled: false,
+      },
+    );
+  });
+
+  it("keeps forge features enabled when one search request fails for a non-auth reason", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "issue") {
+        throw { code: 1, stderr: "temporary Gitea API failure" };
+      }
+      return ok(JSON.stringify([OPEN_PR]));
+    });
+
+    await expect(service.searchIssuesAndPrs({ cwd: "/repo", query: "sample" })).resolves.toEqual({
+      items: [
+        {
+          kind: "pr",
+          number: 5,
+          title: "Add sample feature",
+          url: "https://gitea.com/example-user/sample-repo/pulls/5",
+          state: "open",
+          body: "Implements the sample feature",
+          labels: ["enhancement", "review"],
+          baseRefName: "main",
+          headRefName: "feat/sample-change",
+          updatedAt: "2026-06-26T10:00:00Z",
+        },
+      ],
+      githubFeaturesEnabled: true,
+    });
+  });
 });
