@@ -787,6 +787,124 @@ describe("CheckoutSession", () => {
     });
   });
 
+  describe("auto-merge routing", () => {
+    function createGitLabPrSnapshot(
+      cwd: string,
+      mergeWhenPipelineSucceeds: boolean,
+    ): WorkspaceGitRuntimeSnapshot {
+      return {
+        ...createGitSnapshot(cwd, "feature/gitlab-auto-merge"),
+        github: {
+          featuresEnabled: true,
+          error: null,
+          pullRequest: {
+            number: 14,
+            url: "https://gitlab.example.com/g/r/-/merge_requests/14",
+            title: "GitLab MR",
+            state: "open",
+            baseRefName: "main",
+            headRefName: "feature/gitlab-auto-merge",
+            isMerged: false,
+            isDraft: false,
+            mergeable: "UNKNOWN",
+            checks: [],
+            checksStatus: "pending",
+            reviewDecision: null,
+            forgeSpecific: {
+              forge: "gitlab",
+              detailedMergeStatus: "ci_still_running",
+              hasConflicts: false,
+              blockingDiscussionsResolved: true,
+              approvalsRequired: 0,
+              approvalsGiven: 0,
+              pipelineStatus: "running",
+              pipelineId: 306,
+              pipelineUrl: "https://gitlab.example.com/g/r/-/pipelines/306",
+              mergeWhenPipelineSucceeds,
+            },
+          },
+        },
+      };
+    }
+
+    it("routes GitLab set-auto-merge enable and disable through the resolved adapter", async () => {
+      const githubCalls: string[] = [];
+      const gitlabCalls: Array<{ operation: "enable" | "disable"; prNumber: number }> = [];
+      const gitlabService: Partial<ForgeService> = {
+        async enablePullRequestAutoMerge(input) {
+          gitlabCalls.push({ operation: "enable", prNumber: input.prNumber });
+          return { success: true };
+        },
+        async disablePullRequestAutoMerge(input) {
+          gitlabCalls.push({ operation: "disable", prNumber: input.prNumber });
+          return { success: true };
+        },
+      };
+      const { checkout, emitted } = makeCheckoutSession({
+        github: {
+          async enablePullRequestAutoMerge() {
+            githubCalls.push("enable");
+            throw new Error("github adapter should not be reached for a gitlab cwd");
+          },
+          async disablePullRequestAutoMerge() {
+            githubCalls.push("disable");
+            throw new Error("github adapter should not be reached for a gitlab cwd");
+          },
+        },
+        git: {
+          getSnapshot: async (cwd) => createGitLabPrSnapshot(cwd, false),
+          resolveForge: async () => ({
+            forge: "gitlab",
+            host: "gitlab.example.com",
+            service: gitlabService as ForgeService,
+          }),
+        },
+      });
+
+      await checkout.handleCheckoutGithubSetAutoMergeRequest({
+        type: "checkout.github.set_auto_merge.request",
+        cwd: "/repo",
+        enabled: true,
+        mergeMethod: "squash",
+        requestId: "am-enable",
+      });
+      await checkout.handleCheckoutGithubSetAutoMergeRequest({
+        type: "checkout.github.set_auto_merge.request",
+        cwd: "/repo",
+        enabled: false,
+        requestId: "am-disable",
+      });
+
+      expect(githubCalls).toEqual([]);
+      expect(gitlabCalls).toEqual([
+        { operation: "enable", prNumber: 14 },
+        { operation: "disable", prNumber: 14 },
+      ]);
+      expect(emitted).toEqual([
+        {
+          type: "checkout.github.set_auto_merge.response",
+          payload: {
+            cwd: "/repo",
+            enabled: true,
+            success: true,
+            error: null,
+            requestId: "am-enable",
+          },
+        },
+        {
+          type: "checkout.github.set_auto_merge.response",
+          payload: {
+            cwd: "/repo",
+            enabled: false,
+            success: true,
+            error: null,
+            requestId: "am-disable",
+          },
+        },
+      ]);
+    });
+  });
+
   describe("check details routing", () => {
     it("routes get-check-details through the resolved GitLab adapter", async () => {
       const githubCalls: number[] = [];

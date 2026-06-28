@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { GitLabStatusFacts, PullRequestCommandStatus } from "./forge-service.js";
 import {
   type CreateGitLabServiceOptions,
   createGitLabService,
@@ -29,6 +30,26 @@ function makeService(responder: Responder, overrides: Partial<CreateGitLabServic
     ...overrides,
   });
   return { service, calls };
+}
+
+function gitlabAutoMergeStatus(
+  overrides: Partial<GitLabStatusFacts> = {},
+): PullRequestCommandStatus {
+  return {
+    forgeSpecific: {
+      forge: "gitlab",
+      detailedMergeStatus: "ci_still_running",
+      hasConflicts: false,
+      blockingDiscussionsResolved: true,
+      approvalsRequired: 0,
+      approvalsGiven: 0,
+      pipelineStatus: "running",
+      pipelineId: 306,
+      pipelineUrl: null,
+      mergeWhenPipelineSucceeds: false,
+      ...overrides,
+    },
+  };
 }
 
 const OPEN_MR = {
@@ -351,6 +372,57 @@ describe("createGitLabService", () => {
       }),
     ).rejects.toThrow(/ready for direct merge/);
     expect(calls).toHaveLength(0);
+  });
+
+  it("enables auto-merge by scheduling merge when the pipeline succeeds", async () => {
+    const { service, calls } = makeService(() => ok(""));
+    const result = await service.enablePullRequestAutoMerge({
+      cwd: "/repo",
+      prNumber: 14,
+      mergeMethod: "squash",
+      status: gitlabAutoMergeStatus(),
+    });
+    expect(result).toEqual({ success: true });
+    expect(calls[0]).toEqual(["mr", "merge", "14", "--auto-merge", "--yes", "--squash"]);
+  });
+
+  it("enables auto-merge without a strategy flag for the plain merge method", async () => {
+    const { service, calls } = makeService(() => ok(""));
+    await service.enablePullRequestAutoMerge({
+      cwd: "/repo",
+      prNumber: 14,
+      mergeMethod: "merge",
+      status: gitlabAutoMergeStatus(),
+    });
+    expect(calls[0]).toEqual(["mr", "merge", "14", "--auto-merge", "--yes"]);
+  });
+
+  it("refuses to enable auto-merge without an active pipeline because it would merge immediately", async () => {
+    const { service, calls } = makeService(() => ok(""));
+    await expect(
+      service.enablePullRequestAutoMerge({
+        cwd: "/repo",
+        prNumber: 14,
+        mergeMethod: "squash",
+        status: gitlabAutoMergeStatus({ pipelineStatus: "success" }),
+      }),
+    ).rejects.toThrow(/in-progress pipeline/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("disables auto-merge by cancelling the scheduled merge via the API", async () => {
+    const { service, calls } = makeService(() => ok(""));
+    const result = await service.disablePullRequestAutoMerge({
+      cwd: "/repo",
+      prNumber: 14,
+    });
+    expect(result).toEqual({ success: true });
+    expect(calls[0]).toEqual([
+      "api",
+      "--method",
+      "POST",
+      "projects/:fullpath/merge_requests/14/cancel_merge_when_pipeline_succeeds",
+    ]);
   });
 
   it("surfaces the head pipeline id and url on the gitlab status facts", async () => {

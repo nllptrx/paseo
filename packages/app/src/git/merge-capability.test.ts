@@ -190,10 +190,41 @@ describe("deriveMergeCapability (gitlab)", () => {
   });
 
   it("reflects merge-when-pipeline-succeeds as an enabled auto-merge", () => {
-    expect(
-      deriveMergeCapability(gitlabFacts({ mergeWhenPipelineSucceeds: true }))?.autoMergeEnabled,
-    ).toBe(true);
+    const enabled = deriveMergeCapability(
+      gitlabFacts({ mergeWhenPipelineSucceeds: true, pipelineStatus: "running" }),
+    );
+    expect(enabled?.autoMergeEnabled).toBe(true);
+    expect(enabled?.canDisableAutoMerge).toBe(true);
+    expect(enabled?.canEnableAutoMerge).toBe(false);
     expect(deriveMergeCapability(gitlabFacts())?.autoMergeEnabled).toBe(false);
+  });
+
+  it("can enable auto-merge only while a pipeline is still in flight", () => {
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "created" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "waiting_for_resource" }))
+        ?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "preparing" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "pending" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "running" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "scheduled" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "success" }))?.canEnableAutoMerge,
+    ).toBe(false);
+    expect(deriveMergeCapability(gitlabFacts({ pipelineStatus: null }))?.canEnableAutoMerge).toBe(
+      false,
+    );
   });
 
   it("offers GitLab merge methods and never reports a merge queue", () => {
@@ -201,7 +232,6 @@ describe("deriveMergeCapability (gitlab)", () => {
     expect(cap?.allowedMethods).toEqual(["merge", "squash", "rebase"]);
     expect(cap?.mergeBlockedByQueue).toBe(false);
     expect(cap?.canEnableAutoMerge).toBe(false);
-    expect(cap?.canDisableAutoMerge).toBe(false);
   });
 });
 

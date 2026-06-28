@@ -679,9 +679,19 @@ function parseIidFromUrl(url: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-function notSupported(feature: string): never {
-  throw new Error(`${feature} is not supported on GitLab yet`);
-}
+/**
+ * Pipeline states where GitLab's "merge when pipeline succeeds" schedules the
+ * merge instead of running it immediately. Mirrors the client-side auto-merge
+ * policy (the PR pane only offers enable while a pipeline is in flight).
+ */
+const GITLAB_ACTIVE_PIPELINE_STATUSES = new Set([
+  "created",
+  "waiting_for_resource",
+  "preparing",
+  "pending",
+  "running",
+  "scheduled",
+]);
 
 function parseOptionalTime(value: string | undefined): number {
   if (!value) {
@@ -720,6 +730,31 @@ function getGitlabStatusFacts(status: MergePullRequestOptions["status"]): GitLab
     return null;
   }
   return forgeSpecific;
+}
+
+/**
+ * Server-side guard for GitLab auto-merge: `glab mr merge --auto-merge` only
+ * schedules the merge while a pipeline is active. Without one it merges on the
+ * spot, so this is enforced at execution time as well as in UI policy.
+ */
+export function assertGitLabAutoMergeEnableReady(
+  input: Pick<EnablePullRequestAutoMergeOptions, "status">,
+): void {
+  const gitlab = getGitlabStatusFacts(input.status);
+  if (!gitlab) {
+    throw new Error("GitLab auto-merge facts are unavailable for this merge request");
+  }
+  if (gitlab.mergeWhenPipelineSucceeds) {
+    throw new Error("Auto-merge is already enabled for this merge request");
+  }
+  if (
+    gitlab.pipelineStatus === null ||
+    !GITLAB_ACTIVE_PIPELINE_STATUSES.has(gitlab.pipelineStatus)
+  ) {
+    throw new Error(
+      "GitLab auto-merge requires an in-progress pipeline; without one the merge would run immediately",
+    );
+  }
 }
 
 /**
@@ -1088,16 +1123,39 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
       return { items, githubFeaturesEnabled: true };
     },
 
-    enablePullRequestAutoMerge(
-      _input: EnablePullRequestAutoMergeOptions,
+    async enablePullRequestAutoMerge(
+      input: EnablePullRequestAutoMergeOptions,
     ): Promise<PullRequestAutoMergeResult> {
-      return notSupported("Auto-merge");
+      // GitLab's auto-merge is "merge when pipeline succeeds": passing
+      // `--auto-merge` while a pipeline is running schedules the merge instead
+      // of performing it immediately. The merge strategy mirrors mergePullRequest.
+      assertGitLabAutoMergeEnableReady({ status: input.status });
+      const args = ["mr", "merge", String(input.prNumber), "--auto-merge", "--yes"];
+      if (input.mergeMethod === "squash") {
+        args.push("--squash");
+      } else if (input.mergeMethod === "rebase") {
+        args.push("--rebase");
+      }
+      await run(args, { cwd: input.cwd });
+      return { success: true };
     },
 
-    disablePullRequestAutoMerge(
-      _input: DisablePullRequestAutoMergeOptions,
+    async disablePullRequestAutoMerge(
+      input: DisablePullRequestAutoMergeOptions,
     ): Promise<PullRequestAutoMergeResult> {
-      return notSupported("Auto-merge");
+      // `glab mr merge --auto-merge=false` would merge immediately rather than
+      // cancel a scheduled auto-merge, so cancel via the REST endpoint instead.
+      // The `:fullpath` placeholder resolves the project from the cwd's remote.
+      await run(
+        [
+          "api",
+          "--method",
+          "POST",
+          `projects/:fullpath/merge_requests/${input.prNumber}/cancel_merge_when_pipeline_succeeds`,
+        ],
+        { cwd: input.cwd },
+      );
+      return { success: true };
     },
 
     invalidate(_input: { cwd: string }): void {},

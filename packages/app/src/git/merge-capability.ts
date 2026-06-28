@@ -98,14 +98,27 @@ function deriveGithubMergeCapability(github: GithubMergeFacts): MergeCapability 
 const GITLAB_MERGEABLE_STATUS = "mergeable";
 const GITLAB_MERGE_METHODS: CheckoutPrMergeMethod[] = ["merge", "squash", "rebase"];
 
+// GitLab auto-merge is "merge when the pipeline succeeds", so it only applies
+// while a pipeline is still in flight. Once the pipeline reaches a terminal
+// state the MR either merges directly or is blocked; there is nothing left to wait for.
+const GITLAB_ACTIVE_PIPELINE_STATUSES = new Set([
+  "created",
+  "waiting_for_resource",
+  "preparing",
+  "pending",
+  "running",
+  "scheduled",
+]);
+
 function deriveGitlabMergeCapability(gitlab: GitlabMergeFacts): MergeCapability {
+  const autoMergeEnabled = gitlab.mergeWhenPipelineSucceeds === true;
+  const hasActivePipeline =
+    gitlab.pipelineStatus !== null && GITLAB_ACTIVE_PIPELINE_STATUSES.has(gitlab.pipelineStatus);
   return {
     directMergeReady: gitlab.detailedMergeStatus === GITLAB_MERGEABLE_STATUS,
-    // Auto-merge (merge-when-pipeline-succeeds) enable/disable is a separate
-    // GitLab surface; this foundation only reflects whether it is already on.
-    canEnableAutoMerge: false,
-    autoMergeEnabled: gitlab.mergeWhenPipelineSucceeds === true,
-    canDisableAutoMerge: false,
+    canEnableAutoMerge: !autoMergeEnabled && hasActivePipeline,
+    autoMergeEnabled,
+    canDisableAutoMerge: autoMergeEnabled,
     mergeBlockedByQueue: false,
     allowedMethods: GITLAB_MERGE_METHODS,
     preferredMethod: null,

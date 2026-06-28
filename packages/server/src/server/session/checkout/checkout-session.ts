@@ -870,16 +870,19 @@ export class CheckoutSession {
         includeGitHub: true,
         reason: "auto-merge-validation",
       });
+      const { forge, service } = await this.resolveForgeService(cwd);
       if (msg.enabled) {
         const mergeMethod = msg.mergeMethod;
         if (!mergeMethod) {
           throw new Error("mergeMethod is required when enabling auto-merge");
         }
-        assertPullRequestAutoMergeEnableReady({
-          mergeMethod,
-          status: pullRequest,
-        });
-        await this.github.enablePullRequestAutoMerge({
+        if (forge === "github") {
+          assertPullRequestAutoMergeEnableReady({
+            mergeMethod,
+            status: pullRequest,
+          });
+        }
+        await service.enablePullRequestAutoMerge({
           cwd,
           prNumber: pullRequest.number,
           mergeMethod,
@@ -889,8 +892,10 @@ export class CheckoutSession {
         if (msg.mergeMethod) {
           throw new Error("mergeMethod is not allowed when disabling auto-merge");
         }
-        assertPullRequestAutoMergeDisableReady({ status: pullRequest });
-        await this.github.disablePullRequestAutoMerge({
+        if (forge === "github") {
+          assertPullRequestAutoMergeDisableReady({ status: pullRequest });
+        }
+        await service.disablePullRequestAutoMerge({
           cwd,
           prNumber: pullRequest.number,
           status: pullRequest,
