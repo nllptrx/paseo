@@ -683,6 +683,14 @@ function notSupported(feature: string): never {
   throw new Error(`${feature} is not supported on GitLab yet`);
 }
 
+function parseOptionalTime(value: string | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 /**
  * Probe whether `host` is a GitLab instance by asking glab about its auth status
  * for that hostname (exit 0 => a configured GitLab instance, even for
@@ -812,6 +820,45 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
     }
   }
 
+  async function runMergeRequestList(
+    input: ListPullRequestsOptions,
+  ): Promise<PullRequestSummary[]> {
+    const args = ["mr", "list", "-F", "json"];
+    const query = input.query?.trim();
+    if (query) {
+      args.push("--search", query);
+    }
+    if (typeof input.limit === "number") {
+      args.push("-P", String(input.limit));
+    }
+    const mergeRequests = await runJson(
+      args,
+      { cwd: input.cwd },
+      z.array(GitLabMergeRequestSchema),
+    );
+    return mergeRequests.map(toPullRequestSummary);
+  }
+
+  /**
+   * `glab issue list` toggles JSON output with `-O/--output` (text|json); its
+   * `-F/--output-format` flag means something else (details|ids|urls) and
+   * silently falls back to the human-readable table for an unknown value. This
+   * differs from `glab mr list`, where `-F/--output` is the JSON toggle. Using
+   * the wrong flag here would emit a text table that fails JSON parsing.
+   */
+  async function runIssueList(input: ListIssuesOptions): Promise<IssueSummary[]> {
+    const args = ["issue", "list", "-O", "json"];
+    const query = input.query?.trim();
+    if (query) {
+      args.push("--search", query);
+    }
+    if (typeof input.limit === "number") {
+      args.push("-P", String(input.limit));
+    }
+    const issues = await runJson(args, { cwd: input.cwd }, z.array(GitLabIssueSchema));
+    return issues.map(toIssueSummary);
+  }
+
   return {
     async isAuthenticated(input: { cwd: string } & ForgeReadOptions): Promise<boolean> {
       const glabPath = await resolveGlab();
@@ -854,26 +901,12 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
       return mr.source_branch;
     },
 
-    async listPullRequests(input: ListPullRequestsOptions): Promise<PullRequestSummary[]> {
-      const args = ["mr", "list", "-F", "json"];
-      if (typeof input.limit === "number") {
-        args.push("-P", String(input.limit));
-      }
-      const mergeRequests = await runJson(
-        args,
-        { cwd: input.cwd },
-        z.array(GitLabMergeRequestSchema),
-      );
-      return mergeRequests.map(toPullRequestSummary);
+    listPullRequests(input: ListPullRequestsOptions): Promise<PullRequestSummary[]> {
+      return runMergeRequestList(input);
     },
 
-    async listIssues(input: ListIssuesOptions): Promise<IssueSummary[]> {
-      const args = ["issue", "list", "-F", "json"];
-      if (typeof input.limit === "number") {
-        args.push("-P", String(input.limit));
-      }
-      const issues = await runJson(args, { cwd: input.cwd }, z.array(GitLabIssueSchema));
-      return issues.map(toIssueSummary);
+    listIssues(input: ListIssuesOptions): Promise<IssueSummary[]> {
+      return runIssueList(input);
     },
 
     async createPullRequest(input: CreatePullRequestOptions): Promise<PullRequestCreateResult> {
@@ -982,8 +1015,77 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
       return toCheckDetails(pipeline);
     },
 
-    searchIssuesAndPrs(_input: SearchIssuesAndPrsOptions): Promise<SearchResult> {
-      return notSupported("Issue and merge request search");
+    async searchIssuesAndPrs(input: SearchIssuesAndPrsOptions): Promise<SearchResult> {
+      if (input.force && !input.reason) {
+        throw new Error("ForgeService forced read requires a reason");
+      }
+
+      const kinds = input.kinds ?? ["github-issue", "github-pr"];
+      const shouldFetchIssues = kinds.includes("github-issue");
+      const shouldFetchMergeRequests = kinds.includes("github-pr");
+      const [issuesResult, mergeRequestsResult] = await Promise.allSettled([
+        shouldFetchIssues
+          ? runIssueList({ cwd: input.cwd, query: input.query, limit: input.limit })
+          : Promise.resolve(null),
+        shouldFetchMergeRequests
+          ? runMergeRequestList({ cwd: input.cwd, query: input.query, limit: input.limit })
+          : Promise.resolve(null),
+      ]);
+
+      const requestedResults = [
+        shouldFetchIssues ? issuesResult : null,
+        shouldFetchMergeRequests ? mergeRequestsResult : null,
+      ].filter((result) => result !== null);
+      const everyRequestRejectedForAuth =
+        requestedResults.length > 0 &&
+        requestedResults.every(
+          (result) =>
+            result.status === "rejected" &&
+            (result.reason instanceof GlabCliMissingError ||
+              result.reason instanceof GlabAuthenticationError),
+        );
+      if (everyRequestRejectedForAuth) {
+        return { items: [], githubFeaturesEnabled: false };
+      }
+
+      const items: SearchResult["items"] = [];
+      if (shouldFetchIssues && issuesResult.status === "fulfilled") {
+        for (const issue of issuesResult.value ?? []) {
+          items.push({
+            kind: "issue",
+            number: issue.number,
+            title: issue.title,
+            url: issue.url,
+            state: issue.state,
+            body: issue.body,
+            labels: issue.labels,
+            baseRefName: null,
+            headRefName: null,
+            updatedAt: issue.updatedAt,
+          });
+        }
+      }
+      if (shouldFetchMergeRequests && mergeRequestsResult.status === "fulfilled") {
+        for (const mergeRequest of mergeRequestsResult.value ?? []) {
+          items.push({
+            kind: "pr",
+            number: mergeRequest.number,
+            title: mergeRequest.title,
+            url: mergeRequest.url,
+            state: mergeRequest.state,
+            body: mergeRequest.body,
+            labels: mergeRequest.labels,
+            baseRefName: mergeRequest.baseRefName,
+            headRefName: mergeRequest.headRefName,
+            updatedAt: mergeRequest.updatedAt,
+          });
+        }
+      }
+      items.sort(
+        (left, right) => parseOptionalTime(right.updatedAt) - parseOptionalTime(left.updatedAt),
+      );
+
+      return { items, githubFeaturesEnabled: true };
     },
 
     enablePullRequestAutoMerge(

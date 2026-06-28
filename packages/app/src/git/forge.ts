@@ -16,6 +16,7 @@ export function normalizeForge(raw: string | null | undefined): Forge {
 
 export interface ForgePresentation {
   forge: Forge;
+  icon: "github" | "gitlab";
   /** Human brand name, e.g. for "Open on GitLab". */
   brandLabel: string;
   /** Short change-request noun: "PR" for GitHub, "MR" for GitLab. */
@@ -24,22 +25,47 @@ export interface ForgePresentation {
   changeRequestNoun: string;
   /** Prefix the forge puts before a change-request number: "#" vs "!". */
   numberPrefix: string;
+  /** Prefix the forge puts before an issue number ("#" on both supported forges). */
+  issueNumberPrefix: string;
+  composer: {
+    addIssueOrChangeRequestKey:
+      | "composer.attachments.addIssueOrPr"
+      | "composer.attachments.addIssueOrMr";
+    searchPlaceholderKey:
+      | "composer.github.searchPlaceholder"
+      | "composer.github.searchPlaceholderMr";
+    titleKey: "composer.github.title" | "composer.github.titleMr";
+  };
 }
 
 const PRESENTATION: Record<Forge, ForgePresentation> = {
   github: {
     forge: "github",
+    icon: "github",
     brandLabel: "GitHub",
     changeRequestAbbrev: "PR",
     changeRequestNoun: "pull request",
     numberPrefix: "#",
+    issueNumberPrefix: "#",
+    composer: {
+      addIssueOrChangeRequestKey: "composer.attachments.addIssueOrPr",
+      searchPlaceholderKey: "composer.github.searchPlaceholder",
+      titleKey: "composer.github.title",
+    },
   },
   gitlab: {
     forge: "gitlab",
+    icon: "gitlab",
     brandLabel: "GitLab",
     changeRequestAbbrev: "MR",
     changeRequestNoun: "merge request",
     numberPrefix: "!",
+    issueNumberPrefix: "#",
+    composer: {
+      addIssueOrChangeRequestKey: "composer.attachments.addIssueOrMr",
+      searchPlaceholderKey: "composer.github.searchPlaceholderMr",
+      titleKey: "composer.github.titleMr",
+    },
   },
 };
 

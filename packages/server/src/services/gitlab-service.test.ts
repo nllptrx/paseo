@@ -50,6 +50,48 @@ const OPEN_MR = {
   head_pipeline: { status: "success" },
 };
 
+const OPEN_ISSUE = {
+  iid: 7,
+  title: "Login button misaligned",
+  web_url: "https://gitlab.example.com/example-group/example-project/-/issues/7",
+  state: "opened",
+  description: "On mobile the login button overflows",
+  labels: ["bug"],
+  updated_at: "2026-06-24T08:00:00.000Z",
+};
+
+// Verbatim `glab issue list -O json` item (glab 1.105.0, gitlab.com). The list
+// endpoint returns far more than the neutral mapping needs, and `web_url` points
+// at `/-/work_items/<iid>`, not `/-/issues/<iid>`.
+const REAL_GLAB_ISSUE = {
+  id: 193324690,
+  iid: 1,
+  external_id: "",
+  state: "opened",
+  description: "Simple test",
+  health_status: "",
+  author: {
+    id: 13341367,
+    state: "active",
+    web_url: "https://gitlab.com/example-user",
+    name: "example-user",
+    username: "example-user",
+  },
+  milestone: null,
+  project_id: 83778606,
+  assignees: [],
+  updated_at: "2026-06-26T09:11:19.642Z",
+  closed_at: null,
+  title: "Test",
+  created_at: "2026-06-26T09:11:19.642Z",
+  labels: [],
+  web_url: "https://gitlab.com/example-user/sample-repo/-/work_items/1",
+  references: { short: "#1", relative: "#1", full: "example-user/sample-repo#1" },
+  confidential: false,
+  issue_type: "issue",
+  user_notes_count: 0,
+};
+
 const NESTED_GROUP_MR = {
   ...OPEN_MR,
   iid: 73,
@@ -619,5 +661,155 @@ describe("createGitLabService", () => {
     await expect(service.getPullRequest({ cwd: "/repo", number: 1 })).rejects.toBeInstanceOf(
       GlabCommandError,
     );
+  });
+
+  it("searches issues and merge requests and maps them to neutral results", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "issue") return ok(JSON.stringify([OPEN_ISSUE]));
+      if (args[0] === "mr") return ok(JSON.stringify([OPEN_MR]));
+      throw new Error(`unexpected glab args: ${args.join(" ")}`);
+    });
+
+    const result = await service.searchIssuesAndPrs({ cwd: "/repo", query: "login", limit: 10 });
+
+    expect(result.githubFeaturesEnabled).toBe(true);
+    expect(result.items).toEqual([
+      {
+        kind: "pr",
+        number: 14,
+        title: "chore(release): 0.4.0",
+        url: "https://gitlab.example.com/example-group/example-project/-/merge_requests/14",
+        state: "open",
+        body: "Release notes",
+        labels: ["release"],
+        baseRefName: "main",
+        headRefName: "release/v0.4.0",
+        updatedAt: "2026-06-25T19:00:00.000Z",
+      },
+      {
+        kind: "issue",
+        number: 7,
+        title: "Login button misaligned",
+        url: "https://gitlab.example.com/example-group/example-project/-/issues/7",
+        state: "opened",
+        body: "On mobile the login button overflows",
+        labels: ["bug"],
+        baseRefName: null,
+        headRefName: null,
+        updatedAt: "2026-06-24T08:00:00.000Z",
+      },
+    ]);
+
+    expect(calls.find((args) => args[0] === "mr")).toEqual([
+      "mr",
+      "list",
+      "-F",
+      "json",
+      "--search",
+      "login",
+      "-P",
+      "10",
+    ]);
+    expect(calls.find((args) => args[0] === "issue")).toEqual([
+      "issue",
+      "list",
+      "-O",
+      "json",
+      "--search",
+      "login",
+      "-P",
+      "10",
+    ]);
+  });
+
+  it("parses the real glab issue list payload shape and uses the issue JSON flag", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "issue") return ok(JSON.stringify([REAL_GLAB_ISSUE]));
+      if (args[0] === "mr") return ok("[]");
+      throw new Error(`unexpected glab args: ${args.join(" ")}`);
+    });
+
+    const result = await service.searchIssuesAndPrs({ cwd: "/repo", query: "" });
+
+    expect(result).toEqual({
+      githubFeaturesEnabled: true,
+      items: [
+        {
+          kind: "issue",
+          number: 1,
+          title: "Test",
+          url: "https://gitlab.com/example-user/sample-repo/-/work_items/1",
+          state: "opened",
+          body: "Simple test",
+          labels: [],
+          baseRefName: null,
+          headRefName: null,
+          updatedAt: "2026-06-26T09:11:19.642Z",
+        },
+      ],
+    });
+    expect(calls.find((args) => args[0] === "issue")).toEqual(["issue", "list", "-O", "json"]);
+  });
+
+  it("restricts search to merge requests when only the PR kind is requested", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "mr") return ok(JSON.stringify([OPEN_MR]));
+      throw new Error(`unexpected glab args: ${args.join(" ")}`);
+    });
+
+    const result = await service.searchIssuesAndPrs({
+      cwd: "/repo",
+      query: "release",
+      kinds: ["github-pr"],
+    });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ kind: "pr", number: 14 });
+    expect(calls).toEqual([["mr", "list", "-F", "json", "--search", "release"]]);
+  });
+
+  it("reports forge features disabled when glab is unavailable or unauthenticated", async () => {
+    const missing = makeService(() => ok("[]"), { resolveGlabPath: async () => null }).service;
+    await expect(missing.searchIssuesAndPrs({ cwd: "/repo", query: "x" })).resolves.toEqual({
+      items: [],
+      githubFeaturesEnabled: false,
+    });
+
+    const unauthenticated = makeService(() => {
+      throw { code: 1, stderr: "401 Unauthorized" };
+    }).service;
+    await expect(unauthenticated.searchIssuesAndPrs({ cwd: "/repo", query: "x" })).resolves.toEqual(
+      {
+        items: [],
+        githubFeaturesEnabled: false,
+      },
+    );
+  });
+
+  it("keeps forge features enabled when one search request fails for a non-auth reason", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "issue") {
+        throw { code: 1, stderr: "temporary GitLab API failure" };
+      }
+      return ok(JSON.stringify([OPEN_MR]));
+    });
+
+    await expect(service.searchIssuesAndPrs({ cwd: "/repo", query: "release" })).resolves.toEqual({
+      items: [
+        {
+          kind: "pr",
+          number: 14,
+          title: "chore(release): 0.4.0",
+          url: "https://gitlab.example.com/example-group/example-project/-/merge_requests/14",
+          state: "open",
+          body: "Release notes",
+          labels: ["release"],
+          baseRefName: "main",
+          headRefName: "release/v0.4.0",
+          updatedAt: "2026-06-25T19:00:00.000Z",
+        },
+      ],
+      githubFeaturesEnabled: true,
+    });
   });
 });

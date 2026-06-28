@@ -29,6 +29,7 @@ import {
   FileText,
   GitPullRequest,
   Github,
+  Gitlab,
   Image as ImageIcon,
   Paperclip,
 } from "lucide-react-native";
@@ -113,6 +114,8 @@ import { openExternalUrl } from "@/utils/open-external-url";
 import { useIsDictationReady } from "@/hooks/use-is-dictation-ready";
 import { useGithubSearchQuery } from "@/git/use-github-search-query";
 import { useCheckoutStatusQuery } from "@/git/use-status-query";
+import { useCheckoutPrStatusQuery } from "@/git/use-pr-status-query";
+import { type ForgePresentation, getForgePresentation } from "@/git/forge";
 import { useComposerGithubAutoAttach } from "./github/auto-attach";
 import { resolveClientSlashCommand, type ClientSlashCommand } from "@/client-slash-commands";
 
@@ -275,14 +278,15 @@ function renderLeftContent(args: RenderLeftContentArgs): ReactElement {
 interface RenderAttachmentTrayArgs {
   selectedAttachments: ComposerAttachment[];
   isComposerLocked: boolean;
+  forgePresentation: ForgePresentation;
   handleOpenAttachment: (attachment: ComposerAttachment) => void;
   handleRemoveAttachment: (index: number) => void;
   labels: {
     openImage: string;
     removeImage: string;
     removeFile: string;
-    openGithub: (kind: string, number: number) => string;
-    removeGithub: (kind: string, number: number) => string;
+    openGithub: (kind: string, numberLabel: string) => string;
+    removeGithub: (kind: string, numberLabel: string) => string;
   };
 }
 
@@ -307,6 +311,7 @@ function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | nu
   const {
     selectedAttachments,
     isComposerLocked,
+    forgePresentation,
     handleOpenAttachment,
     handleRemoveAttachment,
     labels,
@@ -319,6 +324,7 @@ function renderAttachmentTray(args: RenderAttachmentTrayArgs): ReactElement | nu
           attachment,
           index,
           disabled: isComposerLocked,
+          forgePresentation,
           onOpen: handleOpenAttachment,
           onRemove: handleRemoveAttachment,
           labels,
@@ -360,13 +366,14 @@ interface RenderComposerAttachmentPillArgs {
   attachment: ComposerAttachment;
   index: number;
   disabled: boolean;
+  forgePresentation: ForgePresentation;
   onOpen: (attachment: ComposerAttachment) => void;
   onRemove: (index: number) => void;
   labels: RenderAttachmentTrayArgs["labels"];
 }
 
 function renderComposerAttachmentPill(args: RenderComposerAttachmentPillArgs): ReactElement {
-  const { attachment, index, disabled, onOpen, onRemove, labels } = args;
+  const { attachment, index, disabled, forgePresentation, onOpen, onRemove, labels } = args;
   if (attachment.kind === "image") {
     return (
       <ImageAttachmentPill
@@ -408,6 +415,7 @@ function renderComposerAttachmentPill(args: RenderComposerAttachmentPillArgs): R
       attachment={attachment}
       index={index}
       disabled={disabled}
+      forgePresentation={forgePresentation}
       onOpen={onOpen}
       onRemove={onRemove}
       openLabel={labels.openGithub}
@@ -619,23 +627,30 @@ interface GithubAttachmentPillProps {
   attachment: Extract<ComposerAttachment, { kind: "github_pr" | "github_issue" }>;
   index: number;
   disabled: boolean;
+  forgePresentation: ForgePresentation;
   onOpen: (attachment: ComposerAttachment) => void;
   onRemove: (index: number) => void;
-  openLabel: (kind: string, number: number) => string;
-  removeLabel: (kind: string, number: number) => string;
+  openLabel: (kind: string, numberLabel: string) => string;
+  removeLabel: (kind: string, numberLabel: string) => string;
 }
 
 function GithubAttachmentPill({
   attachment,
   index,
   disabled,
+  forgePresentation,
   onOpen,
   onRemove,
   openLabel,
   removeLabel,
 }: GithubAttachmentPillProps) {
   const item = attachment.item;
-  const kindLabel = item.kind === "pr" ? "PR" : "issue";
+  const isChangeRequest = item.kind === "pr";
+  const kindLabel = isChangeRequest ? forgePresentation.changeRequestAbbrev : "issue";
+  const subtitleKind = isChangeRequest ? forgePresentation.changeRequestAbbrev : "Issue";
+  const numberPrefix = isChangeRequest
+    ? forgePresentation.numberPrefix
+    : forgePresentation.issueNumberPrefix;
   const handleOpen = useCallback(() => {
     onOpen(attachment);
   }, [onOpen, attachment]);
@@ -647,14 +662,14 @@ function GithubAttachmentPill({
       testID="composer-github-attachment-pill"
       onOpen={handleOpen}
       onRemove={handleRemove}
-      openAccessibilityLabel={openLabel(kindLabel, item.number)}
-      removeAccessibilityLabel={removeLabel(kindLabel, item.number)}
+      openAccessibilityLabel={openLabel(kindLabel, `${numberPrefix}${item.number}`)}
+      removeAccessibilityLabel={removeLabel(kindLabel, `${numberPrefix}${item.number}`)}
       disabled={disabled}
     >
       <AttachmentLabel
-        icon={item.kind === "pr" ? githubPrPillIcon : githubIssuePillIcon}
+        icon={isChangeRequest ? githubPrPillIcon : githubIssuePillIcon}
         title={item.title}
-        subtitle={`${item.kind === "pr" ? "PR" : "Issue"} #${item.number}`}
+        subtitle={`${subtitleKind} ${numberPrefix}${item.number}`}
       />
     </AttachmentPill>
   );
@@ -1704,6 +1719,22 @@ export function Composer({
     [contextWindowMeter, isCompactLayout],
   );
 
+  const hasGithubAttachment = useMemo(
+    () =>
+      selectedAttachments.some(
+        (attachment) => attachment.kind === "github_pr" || attachment.kind === "github_issue",
+      ),
+    [selectedAttachments],
+  );
+  // Composer stays mounted for each focused agent, so avoid a forge CLI call
+  // until the forge-specific picker or attachment presentation is visible.
+  const { forge } = useCheckoutPrStatusQuery({
+    serverId,
+    cwd,
+    enabled: isConnected && cwd.trim().length > 0 && (isGithubPickerOpen || hasGithubAttachment),
+  });
+  const forgePresentation = useMemo(() => getForgePresentation(forge), [forge]);
+
   const githubSearchQueryTrimmed = githubSearchQuery.trim();
   const githubSearchResultsQuery = useGithubSearchQuery({
     client,
@@ -1719,10 +1750,10 @@ export function Composer({
     () =>
       githubSearchItems.map((item) => ({
         id: `${item.kind}:${item.number}`,
-        label: `#${item.number} ${item.title}`,
+        label: `${item.kind === "pr" ? forgePresentation.numberPrefix : forgePresentation.issueNumberPrefix}${item.number} ${item.title}`,
         description: githubSearchQueryTrimmed,
       })),
-    [githubSearchItems, githubSearchQueryTrimmed],
+    [githubSearchItems, githubSearchQueryTrimmed, forgePresentation],
   );
 
   const attachmentMenuItems = useMemo<AttachmentMenuItem[]>(
@@ -1737,8 +1768,13 @@ export function Composer({
       },
       {
         id: "github",
-        label: t("composer.attachments.addIssueOrPr"),
-        icon: <ThemedGithub size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />,
+        label: t(forgePresentation.composer.addIssueOrChangeRequestKey),
+        icon:
+          forgePresentation.icon === "gitlab" ? (
+            <ThemedGitlab size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />
+          ) : (
+            <ThemedGithub size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />
+          ),
         onSelect: () => {
           setIsGithubPickerOpen(true);
         },
@@ -1752,7 +1788,7 @@ export function Composer({
         },
       },
     ],
-    [handlePickImage, handlePickFile, t],
+    [handlePickImage, handlePickFile, t, forgePresentation],
   );
 
   const handleToggleGithubItem = useCallback(
@@ -1855,19 +1891,27 @@ export function Composer({
       renderAttachmentTray({
         selectedAttachments,
         isComposerLocked,
+        forgePresentation,
         handleOpenAttachment,
         handleRemoveAttachment,
         labels: {
           openImage: t("composer.attachments.openImage"),
           removeImage: t("composer.attachments.removeImage"),
           removeFile: t("composer.attachments.removeFile"),
-          openGithub: (kind: string, number: number) =>
-            t("composer.attachments.openGithub", { kind, number }),
-          removeGithub: (kind: string, number: number) =>
-            t("composer.attachments.removeGithub", { kind, number }),
+          openGithub: (kind: string, numberLabel: string) =>
+            t("composer.attachments.openGithub", { kind, number: numberLabel }),
+          removeGithub: (kind: string, numberLabel: string) =>
+            t("composer.attachments.removeGithub", { kind, number: numberLabel }),
         },
       }),
-    [handleOpenAttachment, handleRemoveAttachment, isComposerLocked, selectedAttachments, t],
+    [
+      handleOpenAttachment,
+      handleRemoveAttachment,
+      isComposerLocked,
+      selectedAttachments,
+      forgePresentation,
+      t,
+    ],
   );
 
   const queueList = useMemo(
@@ -1976,8 +2020,8 @@ export function Composer({
                 onSelect={noop}
                 keepOpenOnSelect
                 searchable
-                searchPlaceholder={t("composer.github.searchPlaceholder")}
-                title={t("composer.github.title")}
+                searchPlaceholder={t(forgePresentation.composer.searchPlaceholderKey)}
+                title={t(forgePresentation.composer.titleKey)}
                 open={isGithubPickerOpen}
                 onOpenChange={handleGithubPickerOpenChange}
                 onSearchQueryChange={setGithubSearchQuery}
@@ -2179,6 +2223,7 @@ const ThemedPaperclip = withUnistyles(Paperclip);
 const ThemedImageIcon = withUnistyles(ImageIcon);
 const ThemedFileText = withUnistyles(FileText);
 const ThemedGithub = withUnistyles(Github);
+const ThemedGitlab = withUnistyles(Gitlab);
 
 const iconForegroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const iconForegroundMutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });

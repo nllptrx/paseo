@@ -1050,8 +1050,9 @@ describe("CheckoutSession", () => {
       ]);
     });
 
-    it("degrades search to empty/unavailable on a gitlab workspace without running gh", async () => {
+    it("routes search through the resolved GitLab service without running gh", async () => {
       let githubCalled = false;
+      const gitlabSearches: unknown[] = [];
       const { checkout, emitted } = makeCheckoutSession({
         github: {
           searchIssuesAndPrs: async () => {
@@ -1064,8 +1065,25 @@ describe("CheckoutSession", () => {
             forge: "gitlab",
             host: "gitlab.com",
             service: {
-              searchIssuesAndPrs: async () => {
-                throw new Error("Issue and merge request search is not supported on GitLab yet");
+              searchIssuesAndPrs: async (input) => {
+                gitlabSearches.push(input);
+                return {
+                  items: [
+                    {
+                      kind: "pr",
+                      number: 17,
+                      title: "GitLab result",
+                      url: "https://gitlab.com/acme/repo/-/merge_requests/17",
+                      state: "opened",
+                      body: null,
+                      labels: [],
+                      baseRefName: "main",
+                      headRefName: "feature",
+                      updatedAt: "2026-06-28T10:00:00.000Z",
+                    },
+                  ],
+                  githubFeaturesEnabled: true,
+                };
               },
             } as never,
           }),
@@ -1080,12 +1098,33 @@ describe("CheckoutSession", () => {
       });
 
       expect(githubCalled).toBe(false);
+      expect(gitlabSearches).toEqual([
+        {
+          cwd: "/repo",
+          query: "fix",
+          limit: undefined,
+          kinds: undefined,
+        },
+      ]);
       expect(emitted).toEqual([
         {
           type: "github_search_response",
           payload: {
-            items: [],
-            githubFeaturesEnabled: false,
+            items: [
+              {
+                kind: "pr",
+                number: 17,
+                title: "GitLab result",
+                url: "https://gitlab.com/acme/repo/-/merge_requests/17",
+                state: "opened",
+                body: null,
+                labels: [],
+                baseRefName: "main",
+                headRefName: "feature",
+                updatedAt: "2026-06-28T10:00:00.000Z",
+              },
+            ],
+            githubFeaturesEnabled: true,
             error: null,
             requestId: "gs2",
           },

@@ -193,7 +193,10 @@ describe("translation resources", () => {
     expect(en.composer.input.sendMessage).toBe("Send message");
     expect(en.composer.voice.startDictation).toBe("Start dictation");
     expect(en.composer.attachments.addIssueOrPr).toBe("Add issue or PR");
+    expect(en.composer.attachments.addIssueOrMr).toBe("Add issue or MR");
     expect(en.composer.github.title).toBe("Attach issue or PR");
+    expect(en.composer.github.titleMr).toBe("Attach issue or MR");
+    expect(en.composer.github.searchPlaceholderMr).toBe("Search issues and MRs...");
     expect(en.agentControls.provider.fallback).toBe("Provider");
     expect(en.agentControls.hints.model).toBe("Change model");
     expect(en.agentControls.hints.mode).toBe("Change mode");

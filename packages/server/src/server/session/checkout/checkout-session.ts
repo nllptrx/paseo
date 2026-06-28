@@ -1105,12 +1105,9 @@ export class CheckoutSession {
   ): Promise<void> {
     const { cwd, query, limit, kinds, requestId } = msg;
 
-    const resolvedCwd = expandTilde(cwd);
-    // Route through the resolved forge so a GitLab workspace hits its
-    // not-supported throw-stub instead of running the GitHub CLI. GitHub path is
-    // unchanged.
-    const { forge, service } = await this.resolveForgeService(resolvedCwd);
     try {
+      const resolvedCwd = expandTilde(cwd);
+      const { service } = await this.resolveForgeService(resolvedCwd);
       const result = await service.searchIssuesAndPrs({
         cwd: resolvedCwd,
         query,
@@ -1127,21 +1124,6 @@ export class CheckoutSession {
         },
       });
     } catch (error) {
-      // Search is deferred on non-GitHub forges: the adapter throws "not
-      // supported", which degrades to empty/unavailable results rather than a
-      // surfaced error. GitHub keeps surfacing real failures.
-      if (forge !== "github") {
-        this.host.emit({
-          type: "github_search_response",
-          payload: {
-            items: [],
-            githubFeaturesEnabled: false,
-            error: null,
-            requestId,
-          },
-        });
-        return;
-      }
       this.host.emit({
         type: "github_search_response",
         payload: {
