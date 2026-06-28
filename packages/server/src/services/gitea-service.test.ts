@@ -171,6 +171,42 @@ const SAMPLE_COMMIT_STATUSES = [
   SAMPLE_COMBINED_STATUS.statuses[0],
 ];
 
+const SAMPLE_ACTIONS_TASKS = {
+  workflow_runs: [
+    {
+      id: 6979709,
+      name: "verify",
+      head_branch: "main",
+      head_sha: "2222222222222222222222222222222222222222",
+      run_number: 3,
+      event: "push",
+      display_title: "chore: add MIT license",
+      status: "success",
+      workflow_id: "ci.yml",
+      url: "https://codeberg.org/example-user/sample-repo/actions/runs/3",
+      created_at: "2026-06-28T18:48:20+02:00",
+      updated_at: "2026-06-28T18:48:38+02:00",
+      run_started_at: "2026-06-28T18:48:20+02:00",
+    },
+    {
+      id: 6979634,
+      name: "verify",
+      head_branch: "main",
+      head_sha: "4444444444444444444444444444444444444444",
+      run_number: 2,
+      event: "push",
+      display_title: "ci: trigger run",
+      status: "success",
+      workflow_id: "ci.yml",
+      url: "https://codeberg.org/example-user/sample-repo/actions/runs/2",
+      created_at: "2026-06-28T18:43:50+02:00",
+      updated_at: "2026-06-28T18:44:06+02:00",
+      run_started_at: "2026-06-28T18:43:50+02:00",
+    },
+  ],
+  total_count: 2,
+};
+
 const OPEN_ISSUE = {
   index: "3",
   state: "open",
@@ -438,6 +474,294 @@ describe("createGiteaService", () => {
     ]);
   });
 
+  it("maps matching Gitea Actions workflow runs to flat checks", async () => {
+    const actionsHeadSha = "2222222222222222222222222222222222222222";
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") {
+        return ok(JSON.stringify({ ...STATUS_PR_VIEW, headSha: actionsHeadSha }));
+      }
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify({ state: "", statuses: [], total_count: 0 }));
+      }
+      if (args[0] === "api" && args[1].endsWith("/actions/tasks")) {
+        return ok(JSON.stringify(SAMPLE_ACTIONS_TASKS));
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checksStatus).toBe("success");
+    expect(status?.checks).toEqual([
+      {
+        name: "verify",
+        status: "success",
+        url: "https://codeberg.org/example-user/sample-repo/actions/runs/3",
+        workflowRunId: 6979709,
+      },
+    ]);
+  });
+
+  it("keeps only the latest Gitea Actions rerun for the same workflow", async () => {
+    const headSha = STATUS_PR_VIEW.headSha;
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify({ state: "", statuses: [], total_count: 0 }));
+      }
+      if (args[0] === "api" && args[1].endsWith("/actions/tasks")) {
+        return ok(
+          JSON.stringify({
+            workflow_runs: [
+              {
+                id: 41,
+                name: "verify",
+                head_sha: headSha,
+                run_number: 4,
+                status: "failure",
+                workflow_id: "ci.yml",
+                url: "https://example.invalid/actions/runs/4",
+                created_at: "2026-06-28T18:00:00+02:00",
+              },
+              {
+                id: 42,
+                name: "verify",
+                head_sha: headSha,
+                run_number: 5,
+                status: "success",
+                workflow_id: "ci.yml",
+                url: "https://example.invalid/actions/runs/5",
+                created_at: "2026-06-28T18:10:00+02:00",
+              },
+            ],
+            total_count: 2,
+          }),
+        );
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checksStatus).toBe("success");
+    expect(status?.checks).toEqual([
+      {
+        name: "verify",
+        status: "success",
+        url: "https://example.invalid/actions/runs/5",
+        workflowRunId: 42,
+      },
+    ]);
+  });
+
+  it("keeps separate Gitea Actions workflows for the same head SHA", async () => {
+    const headSha = STATUS_PR_VIEW.headSha;
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify({ state: "", statuses: [], total_count: 0 }));
+      }
+      if (args[0] === "api" && args[1].endsWith("/actions/tasks")) {
+        return ok(
+          JSON.stringify({
+            workflow_runs: [
+              {
+                id: 51,
+                name: "verify",
+                head_sha: headSha,
+                run_number: 7,
+                status: "success",
+                workflow_id: "ci.yml",
+                url: "https://example.invalid/actions/runs/7",
+              },
+              {
+                id: 52,
+                name: "release",
+                head_sha: headSha,
+                run_number: 3,
+                status: "pending",
+                workflow_id: "release.yml",
+                url: "https://example.invalid/actions/runs/3",
+              },
+            ],
+            total_count: 2,
+          }),
+        );
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checksStatus).toBe("pending");
+    expect(status?.checks).toEqual([
+      {
+        name: "verify",
+        status: "success",
+        url: "https://example.invalid/actions/runs/7",
+        workflowRunId: 51,
+      },
+      {
+        name: "release",
+        status: "pending",
+        url: "https://example.invalid/actions/runs/3",
+        workflowRunId: 52,
+      },
+    ]);
+  });
+
+  it("maps Gitea Actions run status values", async () => {
+    const headSha = STATUS_PR_VIEW.headSha;
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify({ state: "", statuses: [], total_count: 0 }));
+      }
+      if (args[0] === "api" && args[1].endsWith("/actions/tasks")) {
+        return ok(
+          JSON.stringify({
+            workflow_runs: [
+              {
+                id: 11,
+                name: "success-run",
+                head_sha: headSha,
+                status: "success",
+                workflow_id: "success.yml",
+                url: "https://example.invalid/actions/runs/11",
+              },
+              {
+                id: 12,
+                name: "failure-run",
+                head_sha: headSha,
+                status: "failure",
+                workflow_id: "failure.yml",
+                url: "https://example.invalid/actions/runs/12",
+              },
+              {
+                id: 13,
+                name: "cancelled-run",
+                head_sha: headSha,
+                status: "cancelled",
+                workflow_id: "cancelled.yml",
+                url: "https://example.invalid/actions/runs/13",
+              },
+              {
+                id: 14,
+                name: "running-run",
+                head_sha: headSha,
+                status: "running",
+                workflow_id: "running.yml",
+                url: "https://example.invalid/actions/runs/14",
+              },
+              {
+                id: 15,
+                name: "pending-run",
+                head_sha: headSha,
+                status: "pending",
+                workflow_id: "pending.yml",
+                url: "https://example.invalid/actions/runs/15",
+              },
+              {
+                id: 16,
+                name: "skipped-run",
+                head_sha: headSha,
+                status: "skipped",
+                workflow_id: "skipped.yml",
+                url: "https://example.invalid/actions/runs/16",
+              },
+            ],
+            total_count: 6,
+          }),
+        );
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checksStatus).toBe("failure");
+    expect(status?.checks.map((check) => check.status)).toEqual([
+      "success",
+      "failure",
+      "cancelled",
+      "pending",
+      "pending",
+      "skipped",
+    ]);
+  });
+
+  it("combines Gitea commit statuses with matching Actions runs", async () => {
+    const headSha = STATUS_PR_VIEW.headSha;
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify(SAMPLE_COMBINED_STATUS));
+      }
+      if (args[0] === "api" && args[1].endsWith("/actions/tasks")) {
+        return ok(
+          JSON.stringify({
+            workflow_runs: [
+              {
+                id: 6979709,
+                name: "verify",
+                head_sha: headSha,
+                status: "success",
+                workflow_id: "ci.yml",
+                url: "https://codeberg.org/example-user/sample-repo/actions/runs/3",
+              },
+            ],
+            total_count: 1,
+          }),
+        );
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checksStatus).toBe("pending");
+    expect(status?.checks).toEqual([
+      {
+        name: "ci/test",
+        status: "success",
+        url: "https://example.invalid/ci/test",
+        checkRunId: 1,
+      },
+      {
+        name: "ci/lint",
+        status: "pending",
+        url: "https://example.invalid/ci/lint",
+        checkRunId: 2,
+      },
+      {
+        name: "verify",
+        status: "success",
+        url: "https://codeberg.org/example-user/sample-repo/actions/runs/3",
+        workflowRunId: 6979709,
+      },
+    ]);
+  });
+
   it.each([
     ["failure", "failure", "failure"],
     ["error", "error", "failure"],
@@ -503,6 +827,41 @@ describe("createGiteaService", () => {
 
     expect(status?.checks).toEqual([]);
     expect(status?.checksStatus).toBe("success");
+  });
+
+  it("falls back to commit statuses when Gitea Actions are unavailable", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+      if (args[0] === "pr" && args[1] === "5") return ok(JSON.stringify(STATUS_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/commits/")) {
+        return ok(JSON.stringify(SAMPLE_COMBINED_STATUS));
+      }
+      if (args[0] === "api" && args[1].endsWith("/actions/tasks")) {
+        throw { code: 1, stderr: "404 Not Found" };
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/sample-change",
+    });
+
+    expect(status?.checksStatus).toBe("pending");
+    expect(status?.checks).toEqual([
+      {
+        name: "ci/test",
+        status: "success",
+        url: "https://example.invalid/ci/test",
+        checkRunId: 1,
+      },
+      {
+        name: "ci/lint",
+        status: "pending",
+        url: "https://example.invalid/ci/lint",
+        checkRunId: 2,
+      },
+    ]);
   });
 
   it("returns flat Gitea check details from a commit status entry", async () => {
@@ -571,6 +930,54 @@ describe("createGiteaService", () => {
     ]);
   });
 
+  it("returns flat Gitea check details from an Actions workflow run", async () => {
+    const actionsHeadSha = "2222222222222222222222222222222222222222";
+    const { service } = makeService(
+      (args) => {
+        if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([OPEN_PR]));
+        if (args[0] === "pr" && args[1] === "5") {
+          return ok(JSON.stringify({ ...STATUS_PR_VIEW, headSha: actionsHeadSha }));
+        }
+        if (args[0] === "api" && args[1].includes("/commits/")) {
+          return ok(JSON.stringify({ state: "", statuses: [], total_count: 0 }));
+        }
+        if (args[0] === "api" && args[1].endsWith("/actions/tasks")) {
+          return ok(JSON.stringify(SAMPLE_ACTIONS_TASKS));
+        }
+        throw new Error(`unexpected call: ${args.join(" ")}`);
+      },
+      {
+        resolveCurrentBranch: async () => "feat/sample-change",
+      },
+    );
+
+    const details = await service.getGitHubCheckDetails({
+      cwd: "/repo",
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+      checkRunId: 6979709,
+      workflowRunId: 6979709,
+    });
+
+    expect(details).toEqual({
+      checkRunId: 6979709,
+      workflowRunId: 6979709,
+      name: "verify",
+      status: "success",
+      conclusion: "success",
+      url: "https://codeberg.org/example-user/sample-repo/actions/runs/3",
+      detailsUrl: "https://codeberg.org/example-user/sample-repo/actions/runs/3",
+      output: {
+        title: "chore: add MIT license",
+        summary: "ci.yml",
+        text: null,
+      },
+      annotations: [],
+      failedJobs: [],
+      truncated: false,
+    });
+  });
+
   it("keeps the commit-statuses endpoint shape as a fixture", () => {
     expect(SAMPLE_COMMIT_STATUSES).toEqual([
       {
@@ -596,6 +1003,44 @@ describe("createGiteaService", () => {
         updated_at: "2026-06-28T16:25:03Z",
       },
     ]);
+  });
+
+  it("keeps the Codeberg Actions tasks endpoint shape as a fixture", () => {
+    expect(SAMPLE_ACTIONS_TASKS).toEqual({
+      workflow_runs: [
+        {
+          id: 6979709,
+          name: "verify",
+          head_branch: "main",
+          head_sha: "2222222222222222222222222222222222222222",
+          run_number: 3,
+          event: "push",
+          display_title: "chore: add MIT license",
+          status: "success",
+          workflow_id: "ci.yml",
+          url: "https://codeberg.org/example-user/sample-repo/actions/runs/3",
+          created_at: "2026-06-28T18:48:20+02:00",
+          updated_at: "2026-06-28T18:48:38+02:00",
+          run_started_at: "2026-06-28T18:48:20+02:00",
+        },
+        {
+          id: 6979634,
+          name: "verify",
+          head_branch: "main",
+          head_sha: "4444444444444444444444444444444444444444",
+          run_number: 2,
+          event: "push",
+          display_title: "ci: trigger run",
+          status: "success",
+          workflow_id: "ci.yml",
+          url: "https://codeberg.org/example-user/sample-repo/actions/runs/2",
+          created_at: "2026-06-28T18:43:50+02:00",
+          updated_at: "2026-06-28T18:44:06+02:00",
+          run_started_at: "2026-06-28T18:43:50+02:00",
+        },
+      ],
+      total_count: 2,
+    });
   });
 
   it("reports a conflicting PR as CONFLICTING with a failing CI", async () => {

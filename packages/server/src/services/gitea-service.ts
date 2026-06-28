@@ -194,6 +194,30 @@ const GiteaCombinedCommitStatusSchema = z
   })
   .passthrough();
 
+const GiteaActionsRunSchema = z
+  .object({
+    id: z.number(),
+    name: z.string().nullable().optional(),
+    head_branch: z.string().nullable().optional(),
+    head_sha: z.string(),
+    run_number: z.number().optional(),
+    event: z.string().nullable().optional(),
+    display_title: z.string().nullable().optional(),
+    status: z.string(),
+    workflow_id: z.string().nullable().optional(),
+    url: z.string().nullable().optional(),
+    created_at: z.string().nullable().optional(),
+    run_started_at: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const GiteaActionsRunsSchema = z
+  .object({
+    workflow_runs: z.array(GiteaActionsRunSchema).optional().default([]),
+    total_count: z.number().optional(),
+  })
+  .passthrough();
+
 const GiteaIssueCommentSchema = z
   .object({
     id: z.number(),
@@ -237,6 +261,8 @@ type GiteaIssueListItem = z.infer<typeof GiteaIssueListItemSchema>;
 type GiteaPullRequestView = z.infer<typeof GiteaPullRequestViewSchema>;
 type GiteaCommitStatus = z.infer<typeof GiteaCommitStatusSchema>;
 type GiteaCombinedCommitStatus = z.infer<typeof GiteaCombinedCommitStatusSchema>;
+type GiteaActionsRun = z.infer<typeof GiteaActionsRunSchema>;
+type GiteaActionsRuns = z.infer<typeof GiteaActionsRunsSchema>;
 type GiteaIssueComment = z.infer<typeof GiteaIssueCommentSchema>;
 type GiteaReview = z.infer<typeof GiteaReviewSchema>;
 type GiteaReviewComment = z.infer<typeof GiteaReviewCommentSchema>;
@@ -498,6 +524,32 @@ function mapGiteaCommitStatus(state: string): PullRequestCheck["status"] {
   }
 }
 
+function mapGiteaActionsRunStatus(status: string): PullRequestCheck["status"] {
+  switch (status.toLowerCase()) {
+    case "success":
+      return "success";
+    case "failure":
+    case "failed":
+    case "error":
+      return "failure";
+    case "cancelled":
+    case "canceled":
+      return "cancelled";
+    case "skipped":
+      return "skipped";
+    case "pending":
+    case "queued":
+    case "waiting":
+    case "requested":
+    case "running":
+    case "in_progress":
+    case "blocked":
+      return "pending";
+    default:
+      return "pending";
+  }
+}
+
 function mapGiteaCombinedStatus(
   state: string,
   checks: PullRequestCheck[],
@@ -537,11 +589,90 @@ function toGiteaPullRequestCheck(status: GiteaCommitStatus): PullRequestCheck {
   };
 }
 
-function applyGiteaCommitStatus(
+function getGiteaActionsRunName(workflowRun: GiteaActionsRun): string {
+  return (
+    workflowRun.name ||
+    workflowRun.display_title ||
+    workflowRun.workflow_id ||
+    `actions-${workflowRun.id}`
+  );
+}
+
+function toGiteaActionsPullRequestCheck(workflowRun: GiteaActionsRun): PullRequestCheck {
+  return {
+    name: getGiteaActionsRunName(workflowRun),
+    status: mapGiteaActionsRunStatus(workflowRun.status),
+    url: workflowRun.url ?? null,
+    workflowRunId: workflowRun.id,
+  };
+}
+
+function getGiteaActionsWorkflowIdentity(workflowRun: GiteaActionsRun): string {
+  return workflowRun.workflow_id || workflowRun.name || `actions-${workflowRun.id}`;
+}
+
+function parseGiteaActionsRunTime(workflowRun: GiteaActionsRun): number {
+  const timestamp = workflowRun.created_at ?? workflowRun.run_started_at ?? null;
+  if (!timestamp) {
+    return 0;
+  }
+  const time = Date.parse(timestamp);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function compareGiteaActionsRunRecency(left: GiteaActionsRun, right: GiteaActionsRun): number {
+  const leftRunNumber = left.run_number ?? 0;
+  const rightRunNumber = right.run_number ?? 0;
+  if (leftRunNumber !== rightRunNumber) {
+    return leftRunNumber - rightRunNumber;
+  }
+
+  const leftTime = parseGiteaActionsRunTime(left);
+  const rightTime = parseGiteaActionsRunTime(right);
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+
+  return left.id - right.id;
+}
+
+function latestGiteaActionsRunsByWorkflow(actionsRuns: GiteaActionsRun[]): GiteaActionsRun[] {
+  const latestRuns = new Map<string, GiteaActionsRun>();
+  for (const workflowRun of actionsRuns) {
+    const identity = getGiteaActionsWorkflowIdentity(workflowRun);
+    const current = latestRuns.get(identity);
+    if (!current || compareGiteaActionsRunRecency(current, workflowRun) < 0) {
+      latestRuns.set(identity, workflowRun);
+    }
+  }
+  return [...latestRuns.values()];
+}
+
+function combineGiteaChecks(
+  commitStatuses: GiteaCommitStatus[],
+  actionsRuns: GiteaActionsRun[],
+): PullRequestCheck[] {
+  const checks = commitStatuses.map(toGiteaPullRequestCheck);
+  const seen = new Set(
+    checks.map((check) => `${check.name}\u0000${check.url ?? ""}\u0000${check.status}`),
+  );
+  for (const workflowRun of actionsRuns) {
+    const check = toGiteaActionsPullRequestCheck(workflowRun);
+    const key = `${check.name}\u0000${check.url ?? ""}\u0000${check.status}`;
+    if (!seen.has(key)) {
+      checks.push(check);
+      seen.add(key);
+    }
+  }
+  return checks;
+}
+
+function applyGiteaChecks(
   status: CurrentPullRequestStatus,
   combined: GiteaCombinedCommitStatus,
+  actionsRuns: GiteaActionsRun[],
 ): CurrentPullRequestStatus {
-  const checks = combined.statuses.map(toGiteaPullRequestCheck);
+  const checks = combineGiteaChecks(combined.statuses, actionsRuns);
   if (checks.length === 0) {
     return status;
   }
@@ -938,15 +1069,36 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       if (!pr.headSha) {
         return status;
       }
-      const combined = await loadCombinedCommitStatus({
-        cwd,
-        repoOwner: status.repoOwner,
-        repoName: status.repoName,
-        sha: pr.headSha,
-      });
-      return applyGiteaCommitStatus(status, combined);
+      const [combined, actionsRuns] = await Promise.all([
+        loadCombinedCommitStatusBestEffort({
+          cwd,
+          repoOwner: status.repoOwner,
+          repoName: status.repoName,
+          sha: pr.headSha,
+        }),
+        loadActionsRunsBestEffort({
+          cwd,
+          repoOwner: status.repoOwner,
+          repoName: status.repoName,
+          sha: pr.headSha,
+        }),
+      ]);
+      return applyGiteaChecks(status, combined, actionsRuns);
     } catch {
       return status;
+    }
+  }
+
+  async function loadCombinedCommitStatusBestEffort(input: {
+    cwd: string;
+    repoOwner: string;
+    repoName: string;
+    sha: string;
+  }): Promise<GiteaCombinedCommitStatus> {
+    try {
+      return await loadCombinedCommitStatus(input);
+    } catch {
+      return { state: "", statuses: [], total_count: 0 };
     }
   }
 
@@ -963,6 +1115,37 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       ["api", `repos/${owner}/${repo}/commits/${sha}/status`],
       { cwd: input.cwd },
       GiteaCombinedCommitStatusSchema,
+    );
+  }
+
+  async function loadActionsRunsBestEffort(input: {
+    cwd: string;
+    repoOwner: string;
+    repoName: string;
+    sha: string;
+  }): Promise<GiteaActionsRun[]> {
+    try {
+      const runs = await loadActionsRuns(input);
+      const matchingRuns = runs.workflow_runs.filter(
+        (workflowRun) => workflowRun.head_sha === input.sha,
+      );
+      return latestGiteaActionsRunsByWorkflow(matchingRuns);
+    } catch {
+      return [];
+    }
+  }
+
+  async function loadActionsRuns(input: {
+    cwd: string;
+    repoOwner: string;
+    repoName: string;
+  }): Promise<GiteaActionsRuns> {
+    const owner = encodeURIComponent(input.repoOwner);
+    const repo = encodeURIComponent(input.repoName);
+    return runJson(
+      ["api", `repos/${owner}/${repo}/actions/tasks`],
+      { cwd: input.cwd },
+      GiteaActionsRunsSchema,
     );
   }
 
@@ -1008,6 +1191,27 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
               text: null,
             }
           : null,
+      annotations: [],
+      failedJobs: [],
+      truncated: false,
+    };
+  }
+
+  function toGiteaActionsCheckDetails(workflowRun: GiteaActionsRun): CheckDetails {
+    const conclusion = mapGiteaActionsRunStatus(workflowRun.status);
+    return {
+      checkRunId: workflowRun.id,
+      workflowRunId: workflowRun.id,
+      name: getGiteaActionsRunName(workflowRun),
+      status: workflowRun.status,
+      conclusion,
+      url: workflowRun.url ?? null,
+      detailsUrl: workflowRun.url ?? null,
+      output: {
+        title: workflowRun.display_title ?? workflowRun.name ?? workflowRun.workflow_id ?? null,
+        summary: workflowRun.workflow_id ?? null,
+        text: null,
+      },
       annotations: [],
       failedJobs: [],
       truncated: false,
@@ -1206,17 +1410,28 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
         throw new Error("Gitea getGitHubCheckDetails requires repoOwner and repoName");
       }
       const sha = await resolveCurrentPullRequestHeadSha(input.cwd);
-      const combined = await loadCombinedCommitStatus({
+      const combined = await loadCombinedCommitStatusBestEffort({
         cwd: input.cwd,
         repoOwner: input.repoOwner,
         repoName: input.repoName,
         sha,
       });
       const status = combined.statuses.find((entry) => entry.id === input.checkRunId);
-      if (!status) {
-        throw new Error(`Gitea commit status ${input.checkRunId} was not found`);
+      if (status) {
+        return toGiteaCheckDetails(status);
       }
-      return toGiteaCheckDetails(status);
+      const runs = await loadActionsRunsBestEffort({
+        cwd: input.cwd,
+        repoOwner: input.repoOwner,
+        repoName: input.repoName,
+        sha,
+      });
+      const workflowRunId = input.workflowRunId ?? input.checkRunId;
+      const workflowRun = runs.find((entry) => entry.id === workflowRunId);
+      if (!workflowRun) {
+        throw new Error(`Gitea check ${input.checkRunId} was not found`);
+      }
+      return toGiteaActionsCheckDetails(workflowRun);
     },
 
     async searchIssuesAndPrs(input: SearchIssuesAndPrsOptions): Promise<SearchResult> {
