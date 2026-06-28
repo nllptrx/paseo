@@ -996,10 +996,8 @@ export class CheckoutSession {
       return;
     }
 
-    // Route through the resolved forge so a GitLab workspace hits its
-    // not-supported throw-stub (clean "not supported" message) instead of
-    // running the GitHub CLI against a GitLab remote. GitHub path is unchanged.
-    const { service } = await this.resolveForgeService(cwd);
+    const { forge, service } = await this.resolveForgeService(cwd);
+
     const githubFeaturesEnabled = await service.isAuthenticated({ cwd });
     if (!githubFeaturesEnabled) {
       this.host.emit({
@@ -1011,7 +1009,10 @@ export class CheckoutSession {
           truncated: false,
           error: {
             kind: "unknown",
-            message: "GitHub CLI is unavailable or not authenticated",
+            message:
+              forge === "github"
+                ? "GitHub CLI is unavailable or not authenticated"
+                : "The forge CLI is unavailable or not authenticated",
           },
           requestId,
           githubFeaturesEnabled: false,

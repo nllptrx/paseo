@@ -1,5 +1,6 @@
 import type { CheckoutGithubCheckDetails } from "@getpaseo/protocol/messages";
 import type { PullRequestContextAttachment } from "@/attachments/types";
+import { type Forge, getForgePresentation } from "@/git/forge";
 import {
   formatPullRequestActivityLocation,
   formatPullRequestThreadPath,
@@ -15,18 +16,21 @@ export interface PullRequestContextMetadata {
 
 export interface PullRequestContextBuilderInput {
   provider: PullRequestProviderMetadata;
+  forge: Forge;
   pullRequest: PullRequestContextMetadata;
   activity: PrPaneActivity;
 }
 
 export interface PullRequestThreadContextBuilderInput {
   provider: PullRequestProviderMetadata;
+  forge: Forge;
   pullRequest: PullRequestContextMetadata;
   thread: PrThreadEntry;
 }
 
 export interface PullRequestGithubCheckContextBuilderInput {
   provider: PullRequestProviderMetadata & { id: "github" };
+  forge: Forge;
   pullRequest: PullRequestContextMetadata;
   check: PrPaneCheck & { provider: "github" };
   githubDetails?: CheckoutGithubCheckDetails | null;
@@ -46,14 +50,15 @@ export function canAddPullRequestCheckLogsToChat(check: PrPaneCheck): boolean {
 export function buildPullRequestCommentContextAttachment(
   input: PullRequestContextBuilderInput,
 ): PullRequestContextAttachment {
+  const presentation = getForgePresentation(input.forge);
   return {
     kind: "github.pull_request_comment",
     id: `${input.pullRequest.number}:${input.activity.id}`,
     title: input.activity.author,
-    subtitle: formatPullRequestSubtitle(input.pullRequest),
+    subtitle: formatPullRequestSubtitle(input.pullRequest, input.forge),
     text: formatActivityContextText({
       ...input,
-      heading: `${input.provider.label} pull request comment`,
+      heading: `${presentation.brandLabel} ${presentation.changeRequestNoun} comment`,
     }),
     url: input.activity.url,
   };
@@ -66,14 +71,15 @@ export function buildPullRequestReviewContextAttachment(
     return null;
   }
 
+  const presentation = getForgePresentation(input.forge);
   return {
     kind: "github.pull_request_review",
     id: `${input.pullRequest.number}:${input.activity.id}`,
     title: input.activity.author,
-    subtitle: formatPullRequestSubtitle(input.pullRequest),
+    subtitle: formatPullRequestSubtitle(input.pullRequest, input.forge),
     text: formatActivityContextText({
       ...input,
-      heading: `${input.provider.label} pull request review`,
+      heading: `${presentation.brandLabel} ${presentation.changeRequestNoun} review`,
       reviewState: input.activity.reviewState,
     }),
     url: input.activity.url,
@@ -93,10 +99,12 @@ export function buildPullRequestThreadContextAttachment(
     return null;
   }
 
+  const presentation = getForgePresentation(input.forge);
+  const noun = capitalizeFirst(presentation.changeRequestNoun);
   const lines = [
-    `${input.provider.label} pull request review thread`,
-    `Pull request: #${input.pullRequest.number} ${input.pullRequest.title}`,
-    `Pull request URL: ${input.pullRequest.url}`,
+    `${presentation.brandLabel} ${presentation.changeRequestNoun} review thread`,
+    `${noun}: ${presentation.numberPrefix}${input.pullRequest.number} ${input.pullRequest.title}`,
+    `${noun} URL: ${input.pullRequest.url}`,
     `URL: ${root.url}`,
     `Location: ${formatPullRequestThreadPath(input.thread.location)}`,
   ];
@@ -115,7 +123,7 @@ export function buildPullRequestThreadContextAttachment(
     kind: "github.pull_request_comment",
     id: `${input.pullRequest.number}:${input.thread.id}`,
     title: formatPullRequestThreadPath(input.thread.location),
-    subtitle: formatPullRequestSubtitle(input.pullRequest),
+    subtitle: formatPullRequestSubtitle(input.pullRequest, input.forge),
     text: [...lines, "", conversation.join("\n\n---\n\n")].join("\n"),
     url: root.url,
   };
@@ -128,7 +136,7 @@ export function buildPullRequestCheckContextAttachment(
     kind: "github.pull_request_check",
     id: formatPullRequestCheckContextId(input.pullRequest, input.check),
     title: input.check.name,
-    subtitle: formatPullRequestSubtitle(input.pullRequest),
+    subtitle: formatPullRequestSubtitle(input.pullRequest, input.forge),
     text: formatGitHubCheckContextText(input),
     url: input.githubDetails?.detailsUrl ?? input.githubDetails?.url ?? input.check.url,
   };
@@ -249,14 +257,17 @@ function formatAnnotationLines(
 
 function formatActivityContextText({
   heading,
+  forge,
   pullRequest,
   activity,
   reviewState,
 }: PullRequestContextBuilderInput & { heading: string; reviewState?: ReviewState }): string {
+  const presentation = getForgePresentation(forge);
+  const noun = capitalizeFirst(presentation.changeRequestNoun);
   const lines = [
     heading,
-    `Pull request: #${pullRequest.number} ${pullRequest.title}`,
-    `Pull request URL: ${pullRequest.url}`,
+    `${noun}: ${presentation.numberPrefix}${pullRequest.number} ${pullRequest.title}`,
+    `${noun} URL: ${pullRequest.url}`,
     `URL: ${activity.url}`,
     `Author: ${activity.author}`,
   ];
@@ -279,6 +290,10 @@ function formatActivityContextText({
   return [...lines, "", body].join("\n");
 }
 
-function formatPullRequestSubtitle(pullRequest: PullRequestContextMetadata): string {
-  return `#${pullRequest.number} ${pullRequest.title}`;
+function formatPullRequestSubtitle(pullRequest: PullRequestContextMetadata, forge: Forge): string {
+  return `${getForgePresentation(forge).numberPrefix}${pullRequest.number} ${pullRequest.title}`;
+}
+
+function capitalizeFirst(value: string): string {
+  return value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
 }

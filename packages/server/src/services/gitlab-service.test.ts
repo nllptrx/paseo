@@ -50,6 +50,13 @@ const OPEN_MR = {
   head_pipeline: { status: "success" },
 };
 
+const NESTED_GROUP_MR = {
+  ...OPEN_MR,
+  iid: 73,
+  web_url: "https://gitlab.example.com/example-group/nested/example-project/-/merge_requests/73",
+  references: { full: "example-group/nested/example-project!73", short: "!73" },
+};
+
 const PIPELINE_WITH_JOBS = {
   id: 306,
   status: "failed",
@@ -95,6 +102,66 @@ const PIPELINE_WITH_JOBS = {
     },
   ],
 };
+
+const APPROVALS = {
+  approvals_required: 2,
+  approvals_left: 1,
+  approved_by: [{ user: { username: "reviewer-a" } }],
+};
+
+// Mirrors `glab api projects/:id/merge_requests/:iid/discussions` (GitLab 16+).
+const DISCUSSIONS = [
+  {
+    id: "sys-1",
+    individual_note: true,
+    notes: [
+      {
+        id: 399,
+        type: null,
+        system: true,
+        body: "enabled an automatic merge",
+        created_at: "2026-06-25T19:24:04.180Z",
+        author: { username: "claude", name: "Claude", web_url: "https://gl/claude" },
+      },
+    ],
+  },
+  {
+    id: "note-1",
+    individual_note: true,
+    notes: [
+      {
+        id: 401,
+        type: null,
+        system: false,
+        body: "Looks good to me",
+        created_at: "2026-06-25T20:00:00.000Z",
+        author: {
+          username: "reviewer-a",
+          name: "Reviewer A",
+          web_url: "https://gl/reviewer-a",
+          avatar_url: "https://gl/avatar-a.png",
+        },
+      },
+    ],
+  },
+  {
+    id: "thread-1",
+    individual_note: false,
+    notes: [
+      {
+        id: 402,
+        type: "DiffNote",
+        system: false,
+        body: "This line needs a guard",
+        created_at: "2026-06-25T19:55:00.000Z",
+        resolvable: true,
+        resolved: false,
+        author: { username: "reviewer-b", web_url: "https://gl/reviewer-b" },
+        position: { new_path: "src/app.ts", old_path: "src/app.ts", new_line: 42, old_line: null },
+      },
+    ],
+  },
+];
 
 describe("createGitLabService", () => {
   it("maps a glab merge request view to the neutral current PR status", async () => {
@@ -354,6 +421,152 @@ describe("createGitLabService", () => {
 
     const details = await service.getGitHubCheckDetails({ cwd: "/repo", checkRunId: 306 });
     expect(details.pipeline?.stages[0]?.status).toBe("success");
+  });
+
+  it("populates approval counts from the approvals endpoint", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(OPEN_MR));
+      if (args[0] === "api" && args[1].endsWith("/approvals")) return ok(JSON.stringify(APPROVALS));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "release/v0.4.0",
+    });
+
+    expect(status?.forgeSpecific).toMatchObject({
+      forge: "gitlab",
+      approvalsRequired: 2,
+      approvalsGiven: 1,
+    });
+    expect(calls[1]).toEqual(["api", "projects/example-group%2Fexample-project/merge_requests/14/approvals"]);
+  });
+
+  it("falls back to zero approvals when the approvals endpoint returns an error", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(OPEN_MR));
+      throw { code: 1, stderr: "500 Internal Server Error" };
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "release/v0.4.0",
+    });
+
+    expect(status?.number).toBe(14);
+    expect(status?.forgeSpecific).toMatchObject({
+      forge: "gitlab",
+      approvalsRequired: 0,
+      approvalsGiven: 0,
+    });
+  });
+
+  it("maps MR discussions to a neutral timeline, dropping system notes", async () => {
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(NESTED_GROUP_MR));
+      if (args[0] === "api" && args[1].includes("/discussions"))
+        return ok(JSON.stringify(DISCUSSIONS));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 14,
+      repoOwner: "example-group",
+      repoName: "example-project",
+    });
+
+    expect(calls[1]).toEqual([
+      "api",
+      "projects/example-group%2Fnested%2Fexample-project/merge_requests/73/discussions?per_page=100",
+    ]);
+    expect(timeline.error).toBeNull();
+    expect(timeline.truncated).toBe(false);
+    // System note 399 is dropped; the diff note (19:55) sorts before the comment (20:00).
+    expect(timeline.items.map((item) => item.id)).toEqual(["402", "401"]);
+
+    const [diffNote, comment] = timeline.items;
+    expect(diffNote).toMatchObject({
+      kind: "comment",
+      id: "402",
+      author: "reviewer-b",
+      url: "https://gitlab.example.com/example-group/nested/example-project/-/merge_requests/73#note_402",
+      location: { path: "src/app.ts", line: 42, threadId: "thread-1", isResolved: false },
+    });
+    expect(comment).toMatchObject({
+      kind: "comment",
+      id: "401",
+      author: "reviewer-a",
+      authorUrl: "https://gl/reviewer-a",
+      avatarUrl: "https://gl/avatar-a.png",
+      body: "Looks good to me",
+    });
+    expect(comment).not.toHaveProperty("location");
+  });
+
+  it("returns a not_found timeline error when discussions cannot be fetched", async () => {
+    const { service } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(OPEN_MR));
+      throw { code: 1, stderr: "404 Merge request not found" };
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 14,
+      repoOwner: "example-group",
+      repoName: "example-project",
+    });
+
+    expect(timeline.items).toEqual([]);
+    expect(timeline.error).toMatchObject({ kind: "not_found" });
+  });
+
+  it.each(["403 Forbidden", "401 Unauthorized"])(
+    "returns a forbidden timeline error for %s",
+    async (stderr) => {
+      const { service } = makeService((args) => {
+        if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(OPEN_MR));
+        throw { code: 1, stderr };
+      });
+
+      const timeline = await service.getPullRequestTimeline({
+        cwd: "/repo",
+        prNumber: 14,
+        repoOwner: "example-group",
+        repoName: "example-project",
+      });
+
+      expect(timeline).toMatchObject({
+        items: [],
+        truncated: false,
+        error: { kind: "forbidden" },
+      });
+    },
+  );
+
+  it("flags a full discussions page as truncated", async () => {
+    const discussions = Array.from({ length: 100 }, (_, index) => ({
+      id: `discussion-${index}`,
+      notes: [],
+    }));
+    const { service } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(OPEN_MR));
+      return ok(JSON.stringify(discussions));
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 14,
+      repoOwner: "example-group",
+      repoName: "example-project",
+    });
+
+    expect(timeline).toMatchObject({
+      items: [],
+      truncated: true,
+      error: null,
+    });
   });
 
   it("reports authentication via a host-scoped glab auth status", async () => {

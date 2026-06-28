@@ -738,6 +738,7 @@ export const ar: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "عرض",
+          openOn: "فتح على {{brand}}",
         },
         sections: {
           checks: "الشيكات",
@@ -750,6 +751,7 @@ export const ar: TranslationResources = {
           pipelineJobsLoadFailed: "تعذر تحميل مهام خط المعالجة",
           allowedToFail: "مسموح بالفشل",
         },
+        approvals: "{{given}} من {{required}} موافقات",
         accessibility: {
           pullRequest: "سحب الطلب #{{number}}",
         },

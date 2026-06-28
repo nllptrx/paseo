@@ -29,6 +29,10 @@ import type {
   PullRequestMergeResult,
   PullRequestSummary,
   PullRequestTimeline,
+  PullRequestTimelineCommentLocation,
+  PullRequestTimelineError,
+  PullRequestTimelineErrorKind,
+  PullRequestTimelineItem,
   SearchIssuesAndPrsOptions,
   SearchResult,
 } from "./forge-service.js";
@@ -166,8 +170,61 @@ const GitLabIssueSchema = z
   })
   .passthrough();
 
+const GitLabNoteAuthorSchema = z
+  .object({
+    username: z.string().optional(),
+    name: z.string().optional(),
+    web_url: z.string().nullable().optional(),
+    avatar_url: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const GitLabNotePositionSchema = z
+  .object({
+    new_path: z.string().nullable().optional(),
+    old_path: z.string().nullable().optional(),
+    new_line: z.number().nullable().optional(),
+    old_line: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+const GitLabNoteSchema = z
+  .object({
+    id: z.number(),
+    body: z.string().nullable().optional(),
+    system: z.boolean().optional(),
+    type: z.string().nullable().optional(),
+    created_at: z.string().nullable().optional(),
+    resolvable: z.boolean().optional(),
+    resolved: z.boolean().optional(),
+    author: GitLabNoteAuthorSchema.nullable().optional(),
+    position: GitLabNotePositionSchema.nullable().optional(),
+  })
+  .passthrough();
+
+const GitLabDiscussionSchema = z
+  .object({
+    id: z.string(),
+    individual_note: z.boolean().optional(),
+    notes: z.array(GitLabNoteSchema).optional().default([]),
+  })
+  .passthrough();
+
+const GitLabApprovalsSchema = z
+  .object({
+    approvals_required: z.number().nullable().optional(),
+    approvals_left: z.number().nullable().optional(),
+    approved_by: z.array(z.unknown()).nullable().optional(),
+  })
+  .passthrough();
+
 type GitLabMergeRequest = z.infer<typeof GitLabMergeRequestSchema>;
 type GitLabIssue = z.infer<typeof GitLabIssueSchema>;
+type GitLabNote = z.infer<typeof GitLabNoteSchema>;
+type GitLabDiscussion = z.infer<typeof GitLabDiscussionSchema>;
+type GitLabApprovals = z.infer<typeof GitLabApprovalsSchema>;
+
+const TIMELINE_PAGE_SIZE = 100;
 
 async function resolveGlabPath(): Promise<string | null> {
   return findExecutable("glab");
@@ -295,18 +352,121 @@ function extractProjectPath(fullReference: string | undefined): string | undefin
   return projectPath && projectPath.length > 0 ? projectPath : undefined;
 }
 
-function toGitLabStatusFacts(mr: GitLabMergeRequest): GitLabStatusFacts {
+function countApprovalsGiven(approvals: GitLabApprovals | null | undefined): number | null {
+  if (!approvals) {
+    return null;
+  }
+  if (Array.isArray(approvals.approved_by)) {
+    return approvals.approved_by.length;
+  }
+  if (approvals.approvals_required != null && approvals.approvals_left != null) {
+    return Math.max(0, approvals.approvals_required - approvals.approvals_left);
+  }
+  return null;
+}
+
+function toGitLabStatusFacts(
+  mr: GitLabMergeRequest,
+  approvals?: GitLabApprovals | null,
+): GitLabStatusFacts {
   return {
     detailedMergeStatus: mr.detailed_merge_status ?? null,
     hasConflicts: mr.has_conflicts ?? false,
     blockingDiscussionsResolved: mr.blocking_discussions_resolved ?? true,
-    approvalsRequired: mr.approvals_required ?? 0,
-    approvalsGiven: mr.approvals_given ?? 0,
+    approvalsRequired: approvals?.approvals_required ?? mr.approvals_required ?? 0,
+    approvalsGiven: countApprovalsGiven(approvals) ?? mr.approvals_given ?? 0,
     pipelineStatus: mr.head_pipeline?.status ?? null,
     pipelineId: mr.head_pipeline?.id ?? null,
     pipelineUrl: mr.head_pipeline?.web_url ?? null,
     mergeWhenPipelineSucceeds: mr.merge_when_pipeline_succeeds ?? false,
   };
+}
+
+function parseGitLabTimestamp(value: string | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function toTimelineCommentLocation(
+  note: GitLabNote,
+  discussion: GitLabDiscussion,
+): PullRequestTimelineCommentLocation | undefined {
+  const path = note.position?.new_path ?? note.position?.old_path ?? undefined;
+  if (!path) {
+    return undefined;
+  }
+  const line = note.position?.new_line ?? note.position?.old_line ?? undefined;
+  return {
+    path,
+    ...(line != null ? { line } : {}),
+    threadId: discussion.id,
+    isResolved: note.resolved ?? false,
+  };
+}
+
+/**
+ * Maps a GitLab note to a neutral timeline item. The forge has no GitHub-style
+ * review verdict on a note, so every human note becomes a `comment`; approvals
+ * are surfaced separately on the status facts, not as timeline reviews. System
+ * notes (events like "approved", "mentioned in commit") are dropped.
+ */
+function toTimelineComment(
+  note: GitLabNote,
+  discussion: GitLabDiscussion,
+  mrWebUrl: string,
+): PullRequestTimelineItem | null {
+  if (note.system === true) {
+    return null;
+  }
+  const location = toTimelineCommentLocation(note, discussion);
+  return {
+    kind: "comment",
+    id: String(note.id),
+    author: note.author?.username ?? note.author?.name ?? "unknown",
+    authorUrl: note.author?.web_url ?? null,
+    avatarUrl: note.author?.avatar_url ?? null,
+    body: note.body ?? "",
+    createdAt: parseGitLabTimestamp(note.created_at),
+    url: `${mrWebUrl}#note_${note.id}`,
+    ...(location ? { location } : {}),
+  };
+}
+
+function compareTimelineItems(
+  left: PullRequestTimelineItem,
+  right: PullRequestTimelineItem,
+): number {
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt - right.createdAt;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function classifyGlabTimelineErrorKind(stderr: string): PullRequestTimelineErrorKind {
+  const normalized = stderr.toLowerCase();
+  if (normalized.includes("404") || normalized.includes("not found")) {
+    return "not_found";
+  }
+  if (normalized.includes("403") || normalized.includes("forbidden") || isAuthFailureText(stderr)) {
+    return "forbidden";
+  }
+  return "unknown";
+}
+
+function mapGlabTimelineError(error: unknown): PullRequestTimelineError {
+  if (error instanceof GlabAuthenticationError) {
+    return { kind: "forbidden", message: error.stderr || error.message };
+  }
+  if (error instanceof GlabCommandError) {
+    return {
+      kind: classifyGlabTimelineErrorKind(error.stderr),
+      message: error.stderr || error.message,
+    };
+  }
+  return { kind: "unknown", message: error instanceof Error ? error.message : String(error) };
 }
 
 function normalizePipelineJobStatus(raw: string): PipelineJobStatus {
@@ -418,7 +578,10 @@ function toCheckDetails(pipeline: z.infer<typeof GitLabPipelineDetailsSchema>): 
   };
 }
 
-function toCurrentPullRequestStatus(mr: GitLabMergeRequest): CurrentPullRequestStatus {
+function toCurrentPullRequestStatus(
+  mr: GitLabMergeRequest,
+  approvals?: GitLabApprovals | null,
+): CurrentPullRequestStatus {
   const { owner, name } = splitProjectPath(mr.references?.full);
   const projectPath = extractProjectPath(mr.references?.full);
   return {
@@ -437,7 +600,7 @@ function toCurrentPullRequestStatus(mr: GitLabMergeRequest): CurrentPullRequestS
     checks: [],
     checksStatus: mapPipelineChecksStatus(mr.head_pipeline?.status),
     reviewDecision: null,
-    forgeSpecific: { forge: "gitlab", ...toGitLabStatusFacts(mr) },
+    forgeSpecific: { forge: "gitlab", ...toGitLabStatusFacts(mr, approvals) },
   };
 }
 
@@ -625,6 +788,30 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
     return runJson(["mr", "view", ref, "-F", "json"], { cwd }, GitLabMergeRequestSchema);
   }
 
+  /**
+   * Fetches MR approval counts from the dedicated approvals endpoint, which
+   * `glab mr view` omits. Best-effort: a host without the endpoint must not
+   * break the MR status, so failures leave the counts at their fallback (0).
+   */
+  async function fetchApprovals(
+    cwd: string,
+    mr: GitLabMergeRequest,
+  ): Promise<GitLabApprovals | null> {
+    const projectPath = extractProjectPath(mr.references?.full);
+    if (!projectPath) {
+      return null;
+    }
+    try {
+      return await runJson(
+        ["api", `projects/${encodeURIComponent(projectPath)}/merge_requests/${mr.iid}/approvals`],
+        { cwd },
+        GitLabApprovalsSchema,
+      );
+    } catch {
+      return null;
+    }
+  }
+
   return {
     async isAuthenticated(input: { cwd: string } & ForgeReadOptions): Promise<boolean> {
       const glabPath = await resolveGlab();
@@ -647,7 +834,8 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
     async getCurrentPullRequestStatus(input): Promise<CurrentPullRequestStatus | null> {
       try {
         const mr = await viewMergeRequest(input.cwd, input.headRef);
-        return toCurrentPullRequestStatus(mr);
+        const approvals = await fetchApprovals(input.cwd, mr);
+        return toCurrentPullRequestStatus(mr, approvals);
       } catch (error) {
         if (error instanceof GlabCommandError && isNoMergeRequestText(error.stderr)) {
           return null;
@@ -730,8 +918,51 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
       return { success: true };
     },
 
-    getPullRequestTimeline(_input: GetPullRequestTimelineOptions): Promise<PullRequestTimeline> {
-      return notSupported("Merge request timeline");
+    async getPullRequestTimeline(
+      input: GetPullRequestTimelineOptions,
+    ): Promise<PullRequestTimeline> {
+      const identity = {
+        prNumber: input.prNumber,
+        repoOwner: input.repoOwner,
+        repoName: input.repoName,
+      };
+      try {
+        const mr = await viewMergeRequest(input.cwd, String(input.prNumber));
+        const projectPath = extractProjectPath(mr.references?.full);
+        if (!projectPath) {
+          return {
+            ...identity,
+            items: [],
+            truncated: false,
+            error: {
+              kind: "not_found",
+              message: "GitLab merge request project path is unavailable",
+            },
+          };
+        }
+        const discussions = await runJson(
+          [
+            "api",
+            `projects/${encodeURIComponent(projectPath)}/merge_requests/${mr.iid}/discussions?per_page=${TIMELINE_PAGE_SIZE}`,
+          ],
+          { cwd: input.cwd },
+          z.array(GitLabDiscussionSchema),
+        );
+        const items = discussions
+          .flatMap((discussion) =>
+            discussion.notes.map((note) => toTimelineComment(note, discussion, mr.web_url)),
+          )
+          .filter((item): item is PullRequestTimelineItem => item !== null)
+          .sort(compareTimelineItems);
+        return {
+          ...identity,
+          items,
+          truncated: discussions.length >= TIMELINE_PAGE_SIZE,
+          error: null,
+        };
+      } catch (error) {
+        return { ...identity, items: [], truncated: false, error: mapGlabTimelineError(error) };
+      }
     },
 
     async getGitHubCheckDetails(input: GetCheckDetailsOptions): Promise<CheckDetails> {

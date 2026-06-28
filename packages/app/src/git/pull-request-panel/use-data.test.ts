@@ -378,6 +378,33 @@ describe("selectPrPaneState", () => {
     expect(state.data?.activity).toEqual([]);
   });
 
+  it("preserves GitLab approval counts in the selected pane data", () => {
+    const state = selectPrPaneState({
+      ...baseSelectInput,
+      forge: "gitlab",
+      status: prStatus({
+        forge: "gitlab",
+        github: undefined,
+        forgeSpecific: {
+          forge: "gitlab",
+          detailedMergeStatus: "mergeable",
+          hasConflicts: false,
+          blockingDiscussionsResolved: true,
+          approvalsRequired: 2,
+          approvalsGiven: 1,
+          pipelineStatus: null,
+          pipelineId: null,
+          pipelineUrl: null,
+          mergeWhenPipelineSucceeds: false,
+        },
+      }),
+      timelinePayload: timelinePayload(),
+    });
+
+    expect(state.data?.provider).toEqual({ id: "gitlab", label: "GitLab" });
+    expect(state.data?.gitlabApprovals).toEqual({ given: 1, required: 2 });
+  });
+
   it("returns null data when the consumer disabled timeline rendering", () => {
     const state = selectPrPaneState({
       ...baseSelectInput,

@@ -259,10 +259,12 @@ describe("translation resources", () => {
     expect(en.workspace.git.pr.sections.checks).toBe("Checks");
     expect(en.workspace.git.pr.sections.pipeline).toBe("Pipeline");
     expect(en.workspace.git.pr.actions.viewPullRequest).toBe("View");
+    expect(en.workspace.git.pr.actions.openOn).toBe("Open on {{brand}}");
     expect(en.workspace.git.pr.empty.noJobs).toBe("No jobs");
     expect(en.workspace.git.pr.empty.loadingPipeline).toBe("Loading pipeline…");
     expect(en.workspace.git.pr.empty.pipelineJobsLoadFailed).toBe("Could not load pipeline jobs");
     expect(en.workspace.git.pr.empty.allowedToFail).toBe("allowed to fail");
+    expect(en.workspace.git.pr.approvals).toBe("{{given}} of {{required}} approvals");
     expect(en.review.comment.placeholder).toBe("Leave a comment");
   });
 

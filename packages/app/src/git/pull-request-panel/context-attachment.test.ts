@@ -11,14 +11,15 @@ import {
 import type { PrPaneActivity, PrPaneCheck } from "./data";
 import type { PrThreadEntry } from "./timeline";
 
-const baseInput: Omit<PullRequestContextBuilderInput, "activity"> = {
+const baseInput = {
   provider: { id: "github", label: "GitHub" },
+  forge: "github",
   pullRequest: {
     number: 42,
     title: "Fix flaky build",
     url: "https://github.com/getpaseo/paseo/pull/42",
   },
-};
+} satisfies Omit<PullRequestContextBuilderInput, "activity">;
 
 function comment(overrides: Partial<PrPaneActivity> = {}): PrPaneActivity {
   return {
@@ -112,6 +113,41 @@ describe("pull request context attachments", () => {
         "Created: 2d ago",
         "",
         "Please simplify this.",
+      ].join("\n"),
+    });
+  });
+
+  it("labels a GitLab comment as a merge request with the ! prefix", () => {
+    expect(
+      buildPullRequestCommentContextAttachment({
+        ...baseInput,
+        provider: { id: "gitlab", label: "GitLab" },
+        forge: "gitlab",
+        pullRequest: {
+          number: 14,
+          title: "Wire up the timeline",
+          url: "https://gitlab.com/acme/app/-/merge_requests/14",
+        },
+        activity: comment({
+          provider: "gitlab",
+          url: "https://gitlab.com/acme/app/-/merge_requests/14#note_401",
+        }),
+      }),
+    ).toEqual({
+      kind: "github.pull_request_comment",
+      id: "14:comment-1",
+      title: "octocat",
+      subtitle: "!14 Wire up the timeline",
+      url: "https://gitlab.com/acme/app/-/merge_requests/14#note_401",
+      text: [
+        "GitLab merge request comment",
+        "Merge request: !14 Wire up the timeline",
+        "Merge request URL: https://gitlab.com/acme/app/-/merge_requests/14",
+        "URL: https://gitlab.com/acme/app/-/merge_requests/14#note_401",
+        "Author: octocat",
+        "Created: 3d ago",
+        "",
+        "Looks good.",
       ].join("\n"),
     });
   });

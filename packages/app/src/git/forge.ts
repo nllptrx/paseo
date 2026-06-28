@@ -20,6 +20,8 @@ export interface ForgePresentation {
   brandLabel: string;
   /** Short change-request noun: "PR" for GitHub, "MR" for GitLab. */
   changeRequestAbbrev: string;
+  /** Full change-request noun: "pull request" for GitHub, "merge request" for GitLab. */
+  changeRequestNoun: string;
   /** Prefix the forge puts before a change-request number: "#" vs "!". */
   numberPrefix: string;
 }
@@ -29,12 +31,14 @@ const PRESENTATION: Record<Forge, ForgePresentation> = {
     forge: "github",
     brandLabel: "GitHub",
     changeRequestAbbrev: "PR",
+    changeRequestNoun: "pull request",
     numberPrefix: "#",
   },
   gitlab: {
     forge: "gitlab",
     brandLabel: "GitLab",
     changeRequestAbbrev: "MR",
+    changeRequestNoun: "merge request",
     numberPrefix: "!",
   },
 };

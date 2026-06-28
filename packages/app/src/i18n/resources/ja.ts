@@ -750,6 +750,7 @@ export const ja: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "表示",
+          openOn: "{{brand}}で開く",
         },
         sections: {
           checks: "チェック",
@@ -762,6 +763,7 @@ export const ja: TranslationResources = {
           pipelineJobsLoadFailed: "パイプラインのジョブを読み込めませんでした",
           allowedToFail: "失敗を許可",
         },
+        approvals: "{{given}} / {{required}} 承認",
         accessibility: {
           pullRequest: "プルリクエスト#{{number}}",
         },

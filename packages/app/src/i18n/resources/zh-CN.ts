@@ -732,6 +732,7 @@ export const zhCN: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "查看",
+          openOn: "在 {{brand}} 上打开",
         },
         sections: {
           checks: "Checks",
@@ -744,6 +745,7 @@ export const zhCN: TranslationResources = {
           pipelineJobsLoadFailed: "无法加载流水线作业",
           allowedToFail: "允许失败",
         },
+        approvals: "{{given}} / {{required}} 批准",
         accessibility: {
           pullRequest: "Pull request #{{number}}",
         },

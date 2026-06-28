@@ -757,6 +757,7 @@ export const ru: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "Открыть",
+          openOn: "Открыть на {{brand}}",
         },
         sections: {
           checks: "Чеки",
@@ -769,6 +770,7 @@ export const ru: TranslationResources = {
           pipelineJobsLoadFailed: "Не удалось загрузить задачи пайплайна",
           allowedToFail: "допускается сбой",
         },
+        approvals: "{{given}} из {{required}} одобрений",
         accessibility: {
           pullRequest: "Запрос на извлечение №{{number}}",
         },

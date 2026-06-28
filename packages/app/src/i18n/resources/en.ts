@@ -745,6 +745,7 @@ export const en = {
       pr: {
         actions: {
           viewPullRequest: "View",
+          openOn: "Open on {{brand}}",
         },
         sections: {
           checks: "Checks",
@@ -757,6 +758,7 @@ export const en = {
           pipelineJobsLoadFailed: "Could not load pipeline jobs",
           allowedToFail: "allowed to fail",
         },
+        approvals: "{{given}} of {{required}} approvals",
         accessibility: {
           pullRequest: "Pull request #{{number}}",
         },

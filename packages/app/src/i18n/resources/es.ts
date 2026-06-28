@@ -765,6 +765,7 @@ export const es: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "Ver",
+          openOn: "Abrir en {{brand}}",
         },
         sections: {
           checks: "cheques",
@@ -777,6 +778,7 @@ export const es: TranslationResources = {
           pipelineJobsLoadFailed: "No se pudieron cargar los trabajos del pipeline",
           allowedToFail: "permitido fallar",
         },
+        approvals: "{{given}} de {{required}} aprobaciones",
         accessibility: {
           pullRequest: "Solicitud de extracción n.°{{number}}",
         },

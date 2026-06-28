@@ -486,6 +486,57 @@ describe("mapPrPaneData", () => {
 
     expect(data?.gitlabPipeline).toBeUndefined();
   });
+
+  function gitlabStatusWithApprovals(required: number, given: number): CheckoutPrStatus {
+    return status({
+      url: "https://gitlab.com/group/repo/-/merge_requests/7",
+      github: undefined,
+      forgeSpecific: {
+        forge: "gitlab",
+        detailedMergeStatus: "mergeable",
+        hasConflicts: false,
+        blockingDiscussionsResolved: true,
+        approvalsRequired: required,
+        approvalsGiven: given,
+        pipelineStatus: null,
+        pipelineId: null,
+        pipelineUrl: null,
+        mergeWhenPipelineSucceeds: false,
+      },
+    });
+  }
+
+  it("surfaces N of M approvals from the gitlab forge facts", () => {
+    const data = mapPrPaneData(
+      gitlabStatusWithApprovals(2, 1),
+      timeline({
+        items: [
+          {
+            id: "note-1",
+            kind: "comment",
+            author: "reviewer",
+            body: "Looks good",
+            createdAt: 1000,
+            url: "https://gitlab.com/group/repo/-/merge_requests/7#note_1",
+          },
+        ],
+      }),
+      2000,
+      "gitlab",
+    );
+    expect(data?.provider).toEqual({ id: "gitlab", label: "GitLab" });
+    expect(data?.activity[0]?.provider).toBe("gitlab");
+    expect(data?.gitlabApprovals).toEqual({ given: 1, required: 2 });
+  });
+
+  it("omits the approvals affordance when no approvals are required", () => {
+    const data = mapPrPaneData(gitlabStatusWithApprovals(0, 0), baseTimeline, undefined, "gitlab");
+    expect(data?.gitlabApprovals).toBeUndefined();
+  });
+
+  it("never surfaces gitlab approvals for a GitHub PR", () => {
+    expect(mapPrPaneData(baseStatus, baseTimeline)?.gitlabApprovals).toBeUndefined();
+  });
 });
 
 describe("mapPipelineStatus", () => {

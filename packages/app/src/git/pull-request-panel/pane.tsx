@@ -70,7 +70,13 @@ import {
   canAddPullRequestCheckLogsToChat,
 } from "./context-attachment";
 import type { CheckoutPipelineJob, CheckoutPipelineStage } from "@getpaseo/protocol/messages";
-import { getActivityVerb, getStateLabel, isPipelineActiveStatus, mapPipelineStatus } from "./data";
+import {
+  getActivityVerb,
+  getStateLabel,
+  GITHUB_PROVIDER,
+  isPipelineActiveStatus,
+  mapPipelineStatus,
+} from "./data";
 import type {
   CheckStatus,
   GitlabPipelineSummary,
@@ -297,6 +303,7 @@ export function PullRequestPane({
       }
       const input = {
         provider: data.provider,
+        forge: data.forge,
         pullRequest: { number: data.number, title: data.title, url: data.url },
         activity,
       };
@@ -314,6 +321,7 @@ export function PullRequestPane({
     },
     [
       addWorkspaceAttachment,
+      data.forge,
       data.number,
       data.provider,
       data.title,
@@ -329,6 +337,7 @@ export function PullRequestPane({
       }
       const attachment = buildPullRequestThreadContextAttachment({
         provider: data.provider,
+        forge: data.forge,
         pullRequest: { number: data.number, title: data.title, url: data.url },
         thread,
       });
@@ -342,6 +351,7 @@ export function PullRequestPane({
     },
     [
       addWorkspaceAttachment,
+      data.forge,
       data.number,
       data.provider,
       data.title,
@@ -402,7 +412,8 @@ export function PullRequestPane({
           }
         }
         const attachment = buildPullRequestCheckContextAttachment({
-          provider: data.provider,
+          provider: GITHUB_PROVIDER,
+          forge: data.forge,
           pullRequest: { number: data.number, title: data.title, url: data.url },
           check,
           githubDetails: details,
@@ -422,8 +433,8 @@ export function PullRequestPane({
       canFetchGitHubCheckDetails,
       cwd,
       daemonClient,
+      data.forge,
       data.number,
-      data.provider,
       data.repoName,
       data.repoOwner,
       data.title,
@@ -511,6 +522,24 @@ export function PullRequestPane({
                 </Text>
                 {data.forge === "gitlab" ? (
                   <ThemedGitLabIcon size={12} uniProps={gitlabBrandColorMapping} />
+                ) : null}
+                {data.gitlabApprovals ? (
+                  <View style={styles.approvalsBadge} testID="pr-pane-approvals">
+                    <ThemedCircleCheck
+                      size={11}
+                      uniProps={
+                        data.gitlabApprovals.given >= data.gitlabApprovals.required
+                          ? successColorMapping
+                          : foregroundMutedColorMapping
+                      }
+                    />
+                    <Text style={styles.approvalsText}>
+                      {t("workspace.git.pr.approvals", {
+                        given: data.gitlabApprovals.given,
+                        required: data.gitlabApprovals.required,
+                      })}
+                    </Text>
+                  </View>
                 ) : null}
                 {repoIdentity ? (
                   <Text style={styles.repoRef} numberOfLines={1}>
@@ -619,6 +648,7 @@ export function PullRequestPane({
                   collapsed={collapsed}
                   collapsedEntryIds={collapsedEntryIds}
                   attachEnabled={attachEnabled}
+                  brandLabel={forgePresentation.brandLabel}
                   onAddToChat={handleAddActivityToChat}
                   onAddThreadToChat={handleAddThreadToChat}
                   onToggleCollapsed={handleToggleEntryCollapsed}
@@ -924,6 +954,7 @@ function PipelineJobRow({ job }: { job: CheckoutPipelineJob }) {
 
 interface TimelineEntryCallbacks {
   attachEnabled: boolean;
+  brandLabel: string;
   onAddToChat: (activity: PrPaneActivity) => void;
   onAddThreadToChat: (thread: PrThreadEntry) => void;
   onToggleCollapsed: (entryId: string, collapsed: boolean) => void;
@@ -969,15 +1000,18 @@ function ActivityKebab({
   activity,
   visible,
   attachEnabled,
+  brandLabel,
   onMenuOpenChange,
   onAddToChat,
 }: {
   activity: PrPaneActivity;
   visible: boolean;
   attachEnabled: boolean;
+  brandLabel: string;
   onMenuOpenChange: (open: boolean) => void;
   onAddToChat: (activity: PrPaneActivity) => void;
 }) {
+  const { t } = useTranslation();
   const handleAddToChat = useCallback(() => onAddToChat(activity), [activity, onAddToChat]);
   const handleCopy = useCallback(() => {
     void writeMarkdownToRichClipboard(activity.body, getDefaultMarkdownClipboardEnvironment());
@@ -1008,7 +1042,7 @@ function ActivityKebab({
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem leading={OPEN_MENU_ICON} onSelect={handleOpen}>
-            Open on GitHub
+            {t("workspace.git.pr.actions.openOn", { brand: brandLabel })}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -1098,6 +1132,7 @@ function SingleActivityCard({
   entry,
   collapsed,
   attachEnabled,
+  brandLabel,
   onAddToChat,
   onToggleCollapsed,
 }: TimelineEntryCallbacks & {
@@ -1131,6 +1166,7 @@ function SingleActivityCard({
               activity={activity}
               visible={actionsVisible}
               attachEnabled={attachEnabled}
+              brandLabel={brandLabel}
               onMenuOpenChange={setMenuOpen}
               onAddToChat={onAddToChat}
             />
@@ -1153,6 +1189,7 @@ function SingleActivityCard({
             activity={activity}
             visible={actionsVisible}
             attachEnabled={attachEnabled}
+            brandLabel={brandLabel}
             onMenuOpenChange={setMenuOpen}
             onAddToChat={onAddToChat}
           />
@@ -1185,6 +1222,7 @@ function ThreadCard({
   entry,
   collapsed,
   attachEnabled,
+  brandLabel,
   onAddToChat,
   onAddThreadToChat,
   onToggleCollapsed,
@@ -1198,6 +1236,7 @@ function ThreadCard({
         thread={entry}
         collapsed={collapsed}
         attachEnabled={attachEnabled}
+        brandLabel={brandLabel}
         onAddToChat={onAddToChat}
         onAddThreadToChat={onAddThreadToChat}
         onToggleCollapsed={onToggleCollapsed}
@@ -1211,6 +1250,7 @@ function ReviewCard({
   collapsed,
   collapsedEntryIds,
   attachEnabled,
+  brandLabel,
   onAddToChat,
   onAddThreadToChat,
   onToggleCollapsed,
@@ -1258,6 +1298,7 @@ function ReviewCard({
             activity={review}
             visible={actionsVisible}
             attachEnabled={attachEnabled}
+            brandLabel={brandLabel}
             onMenuOpenChange={setMenuOpen}
             onAddToChat={onAddToChat}
           />
@@ -1290,6 +1331,7 @@ function ReviewCard({
                     thread={thread}
                     collapsed={collapsedEntryIds.has(thread.id)}
                     attachEnabled={attachEnabled}
+                    brandLabel={brandLabel}
                     onAddToChat={onAddToChat}
                     onAddThreadToChat={onAddThreadToChat}
                     onToggleCollapsed={onToggleCollapsed}
@@ -1308,6 +1350,7 @@ function ThreadBlock({
   thread,
   collapsed,
   attachEnabled,
+  brandLabel,
   onAddToChat,
   onAddThreadToChat,
   onToggleCollapsed,
@@ -1315,10 +1358,12 @@ function ThreadBlock({
   thread: PrThreadEntry;
   collapsed: boolean;
   attachEnabled: boolean;
+  brandLabel: string;
   onAddToChat: (activity: PrPaneActivity) => void;
   onAddThreadToChat: (thread: PrThreadEntry) => void;
   onToggleCollapsed: (entryId: string, collapsed: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { actionsVisible, handlePointerEnter, handlePointerLeave, setMenuOpen } =
     useRevealOnHover();
   const handleHeaderPress = useCallback(() => {
@@ -1363,7 +1408,7 @@ function ThreadBlock({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" width={200}>
                 <DropdownMenuItem leading={OPEN_MENU_ICON} onSelect={handleOpenThread}>
-                  Open on GitHub
+                  {t("workspace.git.pr.actions.openOn", { brand: brandLabel })}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1372,7 +1417,12 @@ function ThreadBlock({
       </Pressable>
       {collapsed ? null : (
         <>
-          <ThreadComment comment={root} attachEnabled={attachEnabled} onAddToChat={onAddToChat} />
+          <ThreadComment
+            comment={root}
+            attachEnabled={attachEnabled}
+            brandLabel={brandLabel}
+            onAddToChat={onAddToChat}
+          />
           {replies.length > 0 ? (
             <View style={styles.replyRail}>
               {replies.map((reply) => (
@@ -1380,6 +1430,7 @@ function ThreadBlock({
                   <ThreadComment
                     comment={reply}
                     attachEnabled={attachEnabled}
+                    brandLabel={brandLabel}
                     onAddToChat={onAddToChat}
                     contentStyle={styles.replyThreadComment}
                   />
@@ -1416,11 +1467,13 @@ function threadCommentStyle(contentStyle?: ViewStyle) {
 function ThreadComment({
   comment,
   attachEnabled,
+  brandLabel,
   onAddToChat,
   contentStyle,
 }: {
   comment: PrPaneActivity;
   attachEnabled: boolean;
+  brandLabel: string;
   onAddToChat: (activity: PrPaneActivity) => void;
   contentStyle?: ViewStyle;
 }) {
@@ -1438,6 +1491,7 @@ function ThreadComment({
             activity={comment}
             visible={actionsVisible}
             attachEnabled={attachEnabled}
+            brandLabel={brandLabel}
             onMenuOpenChange={setMenuOpen}
             onAddToChat={onAddToChat}
           />
@@ -1514,6 +1568,15 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     flexShrink: 1,
     marginLeft: theme.spacing[1],
+  },
+  approvalsBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  approvalsText: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.foregroundMuted,
   },
   headerLinkIcon: {
     marginLeft: theme.spacing[1],

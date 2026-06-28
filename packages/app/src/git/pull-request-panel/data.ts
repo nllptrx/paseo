@@ -2,13 +2,13 @@ import type {
   CheckoutPrStatusResponse,
   PullRequestTimelineResponse,
 } from "@getpaseo/protocol/messages";
-import type { Forge } from "@/git/forge";
+import { type Forge, getForgePresentation } from "@/git/forge";
 
 export type PrState = "open" | "draft" | "merged" | "closed";
 export type CheckStatus = "success" | "failure" | "pending" | "skipped";
 export type ReviewState = "approved" | "changes_requested" | "commented";
 export type ActivityKind = "review" | "comment";
-export type PullRequestProvider = "github";
+export type PullRequestProvider = Forge;
 
 export interface PullRequestProviderMetadata {
   id: PullRequestProvider;
@@ -16,10 +16,10 @@ export interface PullRequestProviderMetadata {
   url?: string | null;
 }
 
-const GITHUB_PROVIDER: PullRequestProviderMetadata = { id: "github", label: "GitHub" };
+export const GITHUB_PROVIDER = { id: "github", label: "GitHub" } as const;
 
 export interface PrPaneCheck {
-  provider: PullRequestProvider;
+  provider: "github";
   name: string;
   workflow?: string;
   status: CheckStatus;
@@ -68,11 +68,7 @@ export interface GitlabPipelineSummary {
 
 export interface PrPaneData {
   provider: PullRequestProviderMetadata;
-  /**
-   * The forge hosting this change request, driving the PR↔MR relabel, the
-   * number prefix, and the brand mark. Distinct from {@link provider}, which
-   * still tags the source of checks/timeline items (GitHub-only for now).
-   */
+  /** The forge hosting this change request. */
   forge: Forge;
   number: number;
   repoOwner?: string;
@@ -87,6 +83,12 @@ export interface PrPaneData {
   checks: PrPaneCheck[];
   /** Present only for GitLab MRs with a head pipeline. */
   gitlabPipeline?: GitlabPipelineSummary;
+  /**
+   * GitLab approval counts driving the "N of M approvals" affordance. Forge-neutral
+   * by being its own field rather than overloading the GitHub {@link reviewDecision}.
+   * Absent for GitHub and for MRs with no approval rules (`required === 0`).
+   */
+  gitlabApprovals?: { given: number; required: number };
   activity: PrPaneActivity[];
 }
 
@@ -122,9 +124,11 @@ export function mapPrPaneData(
 
   const timelineMatchesStatus = timeline?.prNumber === number;
   const gitlabPipeline = mapGitlabPipelineSummary(status);
+  const gitlabApprovals = mapGitlabApprovals(status);
+  const provider = toProviderMetadata(forge);
 
   return {
-    provider: GITHUB_PROVIDER,
+    provider,
     forge,
     number,
     repoOwner: status.repoOwner,
@@ -138,10 +142,29 @@ export function mapPrPaneData(
     awaitingReviewers: [],
     checks: (status.checks ?? []).flatMap(mapCheck),
     ...(gitlabPipeline ? { gitlabPipeline } : {}),
+    ...(gitlabApprovals ? { gitlabApprovals } : {}),
     activity: timelineMatchesStatus
-      ? timeline.items.flatMap((item) => mapActivity(item, nowMs))
+      ? timeline.items.flatMap((item) => mapActivity(item, nowMs, forge))
       : [],
   };
+}
+
+function toProviderMetadata(forge: Forge): PullRequestProviderMetadata {
+  return { id: forge, label: getForgePresentation(forge).brandLabel };
+}
+
+function mapGitlabApprovals(
+  status: NonNullable<CheckoutPrStatus>,
+): { given: number; required: number } | undefined {
+  const facts = status.forgeSpecific;
+  if (facts?.forge !== "gitlab") {
+    return undefined;
+  }
+  const required = facts.approvalsRequired ?? 0;
+  if (required <= 0) {
+    return undefined;
+  }
+  return { given: facts.approvalsGiven ?? 0, required };
 }
 
 function mapGitlabPipelineSummary(
@@ -282,7 +305,7 @@ function mapCheckStatus(status: string): CheckStatus {
   return "pending";
 }
 
-function mapActivity(item: PullRequestTimelineItem, nowMs: number): PrPaneActivity[] {
+function mapActivity(item: PullRequestTimelineItem, nowMs: number, forge: Forge): PrPaneActivity[] {
   if (item.kind === "comment") {
     if (item.body.trim() === "") {
       return [];
@@ -290,7 +313,7 @@ function mapActivity(item: PullRequestTimelineItem, nowMs: number): PrPaneActivi
     return [
       {
         id: item.id,
-        provider: "github",
+        provider: forge,
         kind: "comment",
         author: item.author,
         authorUrl: item.authorUrl,
@@ -312,7 +335,7 @@ function mapActivity(item: PullRequestTimelineItem, nowMs: number): PrPaneActivi
   return [
     {
       id: item.id,
-      provider: "github",
+      provider: forge,
       kind: "review",
       author: item.author,
       authorUrl: item.authorUrl,
