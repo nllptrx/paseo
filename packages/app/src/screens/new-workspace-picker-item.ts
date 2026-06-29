@@ -1,16 +1,16 @@
 import type { CreatePaseoWorktreeInput } from "@getpaseo/client/internal/daemon-client";
-import type { GitHubSearchItem } from "@getpaseo/protocol/messages";
+import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
 
 export type PickerItem =
   | { kind: "branch"; name: string }
   | {
       kind: "github-pr";
-      item: GitHubSearchItem;
+      item: ForgeSearchItem;
     };
 
 export type PickerCheckoutRequest = Pick<
   CreatePaseoWorktreeInput,
-  "action" | "refName" | "githubPrNumber"
+  "action" | "refName" | "checkoutSource" | "githubPrNumber"
 >;
 
 export function pickerItemToCheckoutRequest(
@@ -25,7 +25,12 @@ export function pickerItemToCheckoutRequest(
       return {
         action: "checkout",
         ...(headRefName ? { refName: headRefName } : {}),
-        githubPrNumber: item.item.number,
+        checkoutSource: {
+          kind: "change_request",
+          forge: item.item.forge ?? "github",
+          number: item.item.number,
+          ...(item.item.projectPath ? { projectPath: item.item.projectPath } : {}),
+        },
       };
     }
   }

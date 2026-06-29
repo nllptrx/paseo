@@ -8,6 +8,7 @@ type ForgeSpecificStatusFacts = NonNullable<
   NonNullable<CheckoutPrStatusResponse["payload"]["status"]>["forgeSpecific"]
 >;
 type GitlabStatusFacts = Extract<ForgeSpecificStatusFacts, { forge: "gitlab" }>;
+type GiteaStatusFacts = Extract<ForgeSpecificStatusFacts, { forge: "gitea" }>;
 
 export type PrState = "open" | "draft" | "merged" | "closed";
 export type CheckStatus = "success" | "failure" | "pending" | "skipped";
@@ -21,10 +22,8 @@ export interface PullRequestProviderMetadata {
   url?: string | null;
 }
 
-export const GITHUB_PROVIDER = { id: "github", label: "GitHub" } as const;
-
 export interface PrPaneCheck {
-  provider: "github";
+  provider: PullRequestProvider;
   name: string;
   workflow?: string;
   status: CheckStatus;
@@ -50,6 +49,16 @@ export interface PrPaneActivity {
   url: string;
   /** For inline review comments: the review this comment was submitted with. */
   reviewId?: string;
+  /**
+   * Forge-neutral discussion id, independent of a file position. Groups general
+   * (non-file) reply chains into one thread; file threads also carry it.
+   */
+  threadId?: string;
+  /**
+   * Resolution state for a thread with no file position (e.g. a GitLab general
+   * discussion). File threads carry resolution under `location.isResolved`.
+   */
+  threadIsResolved?: boolean;
   location?: {
     path: string;
     line?: number;
@@ -145,7 +154,7 @@ export function mapPrPaneData(
     reviewDecision: mapReviewDecision(status.reviewDecision),
     // Requested reviewers are intentionally unwired until the server exposes them.
     awaitingReviewers: [],
-    checks: (status.checks ?? []).flatMap(mapCheck),
+    checks: mapChecks(status, forge),
     ...(gitlabPipeline ? { gitlabPipeline } : {}),
     ...(gitlabApprovals ? { gitlabApprovals } : {}),
     activity: timelineMatchesStatus
@@ -192,6 +201,12 @@ function isGitlabStatusFacts(
   facts: ForgeSpecificStatusFacts | null | undefined,
 ): facts is GitlabStatusFacts {
   return facts?.forge === "gitlab" && "detailedMergeStatus" in facts;
+}
+
+function isGiteaStatusFacts(
+  facts: ForgeSpecificStatusFacts | null | undefined,
+): facts is GiteaStatusFacts {
+  return facts?.forge === "gitea";
 }
 
 export function mapPipelineStatus(status: string): CheckStatus {
@@ -276,14 +291,26 @@ function derivePrState(status: NonNullable<CheckoutPrStatus>): PrState {
   return "open";
 }
 
-function mapCheck(check: NonNullable<CheckoutPrStatus>["checks"][number]): PrPaneCheck[] {
+function mapChecks(status: NonNullable<CheckoutPrStatus>, forge: Forge): PrPaneCheck[] {
+  const checks = (status.checks ?? []).flatMap((check) => mapCheck(check, forge));
+  if (checks.length > 0) {
+    return checks;
+  }
+  const giteaCheck = mapGiteaAggregateCheck(status, forge);
+  return giteaCheck ? [giteaCheck] : [];
+}
+
+function mapCheck(
+  check: NonNullable<CheckoutPrStatus>["checks"][number],
+  forge: Forge,
+): PrPaneCheck[] {
   if (check.url === null) {
     return [];
   }
 
   return [
     {
-      provider: "github",
+      provider: forge,
       name: check.name,
       status: mapCheckStatus(check.status),
       url: check.url,
@@ -299,6 +326,22 @@ function mapCheck(check: NonNullable<CheckoutPrStatus>["checks"][number]): PrPan
         : {}),
     },
   ];
+}
+
+function mapGiteaAggregateCheck(
+  status: NonNullable<CheckoutPrStatus>,
+  forge: Forge,
+): PrPaneCheck | null {
+  const facts = status.forgeSpecific;
+  if (!isGiteaStatusFacts(facts) || !facts.ciStatus) {
+    return null;
+  }
+  return {
+    provider: forge,
+    name: "CI",
+    status: mapCheckStatus(facts.ciStatus),
+    url: status.url,
+  };
 }
 
 function mapCheckStatus(status: string): CheckStatus {
@@ -334,6 +377,8 @@ function mapActivity(item: PullRequestTimelineItem, nowMs: number, forge: Forge)
         age: formatAge(item.createdAt, nowMs),
         url: item.url,
         reviewId: item.reviewId,
+        threadId: item.threadId,
+        threadIsResolved: item.threadIsResolved,
         location: item.location,
       },
     ];

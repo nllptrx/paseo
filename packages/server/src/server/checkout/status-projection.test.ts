@@ -206,7 +206,7 @@ describe("checkout status projection", () => {
   test("a gitlab-resolved snapshot emits status.forge and payload forge as gitlab", () => {
     const snapshot = {
       git: { remoteUrl: "git@gitlab.com:group/proj.git" },
-      github: {
+      forge: {
         featuresEnabled: true,
         authState: "authenticated",
         forge: "gitlab",
@@ -249,7 +249,7 @@ describe("checkout status projection", () => {
   test("a forgejo-resolved snapshot keeps Forgejo branding with Gitea-family facts", () => {
     const snapshot = {
       git: { remoteUrl: "git@codeberg.org:example/repo.git" },
-      github: {
+      forge: {
         featuresEnabled: true,
         authState: "authenticated",
         forge: "forgejo",

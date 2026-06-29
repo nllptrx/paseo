@@ -24,7 +24,7 @@ export function createNoGitWorkspaceRuntimeSnapshot(cwd: string): WorkspaceGitRu
       hasRemote: false,
       diffStat: null,
     },
-    github: {
+    forge: {
       featuresEnabled: false,
       pullRequest: null,
       error: null,

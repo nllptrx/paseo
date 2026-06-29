@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 
-import type { ForgeService } from "../services/github-service.js";
+import type { ForgeService } from "../services/forge-service.js";
 import type { WorkspaceGitRuntimeSnapshot, WorkspaceGitService } from "./workspace-git-service.js";
 import type {
   PersistedProjectRecord,
@@ -756,7 +756,11 @@ function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],
-    searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),
+    searchIssuesAndPrs: async () => ({
+      items: [],
+      featuresEnabled: true,
+      githubFeaturesEnabled: true,
+    }),
     getPullRequest: async ({ number }) => ({
       number,
       title: `PR ${number}`,
@@ -795,6 +799,7 @@ function createWorkspaceGitServiceStub(): WorkspaceGitService {
       mainRepoRoot: null,
     }),
     getSnapshot: async (cwd) => createWorkspaceGitSnapshot(cwd),
+    resolveForge: async () => null,
     resolveRepoRoot: async (cwd) => {
       try {
         return createWorkspaceGitSnapshot(cwd).git.repoRoot ?? cwd;
@@ -853,7 +858,7 @@ function createWorkspaceGitSnapshot(cwd: string): WorkspaceGitRuntimeSnapshot {
       hasRemote: false,
       diffStat: null,
     },
-    github: {
+    forge: {
       featuresEnabled: false,
       pullRequest: null,
       error: null,

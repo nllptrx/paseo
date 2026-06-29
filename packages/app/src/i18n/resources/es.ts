@@ -663,8 +663,12 @@ export const es: TranslationResources = {
             "Tirar y empujar no está disponible aquí porque esta rama aún no está conectada a un control remoto",
           pullAndPushDirty:
             "Tirar y empujar no está disponible mientras tenga cambios locales, así que confírmelos o guárdelos primero",
+          pullAndPushNoIncoming:
+            "Pull and push no está disponible porque no hay cambios entrantes que traer primero",
           pullAndPushInSync:
             "Pull and push no está disponible porque esta rama ya está sincronizada",
+          pullAndPushNothingToPush:
+            "Pull and push no está disponible porque no hay nada nuevo que enviar después de pull",
           createPrNoGithub:
             "CrearPRno está disponible en este momento porqueGitHubno está conectado",
           createPrNoCommits:

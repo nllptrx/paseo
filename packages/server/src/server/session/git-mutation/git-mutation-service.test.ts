@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pino } from "pino";
 import { afterEach, describe, expect, test } from "vitest";
-import type { ForgeService } from "../../../services/github-service.js";
+import type { ForgeService } from "../../../services/forge-service.js";
 import type {
   WorkspaceGitBranchValidationResult,
   WorkspaceGitRuntimeSnapshot,

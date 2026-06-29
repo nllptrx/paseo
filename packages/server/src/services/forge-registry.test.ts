@@ -67,8 +67,10 @@ describe("forge registry", () => {
     await expect(registry.probeHost("git.acme.internal")).resolves.toBe("bitbucket");
   });
 
-  it("lets Forgejo win hostnames that also contain gitea", () => {
-    expect(defaultForgeRegistry.matchHost("gitea-forgejo.example.org")).toBe("forgejo");
+  it("does not infer self-managed forges from host substrings", () => {
+    expect(defaultForgeRegistry.matchHost("gitea-forgejo.example.org")).toBeNull();
+    expect(defaultForgeRegistry.matchHost("gitlab.example.org")).toBeNull();
+    expect(defaultForgeRegistry.matchHost("notgitlab.example.org")).toBeNull();
   });
 
   it("rejects ambiguous host detection instead of depending on registration order", async () => {

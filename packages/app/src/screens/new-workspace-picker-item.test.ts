@@ -35,7 +35,7 @@ describe("pickerItemToCheckoutRequest", () => {
     expect(pickerItemToCheckoutRequest(item)).toEqual({
       action: "checkout",
       refName: "feature/picker",
-      githubPrNumber: 42,
+      checkoutSource: { kind: "change_request", forge: "github", number: 42 },
     });
   });
 
@@ -53,7 +53,7 @@ describe("pickerItemToCheckoutRequest", () => {
     expect(pickerItemToCheckoutRequest(item)).toEqual({
       action: "checkout",
       refName: "orphan",
-      githubPrNumber: 7,
+      checkoutSource: { kind: "change_request", forge: "github", number: 7 },
     });
   });
 });

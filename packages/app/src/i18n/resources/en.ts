@@ -655,7 +655,11 @@ export const en = {
             "Pull and push isn't available here because this branch is not connected to a remote yet",
           pullAndPushDirty:
             "Pull and push isn't available while you have local changes so commit or stash them first",
+          pullAndPushNoIncoming:
+            "Pull and push isn't available because there are no incoming changes to pull first",
           pullAndPushInSync: "Pull and push isn't available because this branch is already in sync",
+          pullAndPushNothingToPush:
+            "Pull and push isn't available because there is nothing new to send after pulling",
           createPrNoGithub: "Create PR isn't available right now because GitHub isn't connected",
           createPrNoCommits:
             "Create PR isn't available because this branch doesn't have any new commits yet",

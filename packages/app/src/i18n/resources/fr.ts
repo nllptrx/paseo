@@ -663,8 +663,12 @@ export const fr: TranslationResources = {
             "Le pull et le push ne sont pas disponibles ici car cette branche n'est pas encore connectée à une télécommande",
           pullAndPushDirty:
             "Pull et push ne sont pas disponibles tant que vous avez des modifications locales, alors validez-les ou cachez-les d'abord",
+          pullAndPushNoIncoming:
+            "Pull et push ne sont pas disponibles car il n'y a aucun changement entrant à récupérer d'abord",
           pullAndPushInSync:
             "Les fonctions Pull et Push ne sont pas disponibles car cette branche est déjà synchronisée",
+          pullAndPushNothingToPush:
+            "Pull et push ne sont pas disponibles car il n'y a rien de nouveau à envoyer après le pull",
           createPrNoGithub:
             "CréerPRn'est pas disponible pour le moment carGitHubn'est pas connecté",
           createPrNoCommits:

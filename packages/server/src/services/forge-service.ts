@@ -1,5 +1,16 @@
-import type { GitHubSearchKind } from "@getpaseo/protocol/messages";
-import type { GitHubPullRequestStatusFacts } from "./github-service.js";
+import type { ForgeSearchKind } from "@getpaseo/protocol/messages";
+
+export function normalizeForgeSearchKinds(
+  kinds: readonly (ForgeSearchKind | "github-issue" | "github-pr" | "pr")[] | undefined,
+): ForgeSearchKind[] {
+  if (!kinds) return ["issue", "change_request"];
+
+  return kinds.map((kind) => {
+    if (kind === "github-issue") return "issue";
+    if (kind === "github-pr" || kind === "pr") return "change_request";
+    return kind;
+  });
+}
 
 export interface PullRequestSummary {
   number: number;
@@ -7,6 +18,7 @@ export interface PullRequestSummary {
   url: string;
   state: string;
   body: string | null;
+  projectPath?: string;
   baseRefName: string;
   headRefName: string;
   labels: string[];
@@ -17,10 +29,16 @@ export interface PullRequestCheckoutTarget {
   number: number;
   baseRefName: string;
   headRefName: string;
+  checkoutRefs?: PullRequestCheckoutRef[];
   headOwnerLogin: string | null;
   headRepositorySshUrl: string | null;
   headRepositoryUrl: string | null;
   isCrossRepository: boolean;
+}
+
+export interface PullRequestCheckoutRef {
+  remoteName?: string;
+  remoteRef: string;
 }
 
 export interface IssueSummary {
@@ -29,6 +47,7 @@ export interface IssueSummary {
   url: string;
   state: string;
   body: string | null;
+  projectPath?: string;
   labels: string[];
   updatedAt: string;
 }
@@ -54,9 +73,37 @@ export type PullRequestMergeable = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
  * lossy "authenticated yes/no" boolean so the UI can offer the precise next step
  * (install the CLI vs sign in) instead of a single generic dead-end. "no_remote"
  * covers anything where the feature simply does not apply (no resolvable forge
- * remote, or no branch to look up).
+ * remote, or no branch to look up). "error" is reserved for non-auth failures
+ * where the UI should show the actual error instead of setup guidance.
  */
-export type ForgeAuthState = "authenticated" | "unauthenticated" | "cli_missing" | "no_remote";
+export type ForgeAuthState =
+  | "authenticated"
+  | "unauthenticated"
+  | "cli_missing"
+  | "no_remote"
+  | "error";
+
+export interface GitHubPullRequestStatusFacts {
+  mergeStateStatus: string | null;
+  autoMergeRequest: {
+    enabledAt: string | null;
+    mergeMethod: string | null;
+    enabledBy: string | null;
+  } | null;
+  viewerCanEnableAutoMerge: boolean;
+  viewerCanDisableAutoMerge: boolean;
+  viewerCanMergeAsAdmin: boolean;
+  viewerCanUpdateBranch: boolean;
+  repository: {
+    autoMergeAllowed: boolean;
+    mergeCommitAllowed: boolean;
+    squashMergeAllowed: boolean;
+    rebaseMergeAllowed: boolean;
+    viewerDefaultMergeMethod: string | null;
+  };
+  isMergeQueueEnabled: boolean;
+  isInMergeQueue: boolean;
+}
 
 /**
  * GitLab merge facts as reported by `glab mr view -F json`. The home for the
@@ -149,6 +196,7 @@ export type PullRequestTimelineItem =
   | (PullRequestTimelineItemBase & {
       kind: "comment";
       reviewId?: string;
+      threadId?: string;
       location?: PullRequestTimelineCommentLocation;
     });
 
@@ -359,24 +407,43 @@ export interface CheckDetails {
 export interface SearchResult {
   items: Array<{
     kind: "issue" | "pr";
+    forge?: string;
     number: number;
     title: string;
     url: string;
     state: string;
     body: string | null;
     labels: string[];
+    projectPath?: string;
     baseRefName?: string | null;
     headRefName?: string | null;
     updatedAt?: string;
   }>;
-  githubFeaturesEnabled: boolean;
+  featuresEnabled: boolean;
+  authState: ForgeAuthState;
+  /**
+   * COMPAT(githubFeaturesEnabled): added in v0.1.102, remove after 2026-12-28.
+   * TODO(before merge): align the added version and removal date with the maintainer's target release.
+   */
+  githubFeaturesEnabled?: boolean;
+}
+
+export function createUnavailableSearchResult(
+  authState: Exclude<ForgeAuthState, "authenticated">,
+): SearchResult {
+  return {
+    items: [],
+    featuresEnabled: false,
+    authState,
+    githubFeaturesEnabled: false,
+  };
 }
 
 export type SearchIssuesAndPrsOptions = {
   cwd: string;
   query: string;
   limit?: number;
-  kinds?: GitHubSearchKind[];
+  kinds?: ForgeSearchKind[];
 } & ForgeReadOptions;
 
 export interface CreatePullRequestOptions {
@@ -402,7 +469,7 @@ export interface ForgeService {
     } & ForgeReadOptions,
   ): Promise<CurrentPullRequestStatus | null>;
   getPullRequestTimeline(options: GetPullRequestTimelineOptions): Promise<PullRequestTimeline>;
-  getGitHubCheckDetails(options: GetCheckDetailsOptions): Promise<CheckDetails>;
+  getCheckDetails(options: GetCheckDetailsOptions): Promise<CheckDetails>;
   searchIssuesAndPrs(options: SearchIssuesAndPrsOptions): Promise<SearchResult>;
   createPullRequest(options: CreatePullRequestOptions): Promise<PullRequestCreateResult>;
   mergePullRequest(options: MergePullRequestOptions): Promise<PullRequestMergeResult>;

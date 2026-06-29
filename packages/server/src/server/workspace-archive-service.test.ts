@@ -5,7 +5,7 @@ import path from "node:path";
 import pino, { type Logger } from "pino";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import type { ForgeService } from "../services/github-service.js";
+import type { ForgeService } from "../services/forge-service.js";
 import { createWorktree, type WorktreeConfig } from "../utils/worktree.js";
 import type { ManagedAgent } from "./agent/agent-manager.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent/agent-storage.js";
@@ -38,7 +38,11 @@ function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],
-    searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),
+    searchIssuesAndPrs: async () => ({
+      items: [],
+      featuresEnabled: true,
+      githubFeaturesEnabled: true,
+    }),
     getPullRequest: async ({ number }) => ({
       number,
       title: `PR ${number}`,

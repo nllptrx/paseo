@@ -33,7 +33,7 @@ import {
 } from "../paseo-worktree-service.js";
 import type { CreatePaseoWorktreeWorkflowFn } from "../worktree-session.js";
 import { WorkspaceGitServiceImpl } from "../workspace-git-service.js";
-import type { ForgeService } from "../../services/github-service.js";
+import type { ForgeService } from "../../services/forge-service.js";
 import type { TerminalManager } from "../../terminal/terminal-manager.js";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 
@@ -463,7 +463,11 @@ function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],
-    searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),
+    searchIssuesAndPrs: async () => ({
+      items: [],
+      featuresEnabled: true,
+      githubFeaturesEnabled: true,
+    }),
     getPullRequest: async ({ number }) => ({
       number,
       title: `PR ${number}`,

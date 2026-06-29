@@ -1,6 +1,6 @@
 import { createNameId } from "mnemonic-id";
 
-import type { ForgeService } from "../services/github-service.js";
+import type { ForgeService } from "../services/forge-service.js";
 import {
   createWorktree,
   resolveExistingWorktreeForSlug,
@@ -11,9 +11,10 @@ import {
 import {
   resolveWorktreeCreationIntent,
   type ResolveWorktreeCreationIntentInput,
+  UnsupportedForgeCheckoutTargetError,
   type WorktreeCreationIntent,
 } from "./resolve-worktree-creation-intent.js";
-import type { FirstAgentContext } from "@getpaseo/protocol/messages";
+import type { ChangeRequestCheckoutSource, FirstAgentContext } from "@getpaseo/protocol/messages";
 import type { WorkspaceGitService } from "./workspace-git-service.js";
 
 export interface CreateWorktreeCoreInput {
@@ -22,6 +23,7 @@ export interface CreateWorktreeCoreInput {
   branchName?: string;
   refName?: string;
   action?: "branch-off" | "checkout";
+  checkoutSource?: ChangeRequestCheckoutSource;
   githubPrNumber?: number;
   firstAgentContext?: FirstAgentContext;
   paseoHome?: string;
@@ -62,11 +64,13 @@ export async function createWorktreeCore(
     intentInput = {
       action: "checkout",
       refName: input.refName,
+      checkoutSource: input.checkoutSource,
       githubPrNumber: input.githubPrNumber,
       worktreeSlug: requestedWorktreeSlug,
     };
-  } else if (input.githubPrNumber !== undefined) {
+  } else if (input.checkoutSource !== undefined || input.githubPrNumber !== undefined) {
     intentInput = {
+      checkoutSource: input.checkoutSource,
       githubPrNumber: input.githubPrNumber,
       refName: input.refName,
       worktreeSlug: requestedWorktreeSlug,
@@ -81,7 +85,7 @@ export async function createWorktreeCore(
     };
   }
 
-  const forge = await resolveForge(repoRoot, deps);
+  const forge = await resolveForge(repoRoot, deps, intentInput);
   const intent = await resolveWorktreeCreationIntent(intentInput, repoRoot, {
     forge: forge.forge,
     forgeService: forge.service,
@@ -98,6 +102,7 @@ export async function createWorktreeCore(
       normalizedSlug = requestedWorktreeSlug ?? normalizeWorktreeSlug(intent.branchName);
       break;
     }
+    case "checkout-change-request":
     case "checkout-github-pr": {
       normalizedSlug =
         requestedWorktreeSlug ?? normalizeWorktreeSlug(intent.localBranchName ?? intent.headRef);
@@ -133,9 +138,16 @@ export async function createWorktreeCore(
 async function resolveForge(
   repoRoot: string,
   deps: CreateWorktreeCoreDeps,
+  intentInput: ResolveWorktreeCreationIntentInput,
 ): Promise<{ forge: string; service: ForgeService }> {
   const resolution = await deps.workspaceGitService?.resolveForge(repoRoot);
-  if (!resolution || resolution.forge === "github") {
+  if (!resolution) {
+    if (intentInput.checkoutSource?.forge && intentInput.checkoutSource.forge !== "github") {
+      throw new UnsupportedForgeCheckoutTargetError(intentInput.checkoutSource.forge);
+    }
+    return { forge: "github", service: deps.github };
+  }
+  if (resolution.forge === "github") {
     return { forge: "github", service: deps.github };
   }
   return { forge: resolution.forge, service: resolution.service };

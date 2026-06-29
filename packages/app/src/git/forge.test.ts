@@ -69,10 +69,16 @@ describe("getForgePresentation", () => {
 });
 
 describe("forgeFromRemoteUrl", () => {
-  it("detects Forgejo before Gitea, including codeberg.org", () => {
+  it("detects only public forge hosts that are safe without daemon probing", () => {
     expect(forgeFromRemoteUrl("https://codeberg.org/example/repo.git")).toBe("forgejo");
-    expect(forgeFromRemoteUrl("git@forgejo.example.org:example/repo.git")).toBe("forgejo");
+    expect(forgeFromRemoteUrl("https://gitlab.com/example/repo.git")).toBe("gitlab");
     expect(forgeFromRemoteUrl("https://gitea.com/example/repo.git")).toBe("gitea");
+  });
+
+  it("does not classify self-managed hosts by substring", () => {
+    expect(forgeFromRemoteUrl("git@gitlab.example.org:example/repo.git")).toBeNull();
+    expect(forgeFromRemoteUrl("git@forgejo.example.org:example/repo.git")).toBeNull();
+    expect(forgeFromRemoteUrl("https://notgitlab.example.org/example/repo.git")).toBeNull();
   });
 });
 

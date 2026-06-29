@@ -1,10 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import type { GitHubSearchRequest, GitHubSearchResponse } from "@getpaseo/protocol/messages";
-import { i18n } from "@/i18n/i18next";
+import {
+  buildForgeSearchQueryOptions,
+  FORGE_SEARCH_STALE_TIME,
+  forgeSearchQueryKey,
+  useForgeSearchQuery,
+  type ForgeSearchClient,
+} from "@/git/use-forge-search-query";
 
-export const GITHUB_SEARCH_STALE_TIME = 30_000;
-
+export const GITHUB_SEARCH_STALE_TIME = FORGE_SEARCH_STALE_TIME;
+export { buildForgeSearchQueryOptions, forgeSearchQueryKey };
+export type { ForgeSearchClient };
 export type GitHubSearchPayload = GitHubSearchResponse["payload"];
 
 export interface GitHubSearchClient {
@@ -19,7 +24,9 @@ export interface GitHubSearchClient {
   ) => Promise<GitHubSearchPayload>;
 }
 
-interface GitHubSearchQueryInput {
+export const githubSearchQueryKey = forgeSearchQueryKey;
+
+export function buildGithubSearchQueryOptions(input: {
   client: GitHubSearchClient | null;
   serverId: string;
   cwd: string;
@@ -27,49 +34,25 @@ interface GitHubSearchQueryInput {
   kinds?: GitHubSearchRequest["kinds"];
   enabled: boolean;
   hostDisconnectedMessage?: string;
-}
-
-export function githubSearchQueryKey(
-  serverId: string,
-  cwd: string,
-  query: string,
-  kinds?: GitHubSearchRequest["kinds"],
-) {
-  const trimmedQuery = query.trim();
-  if (!kinds) {
-    return ["github-search", serverId, cwd, trimmedQuery] as const;
-  }
-  return ["github-search", serverId, cwd, trimmedQuery, [...kinds].sort().join(",")] as const;
-}
-
-export function buildGithubSearchQueryOptions(input: GitHubSearchQueryInput) {
-  const query = input.query.trim();
-
-  return {
-    queryKey: githubSearchQueryKey(input.serverId, input.cwd, query, input.kinds),
-    queryFn: async (): Promise<GitHubSearchPayload> => {
-      if (!input.client) {
-        throw new Error(
-          input.hostDisconnectedMessage ?? i18n.t("workspace.terminal.hostDisconnected"),
-        );
+}) {
+  const client: ForgeSearchClient | null = input.client
+    ? {
+        searchGitHub: input.client.searchGitHub,
+        searchForge: async (options, requestId) =>
+          input.client?.searchGitHub(options, requestId) ??
+          Promise.resolve({
+            items: [],
+            featuresEnabled: false,
+            authState: "no_remote",
+            githubFeaturesEnabled: false,
+            error: "Host disconnected",
+            requestId: requestId ?? "",
+          }),
       }
-      const request = { cwd: input.cwd, query, limit: 20 };
-      if (input.kinds) {
-        return input.client.searchGitHub({ ...request, kinds: input.kinds });
-      }
-      return input.client.searchGitHub(request);
-    },
-    enabled: input.enabled && Boolean(input.client),
-    staleTime: GITHUB_SEARCH_STALE_TIME,
-  };
+    : null;
+  return buildForgeSearchQueryOptions({ ...input, client, supportsForgeSearch: false });
 }
 
-export function useGithubSearchQuery(input: GitHubSearchQueryInput) {
-  const { t } = useTranslation();
-  return useQuery(
-    buildGithubSearchQueryOptions({
-      ...input,
-      hostDisconnectedMessage: t("workspace.terminal.hostDisconnected"),
-    }),
-  );
+export function useGithubSearchQuery(input: Parameters<typeof useForgeSearchQuery>[0]) {
+  return useForgeSearchQuery(input);
 }

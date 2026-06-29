@@ -7,25 +7,27 @@ describe("parseRemoteHost", () => {
   it("parses ssh and https remotes", () => {
     expect(parseRemoteHost("git@github.com:owner/repo.git")).toBe("github.com");
     expect(parseRemoteHost("git@gitlab.example.com:group/sub/repo.git")).toBe("gitlab.example.com");
-    expect(parseRemoteHost("https://gitlab.example.com/group/repo.git")).toBe("gitlab.example.com");
+    expect(parseRemoteHost("https://GitLab.Example.Com./group/repo.git")).toBe(
+      "gitlab.example.com",
+    );
     expect(parseRemoteHost("not a url")).toBeNull();
   });
 });
 
 describe("forgeForHost", () => {
-  it("maps registered forge hosts without resolver-specific branches", () => {
+  it("maps public registered forge hosts without resolver-specific branches", () => {
     expect(forgeForHost("github.com")).toBe("github");
-    expect(forgeForHost("gitlab.example.com")).toBe("gitlab");
     expect(forgeForHost("gitlab.com")).toBe("gitlab");
     expect(forgeForHost("gitea.com")).toBe("gitea");
-    expect(forgeForHost("forgejo.example.org")).toBe("forgejo");
-    expect(forgeForHost("gitea-forgejo.example.org")).toBe("forgejo");
     expect(forgeForHost("codeberg.org")).toBe("forgejo");
   });
 
   it("returns null for hosts with no known adapter", () => {
     expect(forgeForHost("example.com")).toBeNull();
     expect(forgeForHost("bitbucket.org")).toBeNull();
+    expect(forgeForHost("gitlab.example.com")).toBeNull();
+    expect(forgeForHost("forgejo.example.org")).toBeNull();
+    expect(forgeForHost("notgitlab.example.org")).toBeNull();
   });
 });
 
@@ -39,12 +41,15 @@ describe("createForgeResolver", () => {
     expect(resolution?.service.getCurrentPullRequestStatus).toBeTypeOf("function");
   });
 
-  it("resolves a self-managed GitLab remote to the gitlab forge", async () => {
+  it("resolves a self-managed GitLab remote through the per-host probe", async () => {
+    const probeForge = vi.fn(async () => "gitlab");
     const resolver = createForgeResolver({
       resolveRemoteUrl: async () => "git@gitlab.example.com:example-group/example-project.git",
+      probeForge,
     });
     const resolution = await resolver.resolve("/repo");
     expect(resolution).toMatchObject({ forge: "gitlab", host: "gitlab.example.com" });
+    expect(probeForge).toHaveBeenCalledWith("gitlab.example.com");
   });
 
   it("resolves Gitea and Forgejo remotes to their registered top-level forges", async () => {
@@ -65,15 +70,15 @@ describe("createForgeResolver", () => {
     });
   });
 
-  it("resolves an overlapping gitea-forgejo hostname as Forgejo", async () => {
+  it("does not classify an overlapping gitea-forgejo hostname without a probe", async () => {
+    const probeForge = vi.fn(async () => null);
     const resolver = createForgeResolver({
       resolveRemoteUrl: async () => "git@gitea-forgejo.example.org:example/repo.git",
+      probeForge,
     });
 
-    await expect(resolver.resolve("/repo")).resolves.toMatchObject({
-      forge: "forgejo",
-      host: "gitea-forgejo.example.org",
-    });
+    await expect(resolver.resolve("/repo")).resolves.toBeNull();
+    expect(probeForge).toHaveBeenCalledWith("gitea-forgejo.example.org");
   });
 
   it("returns null when the cwd has no origin remote", async () => {
@@ -83,8 +88,10 @@ describe("createForgeResolver", () => {
 
   it("reuses one adapter instance per forge across resolutions", async () => {
     let built = 0;
+    const probeForge = vi.fn(async () => "gitlab");
     const resolver = createForgeResolver({
       resolveRemoteUrl: async () => "git@gitlab.example.com:group/repo.git",
+      probeForge,
       createService: (forge) => {
         built += 1;
         return createForgeService(forge);
@@ -93,6 +100,7 @@ describe("createForgeResolver", () => {
     const first = await resolver.resolve("/a");
     const second = await resolver.resolve("/b");
     expect(built).toBe(1);
+    expect(probeForge).toHaveBeenCalledTimes(1);
     expect(first?.service).toBe(second?.service);
   });
 

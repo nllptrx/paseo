@@ -7,6 +7,7 @@ import {
   CheckoutGithubSetAutoMergeResponseSchema,
   CheckoutPrMergeRequestSchema,
   CheckoutPrStatusSchema,
+  GitHubSearchResponseSchema,
   ServerInfoStatusPayloadSchema,
 } from "./messages.js";
 
@@ -260,6 +261,39 @@ describe("checkout PR schemas", () => {
       forgeSpecific: { forge: "bitbucket", somethingNew: true },
     });
     expect(parsed.forgeSpecific).toEqual({ forge: "bitbucket", somethingNew: true });
+  });
+
+  test("preserves forgejo-specific facts until a typed arm exists", () => {
+    const parsed = CheckoutPrStatusSchema.parse({
+      number: 10,
+      url: "https://codeberg.org/example/repo/pulls/10",
+      title: "Future Forgejo facts",
+      state: "open",
+      baseRefName: "main",
+      headRefName: "feature/forgejo",
+      isMerged: false,
+      forgeSpecific: { forge: "forgejo", approvalsRequired: 2 },
+    });
+    expect(parsed.forgeSpecific).toEqual({ forge: "forgejo", approvalsRequired: 2 });
+  });
+
+  test("defaults search auth state for legacy GitHub search responses", () => {
+    const parsed = GitHubSearchResponseSchema.parse({
+      type: "github_search_response",
+      payload: {
+        items: [],
+        featuresEnabled: false,
+        githubFeaturesEnabled: false,
+        error: null,
+        requestId: "search-1",
+      },
+    });
+
+    expect(parsed.payload).toMatchObject({
+      featuresEnabled: false,
+      authState: "unauthenticated",
+      githubFeaturesEnabled: false,
+    });
   });
 
   test("parses optional GitHub check identifiers on PR checks", () => {

@@ -616,6 +616,7 @@ describe("ForgeService", () => {
       number: 526,
       baseRefName: "main",
       headRefName: "main",
+      checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/526/head" }],
       headOwnerLogin: "therainisme",
       headRepositorySshUrl: "git@github.com:therainisme/paseo.git",
       headRepositoryUrl: "https://github.com/therainisme/paseo",
@@ -1864,13 +1865,13 @@ describe("ForgeService", () => {
       now: () => 100,
     });
 
-    const first = await service.getGitHubCheckDetails({
+    const first = await service.getCheckDetails({
       cwd: "/repo",
       repoOwner: "acme",
       repoName: "repo",
       checkRunId: 12345,
     });
-    const second = await service.getGitHubCheckDetails({
+    const second = await service.getCheckDetails({
       cwd: "/repo",
       repoOwner: "acme",
       repoName: "repo",
@@ -1961,7 +1962,7 @@ describe("ForgeService", () => {
       now: () => 100,
     });
 
-    const details = await service.getGitHubCheckDetails({
+    const details = await service.getCheckDetails({
       cwd: "/repo",
       repoOwner: "acme",
       repoName: "repo",
@@ -2021,7 +2022,7 @@ describe("ForgeService", () => {
       now: () => 100,
     });
 
-    const details = await service.getGitHubCheckDetails({
+    const details = await service.getCheckDetails({
       cwd: "/repo",
       repoOwner: "acme",
       repoName: "repo",
@@ -2059,7 +2060,7 @@ describe("ForgeService", () => {
       now: () => 100,
     });
 
-    const details = await service.getGitHubCheckDetails({
+    const details = await service.getCheckDetails({
       cwd: "/repo",
       repoOwner: "acme",
       repoName: "repo",
@@ -2591,6 +2592,7 @@ describe("ForgeService", () => {
           headRefName: "feature",
           isMerged: false,
         },
+        featuresEnabled: true,
         githubFeaturesEnabled: true,
         error: null,
         requestId: "req-old",
@@ -2629,6 +2631,7 @@ describe("ForgeService", () => {
           checksStatus: "success",
           reviewDecision: "pending",
         },
+        featuresEnabled: true,
         githubFeaturesEnabled: true,
         error: null,
         requestId: "req-new",
@@ -2833,6 +2836,8 @@ describe("ForgeService", () => {
     await expect(
       service.searchIssuesAndPrs({ cwd: "/repo", query: "cache", limit: 5 }),
     ).resolves.toEqual({
+      featuresEnabled: true,
+      authState: "authenticated",
       githubFeaturesEnabled: true,
       items: [
         {
@@ -2946,6 +2951,8 @@ describe("ForgeService", () => {
         kinds: ["github-pr"],
       }),
     ).resolves.toEqual({
+      featuresEnabled: true,
+      authState: "authenticated",
       githubFeaturesEnabled: true,
       items: [
         {

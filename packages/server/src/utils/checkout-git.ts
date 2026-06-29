@@ -12,13 +12,16 @@ import {
   GitHubCommandError,
   createGitHubService,
   resolveGitHubRepo,
-  type CurrentPullRequestStatus,
-  type ForgeAuthState,
-  type ForgeService,
-  type ForgeSpecificStatusFacts,
-  type PullRequestMergeable,
 } from "../services/github-service.js";
+import type {
+  CurrentPullRequestStatus,
+  ForgeAuthState,
+  ForgeService,
+  ForgeSpecificStatusFacts,
+  PullRequestMergeable,
+} from "../services/forge-service.js";
 import { GlabAuthenticationError, GlabCliMissingError } from "../services/gitlab-service.js";
+import { TeaAuthenticationError, TeaCliMissingError } from "../services/gitea-service.js";
 import { parseGitRevParsePath, resolveGitRevParsePath } from "./git-rev-parse-path.js";
 import { runGitCommand } from "./run-git-command.js";
 import { isPaseoOwnedWorktreeCwd, resolvePaseoWorktreesBaseRoot } from "./worktree.js";
@@ -2986,7 +2989,9 @@ function isForgeAuthError(error: unknown): boolean {
     error instanceof GitHubCliMissingError ||
     error instanceof GitHubAuthenticationError ||
     error instanceof GlabCliMissingError ||
-    error instanceof GlabAuthenticationError
+    error instanceof GlabAuthenticationError ||
+    error instanceof TeaCliMissingError ||
+    error instanceof TeaAuthenticationError
   );
 }
 
@@ -2996,7 +3001,11 @@ function isForgeAuthError(error: unknown): boolean {
  * they must sign in.
  */
 export function forgeAuthStateFromError(error: unknown): ForgeAuthState {
-  if (error instanceof GitHubCliMissingError || error instanceof GlabCliMissingError) {
+  if (
+    error instanceof GitHubCliMissingError ||
+    error instanceof GlabCliMissingError ||
+    error instanceof TeaCliMissingError
+  ) {
     return "cli_missing";
   }
   return "unauthenticated";

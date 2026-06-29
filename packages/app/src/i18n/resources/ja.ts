@@ -660,8 +660,11 @@ export const ja: TranslationResources = {
             "このブランチはまだリモートに接続されていないため、プル＆プッシュはここでは利用できません",
           pullAndPushDirty:
             "ローカルに変更があるためプル＆プッシュは利用できません。先にコミットまたはスタッシュしてください",
+          pullAndPushNoIncoming: "先にプルする受信変更がないため、プル＆プッシュは利用できません",
           pullAndPushInSync:
             "このブランチはすでに同期されているため、プル＆プッシュは利用できません",
+          pullAndPushNothingToPush:
+            "プル後に送信する新しい変更がないため、プル＆プッシュは利用できません",
           createPrNoGithub: "GitHubが接続されていないため、PRの作成は現在利用できません",
           createPrNoCommits: "このブランチにまだ新しいコミットがないため、PRの作成は利用できません",
           mergeNoBase: "ベースブランチを特定できなかったため、マージは利用できません",

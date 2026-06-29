@@ -45,13 +45,13 @@ export function forgeFromRemoteUrl(remoteUrl: string | null | undefined): Forge 
   if (isGitHubHost(host)) {
     return "github";
   }
-  if (/gitlab/i.test(host)) {
+  if (host === "gitlab.com") {
     return "gitlab";
   }
-  if (/forgejo/i.test(host) || /(^|\.)codeberg\.org$/i.test(host)) {
+  if (host === "codeberg.org") {
     return "forgejo";
   }
-  if (/gitea/i.test(host)) {
+  if (host === "gitea.com") {
     return "gitea";
   }
   return null;

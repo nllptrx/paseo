@@ -882,7 +882,7 @@ describe("OpenCode adapter context-window normalization", () => {
     expect(parts).toEqual([
       {
         type: "text",
-        text: expect.stringContaining("GitHub Issue #55: Improve startup error details"),
+        text: expect.stringContaining("GitHub issue #55: Improve startup error details"),
       },
     ]);
   });

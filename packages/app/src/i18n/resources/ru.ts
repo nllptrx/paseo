@@ -661,8 +661,12 @@ export const ru: TranslationResources = {
             "Функция Pull and Push здесь недоступна, поскольку эта ветка еще не подключена к удаленному устройству.",
           pullAndPushDirty:
             "Функция извлечения и отправки недоступна, пока у вас есть локальные изменения, поэтому сначала зафиксируйте или сохраните их.",
+          pullAndPushNoIncoming:
+            "Функция Pull and Push недоступна, поскольку сначала нечего получать.",
           pullAndPushInSync:
             "Функция Pull and Push недоступна, поскольку эта ветвь уже синхронизирована.",
+          pullAndPushNothingToPush:
+            "Функция Pull and Push недоступна, поскольку после pull нечего отправлять.",
           createPrNoGithub:
             "Функция «Создать PR» сейчас недоступна, поскольку GitHub не подключен.",
           createPrNoCommits:

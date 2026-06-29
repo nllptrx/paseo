@@ -603,7 +603,7 @@ function getPullUnavailableMessage(input: BuildGitActionsInput): string | undefi
     return i18n.t("workspace.git.actions.unavailable.pullDirty");
   }
   if (input.behindOfOrigin === null) {
-    return "Pull isn't available here because this branch is not connected to a remote yet";
+    return i18n.t("workspace.git.actions.unavailable.pullNoRemote");
   }
   if (input.behindOfOrigin === 0) {
     return i18n.t("workspace.git.actions.unavailable.pullUpToDate");
@@ -632,16 +632,16 @@ function getPullAndPushUnavailableMessage(input: BuildGitActionsInput): string |
     return i18n.t("workspace.git.actions.unavailable.pullAndPushDirty");
   }
   if (input.behindOfOrigin === null) {
-    return "Pull and push isn't available because there are no incoming changes to pull first";
+    return i18n.t("workspace.git.actions.unavailable.pullAndPushNoIncoming");
   }
   if (input.behindOfOrigin === 0 && input.aheadOfOrigin === 0) {
     return i18n.t("workspace.git.actions.unavailable.pullAndPushInSync");
   }
   if (input.behindOfOrigin === 0) {
-    return "Pull and push isn't available because there are no incoming changes to pull first";
+    return i18n.t("workspace.git.actions.unavailable.pullAndPushNoIncoming");
   }
   if ((input.aheadOfOrigin ?? 0) === 0) {
-    return "Pull and push isn't available because there is nothing new to send after pulling";
+    return i18n.t("workspace.git.actions.unavailable.pullAndPushNothingToPush");
   }
   return undefined;
 }

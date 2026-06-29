@@ -1,4 +1,5 @@
 import type { CheckoutPrMergeMethod, CheckoutPrStatusResponse } from "@getpaseo/protocol/messages";
+import { GITLAB_ACTIVE_PIPELINE_STATUSES } from "@getpaseo/protocol/forge-constants";
 
 /**
  * The forge's native merge facts as they arrive over the wire on a PR status,
@@ -101,19 +102,12 @@ const GITLAB_MERGE_METHODS: CheckoutPrMergeMethod[] = ["merge", "squash", "rebas
 // GitLab auto-merge is "merge when the pipeline succeeds", so it only applies
 // while a pipeline is still in flight. Once the pipeline reaches a terminal
 // state the MR either merges directly or is blocked; there is nothing left to wait for.
-const GITLAB_ACTIVE_PIPELINE_STATUSES = new Set([
-  "created",
-  "waiting_for_resource",
-  "preparing",
-  "pending",
-  "running",
-  "scheduled",
-]);
+const GITLAB_ACTIVE_PIPELINE_STATUS_SET = new Set<string>(GITLAB_ACTIVE_PIPELINE_STATUSES);
 
 function deriveGitlabMergeCapability(gitlab: GitlabMergeFacts): MergeCapability {
   const autoMergeEnabled = gitlab.mergeWhenPipelineSucceeds === true;
   const hasActivePipeline =
-    gitlab.pipelineStatus !== null && GITLAB_ACTIVE_PIPELINE_STATUSES.has(gitlab.pipelineStatus);
+    gitlab.pipelineStatus !== null && GITLAB_ACTIVE_PIPELINE_STATUS_SET.has(gitlab.pipelineStatus);
   return {
     directMergeReady: gitlab.detailedMergeStatus === GITLAB_MERGEABLE_STATUS,
     canEnableAutoMerge: !autoMergeEnabled && hasActivePipeline,

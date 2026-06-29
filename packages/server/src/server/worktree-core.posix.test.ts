@@ -13,8 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test, afterEach } from "vitest";
-import type { ForgeService } from "../services/github-service.js";
-import { getCheckoutStatus, pushCurrentBranch } from "../utils/checkout-git.js";
+import type { ForgeService } from "../services/forge-service.js";
+import {
+  getCheckoutSnapshotFacts,
+  getCheckoutStatus,
+  pushCurrentBranch,
+} from "../utils/checkout-git.js";
 import { UnknownBranchError } from "../utils/worktree.js";
 import { createWorktreeCore as createCoreWorktree } from "./worktree-core.js";
 import { isPlatform } from "../test-utils/platform.js";
@@ -23,7 +27,11 @@ function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],
-    searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),
+    searchIssuesAndPrs: async () => ({
+      items: [],
+      featuresEnabled: true,
+      githubFeaturesEnabled: true,
+    }),
     getPullRequest: async ({ number }) => ({
       number,
       title: `PR ${number}`,
@@ -198,6 +206,46 @@ function createGitRepoWithOriginFeatureBranch(): {
   return { tempDir, repoDir, paseoHome };
 }
 
+function createGitLabMrRefOnlyRemoteRepo(): {
+  tempDir: string;
+  repoDir: string;
+  paseoHome: string;
+} {
+  const { tempDir, repoDir, paseoHome } = createGitRepo();
+  const featureBranch = "feature/gitlab-mr";
+  execFileSync("git", ["checkout", "-b", featureBranch], { cwd: repoDir, stdio: "pipe" });
+  writeFileSync(path.join(repoDir, "README.md"), "gitlab mr branch\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "gitlab mr branch"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  const mrHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoDir, stdio: "pipe" })
+    .toString()
+    .trim();
+  execFileSync("git", ["checkout", "main"], { cwd: repoDir, stdio: "pipe" });
+
+  const remoteDir = path.join(tempDir, "origin.git");
+  execFileSync("git", ["clone", "--bare", repoDir, remoteDir], { stdio: "pipe" });
+  execFileSync(
+    "git",
+    [`--git-dir=${remoteDir}`, "update-ref", "refs/merge-requests/14/head", mrHead],
+    { stdio: "pipe" },
+  );
+  execFileSync(
+    "git",
+    [`--git-dir=${remoteDir}`, "update-ref", "-d", `refs/heads/${featureBranch}`],
+    {
+      stdio: "pipe",
+    },
+  );
+  execFileSync("git", ["branch", "-D", featureBranch], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["remote", "add", "origin", remoteDir], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["fetch", "origin"], { cwd: repoDir, stdio: "pipe" });
+
+  return { tempDir, repoDir, paseoHome };
+}
+
 function createForkGitHubPrRemoteRepo(): {
   tempDir: string;
   repoDir: string;
@@ -352,10 +400,12 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
       );
 
       expect(result.intent).toEqual({
-        kind: "checkout-github-pr",
-        githubPrNumber: 123,
+        kind: "checkout-change-request",
+        forge: "github",
+        changeRequestNumber: 123,
         headRef: "feature/review-pr",
         baseRefName: "main",
+        checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/123/head" }],
       });
       expect(result.worktree.branchName).toBe("feature/review-pr");
     });
@@ -478,10 +528,12 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
       );
 
       expect(result.intent).toEqual({
-        kind: "checkout-github-pr",
-        githubPrNumber: 123,
+        kind: "checkout-change-request",
+        forge: "github",
+        changeRequestNumber: 123,
         headRef: "pr-123",
         baseRefName: "main",
+        checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/123/head" }],
       });
       expect(result.worktree.branchName).toBe("pr-123");
     });
@@ -520,13 +572,128 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
         .toString()
         .trim();
       expect(result.intent).toEqual({
-        kind: "checkout-branch",
-        branchName: "feature/gitlab-mr",
+        kind: "checkout-change-request",
+        forge: "gitlab",
+        changeRequestNumber: 14,
+        headRef: "feature/gitlab-mr",
+        baseRefName: "main",
+        checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/heads/feature/gitlab-mr" }],
+        trackOriginHead: true,
       });
       expect(branch).toBe("feature/gitlab-mr");
       expect(readFileSync(path.join(result.worktree.worktreePath, "README.md"), "utf8")).toBe(
         "gitlab mr branch\n",
       );
+    });
+
+    test("checks out a GitLab MR ref when the source branch is gone", async () => {
+      const { tempDir, repoDir, paseoHome } = createGitLabMrRefOnlyRemoteRepo();
+      cleanupPaths.push(tempDir);
+      const gitlab: ForgeService = {
+        ...createGitHubServiceStub(),
+        getPullRequestCheckoutTarget: async ({ number }) => ({
+          number,
+          baseRefName: "main",
+          headRefName: "feature/gitlab-mr",
+          checkoutRefs: [
+            { remoteName: "origin", remoteRef: "refs/heads/feature/gitlab-mr" },
+            { remoteName: "origin", remoteRef: "refs/merge-requests/14/head" },
+          ],
+          headOwnerLogin: null,
+          headRepositorySshUrl: null,
+          headRepositoryUrl: null,
+          isCrossRepository: false,
+        }),
+      };
+
+      const result = await createCoreWorktree(
+        {
+          cwd: repoDir,
+          action: "checkout",
+          githubPrNumber: 14,
+          paseoHome,
+          runSetup: false,
+        },
+        createCoreDeps({ forge: { forge: "gitlab", service: gitlab } }),
+      );
+
+      expect(result.intent).toMatchObject({
+        kind: "checkout-change-request",
+        forge: "gitlab",
+        changeRequestNumber: 14,
+        headRef: "feature/gitlab-mr",
+      });
+      expect(readFileSync(path.join(result.worktree.worktreePath, "README.md"), "utf8")).toBe(
+        "gitlab mr branch\n",
+      );
+      expect(getBranchUpstream(result.worktree.worktreePath)).toBeNull();
+    });
+
+    test("keeps GitLab MR lookup tied to the original head ref when the worktree branch is deduped", async () => {
+      const { tempDir, repoDir, paseoHome } = createGitLabMrRefOnlyRemoteRepo();
+      cleanupPaths.push(tempDir);
+      const gitlab: ForgeService = {
+        ...createGitHubServiceStub(),
+        getPullRequestCheckoutTarget: async ({ number }) => ({
+          number,
+          baseRefName: "main",
+          headRefName: "feature/gitlab-mr",
+          checkoutRefs: [
+            { remoteName: "origin", remoteRef: "refs/heads/feature/gitlab-mr" },
+            { remoteName: "origin", remoteRef: "refs/merge-requests/14/head" },
+          ],
+          headOwnerLogin: null,
+          headRepositorySshUrl: null,
+          headRepositoryUrl: null,
+          isCrossRepository: true,
+        }),
+      };
+
+      await createCoreWorktree(
+        {
+          cwd: repoDir,
+          worktreeSlug: "first-gitlab-mr",
+          action: "checkout",
+          githubPrNumber: 14,
+          paseoHome,
+          runSetup: false,
+        },
+        createCoreDeps({ forge: { forge: "gitlab", service: gitlab } }),
+      );
+      const second = await createCoreWorktree(
+        {
+          cwd: repoDir,
+          worktreeSlug: "second-gitlab-mr",
+          action: "checkout",
+          githubPrNumber: 14,
+          paseoHome,
+          runSetup: false,
+        },
+        createCoreDeps({ forge: { forge: "gitlab", service: gitlab } }),
+      );
+
+      const facts = await getCheckoutSnapshotFacts(second.worktree.worktreePath, { paseoHome });
+      const pushRemote = execFileSync(
+        "git",
+        ["config", `branch.${second.worktree.branchName}.pushRemote`],
+        {
+          cwd: second.worktree.worktreePath,
+          stdio: "pipe",
+        },
+      )
+        .toString()
+        .trim();
+      const pushRefspec = execFileSync("git", ["config", "remote.paseo-pr-14.push"], {
+        cwd: second.worktree.worktreePath,
+        stdio: "pipe",
+      })
+        .toString()
+        .trim();
+
+      expect(second.worktree.branchName).toBe("feature/gitlab-mr-1");
+      expect(pushRemote).toBe("paseo-pr-14");
+      expect(pushRefspec).toBe("HEAD:refs/heads/feature/gitlab-mr");
+      expect(facts.pullRequestLookupTarget).toEqual({ headRef: "feature/gitlab-mr" });
     });
 
     test("checks out a same-repo GitHub PR with valid origin tracking", async () => {
@@ -801,10 +968,12 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
 
       expect(sourceBranch).toBe("main");
       expect(result.intent).toEqual({
-        kind: "checkout-github-pr",
-        githubPrNumber: 526,
+        kind: "checkout-change-request",
+        forge: "github",
+        changeRequestNumber: 526,
         headRef: "main",
         baseRefName: "main",
+        checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/526/head" }],
         localBranchName: "therainisme/main",
         pushRemoteUrl: headRemoteDir,
       });
@@ -1076,10 +1245,12 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
 
       expect(headRefLookups).toEqual([{ cwd: repoDir, number: 123 }]);
       expect(result.intent).toEqual({
-        kind: "checkout-github-pr",
-        githubPrNumber: 123,
+        kind: "checkout-change-request",
+        forge: "github",
+        changeRequestNumber: 123,
         headRef: "feature/from-service",
         baseRefName: "main",
+        checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/123/head" }],
       });
       expect(result.worktree.branchName).toBe("feature/from-service");
     });

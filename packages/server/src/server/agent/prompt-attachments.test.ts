@@ -15,7 +15,24 @@ describe("prompt attachments", () => {
         baseRefName: "main",
         headRefName: "fix/worktree-race",
       }),
-    ).toContain("GitHub PR #123: Fix race in worktree setup");
+    ).toContain("GitHub change request #123: Fix race in worktree setup");
+  });
+
+  it("renders GitLab change request attachments with MR numbering", () => {
+    expect(
+      renderPromptAttachmentAsText({
+        type: "forge_change_request",
+        mimeType: "application/paseo-forge-change-request",
+        forge: "gitlab",
+        number: 123,
+        title: "Fix race in worktree setup",
+        url: "https://gitlab.com/getpaseo/paseo/-/merge_requests/123",
+        body: "MR body",
+        projectPath: "getpaseo/paseo",
+        baseRefName: "main",
+        headRefName: "fix/worktree-race",
+      }),
+    ).toContain("GitLab change request !123: Fix race in worktree setup");
   });
 
   it("renders review attachments with compact file, line, comment, and context details", () => {
@@ -82,7 +99,7 @@ describe("prompt attachments", () => {
         title: "Issue",
         url: "https://github.com/getpaseo/paseo/issues/55",
       }),
-    ).toContain("GitHub Issue #55: Issue");
+    ).toContain("GitHub issue #55: Issue");
   });
 
   it("renders text attachments as their client-provided prompt text", () => {
@@ -140,7 +157,7 @@ describe("prompt attachments", () => {
         ],
       }),
     ).toBe(
-      "<user-prompt>\nInvestigate flaky test\n</user-prompt>\n\n<attachments>\nGitHub PR #123: Fix worktree naming\nhttps://github.com/getpaseo/paseo/pull/123\nBase: main\nHead: fix/worktree-naming\n</attachments>",
+      "<user-prompt>\nInvestigate flaky test\n</user-prompt>\n\n<attachments>\nGitHub change request #123: Fix worktree naming\nhttps://github.com/getpaseo/paseo/pull/123\nBase: main\nHead: fix/worktree-naming\n</attachments>",
     );
   });
 });

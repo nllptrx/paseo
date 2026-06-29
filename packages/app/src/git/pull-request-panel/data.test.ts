@@ -275,6 +275,56 @@ describe("mapPrPaneData", () => {
     ]);
   });
 
+  it("maps a top-level threadId onto general (non-file) discussion comments", () => {
+    const data = mapPrPaneData(
+      baseStatus,
+      timeline({
+        items: [
+          {
+            id: "note-1",
+            kind: "comment",
+            author: "reviewer-a",
+            body: "Can you clarify the rollout?",
+            createdAt: Date.UTC(2026, 0, 1, 11, 0, 0),
+            url: "https://gitlab.example.com/group/project/-/merge_requests/42#note_1",
+            threadId: "disc-1",
+          },
+        ],
+      }),
+      Date.UTC(2026, 0, 1, 12, 0, 0),
+      "gitlab",
+    );
+
+    expect(data?.activity).toHaveLength(1);
+    expect(data?.activity[0]).toMatchObject({ id: "note-1", threadId: "disc-1" });
+    expect(data?.activity[0].location).toBeUndefined();
+  });
+
+  it("maps thread-level resolution onto general (non-file) discussion comments", () => {
+    const data = mapPrPaneData(
+      baseStatus,
+      timeline({
+        items: [
+          {
+            id: "note-2",
+            kind: "comment",
+            author: "reviewer-a",
+            body: "Resolved general discussion.",
+            createdAt: Date.UTC(2026, 0, 1, 11, 0, 0),
+            url: "https://gitlab.example.com/group/project/-/merge_requests/42#note_2",
+            threadId: "disc-2",
+            threadIsResolved: true,
+          },
+        ],
+      }),
+      Date.UTC(2026, 0, 1, 12, 0, 0),
+      "gitlab",
+    );
+
+    expect(data?.activity[0]).toMatchObject({ id: "note-2", threadIsResolved: true });
+    expect(data?.activity[0].location).toBeUndefined();
+  });
+
   it("filters empty commented reviews but keeps blocking review states", () => {
     const data = mapPrPaneData(
       baseStatus,
@@ -485,6 +535,62 @@ describe("mapPrPaneData", () => {
     );
 
     expect(data?.gitlabPipeline).toBeUndefined();
+  });
+
+  it("surfaces Gitea aggregate CI status as a check row", () => {
+    const data = mapPrPaneData(
+      status({
+        forge: "gitea",
+        url: "https://gitea.com/group/repo/pulls/7",
+        github: undefined,
+        forgeSpecific: {
+          forge: "gitea",
+          mergeable: true,
+          hasMerged: false,
+          ciStatus: "success",
+        },
+      }),
+      baseTimeline,
+      undefined,
+      "gitea",
+    );
+
+    expect(data?.checks).toEqual([
+      {
+        provider: "gitea",
+        name: "CI",
+        status: "success",
+        url: "https://gitea.com/group/repo/pulls/7",
+      },
+    ]);
+  });
+
+  it("keeps Forgejo branding for aggregate Gitea-family CI status", () => {
+    const data = mapPrPaneData(
+      status({
+        forge: "forgejo",
+        url: "https://forgejo.example.com/group/repo/pulls/7",
+        github: undefined,
+        forgeSpecific: {
+          forge: "gitea",
+          mergeable: true,
+          hasMerged: false,
+          ciStatus: "failure",
+        },
+      }),
+      baseTimeline,
+      undefined,
+      "forgejo",
+    );
+
+    expect(data?.checks).toEqual([
+      {
+        provider: "forgejo",
+        name: "CI",
+        status: "failure",
+        url: "https://forgejo.example.com/group/repo/pulls/7",
+      },
+    ]);
   });
 
   function gitlabStatusWithApprovals(required: number, given: number): CheckoutPrStatus {

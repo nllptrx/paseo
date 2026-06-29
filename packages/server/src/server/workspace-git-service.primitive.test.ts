@@ -4,11 +4,9 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import {
-  createGitHubService,
-  type CurrentPullRequestStatus,
-  type ForgeService,
-} from "../services/github-service.js";
+import { createGitHubService } from "../services/github-service.js";
+import type { CurrentPullRequestStatus, ForgeService } from "../services/forge-service.js";
+import { registerForgeAdapter } from "../services/forge-registry.js";
 import {
   getCheckoutDiff as getCheckoutDiffUncached,
   getCheckoutSnapshotFacts as getCheckoutSnapshotFactsUncached,
@@ -116,7 +114,27 @@ function createPullRequestStatusResult(title = "Update feature"): PullRequestSta
       isMerged: false,
     },
     authState: "authenticated",
+    featuresEnabled: true,
     githubFeaturesEnabled: true,
+  };
+}
+
+function createCurrentPullRequestStatus(
+  overrides?: Partial<CurrentPullRequestStatus>,
+): CurrentPullRequestStatus {
+  return {
+    number: 14,
+    url: "https://forge-self-heal.test/acme/repo/-/merge_requests/14",
+    title: "MR self-healed",
+    state: "open",
+    baseRefName: "main",
+    headRefName: "feature",
+    isMerged: false,
+    mergeable: "UNKNOWN",
+    checks: [],
+    checksStatus: "none",
+    reviewDecision: null,
+    ...overrides,
   };
 }
 
@@ -136,14 +154,13 @@ function currentPullRequestJson(overrides: Record<string, unknown> = {}): string
   });
 }
 
-function createSnapshot(
-  cwd: string,
-  overrides?: {
-    git?: Partial<WorkspaceGitRuntimeSnapshot["git"]>;
-    github?: Partial<WorkspaceGitRuntimeSnapshot["github"]>;
-  },
-): WorkspaceGitRuntimeSnapshot {
-  const base: WorkspaceGitRuntimeSnapshot = {
+interface SnapshotOverrides {
+  git?: Partial<WorkspaceGitRuntimeSnapshot["git"]>;
+  forge?: Partial<WorkspaceGitRuntimeSnapshot["forge"]>;
+}
+
+function createBaseSnapshot(cwd: string): WorkspaceGitRuntimeSnapshot {
+  return {
     cwd,
     git: {
       isGit: true,
@@ -160,7 +177,7 @@ function createSnapshot(
       hasRemote: true,
       diffStat: { additions: 1, deletions: 0 },
     },
-    github: {
+    forge: {
       featuresEnabled: true,
       pullRequest: {
         url: "https://github.com/acme/repo/pull/123",
@@ -173,29 +190,76 @@ function createSnapshot(
       error: null,
     },
   };
+}
 
-  const featuresEnabled = overrides?.github?.featuresEnabled ?? base.github.featuresEnabled;
+function hasGithubOverride(
+  overrides: SnapshotOverrides | undefined,
+  key: keyof WorkspaceGitRuntimeSnapshot["forge"],
+): boolean {
+  return Boolean(overrides?.forge && key in overrides.forge);
+}
+
+function resolveSnapshotForge(
+  base: WorkspaceGitRuntimeSnapshot,
+  overrides: SnapshotOverrides | undefined,
+): string | undefined {
+  if (hasGithubOverride(overrides, "forge")) {
+    return overrides?.forge?.forge;
+  }
+
+  const remoteUrl = overrides?.git?.remoteUrl ?? base.git.remoteUrl;
+  const explicitlyUnavailable =
+    overrides?.forge?.featuresEnabled === false && overrides.forge.pullRequest === null;
+  if (explicitlyUnavailable || !remoteUrl) {
+    return undefined;
+  }
+
+  return "github";
+}
+
+function resolveSnapshotPullRequest(
+  base: WorkspaceGitRuntimeSnapshot,
+  overrides: SnapshotOverrides | undefined,
+): WorkspaceGitRuntimeSnapshot["forge"]["pullRequest"] {
+  if (hasGithubOverride(overrides, "pullRequest")) {
+    return overrides?.forge?.pullRequest ?? null;
+  }
+
+  return base.forge.pullRequest;
+}
+
+function resolveSnapshotError(
+  base: WorkspaceGitRuntimeSnapshot,
+  overrides: SnapshotOverrides | undefined,
+): WorkspaceGitRuntimeSnapshot["forge"]["error"] {
+  if (hasGithubOverride(overrides, "error")) {
+    return overrides?.forge?.error ?? null;
+  }
+
+  return base.forge.error;
+}
+
+function createSnapshot(cwd: string, overrides?: SnapshotOverrides): WorkspaceGitRuntimeSnapshot {
+  const base = createBaseSnapshot(cwd);
+
+  const featuresEnabled = overrides?.forge?.featuresEnabled ?? base.forge.featuresEnabled;
   const authState =
-    overrides?.github?.authState ?? (featuresEnabled ? "authenticated" : "no_remote");
+    overrides?.forge?.authState ?? (featuresEnabled ? "authenticated" : "no_remote");
+  const forge = resolveSnapshotForge(base, overrides);
   return {
     cwd,
     git: {
       ...base.git,
       ...overrides?.git,
     },
-    github: {
-      ...base.github,
-      ...overrides?.github,
+    forge: {
+      ...base.forge,
+      ...overrides?.forge,
       featuresEnabled,
       authState,
-      pullRequest:
-        overrides?.github && "pullRequest" in overrides.github
-          ? (overrides.github.pullRequest ?? null)
-          : base.github.pullRequest,
-      error:
-        overrides?.github && "error" in overrides.github
-          ? (overrides.github.error ?? null)
-          : base.github.error,
+      ...(forge ? { forge } : {}),
+      pullRequest: resolveSnapshotPullRequest(base, overrides),
+      error: resolveSnapshotError(base, overrides),
     },
   };
 }
@@ -204,7 +268,11 @@ function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: vi.fn(async () => []),
     listIssues: vi.fn(async () => []),
-    searchIssuesAndPrs: vi.fn(async () => ({ items: [], githubFeaturesEnabled: true })),
+    searchIssuesAndPrs: vi.fn(async () => ({
+      items: [],
+      featuresEnabled: true,
+      githubFeaturesEnabled: true,
+    })),
     getPullRequest: vi.fn(async () => ({
       number: 1,
       title: "PR",
@@ -489,7 +557,7 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
           currentBranch: "feature",
           diffStat: { additions: 4, deletions: 2 },
         },
-        github: {
+        forge: {
           featuresEnabled: false,
           pullRequest: null,
           error: null,
@@ -612,7 +680,7 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
 
     await expect(validationRefresh).resolves.toEqual(
       createSnapshot(REPO_CWD, {
-        github: {
+        forge: {
           pullRequest: {
             url: "https://github.com/acme/repo/pull/123",
             title: "Fresh validation PR",
@@ -871,7 +939,7 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
     expect(getCheckoutStatus).toHaveBeenCalledTimes(gitReadsAfterInitialSnapshot);
     expect(listener).toHaveBeenCalledWith(
       expect.objectContaining({
-        github: expect.objectContaining({
+        forge: expect.objectContaining({
           pullRequest: expect.objectContaining({
             checksStatus: "pending",
           }),
@@ -985,6 +1053,106 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
     subscription.unsubscribe();
     service.dispose();
     github.dispose?.();
+  });
+
+  test("subscription self-heal polls a resolved non-GitHub forge for PR status", async () => {
+    const forge = {
+      ...createGitHubServiceStub(),
+      getCurrentPullRequestStatus: vi.fn(async () => createCurrentPullRequestStatus()),
+    };
+    const unregister = registerForgeAdapter("gitlab-test", {
+      createService: () => forge,
+      matchesHost: (host) => host === "forge-self-heal.test",
+    });
+    const getCheckoutSnapshotFacts = vi.fn(async (cwd: string) =>
+      createCheckoutFacts(cwd, {
+        currentBranch: "feature",
+        remoteUrl: "https://forge-self-heal.test/acme/repo.git",
+        pullRequestLookupTarget: { headRef: "feature" },
+      }),
+    );
+    const getCheckoutStatus = vi.fn(async (cwd: string) =>
+      createCheckoutStatus(cwd, {
+        currentBranch: "feature",
+        remoteUrl: "https://forge-self-heal.test/acme/repo.git",
+      }),
+    );
+    const service = createService({
+      getCheckoutSnapshotFacts,
+      getCheckoutStatus,
+    });
+    const listener = vi.fn();
+
+    try {
+      const subscription = service.registerWorkspace({ cwd: REPO_CWD }, listener);
+      await flushPromises();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await flushPromises();
+
+      expect(forge.getCurrentPullRequestStatus).toHaveBeenCalledWith({
+        cwd: REPO_CWD,
+        headRef: "feature",
+        reason: "self-heal-forge-pr-status",
+      });
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          forge: expect.objectContaining({
+            forge: "gitlab-test",
+            pullRequest: expect.objectContaining({
+              title: "MR self-healed",
+            }),
+          }),
+        }),
+      );
+
+      subscription.unsubscribe();
+    } finally {
+      service.dispose();
+      unregister();
+    }
+  });
+
+  test("subscription cancels generic forge PR status self-heal polling after unsubscribe", async () => {
+    const forge = {
+      ...createGitHubServiceStub(),
+      getCurrentPullRequestStatus: vi.fn(async () => createCurrentPullRequestStatus()),
+    };
+    const unregister = registerForgeAdapter("gitea-test", {
+      createService: () => forge,
+      matchesHost: (host) => host === "forge-self-heal.test",
+    });
+    const getCheckoutSnapshotFacts = vi.fn(async (cwd: string) =>
+      createCheckoutFacts(cwd, {
+        currentBranch: "feature",
+        remoteUrl: "https://forge-self-heal.test/acme/repo.git",
+        pullRequestLookupTarget: { headRef: "feature" },
+      }),
+    );
+    const getCheckoutStatus = vi.fn(async (cwd: string) =>
+      createCheckoutStatus(cwd, {
+        currentBranch: "feature",
+        remoteUrl: "https://forge-self-heal.test/acme/repo.git",
+      }),
+    );
+    const service = createService({
+      getCheckoutSnapshotFacts,
+      getCheckoutStatus,
+    });
+
+    try {
+      const subscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+      await flushPromises();
+      subscription.unsubscribe();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await flushPromises();
+
+      expect(forge.getCurrentPullRequestStatus).not.toHaveBeenCalled();
+    } finally {
+      service.dispose();
+      unregister();
+    }
   });
 
   test("subscription skips GitHub self-heal polling when the checkout has no GitHub remote", async () => {

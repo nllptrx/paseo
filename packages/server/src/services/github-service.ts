@@ -3,6 +3,8 @@ import { findExecutable } from "../executable-resolution/executable-resolution.j
 import { resolveGitHubRemote } from "../utils/github-remote.js";
 import { runGitCommand } from "../utils/run-git-command.js";
 import { execCommand } from "../utils/spawn.js";
+import { normalizeCliCommandError } from "./forge-cli-command.js";
+import { createUnavailableSearchResult, normalizeForgeSearchKinds } from "./forge-service.js";
 import type {
   CheckAnnotation,
   CheckDetails,
@@ -12,6 +14,7 @@ import type {
   EnablePullRequestAutoMergeOptions,
   ForgeReadOptions,
   ForgeService,
+  GitHubPullRequestStatusFacts,
   IssueSummary,
   MergePullRequestOptions,
   PullRequestCheck,
@@ -45,6 +48,7 @@ export type {
   GetCheckDetailsOptions,
   GetPullRequestOptions,
   GetPullRequestTimelineOptions,
+  GitHubPullRequestStatusFacts,
   GitLabStatusFacts,
   IssueSummary,
   ListIssuesOptions,
@@ -576,28 +580,6 @@ export type GitHubCommandRunner = (
   options: GitHubCommandRunnerOptions,
 ) => Promise<GitHubCommandResult>;
 
-export interface GitHubPullRequestStatusFacts {
-  mergeStateStatus: string | null;
-  autoMergeRequest: {
-    enabledAt: string | null;
-    mergeMethod: string | null;
-    enabledBy: string | null;
-  } | null;
-  viewerCanEnableAutoMerge: boolean;
-  viewerCanDisableAutoMerge: boolean;
-  viewerCanMergeAsAdmin: boolean;
-  viewerCanUpdateBranch: boolean;
-  repository: {
-    autoMergeAllowed: boolean;
-    mergeCommitAllowed: boolean;
-    squashMergeAllowed: boolean;
-    rebaseMergeAllowed: boolean;
-    viewerDefaultMergeMethod: string | null;
-  };
-  isMergeQueueEnabled: boolean;
-  isInMergeQueue: boolean;
-}
-
 const DIRECT_PULL_REQUEST_MERGE_STATE_ALLOWLIST = new Set(["CLEAN", "HAS_HOOKS"]);
 
 export class GitHubCliMissingError extends Error {
@@ -642,13 +624,6 @@ interface CreateGitHubServiceOptions {
   runner?: GitHubCommandRunner;
   resolveGhPath?: () => Promise<string | null>;
   now?: () => number;
-}
-
-interface CommandFailureLike {
-  code?: string | number | null;
-  stderr?: string | Buffer;
-  stdout?: string | Buffer;
-  message?: string;
 }
 
 type PullRequestCheckRunNode = z.infer<typeof PullRequestCheckRunNodeSchema>;
@@ -1039,14 +1014,14 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): F
       });
     },
 
-    getGitHubCheckDetails(input) {
+    getCheckDetails(input) {
       const { repoOwner, repoName } = input;
       if (!repoOwner || !repoName) {
-        throw new Error("GitHub getGitHubCheckDetails requires repoOwner and repoName");
+        throw new Error("GitHub getCheckDetails requires repoOwner and repoName");
       }
       return cached({
         cwd: input.cwd,
-        method: "getGitHubCheckDetails",
+        method: "getCheckDetails",
         args: {
           repoOwner,
           repoName,
@@ -1136,9 +1111,9 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): F
         throw new Error("ForgeService forced read requires a reason");
       }
 
-      const kinds = input.kinds ?? ["github-issue", "github-pr"];
-      const shouldFetchIssues = kinds.includes("github-issue");
-      const shouldFetchPullRequests = kinds.includes("github-pr");
+      const kinds = normalizeForgeSearchKinds(input.kinds);
+      const shouldFetchIssues = kinds.includes("issue");
+      const shouldFetchPullRequests = kinds.includes("change_request");
       const readOptions: ForgeReadOptions = input.force
         ? { force: true, reason: input.reason }
         : { force: false, reason: input.reason };
@@ -1176,7 +1151,11 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): F
               result.reason instanceof GitHubAuthenticationError),
         )
       ) {
-        return { items: [], githubFeaturesEnabled: false };
+        const hasMissingCli = requestedResults.some(
+          (result) =>
+            result.status === "rejected" && result.reason instanceof GitHubCliMissingError,
+        );
+        return createUnavailableSearchResult(hasMissingCli ? "cli_missing" : "unauthenticated");
       }
 
       if (shouldFetchIssues && issuesResult.status === "fulfilled") {
@@ -1219,7 +1198,12 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): F
         return rightTime - leftTime;
       });
 
-      return { items, githubFeaturesEnabled: true };
+      return {
+        items,
+        featuresEnabled: true,
+        authState: "authenticated",
+        githubFeaturesEnabled: true,
+      };
     },
 
     async createPullRequest(input) {
@@ -1538,59 +1522,19 @@ function normalizeGitHubCommandError(
   error: unknown,
   context: { args: string[]; cwd: string },
 ): Error {
-  if (error instanceof GitHubAuthenticationError) {
-    return error;
-  }
-  if (error instanceof GitHubCommandError) {
-    if (isAuthFailureText(error.stderr)) {
-      return new GitHubAuthenticationError({ stderr: error.stderr });
-    }
-    return error;
-  }
-  const failure = toCommandFailureLike(error);
-  if (failure.code === "ENOENT") {
-    return new GitHubCliMissingError();
-  }
-  const stderr = bufferOrStringToString(failure.stderr);
-  const message = failure.message ?? "";
-  if (isAuthFailureText(stderr) || isAuthFailureText(message)) {
-    return new GitHubAuthenticationError({ stderr });
-  }
-  return new GitHubCommandError({
+  return normalizeCliCommandError({
+    error,
     args: context.args,
     cwd: context.cwd,
-    exitCode: typeof failure.code === "number" ? failure.code : null,
-    stderr: stderr || message,
+    commandName: "gh",
+    isAlreadyClassified: (candidate) => candidate instanceof GitHubAuthenticationError,
+    isCommandError: (candidate): candidate is GitHubCommandError =>
+      candidate instanceof GitHubCommandError,
+    isAuthFailureText,
+    createAuthError: (stderr) => new GitHubAuthenticationError({ stderr }),
+    createMissingError: () => new GitHubCliMissingError(),
+    createCommandError: (params) => new GitHubCommandError(params),
   });
-}
-
-function toCommandFailureLike(error: unknown): CommandFailureLike {
-  if (!error || typeof error !== "object") {
-    return { message: String(error) };
-  }
-  const record = error as Record<string, unknown>;
-  return {
-    code:
-      typeof record.code === "string" || typeof record.code === "number" || record.code === null
-        ? record.code
-        : undefined,
-    stderr:
-      typeof record.stderr === "string" || Buffer.isBuffer(record.stderr)
-        ? record.stderr
-        : undefined,
-    stdout:
-      typeof record.stdout === "string" || Buffer.isBuffer(record.stdout)
-        ? record.stdout
-        : undefined,
-    message: typeof record.message === "string" ? record.message : undefined,
-  };
-}
-
-function bufferOrStringToString(value: string | Buffer | undefined): string {
-  if (Buffer.isBuffer(value)) {
-    return value.toString("utf8");
-  }
-  return value ?? "";
 }
 
 function isGitHubAuthenticationError(error: unknown): error is GitHubAuthenticationError {
@@ -1956,6 +1900,7 @@ function parsePullRequestCheckoutTarget(stdout: string): PullRequestCheckoutTarg
     number: pullRequest.number,
     baseRefName: pullRequest.baseRefName,
     headRefName: pullRequest.headRefName,
+    checkoutRefs: [{ remoteName: "origin", remoteRef: `refs/pull/${pullRequest.number}/head` }],
     headOwnerLogin: pullRequest.headRepositoryOwner?.login || null,
     headRepositorySshUrl: pullRequest.headRepository?.sshUrl || null,
     headRepositoryUrl: pullRequest.headRepository?.url || null,

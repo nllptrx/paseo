@@ -346,6 +346,28 @@ describe("git-actions-policy", () => {
     });
   });
 
+  it("explains why pull-and-push is unavailable when there is nothing to pull first", () => {
+    const actions = buildGitActions(
+      createInput({ hasRemote: true, aheadOfOrigin: 1, behindOfOrigin: 0 }),
+    );
+    const action = actions.secondary.find((entry) => entry.id === "pull-and-push");
+
+    expect(action?.unavailableMessage).toBe(
+      "Pull and push isn't available because there are no incoming changes to pull first",
+    );
+  });
+
+  it("explains why pull-and-push is unavailable when there is nothing to push after pulling", () => {
+    const actions = buildGitActions(
+      createInput({ hasRemote: true, aheadOfOrigin: 0, behindOfOrigin: 1 }),
+    );
+    const action = actions.secondary.find((entry) => entry.id === "pull-and-push");
+
+    expect(action?.unavailableMessage).toBe(
+      "Pull and push isn't available because there is nothing new to send after pulling",
+    );
+  });
+
   it("explains why pull-and-push is unavailable when there are uncommitted changes", () => {
     const actions = buildGitActions(
       createInput({

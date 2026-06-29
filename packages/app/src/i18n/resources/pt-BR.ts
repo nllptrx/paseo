@@ -661,8 +661,12 @@ export const ptBR: TranslationResources = {
             "Pull e push não estão disponíveis aqui porque esta branch ainda não está conectada a um remoto",
           pullAndPushDirty:
             "Pull e push não estão disponíveis enquanto há alterações locais. Faça commit ou stash primeiro",
+          pullAndPushNoIncoming:
+            "Pull e push não estão disponíveis porque não há alterações de entrada para puxar primeiro",
           pullAndPushInSync:
             "Pull e push não estão disponíveis porque esta branch já está sincronizada",
+          pullAndPushNothingToPush:
+            "Pull e push não estão disponíveis porque não há nada novo para enviar depois do pull",
           createPrNoGithub: "Criar PR não está disponível agora porque o GitHub não está conectado",
           createPrNoCommits:
             "Criar PR não está disponível porque esta branch ainda não tem commits novos",

@@ -1163,7 +1163,7 @@ describe("Codex app-server provider", () => {
       {
         type: "text",
         text_elements: [],
-        text: expect.stringContaining("GitHub PR #123: Fix race in worktree setup"),
+        text: expect.stringContaining("GitHub change request #123: Fix race in worktree setup"),
       },
     ]);
   });
@@ -1202,7 +1202,7 @@ describe("Codex app-server provider", () => {
       { type: "text", text: "Please review this", text_elements: [] },
       {
         type: "text",
-        text: expect.stringMatching(/^\n\nGitHub Issue #456: Attachment spacing/),
+        text: expect.stringMatching(/^\n\nGitHub issue #456: Attachment spacing/),
         text_elements: [],
       },
     ]);
@@ -1225,7 +1225,7 @@ describe("Codex app-server provider", () => {
     expect(input).toEqual([
       {
         type: "text",
-        text: expect.stringMatching(/^GitHub Issue #456: Attachment spacing/),
+        text: expect.stringMatching(/^GitHub issue #456: Attachment spacing/),
         text_elements: [],
       },
     ]);

@@ -1,42 +1,171 @@
 import { describe, expect, it } from "vitest";
-import { buildGithubSearchQueryOptions, githubSearchQueryKey } from "./use-github-search-query";
+import { buildForgeSearchQueryOptions, forgeSearchQueryKey } from "./use-github-search-query";
 
-describe("githubSearchQueryKey", () => {
+describe("forgeSearchQueryKey", () => {
   it("keeps the shared cache key shape for no-kinds searches", () => {
-    expect(githubSearchQueryKey("server-1", "/repo", "  123  ")).toEqual([
-      "github-search",
+    expect(forgeSearchQueryKey("server-1", "/repo", "  123  ")).toEqual([
+      "forge-search",
       "server-1",
       "/repo",
+      "forge",
       "123",
     ]);
   });
 
   it("adds a deterministic kinds key when kinds are specified", () => {
-    expect(githubSearchQueryKey("server-1", "/repo", "123", ["github-pr", "github-issue"])).toEqual(
-      ["github-search", "server-1", "/repo", "123", "github-issue,github-pr"],
-    );
+    expect(forgeSearchQueryKey("server-1", "/repo", "123", ["change_request", "issue"])).toEqual([
+      "forge-search",
+      "server-1",
+      "/repo",
+      "forge",
+      "123",
+      "change_request,issue",
+    ]);
+  });
+
+  it("separates legacy GitHub fallback results from forge search results", () => {
+    expect(forgeSearchQueryKey("server-1", "/repo", "123", undefined, "github")).toEqual([
+      "forge-search",
+      "server-1",
+      "/repo",
+      "github",
+      "123",
+    ]);
   });
 });
 
-describe("buildGithubSearchQueryOptions", () => {
-  it("forwards kinds to the GitHub search request when specified", async () => {
+describe("buildForgeSearchQueryOptions", () => {
+  it("forwards kinds to the forge search request when specified", async () => {
     const requests: unknown[] = [];
-    const query = buildGithubSearchQueryOptions({
+    const query = buildForgeSearchQueryOptions({
       client: {
-        async searchGitHub(options) {
+        async searchForge(options) {
           requests.push(options);
-          return { items: [], githubFeaturesEnabled: true, error: null, requestId: "request-1" };
+          return {
+            items: [],
+            featuresEnabled: true,
+            authState: "authenticated",
+            githubFeaturesEnabled: true,
+            error: null,
+            requestId: "request-1",
+          };
         },
       },
       serverId: "server-1",
       cwd: "/repo",
       query: " 123 ",
-      kinds: ["github-pr"],
+      kinds: ["change_request"],
       enabled: true,
     });
 
     await query.queryFn();
 
-    expect(requests).toEqual([{ cwd: "/repo", query: "123", limit: 20, kinds: ["github-pr"] }]);
+    expect(requests).toEqual([
+      { cwd: "/repo", query: "123", limit: 20, kinds: ["change_request"] },
+    ]);
+  });
+
+  it("uses the legacy GitHub search request when forge search is unsupported", async () => {
+    const forgeRequests: unknown[] = [];
+    const githubRequests: unknown[] = [];
+    const query = buildForgeSearchQueryOptions({
+      client: {
+        async searchForge(options) {
+          forgeRequests.push(options);
+          return {
+            items: [],
+            featuresEnabled: true,
+            authState: "authenticated",
+            githubFeaturesEnabled: true,
+            error: null,
+            requestId: "forge-request",
+          };
+        },
+        async searchGitHub(options) {
+          githubRequests.push(options);
+          return {
+            items: [],
+            featuresEnabled: true,
+            authState: "authenticated",
+            githubFeaturesEnabled: true,
+            error: null,
+            requestId: "github-request",
+          };
+        },
+      },
+      serverId: "server-1",
+      cwd: "/repo",
+      query: " 456 ",
+      kinds: ["issue"],
+      enabled: true,
+      supportsForgeSearch: false,
+    });
+
+    await query.queryFn();
+
+    expect(forgeRequests).toEqual([]);
+    expect(githubRequests).toEqual([
+      { cwd: "/repo", query: "456", limit: 20, kinds: ["github-issue"] },
+    ]);
+  });
+
+  it("invokes forge search bound to the client so this-dependent methods work", async () => {
+    const client = new ThisDependentSearchClient();
+
+    const query = buildForgeSearchQueryOptions({
+      client,
+      serverId: "server-1",
+      cwd: "/repo",
+      query: " 789 ",
+      enabled: true,
+      supportsForgeSearch: true,
+    });
+
+    const result = await query.queryFn();
+
+    expect(result.requestId).toBe("forge.search.request");
+    expect(client.requests).toEqual([{ cwd: "/repo", query: "789", limit: 20 }]);
+  });
+
+  it("invokes the legacy GitHub search bound to the client", async () => {
+    const client = new ThisDependentSearchClient();
+
+    const query = buildForgeSearchQueryOptions({
+      client,
+      serverId: "server-1",
+      cwd: "/repo",
+      query: " 789 ",
+      enabled: true,
+      supportsForgeSearch: false,
+    });
+
+    const result = await query.queryFn();
+
+    expect(result.requestId).toBe("github_search_request");
+    expect(client.requests).toEqual([{ cwd: "/repo", query: "789", limit: 20 }]);
   });
 });
+
+class ThisDependentSearchClient {
+  readonly requests: unknown[] = [];
+
+  private send(requestId: string, options: { cwd: string; query: string; limit?: number }) {
+    this.requests.push(options);
+    return Promise.resolve({
+      items: [],
+      featuresEnabled: true,
+      authState: "authenticated" as const,
+      githubFeaturesEnabled: true,
+      error: null,
+      requestId,
+    });
+  }
+
+  async searchForge(options: { cwd: string; query: string; limit?: number }) {
+    return this.send("forge.search.request", options);
+  }
+
+  async searchGitHub(options: { cwd: string; query: string; limit?: number }) {
+    return this.send("github_search_request", options);
+  }
+}

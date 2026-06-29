@@ -1,6 +1,6 @@
 import type {
   AgentAttachment,
-  GitHubSearchItem,
+  ForgeSearchItem,
   UploadedFileAttachment,
 } from "@getpaseo/protocol/messages";
 
@@ -46,6 +46,9 @@ export interface BrowserElementAttachment {
 }
 
 export type PullRequestContextAttachmentKind =
+  | "forge.change_request_comment"
+  | "forge.change_request_review"
+  | "forge.change_request_check"
   | "github.pull_request_comment"
   | "github.pull_request_review"
   | "github.pull_request_check";
@@ -59,6 +62,9 @@ interface PullRequestContextAttachmentFields {
 }
 
 export type PullRequestContextAttachment =
+  | ({ kind: "forge.change_request_comment" } & PullRequestContextAttachmentFields)
+  | ({ kind: "forge.change_request_review" } & PullRequestContextAttachmentFields)
+  | ({ kind: "forge.change_request_check" } & PullRequestContextAttachmentFields)
   | ({ kind: "github.pull_request_comment" } & PullRequestContextAttachmentFields)
   | ({ kind: "github.pull_request_review" } & PullRequestContextAttachmentFields)
   | ({ kind: "github.pull_request_check" } & PullRequestContextAttachmentFields);
@@ -78,8 +84,10 @@ export interface ChatHistoryContextAttachment {
 export type UserComposerAttachment =
   | { kind: "image"; metadata: AttachmentMetadata }
   | { kind: "file"; attachment: UploadedFileAttachment }
-  | { kind: "github_issue"; item: GitHubSearchItem }
-  | { kind: "github_pr"; item: GitHubSearchItem };
+  | { kind: "forge_issue"; item: ForgeSearchItem }
+  | { kind: "forge_change_request"; item: ForgeSearchItem }
+  | { kind: "github_issue"; item: ForgeSearchItem }
+  | { kind: "github_pr"; item: ForgeSearchItem };
 
 export type WorkspaceComposerAttachment =
   | {

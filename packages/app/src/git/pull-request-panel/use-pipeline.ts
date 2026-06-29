@@ -47,7 +47,7 @@ export function useGitLabPipeline({
       if (!daemonClient || pipelineId === null) {
         return null;
       }
-      const payload = await daemonClient.checkoutGithubGetCheckDetails({
+      const payload = await daemonClient.checkoutForgeGetCheckDetails({
         cwd,
         checkRunId: pipelineId,
       });

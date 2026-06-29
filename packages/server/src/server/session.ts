@@ -182,7 +182,8 @@ import type pino from "pino";
 import { FileBackedChatService } from "./chat/chat-service.js";
 import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
-import { createGitHubService, type ForgeService } from "../services/github-service.js";
+import { createGitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/forge-service.js";
 import type { ProviderUsageService } from "../services/quota-fetcher/service.js";
 import {
   summarizeFetchWorkspacesEntries,
@@ -1584,16 +1585,19 @@ export class Session {
         return this.checkoutSession.handleCheckoutPrCreateRequest(msg);
       case "checkout_pr_merge_request":
         return this.checkoutSession.handleCheckoutPrMergeRequest(msg);
+      case "checkout.forge.set_auto_merge.request":
       case "checkout.github.set_auto_merge.request":
-        return this.checkoutSession.handleCheckoutGithubSetAutoMergeRequest(msg);
+        return this.checkoutSession.handleCheckoutForgeSetAutoMergeRequest(msg);
+      case "checkout.forge.get_check_details.request":
       case "checkout.github.get_check_details.request":
-        return this.checkoutSession.handleCheckoutGithubGetCheckDetailsRequest(msg);
+        return this.checkoutSession.handleCheckoutForgeGetCheckDetailsRequest(msg);
       case "checkout_pr_status_request":
         return this.checkoutSession.handleCheckoutPrStatusRequest(msg);
       case "pull_request_timeline_request":
         return this.checkoutSession.handlePullRequestTimelineRequest(msg);
+      case "forge.search.request":
       case "github_search_request":
-        return this.checkoutSession.handleGitHubSearchRequest(msg);
+        return this.checkoutSession.handleForgeSearchRequest(msg);
       case "stash_save_request":
         return this.checkoutSession.handleStashSaveRequest(msg);
       case "stash_pop_request":
@@ -3707,9 +3711,9 @@ export class Session {
     snapshot: WorkspaceGitRuntimeSnapshot,
   ): NonNullable<WorkspaceDescriptorPayload["githubRuntime"]> {
     return {
-      featuresEnabled: snapshot.github.featuresEnabled,
-      pullRequest: snapshot.github.pullRequest,
-      error: snapshot.github.error,
+      featuresEnabled: snapshot.forge.featuresEnabled,
+      pullRequest: snapshot.forge.pullRequest,
+      error: snapshot.forge.error,
     };
   }
 
@@ -3735,7 +3739,7 @@ export class Session {
       // Reuse the forge already resolved on the snapshot (probe-aware; GitHub-only
       // resolves to "github") so the sidebar/hover-card brand mark matches the
       // status projection without a second resolve.
-      forge: snapshot.github.forge,
+      forge: snapshot.forge.forge,
     };
   }
 
@@ -4642,6 +4646,7 @@ export class Session {
         worktreeSlug: source.worktreeSlug,
         action: source.action,
         refName: source.refName,
+        checkoutSource: source.checkoutSource,
         githubPrNumber: source.githubPrNumber,
         firstAgentContext: request.firstAgentContext,
       },

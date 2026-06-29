@@ -1,4 +1,4 @@
-import type { CheckoutGithubCheckDetails } from "@getpaseo/protocol/messages";
+import type { CheckoutCheckDetails } from "@getpaseo/protocol/messages";
 import type { PullRequestContextAttachment } from "@/attachments/types";
 import { type Forge, getForgePresentation } from "@/git/forge";
 import {
@@ -29,11 +29,11 @@ export interface PullRequestThreadContextBuilderInput {
 }
 
 export interface PullRequestGithubCheckContextBuilderInput {
-  provider: PullRequestProviderMetadata & { id: "github" };
+  provider: PullRequestProviderMetadata;
   forge: Forge;
   pullRequest: PullRequestContextMetadata;
-  check: PrPaneCheck & { provider: "github" };
-  githubDetails?: CheckoutGithubCheckDetails | null;
+  check: PrPaneCheck;
+  githubDetails?: CheckoutCheckDetails | null;
 }
 
 export function canAddPullRequestActivityToChat(activity: PrPaneActivity): boolean {
@@ -52,7 +52,7 @@ export function buildPullRequestCommentContextAttachment(
 ): PullRequestContextAttachment {
   const presentation = getForgePresentation(input.forge);
   return {
-    kind: "github.pull_request_comment",
+    kind: "forge.change_request_comment",
     id: `${input.pullRequest.number}:${input.activity.id}`,
     title: input.activity.author,
     subtitle: formatPullRequestSubtitle(input.pullRequest, input.forge),
@@ -73,7 +73,7 @@ export function buildPullRequestReviewContextAttachment(
 
   const presentation = getForgePresentation(input.forge);
   return {
-    kind: "github.pull_request_review",
+    kind: "forge.change_request_review",
     id: `${input.pullRequest.number}:${input.activity.id}`,
     title: input.activity.author,
     subtitle: formatPullRequestSubtitle(input.pullRequest, input.forge),
@@ -101,17 +101,21 @@ export function buildPullRequestThreadContextAttachment(
 
   const presentation = getForgePresentation(input.forge);
   const noun = capitalizeFirst(presentation.changeRequestNoun);
+  const location = input.thread.location;
+  const threadTitle = location ? formatPullRequestThreadPath(location) : "Discussion thread";
   const lines = [
     `${presentation.brandLabel} ${presentation.changeRequestNoun} review thread`,
     `${noun}: ${presentation.numberPrefix}${input.pullRequest.number} ${input.pullRequest.title}`,
     `${noun} URL: ${input.pullRequest.url}`,
     `URL: ${root.url}`,
-    `Location: ${formatPullRequestThreadPath(input.thread.location)}`,
   ];
-  if (input.thread.location.isResolved !== undefined) {
-    lines.push(`Thread state: ${input.thread.location.isResolved ? "resolved" : "unresolved"}`);
+  if (location) {
+    lines.push(`Location: ${formatPullRequestThreadPath(location)}`);
   }
-  if (input.thread.location.isOutdated) {
+  if (location?.isResolved !== undefined) {
+    lines.push(`Thread state: ${location.isResolved ? "resolved" : "unresolved"}`);
+  }
+  if (location?.isOutdated) {
     lines.push("Note: this thread is outdated (the code it refers to has changed)");
   }
 
@@ -120,9 +124,9 @@ export function buildPullRequestThreadContextAttachment(
   );
 
   return {
-    kind: "github.pull_request_comment",
+    kind: "forge.change_request_comment",
     id: `${input.pullRequest.number}:${input.thread.id}`,
-    title: formatPullRequestThreadPath(input.thread.location),
+    title: threadTitle,
     subtitle: formatPullRequestSubtitle(input.pullRequest, input.forge),
     text: [...lines, "", conversation.join("\n\n---\n\n")].join("\n"),
     url: root.url,
@@ -133,11 +137,11 @@ export function buildPullRequestCheckContextAttachment(
   input: PullRequestGithubCheckContextBuilderInput,
 ): PullRequestContextAttachment {
   return {
-    kind: "github.pull_request_check",
+    kind: "forge.change_request_check",
     id: formatPullRequestCheckContextId(input.pullRequest, input.check),
     title: input.check.name,
     subtitle: formatPullRequestSubtitle(input.pullRequest, input.forge),
-    text: formatGitHubCheckContextText(input),
+    text: formatCheckContextText(input),
     url: input.githubDetails?.detailsUrl ?? input.githubDetails?.url ?? input.check.url,
   };
 }
@@ -152,16 +156,19 @@ function formatPullRequestCheckContextId(
   return `${pullRequest.number}:check:${check.name}`;
 }
 
-function formatGitHubCheckContextText({
+function formatCheckContextText({
   provider,
+  forge,
   pullRequest,
   check,
   githubDetails,
 }: PullRequestGithubCheckContextBuilderInput): string {
+  const presentation = getForgePresentation(forge);
+  const noun = capitalizeFirst(presentation.changeRequestNoun);
   const lines = [
-    `${provider.label} pull request check`,
-    `Pull request: #${pullRequest.number} ${pullRequest.title}`,
-    `Pull request URL: ${pullRequest.url}`,
+    `${provider.label} ${presentation.changeRequestNoun} check`,
+    `${noun}: ${presentation.numberPrefix}${pullRequest.number} ${pullRequest.title}`,
+    `${noun} URL: ${pullRequest.url}`,
     `Check: ${check.name}`,
     `Status: ${check.status}`,
   ];
@@ -178,7 +185,7 @@ function formatGitHubCheckContextText({
   appendGitHubCheckAnnotations(lines, githubDetails);
   appendGitHubFailedJobs(lines, githubDetails);
   if (githubDetails?.truncated) {
-    lines.push("", "Note: Check details were truncated by GitHub/API or local caps.");
+    lines.push("", `Note: Check details were truncated by ${provider.label}/API or local caps.`);
   }
 
   return lines.join("\n");
@@ -186,7 +193,7 @@ function formatGitHubCheckContextText({
 
 function appendGitHubCheckOutput(
   lines: string[],
-  details: CheckoutGithubCheckDetails | null | undefined,
+  details: CheckoutCheckDetails | null | undefined,
 ) {
   if (details?.output?.title) {
     lines.push(`Output title: ${details.output.title}`);
@@ -201,7 +208,7 @@ function appendGitHubCheckOutput(
 
 function appendGitHubCheckAnnotations(
   lines: string[],
-  details: CheckoutGithubCheckDetails | null | undefined,
+  details: CheckoutCheckDetails | null | undefined,
 ) {
   if (!details?.annotations?.length) {
     return;
@@ -212,10 +219,7 @@ function appendGitHubCheckAnnotations(
   }
 }
 
-function appendGitHubFailedJobs(
-  lines: string[],
-  details: CheckoutGithubCheckDetails | null | undefined,
-) {
+function appendGitHubFailedJobs(lines: string[], details: CheckoutCheckDetails | null | undefined) {
   if (!details?.failedJobs?.length) {
     return;
   }
@@ -234,7 +238,7 @@ function appendGitHubFailedJobs(
   }
 }
 
-function formatAnnotation(annotation: CheckoutGithubCheckDetails["annotations"][number]): string {
+function formatAnnotation(annotation: CheckoutCheckDetails["annotations"][number]): string {
   const location = annotation.path
     ? `${annotation.path}${formatAnnotationLines(annotation)}`
     : "unknown location";
@@ -243,9 +247,7 @@ function formatAnnotation(annotation: CheckoutGithubCheckDetails["annotations"][
   return `${location}${level}${message}`;
 }
 
-function formatAnnotationLines(
-  annotation: CheckoutGithubCheckDetails["annotations"][number],
-): string {
+function formatAnnotationLines(annotation: CheckoutCheckDetails["annotations"][number]): string {
   if (annotation.startLine !== undefined && annotation.endLine !== undefined) {
     return `:${annotation.startLine}-${annotation.endLine}`;
   }

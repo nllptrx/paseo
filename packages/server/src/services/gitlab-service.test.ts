@@ -9,6 +9,7 @@ import {
   GlabCommandError,
   type GlabCommandResult,
   type GlabCommandRunner,
+  probeGitLabHostByHttp,
 } from "./gitlab-service.js";
 
 type Responder = (args: string[]) => GlabCommandResult | Promise<GlabCommandResult>;
@@ -30,6 +31,10 @@ function makeService(responder: Responder, overrides: Partial<CreateGitLabServic
     ...overrides,
   });
   return { service, calls };
+}
+
+function response(body: unknown, init: ResponseInit = {}): Response {
+  return new Response(body === null ? null : JSON.stringify(body), init);
 }
 
 function gitlabAutoMergeStatus(
@@ -228,6 +233,58 @@ const DISCUSSIONS = [
   },
 ];
 
+describe("probeGitLabHostByHttp", () => {
+  it("recognizes GitLab's API marker header even when the endpoint requires auth", async () => {
+    const fetchImpl = async () =>
+      response(
+        { message: "401 Unauthorized" },
+        {
+          status: 401,
+          headers: {
+            "content-type": "application/json",
+            "x-gitlab-meta": '{"version":"1"}',
+          },
+        },
+      );
+
+    await expect(probeGitLabHostByHttp("git.acme.internal", fetchImpl)).resolves.toBe(true);
+  });
+
+  it("does not treat generic non-GitLab API errors as GitLab hosts", async () => {
+    const fetchImpl = async () =>
+      response(
+        { error: "Not Found" },
+        {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        },
+      );
+
+    await expect(probeGitLabHostByHttp("bitbucket.org", fetchImpl)).resolves.toBe(false);
+  });
+
+  it("recognizes open GitLab version JSON when the marker header is absent", async () => {
+    const fetchImpl = async () =>
+      response(
+        { version: "17.0.0", revision: "abc123" },
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+
+    await expect(probeGitLabHostByHttp("git.acme.internal", fetchImpl)).resolves.toBe(true);
+  });
+
+  it("treats network failures as a negative probe", async () => {
+    const fetchImpl = async (): Promise<Response> => {
+      throw new Error("lookup failed");
+    };
+
+    await expect(probeGitLabHostByHttp("git.acme.internal", fetchImpl)).resolves.toBe(false);
+  });
+});
+
 describe("createGitLabService", () => {
   it("maps a glab merge request view to the neutral current PR status", async () => {
     const { service } = makeService(() => ok(JSON.stringify(OPEN_MR)));
@@ -300,6 +357,10 @@ describe("createGitLabService", () => {
       number: 14,
       baseRefName: "main",
       headRefName: "release/v0.4.0",
+      checkoutRefs: [
+        { remoteName: "origin", remoteRef: "refs/heads/release/v0.4.0" },
+        { remoteName: "origin", remoteRef: "refs/merge-requests/14/head" },
+      ],
       headOwnerLogin: null,
       headRepositorySshUrl: null,
       headRepositoryUrl: null,
@@ -498,7 +559,7 @@ describe("createGitLabService", () => {
   it("fetches a pipeline's stages and jobs as neutral check details", async () => {
     const { service, calls } = makeService(() => ok(JSON.stringify(PIPELINE_WITH_JOBS)));
 
-    const details = await service.getGitHubCheckDetails({
+    const details = await service.getCheckDetails({
       cwd: "/repo",
       checkRunId: 306,
     });
@@ -575,7 +636,7 @@ describe("createGitLabService", () => {
       ),
     );
 
-    const details = await service.getGitHubCheckDetails({ cwd: "/repo", checkRunId: 306 });
+    const details = await service.getCheckDetails({ cwd: "/repo", checkRunId: 306 });
     expect(details.pipeline?.stages[0]?.status).toBe("success");
   });
 
@@ -596,7 +657,10 @@ describe("createGitLabService", () => {
       approvalsRequired: 2,
       approvalsGiven: 1,
     });
-    expect(calls[1]).toEqual(["api", "projects/example-group%2Fexample-project/merge_requests/14/approvals"]);
+    expect(calls[1]).toEqual([
+      "api",
+      "projects/example-group%2Fexample-project/merge_requests/14/approvals",
+    ]);
   });
 
   it("falls back to zero approvals when the approvals endpoint returns an error", async () => {
@@ -661,6 +725,199 @@ describe("createGitLabService", () => {
     expect(comment).not.toHaveProperty("location");
   });
 
+  it("groups general (non-file) discussion replies under one top-level thread id", async () => {
+    const discussions = [
+      {
+        id: "disc-general",
+        individual_note: false,
+        notes: [
+          {
+            id: 501,
+            system: false,
+            body: "Can you clarify the rollout plan?",
+            created_at: "2026-06-25T20:00:00.000Z",
+            author: { username: "reviewer-a" },
+          },
+          {
+            id: 502,
+            system: false,
+            body: "Sure, staged behind a flag.",
+            created_at: "2026-06-25T20:05:00.000Z",
+            author: { username: "author-b" },
+          },
+        ],
+      },
+      {
+        id: "disc-standalone",
+        individual_note: true,
+        notes: [
+          {
+            id: 503,
+            system: false,
+            body: "Nice work overall.",
+            created_at: "2026-06-25T20:10:00.000Z",
+            author: { username: "reviewer-c" },
+          },
+        ],
+      },
+    ];
+    const { service } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(NESTED_GROUP_MR));
+      if (args[0] === "api" && args[1].includes("/discussions"))
+        return ok(JSON.stringify(discussions));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 14,
+      repoOwner: "example-group",
+      repoName: "example-project",
+    });
+
+    const byId = new Map(timeline.items.map((item) => [item.id, item]));
+    expect(byId.get("501")).toMatchObject({ kind: "comment", threadId: "disc-general" });
+    expect(byId.get("502")).toMatchObject({ kind: "comment", threadId: "disc-general" });
+    expect(byId.get("501")).not.toHaveProperty("location");
+    // A standalone (individual) note must not be turned into a thread.
+    expect(byId.get("503")).not.toHaveProperty("threadId");
+  });
+
+  it("maps general resolvable discussion resolution to threadIsResolved", async () => {
+    const discussions = [
+      {
+        id: "disc-unresolved",
+        individual_note: false,
+        notes: [
+          {
+            id: 511,
+            system: false,
+            body: "Still open question.",
+            created_at: "2026-06-25T20:00:00.000Z",
+            author: { username: "reviewer-a" },
+            resolvable: true,
+            resolved: false,
+          },
+        ],
+      },
+      {
+        id: "disc-resolved",
+        individual_note: false,
+        notes: [
+          {
+            id: 512,
+            system: false,
+            body: "Addressed, thanks.",
+            created_at: "2026-06-25T20:05:00.000Z",
+            author: { username: "author-b" },
+            resolvable: true,
+            resolved: true,
+          },
+        ],
+      },
+      {
+        id: "disc-plain",
+        individual_note: true,
+        notes: [
+          {
+            id: 513,
+            system: false,
+            body: "Just a plain comment.",
+            created_at: "2026-06-25T20:10:00.000Z",
+            author: { username: "reviewer-c" },
+          },
+        ],
+      },
+    ];
+    const { service } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(NESTED_GROUP_MR));
+      if (args[0] === "api" && args[1].includes("/discussions"))
+        return ok(JSON.stringify(discussions));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 14,
+      repoOwner: "example-group",
+      repoName: "example-project",
+    });
+
+    const byId = new Map(timeline.items.map((item) => [item.id, item]));
+    expect(byId.get("511")).toMatchObject({ threadIsResolved: false });
+    expect(byId.get("512")).toMatchObject({ threadIsResolved: true });
+    // A non-resolvable plain comment must not gain a resolution state.
+    expect(byId.get("513")).not.toHaveProperty("threadIsResolved");
+    // General discussions carry no file position, so no location either.
+    expect(byId.get("511")).not.toHaveProperty("location");
+  });
+
+  it("maps a multiline diff range to startLine and omits resolution state for non-resolvable notes", async () => {
+    const discussions = [
+      {
+        id: "disc-range",
+        individual_note: false,
+        notes: [
+          {
+            id: 601,
+            system: false,
+            body: "This block spans several lines.",
+            created_at: "2026-06-25T21:00:00.000Z",
+            author: { username: "reviewer-a" },
+            position: {
+              new_path: "src/app.ts",
+              old_path: "src/app.ts",
+              new_line: 48,
+              old_line: null,
+              line_range: {
+                start: { new_line: 42, old_line: null },
+                end: { new_line: 48, old_line: null },
+              },
+            },
+          },
+        ],
+      },
+      {
+        id: "disc-plain",
+        individual_note: true,
+        notes: [
+          {
+            id: 602,
+            system: false,
+            body: "General comment without a resolvable flag.",
+            created_at: "2026-06-25T21:05:00.000Z",
+            author: { username: "reviewer-b" },
+          },
+        ],
+      },
+    ];
+    const { service } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(NESTED_GROUP_MR));
+      if (args[0] === "api" && args[1].includes("/discussions"))
+        return ok(JSON.stringify(discussions));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 14,
+      repoOwner: "example-group",
+      repoName: "example-project",
+    });
+
+    const rangeNote = timeline.items.find((item) => item.id === "601");
+    expect(rangeNote).toMatchObject({
+      kind: "comment",
+      location: { path: "src/app.ts", line: 48, startLine: 42 },
+    });
+    expect(rangeNote && "location" in rangeNote ? rangeNote.location : null).not.toHaveProperty(
+      "isResolved",
+    );
+
+    const plainNote = timeline.items.find((item) => item.id === "602");
+    expect(plainNote).not.toHaveProperty("location");
+  });
+
   it("returns a not_found timeline error when discussions cannot be fetched", async () => {
     const { service } = makeService((args) => {
       if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(OPEN_MR));
@@ -701,14 +958,16 @@ describe("createGitLabService", () => {
     },
   );
 
-  it("flags a full discussions page as truncated", async () => {
-    const discussions = Array.from({ length: 100 }, (_, index) => ({
+  it("flags truncation when a next-page probe finds more discussions", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
       id: `discussion-${index}`,
       notes: [],
     }));
-    const { service } = makeService((args) => {
+    const { service, calls } = makeService((args) => {
       if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(OPEN_MR));
-      return ok(JSON.stringify(discussions));
+      // The next-page probe asks for page 101; reply with one more discussion.
+      if (args[1].includes("page=101")) return ok(JSON.stringify([{ id: "overflow", notes: [] }]));
+      return ok(JSON.stringify(firstPage));
     });
 
     const timeline = await service.getPullRequestTimeline({
@@ -718,11 +977,30 @@ describe("createGitLabService", () => {
       repoName: "example-project",
     });
 
-    expect(timeline).toMatchObject({
-      items: [],
-      truncated: true,
-      error: null,
+    expect(calls.some((call) => call[1]?.includes("per_page=1&page=101"))).toBe(true);
+    expect(timeline).toMatchObject({ items: [], truncated: true, error: null });
+  });
+
+  it("does not flag truncation when exactly one full page of discussions exists", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: `discussion-${index}`,
+      notes: [],
+    }));
+    const { service } = makeService((args) => {
+      if (args[0] === "mr" && args[1] === "view") return ok(JSON.stringify(OPEN_MR));
+      // The probe of page 101 comes back empty: there is no 101st discussion.
+      if (args[1].includes("page=101")) return ok(JSON.stringify([]));
+      return ok(JSON.stringify(firstPage));
     });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 14,
+      repoOwner: "example-group",
+      repoName: "example-project",
+    });
+
+    expect(timeline).toMatchObject({ truncated: false, error: null });
   });
 
   it("reports authentication via a host-scoped glab auth status", async () => {
@@ -786,6 +1064,8 @@ describe("createGitLabService", () => {
 
     const result = await service.searchIssuesAndPrs({ cwd: "/repo", query: "login", limit: 10 });
 
+    expect(result.featuresEnabled).toBe(true);
+    expect(result.authState).toBe("authenticated");
     expect(result.githubFeaturesEnabled).toBe(true);
     expect(result.items).toEqual([
       {
@@ -796,6 +1076,7 @@ describe("createGitLabService", () => {
         state: "open",
         body: "Release notes",
         labels: ["release"],
+        projectPath: "example-group/example-project",
         baseRefName: "main",
         headRefName: "release/v0.4.0",
         updatedAt: "2026-06-25T19:00:00.000Z",
@@ -846,6 +1127,8 @@ describe("createGitLabService", () => {
     const result = await service.searchIssuesAndPrs({ cwd: "/repo", query: "" });
 
     expect(result).toEqual({
+      featuresEnabled: true,
+      authState: "authenticated",
       githubFeaturesEnabled: true,
       items: [
         {
@@ -856,6 +1139,7 @@ describe("createGitLabService", () => {
           state: "opened",
           body: "Simple test",
           labels: [],
+          projectPath: "example-user/sample-repo",
           baseRefName: null,
           headRefName: null,
           updatedAt: "2026-06-26T09:11:19.642Z",
@@ -886,6 +1170,8 @@ describe("createGitLabService", () => {
     const missing = makeService(() => ok("[]"), { resolveGlabPath: async () => null }).service;
     await expect(missing.searchIssuesAndPrs({ cwd: "/repo", query: "x" })).resolves.toEqual({
       items: [],
+      featuresEnabled: false,
+      authState: "cli_missing",
       githubFeaturesEnabled: false,
     });
 
@@ -895,6 +1181,8 @@ describe("createGitLabService", () => {
     await expect(unauthenticated.searchIssuesAndPrs({ cwd: "/repo", query: "x" })).resolves.toEqual(
       {
         items: [],
+        featuresEnabled: false,
+        authState: "unauthenticated",
         githubFeaturesEnabled: false,
       },
     );
@@ -918,11 +1206,14 @@ describe("createGitLabService", () => {
           state: "open",
           body: "Release notes",
           labels: ["release"],
+          projectPath: "example-group/example-project",
           baseRefName: "main",
           headRefName: "release/v0.4.0",
           updatedAt: "2026-06-25T19:00:00.000Z",
         },
       ],
+      featuresEnabled: true,
+      authState: "authenticated",
       githubFeaturesEnabled: true,
     });
   });

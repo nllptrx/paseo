@@ -35,7 +35,7 @@ import { createWorktree, UnknownBranchError } from "../utils/worktree.js";
 import { WorktreeRequestError, toWorktreeRequestError } from "./worktree-errors.js";
 import type { WorkspaceGitRuntimeSnapshot } from "./workspace-git-service.js";
 import type { GeneratedWorkspaceName } from "./worktree-branch-name-generator.js";
-import type { ForgeService } from "../services/github-service.js";
+import type { ForgeService } from "../services/forge-service.js";
 import { createNoopWorkspaceGitService } from "./test-utils/workspace-git-service-stub.js";
 import {
   asSessionLogger,
@@ -366,7 +366,7 @@ function createWorkspaceRuntimeSnapshot(
   cwd: string,
   overrides?: {
     git?: Partial<WorkspaceGitRuntimeSnapshot["git"]>;
-    github?: Partial<WorkspaceGitRuntimeSnapshot["github"]>;
+    forge?: Partial<WorkspaceGitRuntimeSnapshot["forge"]>;
   },
 ): WorkspaceGitRuntimeSnapshot {
   const base: WorkspaceGitRuntimeSnapshot = {
@@ -386,7 +386,7 @@ function createWorkspaceRuntimeSnapshot(
       hasRemote: true,
       diffStat: { additions: 1, deletions: 0 },
     },
-    github: {
+    forge: {
       featuresEnabled: true,
       pullRequest: {
         url: "https://github.com/acme/repo/pull/123",
@@ -406,17 +406,17 @@ function createWorkspaceRuntimeSnapshot(
       ...base.git,
       ...overrides?.git,
     },
-    github: {
-      ...base.github,
-      ...overrides?.github,
+    forge: {
+      ...base.forge,
+      ...overrides?.forge,
       pullRequest:
-        overrides?.github && "pullRequest" in overrides.github
-          ? (overrides.github.pullRequest ?? null)
-          : base.github.pullRequest,
+        overrides?.forge && "pullRequest" in overrides.forge
+          ? (overrides.forge.pullRequest ?? null)
+          : base.forge.pullRequest,
       error:
-        overrides?.github && "error" in overrides.github
-          ? (overrides.github.error ?? null)
-          : base.github.error,
+        overrides?.forge && "error" in overrides.forge
+          ? (overrides.forge.error ?? null)
+          : base.forge.error,
     },
   };
 }
@@ -5161,7 +5161,7 @@ test("archive_workspace_request archives a worktree-kind workspace and removes t
           hasRemote: false,
           diffStat: null,
         },
-        github: {
+        forge: {
           featuresEnabled: false,
           pullRequest: null,
           error: null,
@@ -6013,7 +6013,7 @@ test("fetch_workspaces_response reads runtime fields from passive workspace git 
       aheadOfOrigin: 3,
       behindOfOrigin: 1,
     },
-    github: {
+    forge: {
       pullRequest: {
         url: "https://github.com/acme/repo/pull/456",
         title: "Ship runtime payloads",
@@ -6180,7 +6180,7 @@ test("workspace_update includes updated runtime fields", async () => {
       currentBranch: "feature/runtime-payloads",
       isDirty: true,
     },
-    github: {
+    forge: {
       pullRequest: {
         url: "https://github.com/acme/repo/pull/789",
         title: "Updated runtime payloads",
@@ -7135,7 +7135,7 @@ function createPrCheckoutGitHubService(params: { headRef: string }): ForgeServic
       truncated: false,
       error: null,
     }),
-    getGitHubCheckDetails: async ({ checkRunId, workflowRunId }) => ({
+    getCheckDetails: async ({ checkRunId, workflowRunId }) => ({
       checkRunId,
       workflowRunId: workflowRunId ?? null,
       name: "test",
@@ -7148,7 +7148,11 @@ function createPrCheckoutGitHubService(params: { headRef: string }): ForgeServic
       failedJobs: [],
       truncated: false,
     }),
-    searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),
+    searchIssuesAndPrs: async () => ({
+      items: [],
+      featuresEnabled: true,
+      githubFeaturesEnabled: true,
+    }),
     createPullRequest: async () => ({ number: 1, url: "https://github.com/acme/repo/pull/1" }),
     mergePullRequest: async () => ({ success: true }),
     enablePullRequestAutoMerge: async () => ({ success: true }),

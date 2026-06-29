@@ -18,7 +18,10 @@ import { normalizeAgentSnapshot } from "@/utils/agent-snapshots";
 import { applyLegacyDaemonWorkspaceOwnership } from "@/workspace/legacy-daemon-workspaces";
 import { encodeImages } from "@/utils/encode-images";
 import { toErrorMessage } from "@/utils/error-messages";
-import { splitComposerAttachmentsForSubmit } from "@/composer/attachments/submit";
+import {
+  resolveComposerAttachmentSubmitFormat,
+  splitComposerAttachmentsForSubmit,
+} from "@/composer/attachments/submit";
 import type {
   CreateAgentRequestOptions,
   DaemonClient,
@@ -164,6 +167,9 @@ export function WorkspaceSetupDialog() {
   const [pendingAction, setPendingAction] = useState<"chat" | null>(null);
 
   const serverId = pendingWorkspaceSetup?.serverId ?? "";
+  const supportsForgeSearch = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.forgeSearch === true,
+  );
   const sourceDirectory = pendingWorkspaceSetup?.sourceDirectory ?? "";
   const displayName = pendingWorkspaceSetup?.displayName?.trim() ?? "";
   const workspace = createdWorkspace;
@@ -302,7 +308,11 @@ export function WorkspaceSetupDialog() {
           throw new Error(t("workspaceSetup.errors.selectModel"));
         }
 
-        const wirePayload = splitComposerAttachmentsForSubmit(attachments);
+        const wirePayload = splitComposerAttachmentsForSubmit(attachments, {
+          format: resolveComposerAttachmentSubmitFormat({
+            supportsForgeAttachments: supportsForgeSearch,
+          }),
+        });
         const encodedImages = await encodeImages(wirePayload.images);
         const workspaceDirectory = requireWorkspaceDirectory({
           workspaceId: ensuredWorkspace.id,
@@ -356,6 +366,7 @@ export function WorkspaceSetupDialog() {
       t,
       toast,
       withConnectedClient,
+      supportsForgeSearch,
     ],
   );
 

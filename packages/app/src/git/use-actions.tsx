@@ -397,7 +397,9 @@ export function useGitActions({ serverId, cwd, icons }: UseGitActionsInput): Use
   const runMergeBranch = useCheckoutGitActionsStore((s) => s.mergeBranch);
   const runMergeFromBase = useCheckoutGitActionsStore((s) => s.mergeFromBase);
   const githubAutoMergeActionsEnabled = useSessionStore(
-    (s) => s.sessions[serverId]?.serverInfo?.features?.checkoutGithubSetAutoMerge === true,
+    (s) =>
+      s.sessions[serverId]?.serverInfo?.features?.checkoutForgeSetAutoMerge === true ||
+      s.sessions[serverId]?.serverInfo?.features?.checkoutGithubSetAutoMerge === true,
   );
 
   const toastActionError = useCallback(

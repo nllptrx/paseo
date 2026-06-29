@@ -1,6 +1,6 @@
 import type pino from "pino";
 import { getErrorMessage } from "@getpaseo/protocol/error-utils";
-import type { ForgeService } from "../../../services/github-service.js";
+import type { ForgeService } from "../../../services/forge-service.js";
 import {
   checkoutResolvedBranch,
   type CheckoutExistingBranchResult,

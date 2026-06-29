@@ -1,3 +1,4 @@
+import { parseGitRemoteLocation } from "@getpaseo/protocol/git-remote";
 import { runGitCommand } from "../utils/run-git-command.js";
 import type { ForgeService } from "./forge-service.js";
 import {
@@ -38,15 +39,7 @@ export interface ForgeResolver {
 const NEGATIVE_PROBE_TTL_MS = 60_000;
 
 export function parseRemoteHost(url: string): string | null {
-  const sshMatch = url.match(/^[^@\s]+@([^:/\s]+):/);
-  if (sshMatch) {
-    return sshMatch[1];
-  }
-  try {
-    return new URL(url).hostname || null;
-  } catch {
-    return null;
-  }
+  return parseGitRemoteLocation(url)?.host ?? null;
 }
 
 /** Map a remote host through the matchers owned by registered adapters. */

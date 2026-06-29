@@ -4,18 +4,12 @@ import type {
   SessionOutboundMessage,
 } from "@getpaseo/protocol/messages";
 import type { WorkspaceGitRuntimeSnapshot } from "../workspace-git-service.js";
-import { forgeForHost, parseRemoteHost } from "../../services/forge-resolver.js";
 
 type CheckoutPrStatusPayload = Extract<
   SessionOutboundMessage,
   { type: "checkout_pr_status_response" }
 >["payload"];
 type CheckoutPrStatusPayloadStatus = NonNullable<CheckoutPrStatusPayload["status"]>;
-
-function resolveForgeId(remoteUrl: string | null): string {
-  const host = remoteUrl ? parseRemoteHost(remoteUrl) : null;
-  return (host ? forgeForHost(host) : null) ?? "github";
-}
 
 export function buildCheckoutStatusPayloadFromSnapshot({
   cwd,
@@ -106,19 +100,17 @@ export function buildCheckoutPrStatusPayloadFromSnapshot({
   // only when no resolved forge is on the snapshot. Single source of truth for
   // both the payload-level forge and the nested status.forge.
   const forge =
-    snapshot.github.forge ??
-    snapshot.github.pullRequest?.forgeSpecific?.forge ??
-    resolveForgeId(snapshot.git.remoteUrl);
+    snapshot.forge.forge ?? snapshot.forge.pullRequest?.forgeSpecific?.forge ?? "github";
   return {
     cwd,
-    status: normalizeCheckoutPrStatusPayload(snapshot.github.pullRequest, forge),
-    githubFeaturesEnabled: snapshot.github.featuresEnabled,
-    authState: snapshot.github.authState,
+    status: normalizeCheckoutPrStatusPayload(snapshot.forge.pullRequest, forge),
+    githubFeaturesEnabled: snapshot.forge.featuresEnabled,
+    authState: snapshot.forge.authState,
     forge,
-    error: snapshot.github.error
+    error: snapshot.forge.error
       ? {
           code: "UNKNOWN",
-          message: snapshot.github.error.message,
+          message: snapshot.forge.error.message,
         }
       : null,
     requestId,
@@ -126,7 +118,7 @@ export function buildCheckoutPrStatusPayloadFromSnapshot({
 }
 
 export function normalizeCheckoutPrStatusPayload(
-  status: WorkspaceGitRuntimeSnapshot["github"]["pullRequest"],
+  status: WorkspaceGitRuntimeSnapshot["forge"]["pullRequest"],
   forge = "github",
 ): CheckoutPrStatusPayloadStatus | null {
   if (!status) {
@@ -157,6 +149,7 @@ export function normalizeCheckoutPrStatusPayload(
   if (status.forgeSpecific) {
     payload.forgeSpecific = status.forgeSpecific;
     // COMPAT(forgeSpecific): added in v0.1.102, remove after 2026-12-27. Keep
+    // TODO(before merge): align the added version and removal date with the maintainer's target release.
     // mirroring GitHub facts onto `github` for clients that predate forgeSpecific;
     // drop once the daemon floor >= v0.1.102.
     if (status.forgeSpecific.forge === "github") {

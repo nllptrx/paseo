@@ -82,6 +82,7 @@ import { GitActionsSplitButton } from "@/git/actions-split-button";
 import { BranchSwitcher } from "@/components/branch-switcher";
 import { useGitActions } from "@/git/use-actions";
 import { buildForgeSignInCommand, getForgePresentation, type Forge } from "@/git/forge";
+import { parseGitRemoteLocation } from "@getpaseo/protocol/git-remote";
 import type { ForgeAuthState } from "@getpaseo/protocol/messages";
 import { useCheckoutGitActionsStore } from "@/git/actions-store";
 import { useToast } from "@/contexts/toast-context";
@@ -1667,27 +1668,19 @@ function computeForgeSetupAction(input: {
       return "sign_in";
     case "authenticated":
     case "no_remote":
+    case "error":
       return null;
     default:
-      // COMPAT(forgeAuthState): a daemon predating authState only sends the
+      // COMPAT(forgeAuthState): added in v0.1.102, remove after 2026-12-28.
+      // TODO(before merge): align the added version and removal date with the maintainer's target release.
+      // A daemon predating authState only sends the
       // boolean; keep the original generic GitLab callout until the floor moves.
       return input.forge === "gitlab" && !input.githubFeaturesEnabled ? "generic" : null;
   }
 }
 
 function parseForgeHost(url: string | null | undefined): string | null {
-  if (!url) {
-    return null;
-  }
-  const sshMatch = url.match(/^[^@\s]+@([^:/\s]+):/);
-  if (sshMatch) {
-    return sshMatch[1] ?? null;
-  }
-  try {
-    return new URL(url).hostname || null;
-  } catch {
-    return null;
-  }
+  return url ? (parseGitRemoteLocation(url)?.host ?? null) : null;
 }
 
 function buildForgeSetupMessage(input: {

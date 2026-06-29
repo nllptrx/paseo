@@ -13,7 +13,10 @@ import { Check, ChevronDown, Folder, GitBranch, GitPullRequest, X } from "lucide
 import { Composer } from "@/composer";
 import { FileDropZone } from "@/components/file-drop/file-drop-zone";
 import { DraftAgentModeControl } from "@/composer/agent-controls/mode-control";
-import { splitComposerAttachmentsForSubmit } from "@/composer/attachments/submit";
+import {
+  resolveComposerAttachmentSubmitFormat,
+  splitComposerAttachmentsForSubmit,
+} from "@/composer/attachments/submit";
 import { HostStatusDot } from "@/components/host-status-dot";
 import { HostPicker } from "@/components/hosts/host-picker";
 import { ProjectIconView } from "@/components/project-icon-view";
@@ -27,7 +30,7 @@ import { ScreenHeader } from "@/components/headers/screen-header";
 import { HEADER_INNER_HEIGHT, MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
 import { useToast } from "@/contexts/toast-context";
 import { useAgentInputDraft } from "@/composer/draft/input-draft";
-import { useGithubSearchQuery } from "@/git/use-github-search-query";
+import { useForgeSearchQuery } from "@/git/use-forge-search-query";
 import {
   useHostRuntimeClient,
   useHostRuntimeConnectionStatuses,
@@ -805,6 +808,7 @@ interface SubmitDraftInput {
   attachments: ComposerAttachment[];
   provider: AgentProvider;
   composerState: NewWorkspaceComposerState;
+  supportsForgeSearch: boolean;
 }
 
 type NewWorkspaceComposerState = NonNullable<
@@ -910,6 +914,7 @@ interface CreateChatAgentInput {
   serverId: string;
   draftKey: string;
   draftId?: string;
+  supportsForgeSearch: boolean;
   labels: {
     composerStateRequired: string;
     selectModel: string;
@@ -980,7 +985,12 @@ async function runCreateChatAgent(input: CreateChatAgentInput): Promise<void> {
   if (!provider) {
     throw new Error(input.labels.selectModel);
   }
-  const { attachments: reviewAttachments } = splitComposerAttachmentsForSubmit(attachments);
+  const attachmentSubmitFormat = resolveComposerAttachmentSubmitFormat({
+    supportsForgeAttachments: input.supportsForgeSearch,
+  });
+  const { attachments: reviewAttachments } = splitComposerAttachmentsForSubmit(attachments, {
+    format: attachmentSubmitFormat,
+  });
   const workspaceNamingAttachments = getWorkspaceNamingAttachments(reviewAttachments);
   const ensuredWorkspace = await ensureWorkspace({
     cwd,
@@ -1005,6 +1015,7 @@ async function runCreateChatAgent(input: CreateChatAgentInput): Promise<void> {
     attachments,
     provider,
     composerState,
+    supportsForgeSearch: input.supportsForgeSearch,
   });
 }
 
@@ -1126,7 +1137,11 @@ function submitWorkspaceDraft(input: SubmitDraftInput): void {
   const draftId = draftIdInput?.trim() || generateDraftId();
   const clientMessageId = generateMessageId();
   const timestamp = Date.now();
-  const wirePayload = splitComposerAttachmentsForSubmit(attachments);
+  const wirePayload = splitComposerAttachmentsForSubmit(attachments, {
+    format: resolveComposerAttachmentSubmitFormat({
+      supportsForgeAttachments: input.supportsForgeSearch,
+    }),
+  });
   const submission = resolveWorkspaceDraftSubmissionConfig({
     draftId,
     workspaceDirectory,
@@ -1707,6 +1722,7 @@ export function NewWorkspaceScreen({
   });
   // COMPAT(workspaceMultiplicity): added in v0.1.97, drop the gate when floor >= v0.1.97
   const supportsWorkspaceMultiplicity = useHostFeature(selectedServerId, "workspaceMultiplicity");
+  const supportsForgeSearch = useHostFeature(selectedServerId, "forgeSearch");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdWorkspace, setCreatedWorkspace] = useState<ReturnType<
     typeof normalizeWorkspaceDescriptor
@@ -1849,12 +1865,13 @@ export function NewWorkspaceScreen({
     staleTime: 15_000,
   });
 
-  const githubPrSearchQuery = useGithubSearchQuery({
+  const githubPrSearchQuery = useForgeSearchQuery({
     client,
     serverId: selectedServerId,
     cwd: selectedSourceDirectory ?? "",
     query: debouncedPickerSearchQuery,
-    kinds: ["github-pr"],
+    kinds: ["change_request"],
+    supportsForgeSearch,
     enabled: pickerQueryEnabled,
   });
 
@@ -2134,6 +2151,7 @@ export function NewWorkspaceScreen({
           serverId: selectedServerId,
           draftKey,
           draftId,
+          supportsForgeSearch,
           labels: {
             composerStateRequired: t("newWorkspace.errors.composerStateRequired"),
             selectModel: t("newWorkspace.errors.selectModel"),
@@ -2146,7 +2164,17 @@ export function NewWorkspaceScreen({
         toast.error(message);
       }
     },
-    [composerState, draftId, draftKey, ensureWorkspace, forkDraftSetup, selectedServerId, t, toast],
+    [
+      composerState,
+      draftId,
+      draftKey,
+      ensureWorkspace,
+      forkDraftSetup,
+      selectedServerId,
+      supportsForgeSearch,
+      t,
+      toast,
+    ],
   );
 
   const renderPickerOption = useCallback(

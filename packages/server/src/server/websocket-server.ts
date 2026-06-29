@@ -51,7 +51,8 @@ import {
   buildAgentAttentionNotificationPayload,
   findLatestPermissionRequest,
 } from "@getpaseo/protocol/agent-attention-notification";
-import { createGitHubService, type ForgeService } from "../services/github-service.js";
+import { createGitHubService } from "../services/github-service.js";
+import type { ForgeService } from "../services/forge-service.js";
 import {
   extractWsBearerProtocol,
   extractWsBearerToken,
@@ -145,7 +146,7 @@ function createFallbackWorkspaceGitSnapshot(cwd: string): WorkspaceGitRuntimeSna
       hasRemote: false,
       diffStat: null,
     },
-    github: {
+    forge: {
       featuresEnabled: false,
       pullRequest: null,
       error: null,
@@ -1174,9 +1175,19 @@ export class VoiceAssistantWebSocketServer {
       features: {
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,
+        // COMPAT(checkoutForgeSetAutoMerge): added in v0.1.102, remove old
+        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // checkoutGithubSetAutoMerge fallback after 2026-12-28.
+        checkoutForgeSetAutoMerge: true,
         // COMPAT(checkoutGithubSetAutoMerge): added in v0.1.75, remove gate after 2026-11-13.
         checkoutGithubSetAutoMerge: true,
         githubCheckDetails: true,
+        // COMPAT(forgeCheckDetails): added in v0.1.102, remove githubCheckDetails fallback after 2026-12-28.
+        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        forgeCheckDetails: true,
+        // COMPAT(forgeSearch): added in v0.1.102, remove github_search fallback after 2026-12-28.
+        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        forgeSearch: true,
         // COMPAT(daemonStatusRpc): added in v0.1.76, remove gate after 2026-11-18.
         daemonStatusRpc: true,
         // COMPAT(terminalRestoreModes): added in v0.1.81, remove gate after 2026-11-23.
@@ -1204,6 +1215,7 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
         agentForkContext: true,
         // COMPAT(gitlab): added in v0.1.102, drop the gate when daemon floor >= v0.1.102.
+        // TODO(before merge): align the added version and removal date with the maintainer's target release.
         gitlab: true,
       },
     };

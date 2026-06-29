@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-// The review draft store persists through AsyncStorage's web shim, which needs window.
-import "@/test/window-local-storage";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutStatusUpdate } from "@getpaseo/protocol/messages";
 import { checkoutPrStatusQueryKey, checkoutStatusQueryKey } from "@/git/query-keys";
-import { prPaneTimelineQueryKey } from "@/git/pull-request-panel/query-keys";
+import {
+  prPanePipelineQueryKey,
+  prPaneTimelineQueryKey,
+} from "@/git/pull-request-panel/query-keys";
 import { resetReviewDraftStore, useReviewDraftStore } from "@/review/store";
 import {
   applyCheckoutStatusUpdateFromEvent,
@@ -13,6 +14,14 @@ import {
   type CheckoutStatusPayload,
   fetchCheckoutStatus,
 } from "./checkout-status-cache";
+
+vi.mock("@react-native-async-storage/async-storage", () => ({
+  default: {
+    getItem: vi.fn(async () => null),
+    setItem: vi.fn(async () => undefined),
+    removeItem: vi.fn(async () => undefined),
+  },
+}));
 
 const serverId = "server-1";
 const cwd = "/repo";
@@ -168,14 +177,16 @@ describe("applyCheckoutStatusUpdateFromEvent", () => {
     expect(useReviewDraftStore.getState().diffModeOverrides["review:scope"]).toBeDefined();
   });
 
-  it("invalidates the PR timeline when the prStatus changes, ignoring the volatile requestId", () => {
+  it("invalidates PR detail queries when the prStatus changes, ignoring the volatile requestId", () => {
     const queryClient = createQueryClient();
     queryClient.setQueryData(
       checkoutPrStatusQueryKey(serverId, cwd),
       prStatus({ requestId: "pr-v1" }),
     );
     const timelineKey = prPaneTimelineQueryKey({ serverId, cwd, prNumber: 42 });
+    const pipelineKey = prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 });
     queryClient.setQueryData(timelineKey, { items: [] });
+    queryClient.setQueryData(pipelineKey, { stages: [] });
 
     applyCheckoutStatusUpdateFromEvent({
       queryClient,
@@ -183,6 +194,7 @@ describe("applyCheckoutStatusUpdateFromEvent", () => {
       message: checkoutStatusUpdate(checkoutStatus(), prStatus({ requestId: "pr-v2" })),
     });
     expect(queryClient.getQueryState(timelineKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(pipelineKey)?.isInvalidated).toBe(false);
 
     applyCheckoutStatusUpdateFromEvent({
       queryClient,
@@ -196,14 +208,23 @@ describe("applyCheckoutStatusUpdateFromEvent", () => {
       ),
     });
     expect(queryClient.getQueryState(timelineKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(pipelineKey)?.isInvalidated).toBe(true);
   });
 
-  it("invalidates the PR timeline on the first prStatus emission, scoped to its cwd", () => {
+  it("invalidates PR detail queries on the first prStatus emission, scoped to its cwd", () => {
     const queryClient = createQueryClient();
     const timelineKey = prPaneTimelineQueryKey({ serverId, cwd, prNumber: 42 });
     const otherTimelineKey = prPaneTimelineQueryKey({ serverId, cwd: "/repo2", prNumber: 42 });
+    const pipelineKey = prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 });
+    const otherPipelineKey = prPanePipelineQueryKey({
+      serverId,
+      cwd: "/repo2",
+      pipelineId: 9001,
+    });
     queryClient.setQueryData(timelineKey, { items: [] });
     queryClient.setQueryData(otherTimelineKey, { items: [] });
+    queryClient.setQueryData(pipelineKey, { stages: [] });
+    queryClient.setQueryData(otherPipelineKey, { stages: [] });
 
     applyCheckoutStatusUpdateFromEvent({
       queryClient,
@@ -213,5 +234,7 @@ describe("applyCheckoutStatusUpdateFromEvent", () => {
 
     expect(queryClient.getQueryState(timelineKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherTimelineKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(pipelineKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(otherPipelineKey)?.isInvalidated).toBe(false);
   });
 });

@@ -63,7 +63,7 @@ import {
   setAgentModeCommand,
   updateAgentCommand,
 } from "../lifecycle-command.js";
-import type { ForgeService } from "../../../services/github-service.js";
+import type { ForgeService } from "../../../services/forge-service.js";
 import type { WorkspaceGitService } from "../../workspace-git-service.js";
 import { WorktreeRequestError } from "../../worktree-errors.js";
 import {

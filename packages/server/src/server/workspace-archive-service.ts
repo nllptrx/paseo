@@ -5,7 +5,7 @@ import type { Logger } from "pino";
 import type { AgentManager } from "./agent/agent-manager.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent/agent-storage.js";
 import type { WorkspaceGitService } from "./workspace-git-service.js";
-import type { ForgeService } from "../services/github-service.js";
+import type { ForgeService } from "../services/forge-service.js";
 import {
   deletePaseoWorktree,
   isPaseoOwnedWorktreeCwd,

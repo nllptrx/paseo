@@ -1,8 +1,14 @@
 import { z } from "zod";
+import { parseGitRemoteLocation } from "@getpaseo/protocol/git-remote";
 import { findExecutable } from "../executable-resolution/executable-resolution.js";
 import { runGitCommand } from "../utils/run-git-command.js";
 import { execCommand } from "../utils/spawn.js";
-import { isGiteaStatusFacts } from "./forge-service.js";
+import { normalizeCliCommandError, parseCliJsonOutput } from "./forge-cli-command.js";
+import {
+  createUnavailableSearchResult,
+  isGiteaStatusFacts,
+  normalizeForgeSearchKinds,
+} from "./forge-service.js";
 import type {
   CheckDetails,
   CreatePullRequestOptions,
@@ -31,6 +37,7 @@ import type {
   PullRequestTimelineItem,
   PullRequestTimelineReviewState,
   PullRequestCheck,
+  PullRequestCheckoutTarget,
   SearchIssuesAndPrsOptions,
   SearchResult,
 } from "./forge-service.js";
@@ -252,6 +259,8 @@ const GiteaReviewCommentSchema = z
     updated_at: z.string().optional(),
     path: z.string().optional(),
     position: z.number().optional(),
+    original_position: z.number().optional(),
+    resolver: GiteaUserSchema.nullable().optional(),
     html_url: z.string().optional(),
   })
   .passthrough();
@@ -266,6 +275,17 @@ type GiteaActionsRuns = z.infer<typeof GiteaActionsRunsSchema>;
 type GiteaIssueComment = z.infer<typeof GiteaIssueCommentSchema>;
 type GiteaReview = z.infer<typeof GiteaReviewSchema>;
 type GiteaReviewComment = z.infer<typeof GiteaReviewCommentSchema>;
+
+interface GiteaReviewCommentGroup {
+  reviewId: number;
+  comments: GiteaReviewComment[];
+}
+
+interface GiteaTimelineBucketCounts {
+  commentCount: number;
+  reviewCount: number;
+  reviewCommentGroups: GiteaReviewCommentGroup[];
+}
 
 async function resolveTeaPath(): Promise<string | null> {
   return findExecutable("tea");
@@ -304,15 +324,7 @@ async function defaultResolveCurrentBranch(cwd: string): Promise<string | null> 
 }
 
 export function parseGiteaHostFromRemoteUrl(url: string): string | null {
-  const sshMatch = url.match(/^[^@\s]+@([^:/\s]+):/);
-  if (sshMatch) {
-    return sshMatch[1];
-  }
-  try {
-    return new URL(url).hostname || null;
-  } catch {
-    return null;
-  }
+  return parseGitRemoteLocation(url)?.host ?? null;
 }
 
 /**
@@ -412,18 +424,46 @@ function toGiteaTimelineReview(review: GiteaReview): PullRequestTimelineItem {
   };
 }
 
+/**
+ * Gitea/Forgejo expose no stable review-thread id, so distinct inline locations
+ * within one review all share a single `pull_request_review_id`. Keying threads
+ * on that id collapses unrelated file/line comments into one card. Instead key
+ * on the diff position (path + position), which a reply to the same inline
+ * thread reuses, so distinct locations stay separate while same-location replies
+ * still group, matching GitHub's review-thread grouping as closely as the API
+ * allows. Without a diff position (comment scrolled out of the current diff),
+ * fall back to the comment's own id so unrelated comments never merge.
+ */
+function giteaReviewCommentThreadId(comment: GiteaReviewComment): string {
+  const position = comment.position ?? comment.original_position ?? null;
+  const anchor = position != null ? `pos-${position}` : `comment-${comment.id}`;
+  return `${comment.path}#${anchor}`;
+}
+
+/**
+ * Gitea/Forgejo set `resolver` to the user who resolved an inline review thread,
+ * or null when it is still open. Older servers omit the field entirely; treat
+ * absence as "unknown" and leave `isResolved` off rather than guessing unresolved.
+ */
+function giteaReviewCommentResolved(comment: GiteaReviewComment): boolean | undefined {
+  if (!("resolver" in comment)) {
+    return undefined;
+  }
+  return comment.resolver != null;
+}
+
 function toGiteaReviewCommentLocation(
   comment: GiteaReviewComment,
 ): PullRequestTimelineCommentLocation | undefined {
   if (!comment.path) {
     return undefined;
   }
+  const isResolved = giteaReviewCommentResolved(comment);
   return {
     path: comment.path,
     ...(comment.position != null ? { line: comment.position } : {}),
-    ...(comment.pull_request_review_id != null
-      ? { threadId: String(comment.pull_request_review_id) }
-      : {}),
+    threadId: giteaReviewCommentThreadId(comment),
+    ...(isResolved !== undefined ? { isResolved } : {}),
   };
 }
 
@@ -697,12 +737,14 @@ function parseGiteaRepoFromUrl(url: string): { owner?: string; name?: string } {
 }
 
 function toPullRequestSummary(item: GiteaPrListItem): PullRequestSummary {
+  const { owner, name } = parseGiteaRepoFromUrl(item.url);
   return {
     number: parseGiteaInt(item.index) ?? 0,
     title: item.title,
     url: item.url,
     state: mapGiteaState(item.state),
     body: item.body || null,
+    ...(owner && name ? { projectPath: `${owner}/${name}` } : {}),
     baseRefName: item.base ?? "",
     headRefName: stripHeadOwner(item.head),
     labels: splitGiteaLabels(item.labels),
@@ -711,12 +753,14 @@ function toPullRequestSummary(item: GiteaPrListItem): PullRequestSummary {
 }
 
 function toIssueSummary(item: GiteaIssueListItem): IssueSummary {
+  const { owner, name } = parseGiteaRepoFromUrl(item.url);
   return {
     number: parseGiteaInt(item.index) ?? 0,
     title: item.title,
     url: item.url,
     state: mapGiteaState(item.state),
     body: item.body || null,
+    ...(owner && name ? { projectPath: `${owner}/${name}` } : {}),
     labels: splitGiteaLabels(item.labels),
     updatedAt: item.updated ?? "",
   };
@@ -801,55 +845,21 @@ function mapGiteaTimelineError(error: unknown): PullRequestTimelineError {
   return { kind: "unknown", message: error instanceof Error ? error.message : String(error) };
 }
 
-function bufferOrStringToString(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value instanceof Buffer) {
-    return value.toString("utf8");
-  }
-  return "";
-}
-
 function normalizeTeaCommandError(error: unknown, context: { args: string[]; cwd: string }): Error {
-  if (error instanceof TeaAuthenticationError || error instanceof TeaCliMissingError) {
-    return error;
-  }
-  if (error instanceof TeaCommandError) {
-    if (isAuthFailureText(error.stderr)) {
-      return new TeaAuthenticationError({ stderr: error.stderr });
-    }
-    return error;
-  }
-  const failure = (error ?? {}) as {
-    code?: string | number;
-    killed?: boolean;
-    stderr?: unknown;
-    message?: string;
-  };
-  if (failure.code === "ENOENT") {
-    return new TeaCliMissingError();
-  }
-  const stderr = bufferOrStringToString(failure.stderr);
-  const message = failure.message ?? "";
-  if (isAuthFailureText(stderr) || isAuthFailureText(message)) {
-    return new TeaAuthenticationError({ stderr });
-  }
-  if (failure.killed === true) {
-    return new TeaCommandError({
-      args: context.args,
-      cwd: context.cwd,
-      exitCode: null,
-      stderr:
-        stderr ||
-        `tea was terminated before completing (timed out after ${TEA_COMMAND_TIMEOUT_MS}ms or exceeded the output limit)`,
-    });
-  }
-  return new TeaCommandError({
+  return normalizeCliCommandError({
+    error,
     args: context.args,
     cwd: context.cwd,
-    exitCode: typeof failure.code === "number" ? failure.code : null,
-    stderr: stderr || message,
+    commandName: "tea",
+    timeoutMs: TEA_COMMAND_TIMEOUT_MS,
+    isAlreadyClassified: (candidate) =>
+      candidate instanceof TeaAuthenticationError || candidate instanceof TeaCliMissingError,
+    isCommandError: (candidate): candidate is TeaCommandError =>
+      candidate instanceof TeaCommandError,
+    isAuthFailureText,
+    createAuthError: (stderr) => new TeaAuthenticationError({ stderr }),
+    createMissingError: () => new TeaCliMissingError(),
+    createCommandError: (params) => new TeaCommandError(params),
   });
 }
 
@@ -935,27 +945,14 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
     stdout: string,
     schema: z.ZodType<T>,
   ): T {
-    let data: unknown;
-    try {
-      data = JSON.parse(stdout);
-    } catch {
-      throw new TeaCommandError({
-        args,
-        cwd: runOptions.cwd,
-        exitCode: null,
-        stderr: `tea did not return valid JSON (${stdout.length} bytes)`,
-      });
-    }
-    const parsed = schema.safeParse(data);
-    if (!parsed.success) {
-      throw new TeaCommandError({
-        args,
-        cwd: runOptions.cwd,
-        exitCode: null,
-        stderr: `tea JSON did not match the expected schema: ${parsed.error.message}`,
-      });
-    }
-    return parsed.data;
+    return parseCliJsonOutput({
+      commandName: "tea",
+      args,
+      cwd: runOptions.cwd,
+      stdout,
+      schema,
+      createCommandError: (params) => new TeaCommandError(params),
+    });
   }
 
   async function runJsonArray<T>(
@@ -1032,6 +1029,61 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       { cwd: input.cwd },
       GiteaReviewCommentSchema,
     );
+  }
+
+  /**
+   * Detects whether a timeline bucket has results beyond the first fetched page.
+   * tea exposes no pagination headers, so instead of a bare `length >= 100`
+   * (which falsely flags an exactly-full page as truncated) we probe for the
+   * first item after the page boundary. Best-effort: a failing probe
+   * conservatively reports truncation, since a full first page means at least a
+   * page of data exists.
+   */
+  async function timelineBucketHasNextPage(
+    input: GetPullRequestTimelineOptions,
+    suffix: string,
+  ): Promise<boolean> {
+    try {
+      const probe = await runJsonArray(
+        ["api", timelineApiPath(input, `${suffix}?page=${TIMELINE_PAGE_SIZE + 1}&limit=1`)],
+        { cwd: input.cwd },
+        z.object({}).passthrough(),
+      );
+      return probe.length > 0;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Mirrors GitHub's per-bucket truncation: the timeline caps issue comments,
+   * reviews, and each review's inline comments at the first page. Only buckets
+   * that filled their page are probed for a next page, so the common case issues
+   * no extra requests.
+   */
+  async function isGiteaTimelineTruncated(
+    input: GetPullRequestTimelineOptions,
+    counts: GiteaTimelineBucketCounts,
+  ): Promise<boolean> {
+    const fullBuckets: string[] = [];
+    if (counts.commentCount >= TIMELINE_PAGE_SIZE) {
+      fullBuckets.push(`issues/${input.prNumber}/comments`);
+    }
+    if (counts.reviewCount >= TIMELINE_PAGE_SIZE) {
+      fullBuckets.push(`pulls/${input.prNumber}/reviews`);
+    }
+    for (const group of counts.reviewCommentGroups) {
+      if (group.comments.length >= TIMELINE_PAGE_SIZE) {
+        fullBuckets.push(`pulls/${input.prNumber}/reviews/${group.reviewId}/comments`);
+      }
+    }
+    if (fullBuckets.length === 0) {
+      return false;
+    }
+    const probes = await Promise.all(
+      fullBuckets.map((suffix) => timelineBucketHasNextPage(input, suffix)),
+    );
+    return probes.some(Boolean);
   }
 
   async function loadCurrentPullRequestStatus(input: {
@@ -1268,6 +1320,28 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       return summary.headRefName;
     },
 
+    async getPullRequestCheckoutTarget(
+      input: GetPullRequestOptions,
+    ): Promise<PullRequestCheckoutTarget> {
+      const summary = await this.getPullRequest(input);
+      const checkoutRefs = [
+        { remoteName: "origin", remoteRef: `refs/pull/${summary.number}/head` },
+      ];
+      if (summary.headRefName) {
+        checkoutRefs.push({ remoteName: "origin", remoteRef: `refs/heads/${summary.headRefName}` });
+      }
+      return {
+        number: summary.number,
+        baseRefName: summary.baseRefName,
+        headRefName: summary.headRefName,
+        checkoutRefs,
+        headOwnerLogin: null,
+        headRepositorySshUrl: null,
+        headRepositoryUrl: null,
+        isCrossRepository: false,
+      };
+    },
+
     listPullRequests(input: ListPullRequestsOptions): Promise<PullRequestSummary[]> {
       return listPullRequestItems({
         cwd: input.cwd,
@@ -1365,25 +1439,24 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
         }
         const comments = commentsResult.status === "fulfilled" ? commentsResult.value : [];
         const reviews = reviewsResult.status === "fulfilled" ? reviewsResult.value : [];
+        const reviewsWithComments = reviews.filter((review) => review.comments_count > 0);
         const reviewCommentResults = await Promise.allSettled(
-          reviews
-            .filter((review) => review.comments_count > 0)
-            .map((review) =>
-              listPullRequestReviewComments({
-                cwd: input.cwd,
-                repoOwner: input.repoOwner,
-                repoName: input.repoName,
-                prNumber: input.prNumber,
-                reviewId: review.id,
-              }),
-            ),
+          reviewsWithComments.map((review) =>
+            listPullRequestReviewComments({
+              cwd: input.cwd,
+              repoOwner: input.repoOwner,
+              repoName: input.repoName,
+              prNumber: input.prNumber,
+              reviewId: review.id,
+            }),
+          ),
         );
-        const reviewCommentGroups = reviewCommentResults
-          .filter((result): result is PromiseFulfilledResult<GiteaReviewComment[]> => {
-            return result.status === "fulfilled";
-          })
-          .map((result) => result.value);
-        const reviewComments = reviewCommentGroups.flat();
+        const reviewCommentGroups = reviewCommentResults.flatMap((result, index) =>
+          result.status === "fulfilled"
+            ? [{ reviewId: reviewsWithComments[index].id, comments: result.value }]
+            : [],
+        );
+        const reviewComments = reviewCommentGroups.flatMap((group) => group.comments);
         const items = [
           ...comments.map((comment) => toGiteaTimelineComment(comment, pr)),
           ...reviews.map(toGiteaTimelineReview),
@@ -1391,13 +1464,15 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
         ]
           .filter((item): item is PullRequestTimelineItem => item !== null)
           .sort(compareTimelineItems);
+        const truncated = await isGiteaTimelineTruncated(input, {
+          commentCount: comments.length,
+          reviewCount: reviews.length,
+          reviewCommentGroups,
+        });
         return {
           ...identity,
           items,
-          truncated:
-            comments.length >= TIMELINE_PAGE_SIZE ||
-            reviews.length >= TIMELINE_PAGE_SIZE ||
-            reviewCommentGroups.some((group) => group.length >= TIMELINE_PAGE_SIZE),
+          truncated,
           error: null,
         };
       } catch (error) {
@@ -1405,9 +1480,9 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       }
     },
 
-    async getGitHubCheckDetails(input: GetCheckDetailsOptions): Promise<CheckDetails> {
+    async getCheckDetails(input: GetCheckDetailsOptions): Promise<CheckDetails> {
       if (!input.repoOwner || !input.repoName) {
-        throw new Error("Gitea getGitHubCheckDetails requires repoOwner and repoName");
+        throw new Error("Gitea getCheckDetails requires repoOwner and repoName");
       }
       const sha = await resolveCurrentPullRequestHeadSha(input.cwd);
       const combined = await loadCombinedCommitStatusBestEffort({
@@ -1439,9 +1514,9 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
         throw new Error("ForgeService forced read requires a reason");
       }
 
-      const kinds = input.kinds ?? ["github-issue", "github-pr"];
-      const shouldFetchIssues = kinds.includes("github-issue");
-      const shouldFetchMergeRequests = kinds.includes("github-pr");
+      const kinds = normalizeForgeSearchKinds(input.kinds);
+      const shouldFetchIssues = kinds.includes("issue");
+      const shouldFetchMergeRequests = kinds.includes("change_request");
       const [issuesResult, mergeRequestsResult] = await Promise.allSettled([
         shouldFetchIssues
           ? runIssueList({ cwd: input.cwd, query: input.query, limit: input.limit })
@@ -1469,7 +1544,10 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
               result.reason instanceof TeaAuthenticationError),
         );
       if (everyRequestRejectedForAuth) {
-        return { items: [], githubFeaturesEnabled: false };
+        const hasMissingCli = requestedResults.some(
+          (result) => result.status === "rejected" && result.reason instanceof TeaCliMissingError,
+        );
+        return createUnavailableSearchResult(hasMissingCli ? "cli_missing" : "unauthenticated");
       }
 
       const items: SearchResult["items"] = [];
@@ -1483,6 +1561,7 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
             state: issue.state,
             body: issue.body,
             labels: issue.labels,
+            ...(issue.projectPath ? { projectPath: issue.projectPath } : {}),
             baseRefName: null,
             headRefName: null,
             updatedAt: issue.updatedAt,
@@ -1499,6 +1578,7 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
             state: pullRequest.state,
             body: pullRequest.body,
             labels: pullRequest.labels,
+            ...(pullRequest.projectPath ? { projectPath: pullRequest.projectPath } : {}),
             baseRefName: pullRequest.baseRefName,
             headRefName: pullRequest.headRefName,
             updatedAt: pullRequest.updatedAt,
@@ -1509,7 +1589,12 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
         (left, right) => parseOptionalTime(right.updatedAt) - parseOptionalTime(left.updatedAt),
       );
 
-      return { items, githubFeaturesEnabled: true };
+      return {
+        items,
+        featuresEnabled: true,
+        authState: "authenticated",
+        githubFeaturesEnabled: true,
+      };
     },
 
     enablePullRequestAutoMerge(_input: EnablePullRequestAutoMergeOptions): never {

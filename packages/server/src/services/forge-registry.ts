@@ -1,4 +1,4 @@
-import { isGitHubHost } from "@getpaseo/protocol/git-remote";
+import { isGitHubHost, normalizeHost } from "@getpaseo/protocol/git-remote";
 import { createGitHubService } from "./github-service.js";
 import type { ForgeService } from "./forge-service.js";
 import { createGiteaService, probeGiteaHost } from "./gitea-service.js";
@@ -100,7 +100,7 @@ export const defaultForgeRegistry = new ForgeRegistry([
     "gitlab",
     {
       createService: createGitLabService,
-      matchesHost: (host) => /gitlab/i.test(host),
+      matchesHost: (host) => normalizeHost(host) === "gitlab.com",
       probeHost: probeGitLabHost,
     },
   ],
@@ -108,7 +108,7 @@ export const defaultForgeRegistry = new ForgeRegistry([
     "gitea",
     {
       createService: createGiteaService,
-      matchesHost: (host) => /gitea/i.test(host) && !/forgejo/i.test(host),
+      matchesHost: (host) => normalizeHost(host) === "gitea.com",
       probeHost: probeGiteaHost,
     },
   ],
@@ -116,7 +116,7 @@ export const defaultForgeRegistry = new ForgeRegistry([
     "forgejo",
     {
       createService: createGiteaService,
-      matchesHost: (host) => /forgejo/i.test(host) || /(^|\.)codeberg\.org$/i.test(host),
+      matchesHost: (host) => normalizeHost(host) === "codeberg.org",
     },
   ],
 ]);

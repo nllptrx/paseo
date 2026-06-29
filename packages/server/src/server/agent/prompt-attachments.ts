@@ -4,25 +4,47 @@ const REVIEW_LINE_MARKERS = { add: "+", remove: "-", context: " " } as const;
 
 export function renderPromptAttachmentAsText(attachment: AgentAttachment): string {
   switch (attachment.type) {
+    case "forge_change_request": {
+      return renderChangeRequestAttachment({
+        forge: attachment.forge,
+        number: attachment.number,
+        title: attachment.title,
+        url: attachment.url,
+        body: attachment.body,
+        projectPath: attachment.projectPath,
+        baseRefName: attachment.baseRefName,
+        headRefName: attachment.headRefName,
+      });
+    }
     case "github_pr": {
-      const lines = [`GitHub PR #${attachment.number}: ${attachment.title}`, attachment.url];
-      if (attachment.baseRefName) {
-        lines.push(`Base: ${attachment.baseRefName}`);
-      }
-      if (attachment.headRefName) {
-        lines.push(`Head: ${attachment.headRefName}`);
-      }
-      if (attachment.body) {
-        lines.push("", attachment.body);
-      }
-      return lines.join("\n");
+      return renderChangeRequestAttachment({
+        forge: "github",
+        number: attachment.number,
+        title: attachment.title,
+        url: attachment.url,
+        body: attachment.body,
+        baseRefName: attachment.baseRefName,
+        headRefName: attachment.headRefName,
+      });
+    }
+    case "forge_issue": {
+      return renderIssueAttachment({
+        forge: attachment.forge,
+        number: attachment.number,
+        title: attachment.title,
+        url: attachment.url,
+        body: attachment.body,
+        projectPath: attachment.projectPath,
+      });
     }
     case "github_issue": {
-      const lines = [`GitHub Issue #${attachment.number}: ${attachment.title}`, attachment.url];
-      if (attachment.body) {
-        lines.push("", attachment.body);
-      }
-      return lines.join("\n");
+      return renderIssueAttachment({
+        forge: "github",
+        number: attachment.number,
+        title: attachment.title,
+        url: attachment.url,
+        body: attachment.body,
+      });
     }
     case "text": {
       return attachment.text;
@@ -65,6 +87,68 @@ export function renderPromptAttachmentAsText(attachment: AgentAttachment): strin
     default:
       throw new Error("unreachable");
   }
+}
+
+function renderChangeRequestAttachment(input: {
+  forge: string;
+  number: number;
+  title: string;
+  url: string;
+  body?: string | null;
+  projectPath?: string;
+  baseRefName?: string | null;
+  headRefName?: string | null;
+}): string {
+  const lines = [
+    `${formatForgeLabel(input.forge)} change request ${formatChangeRequestNumber(input.forge, input.number)}: ${input.title}`,
+    input.url,
+  ];
+  if (input.projectPath) {
+    lines.push(`Project: ${input.projectPath}`);
+  }
+  if (input.baseRefName) {
+    lines.push(`Base: ${input.baseRefName}`);
+  }
+  if (input.headRefName) {
+    lines.push(`Head: ${input.headRefName}`);
+  }
+  if (input.body) {
+    lines.push("", input.body);
+  }
+  return lines.join("\n");
+}
+
+function renderIssueAttachment(input: {
+  forge: string;
+  number: number;
+  title: string;
+  url: string;
+  body?: string | null;
+  projectPath?: string;
+}): string {
+  const lines = [
+    `${formatForgeLabel(input.forge)} issue #${input.number}: ${input.title}`,
+    input.url,
+  ];
+  if (input.projectPath) {
+    lines.push(`Project: ${input.projectPath}`);
+  }
+  if (input.body) {
+    lines.push("", input.body);
+  }
+  return lines.join("\n");
+}
+
+function formatForgeLabel(forge: string): string {
+  if (forge === "github") return "GitHub";
+  if (forge === "gitlab") return "GitLab";
+  if (forge === "gitea") return "Gitea";
+  if (forge === "forgejo") return "Forgejo";
+  return forge;
+}
+
+function formatChangeRequestNumber(forge: string, number: number): string {
+  return `${forge === "gitlab" ? "!" : "#"}${number}`;
 }
 
 function padLineNumber(lineNumber: number | null): string {

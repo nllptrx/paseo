@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentAttachment, GitHubSearchItem } from "@getpaseo/protocol/messages";
+import type { AgentAttachment, ForgeSearchItem } from "@getpaseo/protocol/messages";
 import type {
   AttachmentMetadata,
   ComposerAttachment,
@@ -38,7 +38,7 @@ const imageMetadata: AttachmentMetadata = {
   createdAt: 1,
 };
 
-const issueItem: GitHubSearchItem = {
+const issueItem: ForgeSearchItem = {
   kind: "issue",
   number: 101,
   title: "Fix composer attachments",
@@ -50,7 +50,7 @@ const issueItem: GitHubSearchItem = {
   headRefName: null,
 };
 
-const prItem: GitHubSearchItem = {
+const prItem: ForgeSearchItem = {
   kind: "pr",
   number: 202,
   title: "Refactor composer attachments",
@@ -337,8 +337,9 @@ describe("dispatchComposerAgentMessage", () => {
     expect(call.options.images).toEqual([{ data: image.id, mimeType: image.mimeType }]);
     expect(call.options.attachments).toEqual([
       {
-        type: "github_pr",
-        mimeType: "application/github-pr",
+        type: "forge_change_request",
+        mimeType: "application/paseo-forge-change-request",
+        forge: "github",
         number: 202,
         title: "Refactor composer attachments",
         url: "https://github.com/acme/paseo/pull/202",
@@ -358,6 +359,34 @@ describe("dispatchComposerAgentMessage", () => {
     expect(userMessage.attachments).toEqual(call.options.attachments);
     expect(userMessage.id).toBe(call.options.messageId);
     expect(userMessage.optimistic).toBe(true);
+  });
+
+  it("can send legacy GitHub attachment payloads for old daemons", async () => {
+    const client = createFakeSendClient();
+    const stream = createFakeStream();
+
+    await dispatchComposerAgentMessage({
+      client,
+      agentId: "agent",
+      text: "send old attachment",
+      attachments: [{ kind: "forge_change_request", item: prItem }],
+      attachmentSubmitFormat: "legacy-github",
+      encodeImages: passthroughEncodeImages,
+      stream,
+    });
+
+    expect(client.calls[0].options.attachments).toEqual([
+      {
+        type: "github_pr",
+        mimeType: "application/github-pr",
+        number: 202,
+        title: "Refactor composer attachments",
+        url: "https://github.com/acme/paseo/pull/202",
+        body: "PR body",
+        baseRefName: "main",
+        headRefName: "composer-attachments",
+      },
+    ]);
   });
 
   it("appends to the existing head when one is present", async () => {
@@ -674,12 +703,12 @@ describe("openComposerAttachment", () => {
 describe("toggleGithubAttachment", () => {
   it("appends a GitHub issue when not already attached", () => {
     const next = toggleGithubAttachment([], issueItem);
-    expect(next).toEqual([{ kind: "github_issue", item: issueItem }]);
+    expect(next).toEqual([{ kind: "forge_issue", item: issueItem }]);
   });
 
   it("appends a GitHub PR when not already attached", () => {
     const next = toggleGithubAttachment([], prItem);
-    expect(next).toEqual([{ kind: "github_pr", item: prItem }]);
+    expect(next).toEqual([{ kind: "forge_change_request", item: prItem }]);
   });
 
   it("removes an existing GitHub item with the same kind+number", () => {
@@ -692,12 +721,12 @@ describe("toggleGithubAttachment", () => {
       { kind: "github_issue", item: issueItem },
       { kind: "github_pr", item: prItem },
     ];
-    const otherIssue: GitHubSearchItem = { ...issueItem, number: 999 };
+    const otherIssue: ForgeSearchItem = { ...issueItem, number: 999 };
     const next = toggleGithubAttachment(start, otherIssue);
     expect(next).toEqual([
       { kind: "github_issue", item: issueItem },
       { kind: "github_pr", item: prItem },
-      { kind: "github_issue", item: otherIssue },
+      { kind: "forge_issue", item: otherIssue },
     ]);
   });
 });
@@ -727,7 +756,7 @@ describe("toggleGithubAttachmentFromPicker", () => {
       markGithubAttachmentRemoved,
     });
 
-    expect(next).toEqual([{ kind: "github_issue", item: issueItem }]);
+    expect(next).toEqual([{ kind: "forge_issue", item: issueItem }]);
     expect(markGithubAttachmentRemoved).not.toHaveBeenCalled();
   });
 });

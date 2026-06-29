@@ -176,6 +176,9 @@ const PROVIDER_BINARIES: { label: string; binary: string }[] = [
   { label: "Codex", binary: "codex" },
   { label: "OpenCode", binary: "opencode" },
 ];
+const DAEMON_STATUS_CONNECT_TIMEOUT_MS = 1500;
+const DAEMON_STATUS_CONNECT_ATTEMPTS_WHEN_PID_RUNNING = 3;
+const DAEMON_STATUS_CONNECT_RETRY_DELAY_MS = 100;
 
 async function checkProviderBinary(
   binary: string,
@@ -246,6 +249,35 @@ function describeAgentsUnavailableReason(failure: DaemonAuthProbeFailure): strin
   return "incorrect password";
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function connectToDaemonForStatus(args: {
+  host: string;
+  state: ReturnType<typeof resolveLocalDaemonState>;
+}): Promise<Awaited<ReturnType<typeof connectToDaemon>>> {
+  const attempts = args.state.running ? DAEMON_STATUS_CONNECT_ATTEMPTS_WHEN_PID_RUNNING : 1;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await connectToDaemon({
+        host: args.host,
+        timeout: DAEMON_STATUS_CONNECT_TIMEOUT_MS,
+      });
+    } catch (error) {
+      if (classifyDaemonAuthProbeFailure(error)) {
+        throw error;
+      }
+      lastError = error;
+      if (attempt < attempts) {
+        await delay(DAEMON_STATUS_CONNECT_RETRY_DELAY_MS);
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function probeDaemonOverWebsocket(args: {
   host: string;
   state: ReturnType<typeof resolveLocalDaemonState>;
@@ -253,7 +285,7 @@ async function probeDaemonOverWebsocket(args: {
   const { host, state } = args;
   let client: Awaited<ReturnType<typeof connectToDaemon>>;
   try {
-    client = await connectToDaemon({ host, timeout: 1500 });
+    client = await connectToDaemonForStatus({ host, state });
   } catch (error) {
     const authFailure = classifyDaemonAuthProbeFailure(error);
     if (authFailure) {
@@ -327,7 +359,17 @@ async function probeDaemonOverWebsocket(args: {
       idleAgents,
       daemonProviders,
     };
-  } catch {
+  } catch (error) {
+    const authFailure = classifyDaemonAuthProbeFailure(error);
+    if (authFailure) {
+      return {
+        connectedDaemon: authFailure,
+        daemonVersion,
+        agentsUnavailableReason: describeAgentsUnavailableReason(authFailure),
+        note: describeDaemonAuthProbeFailure(host, authFailure),
+      };
+    }
+
     return {
       connectedDaemon: "reachable",
       daemonVersion,

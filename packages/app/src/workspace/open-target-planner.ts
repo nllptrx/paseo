@@ -145,7 +145,7 @@ function planForgeOpenTarget(input: {
   if (!input.checkoutStatus?.isGit) {
     return null;
   }
-  const forge = forgeFromRemoteUrl(input.checkoutStatus.remoteUrl) ?? input.forge ?? null;
+  const forge = input.forge ?? forgeFromRemoteUrl(input.checkoutStatus.remoteUrl) ?? null;
   if (!forge) {
     return null;
   }

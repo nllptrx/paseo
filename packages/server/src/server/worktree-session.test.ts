@@ -33,7 +33,7 @@ import type { TerminalManager } from "../terminal/terminal-manager.js";
 import type { TerminalSession } from "../terminal/terminal.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent/agent-storage.js";
 import type { PersistedProjectRecord, PersistedWorkspaceRecord } from "./workspace-registry.js";
-import type { ForgeService } from "../services/github-service.js";
+import type { ForgeService } from "../services/forge-service.js";
 import {
   createPaseoWorktree as createPaseoWorktreeService,
   type CreatePaseoWorktreeFn,
@@ -130,7 +130,11 @@ function createGitHubServiceStub(): ForgeService {
   return {
     listPullRequests: async () => [],
     listIssues: async () => [],
-    searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: true }),
+    searchIssuesAndPrs: async () => ({
+      items: [],
+      featuresEnabled: true,
+      githubFeaturesEnabled: true,
+    }),
     getPullRequest: async ({ number }) => ({
       number,
       title: `PR ${number}`,
@@ -1623,7 +1627,7 @@ describe("handleCreatePaseoWorktreeRequest", () => {
           message.type === "create_paseo_worktree_response",
       );
       expect(response?.payload.workspace).toBeNull();
-      expect(response?.payload.error).toBe('action "checkout" requires refName or githubPrNumber');
+      expect(response?.payload.error).toBe('action "checkout" requires refName or checkoutSource');
       expect(response?.payload.errorCode).toBe("missing_checkout_target");
     } finally {
       rmSync(tempDir, { recursive: true, force: true });

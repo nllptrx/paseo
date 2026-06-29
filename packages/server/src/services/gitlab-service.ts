@@ -1,7 +1,11 @@
 import { z } from "zod";
+import { GITLAB_ACTIVE_PIPELINE_STATUSES } from "@getpaseo/protocol/forge-constants";
+import { parseGitRemoteLocation } from "@getpaseo/protocol/git-remote";
 import { findExecutable } from "../executable-resolution/executable-resolution.js";
 import { runGitCommand } from "../utils/run-git-command.js";
 import { execCommand } from "../utils/spawn.js";
+import { normalizeCliCommandError, parseCliJsonOutput } from "./forge-cli-command.js";
+import { createUnavailableSearchResult, normalizeForgeSearchKinds } from "./forge-service.js";
 import type {
   CheckDetails,
   CreatePullRequestOptions,
@@ -44,6 +48,16 @@ const GLAB_ENV = {
 } as const;
 
 const GLAB_COMMAND_TIMEOUT_MS = 30_000;
+const GITLAB_HOST_PROBE_TIMEOUT_MS = 5_000;
+
+type GitLabHostProbeFetch = (
+  url: string,
+  init: {
+    headers: Record<string, string>;
+    method: "GET";
+    signal: AbortSignal;
+  },
+) => Promise<Response>;
 
 export class GlabCliMissingError extends Error {
   readonly kind = "missing-cli";
@@ -170,6 +184,7 @@ const GitLabIssueSchema = z
     description: z.string().nullable().optional(),
     labels: z.array(z.string()).optional(),
     updated_at: z.string().optional(),
+    references: z.object({ full: z.string().optional() }).passthrough().optional(),
   })
   .passthrough();
 
@@ -182,12 +197,27 @@ const GitLabNoteAuthorSchema = z
   })
   .passthrough();
 
+const GitLabNoteLineRangeEndpointSchema = z
+  .object({
+    new_line: z.number().nullable().optional(),
+    old_line: z.number().nullable().optional(),
+  })
+  .passthrough();
+
 const GitLabNotePositionSchema = z
   .object({
     new_path: z.string().nullable().optional(),
     old_path: z.string().nullable().optional(),
     new_line: z.number().nullable().optional(),
     old_line: z.number().nullable().optional(),
+    line_range: z
+      .object({
+        start: GitLabNoteLineRangeEndpointSchema.nullable().optional(),
+        end: GitLabNoteLineRangeEndpointSchema.nullable().optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
   })
   .passthrough();
 
@@ -224,6 +254,7 @@ const GitLabApprovalsSchema = z
 type GitLabMergeRequest = z.infer<typeof GitLabMergeRequestSchema>;
 type GitLabIssue = z.infer<typeof GitLabIssueSchema>;
 type GitLabNote = z.infer<typeof GitLabNoteSchema>;
+type GitLabNoteLineRangeEndpoint = z.infer<typeof GitLabNoteLineRangeEndpointSchema>;
 type GitLabDiscussion = z.infer<typeof GitLabDiscussionSchema>;
 type GitLabApprovals = z.infer<typeof GitLabApprovalsSchema>;
 
@@ -256,15 +287,7 @@ async function defaultResolveRemoteUrl(cwd: string): Promise<string | null> {
 }
 
 export function parseGitLabHostFromRemoteUrl(url: string): string | null {
-  const sshMatch = url.match(/^[^@\s]+@([^:/\s]+):/);
-  if (sshMatch) {
-    return sshMatch[1];
-  }
-  try {
-    return new URL(url).hostname || null;
-  } catch {
-    return null;
-  }
+  return parseGitRemoteLocation(url)?.host ?? null;
 }
 
 function mapMergeRequestState(state: string): string {
@@ -322,6 +345,7 @@ function splitProjectPath(fullReference: string | undefined): {
 }
 
 function toPullRequestSummary(mr: GitLabMergeRequest): PullRequestSummary {
+  const projectPath = extractProjectPath(mr.references?.full);
   return {
     number: mr.iid,
     title: mr.title,
@@ -331,11 +355,13 @@ function toPullRequestSummary(mr: GitLabMergeRequest): PullRequestSummary {
     baseRefName: mr.target_branch,
     headRefName: mr.source_branch,
     labels: mr.labels ?? [],
+    ...(projectPath ? { projectPath } : {}),
     updatedAt: mr.updated_at ?? "",
   };
 }
 
 function toIssueSummary(issue: GitLabIssue): IssueSummary {
+  const projectPath = extractProjectPath(issue.references?.full);
   return {
     number: issue.iid,
     title: issue.title,
@@ -343,6 +369,7 @@ function toIssueSummary(issue: GitLabIssue): IssueSummary {
     state: issue.state,
     body: issue.description ?? null,
     labels: issue.labels ?? [],
+    ...(projectPath ? { projectPath } : {}),
     updatedAt: issue.updated_at ?? "",
   };
 }
@@ -393,20 +420,44 @@ function parseGitLabTimestamp(value: string | null | undefined): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+/**
+ * A GitLab discussion is a reply chain when it is not an explicit standalone
+ * note (`individual_note: true`). Older payloads may omit the flag, so a
+ * discussion that already holds multiple notes is also treated as a thread.
+ */
+function isThreadDiscussion(discussion: GitLabDiscussion): boolean {
+  if (discussion.individual_note === true) {
+    return false;
+  }
+  return discussion.individual_note === false || discussion.notes.length > 1;
+}
+
+function resolvePositionLine(endpoint: GitLabNoteLineRangeEndpoint): number | undefined {
+  return endpoint.new_line ?? endpoint.old_line ?? undefined;
+}
+
 function toTimelineCommentLocation(
   note: GitLabNote,
   discussion: GitLabDiscussion,
 ): PullRequestTimelineCommentLocation | undefined {
-  const path = note.position?.new_path ?? note.position?.old_path ?? undefined;
-  if (!path) {
+  const position = note.position;
+  const path = position?.new_path ?? position?.old_path ?? undefined;
+  if (!position || !path) {
     return undefined;
   }
-  const line = note.position?.new_line ?? note.position?.old_line ?? undefined;
+  const line = resolvePositionLine(position);
+  const start = position.line_range?.start;
+  const startLine = start ? resolvePositionLine(start) : undefined;
+  // Only emit a resolution state GitLab can actually own: a note that is not
+  // resolvable (ordinary comments, system context) has no meaningful resolved
+  // flag, and defaulting it to `false` would render a fake "unresolved" badge.
+  const isResolved = note.resolvable === true ? (note.resolved ?? false) : undefined;
   return {
     path,
     ...(line != null ? { line } : {}),
+    ...(startLine != null && startLine !== line ? { startLine } : {}),
     threadId: discussion.id,
-    isResolved: note.resolved ?? false,
+    ...(isResolved !== undefined ? { isResolved } : {}),
   };
 }
 
@@ -425,6 +476,13 @@ function toTimelineComment(
     return null;
   }
   const location = toTimelineCommentLocation(note, discussion);
+  // Top-level thread id groups every note of a reply chain — including general
+  // (non-file) discussions that carry no `location` — into one timeline thread.
+  const threadId = isThreadDiscussion(discussion) ? discussion.id : undefined;
+  // A resolvable discussion without a file position (a general thread) carries its
+  // resolution here, since `location.isResolved` only exists for file threads.
+  const threadIsResolved =
+    !location && note.resolvable === true ? (note.resolved ?? false) : undefined;
   return {
     kind: "comment",
     id: String(note.id),
@@ -434,6 +492,8 @@ function toTimelineComment(
     body: note.body ?? "",
     createdAt: parseGitLabTimestamp(note.created_at),
     url: `${mrWebUrl}#note_${note.id}`,
+    ...(threadId ? { threadId } : {}),
+    ...(threadIsResolved !== undefined ? { threadIsResolved } : {}),
     ...(location ? { location } : {}),
   };
 }
@@ -617,58 +677,24 @@ function isNoMergeRequestText(text: string): boolean {
   return /no (open )?merge request|not found|no merge requests/i.test(text);
 }
 
-function bufferOrStringToString(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value instanceof Buffer) {
-    return value.toString("utf8");
-  }
-  return "";
-}
-
 function normalizeGlabCommandError(
   error: unknown,
   context: { args: string[]; cwd: string },
 ): Error {
-  if (error instanceof GlabAuthenticationError || error instanceof GlabCliMissingError) {
-    return error;
-  }
-  if (error instanceof GlabCommandError) {
-    if (isAuthFailureText(error.stderr)) {
-      return new GlabAuthenticationError({ stderr: error.stderr });
-    }
-    return error;
-  }
-  const failure = (error ?? {}) as {
-    code?: string | number;
-    killed?: boolean;
-    stderr?: unknown;
-    message?: string;
-  };
-  if (failure.code === "ENOENT") {
-    return new GlabCliMissingError();
-  }
-  const stderr = bufferOrStringToString(failure.stderr);
-  const message = failure.message ?? "";
-  if (isAuthFailureText(stderr) || isAuthFailureText(message)) {
-    return new GlabAuthenticationError({ stderr });
-  }
-  if (failure.killed === true) {
-    return new GlabCommandError({
-      args: context.args,
-      cwd: context.cwd,
-      exitCode: null,
-      stderr:
-        stderr ||
-        `glab was terminated before completing (timed out after ${GLAB_COMMAND_TIMEOUT_MS}ms or exceeded the output limit)`,
-    });
-  }
-  return new GlabCommandError({
+  return normalizeCliCommandError({
+    error,
     args: context.args,
     cwd: context.cwd,
-    exitCode: typeof failure.code === "number" ? failure.code : null,
-    stderr: stderr || message,
+    commandName: "glab",
+    timeoutMs: GLAB_COMMAND_TIMEOUT_MS,
+    isAlreadyClassified: (candidate) =>
+      candidate instanceof GlabAuthenticationError || candidate instanceof GlabCliMissingError,
+    isCommandError: (candidate): candidate is GlabCommandError =>
+      candidate instanceof GlabCommandError,
+    isAuthFailureText,
+    createAuthError: (stderr) => new GlabAuthenticationError({ stderr }),
+    createMissingError: () => new GlabCliMissingError(),
+    createCommandError: (params) => new GlabCommandError(params),
   });
 }
 
@@ -687,14 +713,7 @@ function parseIidFromUrl(url: string): number | null {
  * merge instead of running it immediately. Mirrors the client-side auto-merge
  * policy (the PR pane only offers enable while a pipeline is in flight).
  */
-const GITLAB_ACTIVE_PIPELINE_STATUSES = new Set([
-  "created",
-  "waiting_for_resource",
-  "preparing",
-  "pending",
-  "running",
-  "scheduled",
-]);
+const GITLAB_ACTIVE_PIPELINE_STATUS_SET = new Set<string>(GITLAB_ACTIVE_PIPELINE_STATUSES);
 
 function parseOptionalTime(value: string | undefined): number {
   if (!value) {
@@ -707,24 +726,66 @@ function parseOptionalTime(value: string | undefined): number {
 /**
  * Probe whether `host` is a GitLab instance by asking glab about its auth status
  * for that hostname (exit 0 => a configured GitLab instance, even for
- * self-managed hosts whose name carries no "gitlab" hint). Returns false when
- * glab is absent or the host isn't a known GitLab instance. The forge resolver
- * uses this to detect self-managed hosts the name heuristic can't classify.
+ * self-managed hosts whose name carries no "gitlab" hint), then falling back to
+ * GitLab's API marker header. The forge resolver uses this to detect
+ * self-managed hosts the name heuristic can't classify.
  */
 export async function probeGitLabHost(host: string): Promise<boolean> {
   const glabPath = await findExecutable("glab");
-  if (!glabPath) {
+  if (glabPath) {
+    try {
+      await execCommand("glab", ["auth", "status", "--hostname", host], {
+        envOverlay: GLAB_ENV,
+        timeout: 10_000,
+      });
+      return true;
+    } catch {
+      // Do not treat auth failures as a positive probe: glab reports the same
+      // unauthenticated message for arbitrary non-GitLab hosts.
+    }
+  }
+  return probeGitLabHostByHttp(host);
+}
+
+export async function probeGitLabHostByHttp(
+  host: string,
+  fetchImpl: GitLabHostProbeFetch = globalThis.fetch,
+): Promise<boolean> {
+  if (!fetchImpl) {
     return false;
   }
   try {
-    await execCommand("glab", ["auth", "status", "--hostname", host], {
-      envOverlay: GLAB_ENV,
-      timeout: 10_000,
+    const url = new URL(`https://${host}/api/v4/version`);
+    const response = await fetchImpl(url.toString(), {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(GITLAB_HOST_PROBE_TIMEOUT_MS),
     });
-    return true;
+    if (response.headers.has("x-gitlab-meta")) {
+      return true;
+    }
+    if (!response.ok) {
+      return false;
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      return false;
+    }
+    const body = await response.json().catch(() => null);
+    return isGitLabVersionResponseBody(body);
   } catch {
     return false;
   }
+}
+
+function isGitLabVersionResponseBody(body: unknown): boolean {
+  const candidate = body as Record<string, unknown> | null;
+  return (
+    candidate !== null &&
+    typeof candidate === "object" &&
+    typeof candidate.version === "string" &&
+    typeof candidate.revision === "string"
+  );
 }
 
 function getGitlabStatusFacts(status: MergePullRequestOptions["status"]): GitLabStatusFacts | null {
@@ -752,7 +813,7 @@ export function assertGitLabAutoMergeEnableReady(
   }
   if (
     gitlab.pipelineStatus === null ||
-    !GITLAB_ACTIVE_PIPELINE_STATUSES.has(gitlab.pipelineStatus)
+    !GITLAB_ACTIVE_PIPELINE_STATUS_SET.has(gitlab.pipelineStatus)
   ) {
     throw new Error(
       "GitLab auto-merge requires an in-progress pipeline; without one the merge would run immediately",
@@ -807,31 +868,46 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
     schema: z.ZodType<T>,
   ): Promise<T> {
     const stdout = await run(args, runOptions);
-    let data: unknown;
-    try {
-      data = JSON.parse(stdout);
-    } catch {
-      throw new GlabCommandError({
-        args,
-        cwd: runOptions.cwd,
-        exitCode: null,
-        stderr: `glab did not return valid JSON (${stdout.length} bytes)`,
-      });
-    }
-    const parsed = schema.safeParse(data);
-    if (!parsed.success) {
-      throw new GlabCommandError({
-        args,
-        cwd: runOptions.cwd,
-        exitCode: null,
-        stderr: `glab JSON did not match the expected schema: ${parsed.error.message}`,
-      });
-    }
-    return parsed.data;
+    return parseCliJsonOutput({
+      commandName: "glab",
+      args,
+      cwd: runOptions.cwd,
+      stdout,
+      schema,
+      createCommandError: (params) => new GlabCommandError(params),
+    });
   }
 
   async function viewMergeRequest(cwd: string, ref: string): Promise<GitLabMergeRequest> {
     return runJson(["mr", "view", ref, "-F", "json"], { cwd }, GitLabMergeRequestSchema);
+  }
+
+  /**
+   * Detects whether discussions exist beyond the first fetched page. The command
+   * runner exposes no pagination headers, so instead of a bare `length >= 100`
+   * (which falsely flags an exactly-full page as truncated) we probe for a single
+   * discussion on the next page. Best-effort: if the probe fails we keep the
+   * already-fetched notes and conservatively report truncation, since a full
+   * first page means at least one page of discussions exists.
+   */
+  async function hasDiscussionsAfterFirstPage(
+    cwd: string,
+    projectPath: string,
+    iid: number,
+  ): Promise<boolean> {
+    try {
+      const probe = await runJson(
+        [
+          "api",
+          `projects/${encodeURIComponent(projectPath)}/merge_requests/${iid}/discussions?per_page=1&page=${TIMELINE_PAGE_SIZE + 1}`,
+        ],
+        { cwd },
+        z.array(GitLabDiscussionSchema),
+      );
+      return probe.length > 0;
+    } catch {
+      return true;
+    }
   }
 
   /**
@@ -947,6 +1023,10 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
         number: mr.iid,
         baseRefName: mr.target_branch,
         headRefName: mr.source_branch,
+        checkoutRefs: [
+          { remoteName: "origin", remoteRef: `refs/heads/${mr.source_branch}` },
+          { remoteName: "origin", remoteRef: `refs/merge-requests/${mr.iid}/head` },
+        ],
         headOwnerLogin: null,
         headRepositorySshUrl: null,
         headRepositoryUrl: null,
@@ -1045,10 +1125,14 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
           )
           .filter((item): item is PullRequestTimelineItem => item !== null)
           .sort(compareTimelineItems);
+        const truncated =
+          discussions.length >= TIMELINE_PAGE_SIZE
+            ? await hasDiscussionsAfterFirstPage(input.cwd, projectPath, mr.iid)
+            : false;
         return {
           ...identity,
           items,
-          truncated: discussions.length >= TIMELINE_PAGE_SIZE,
+          truncated,
           error: null,
         };
       } catch (error) {
@@ -1056,7 +1140,7 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
       }
     },
 
-    async getGitHubCheckDetails(input: GetCheckDetailsOptions): Promise<CheckDetails> {
+    async getCheckDetails(input: GetCheckDetailsOptions): Promise<CheckDetails> {
       const pipeline = await runJson(
         [
           "ci",
@@ -1078,9 +1162,9 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
         throw new Error("ForgeService forced read requires a reason");
       }
 
-      const kinds = input.kinds ?? ["github-issue", "github-pr"];
-      const shouldFetchIssues = kinds.includes("github-issue");
-      const shouldFetchMergeRequests = kinds.includes("github-pr");
+      const kinds = normalizeForgeSearchKinds(input.kinds);
+      const shouldFetchIssues = kinds.includes("issue");
+      const shouldFetchMergeRequests = kinds.includes("change_request");
       const [issuesResult, mergeRequestsResult] = await Promise.allSettled([
         shouldFetchIssues
           ? runIssueList({ cwd: input.cwd, query: input.query, limit: input.limit })
@@ -1103,7 +1187,10 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
               result.reason instanceof GlabAuthenticationError),
         );
       if (everyRequestRejectedForAuth) {
-        return { items: [], githubFeaturesEnabled: false };
+        const hasMissingCli = requestedResults.some(
+          (result) => result.status === "rejected" && result.reason instanceof GlabCliMissingError,
+        );
+        return createUnavailableSearchResult(hasMissingCli ? "cli_missing" : "unauthenticated");
       }
 
       const items: SearchResult["items"] = [];
@@ -1117,6 +1204,7 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
             state: issue.state,
             body: issue.body,
             labels: issue.labels,
+            ...(issue.projectPath ? { projectPath: issue.projectPath } : {}),
             baseRefName: null,
             headRefName: null,
             updatedAt: issue.updatedAt,
@@ -1133,6 +1221,7 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
             state: mergeRequest.state,
             body: mergeRequest.body,
             labels: mergeRequest.labels,
+            ...(mergeRequest.projectPath ? { projectPath: mergeRequest.projectPath } : {}),
             baseRefName: mergeRequest.baseRefName,
             headRefName: mergeRequest.headRefName,
             updatedAt: mergeRequest.updatedAt,
@@ -1143,7 +1232,12 @@ export function createGitLabService(options: CreateGitLabServiceOptions = {}): F
         (left, right) => parseOptionalTime(right.updatedAt) - parseOptionalTime(left.updatedAt),
       );
 
-      return { items, githubFeaturesEnabled: true };
+      return {
+        items,
+        featuresEnabled: true,
+        authState: "authenticated",
+        githubFeaturesEnabled: true,
+      };
     },
 
     async enablePullRequestAutoMerge(

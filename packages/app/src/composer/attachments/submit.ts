@@ -5,14 +5,36 @@ import {
   workspaceAttachmentToSubmitAttachment,
 } from "@/attachments/workspace-attachment-utils";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
-import { buildGitHubAttachmentFromSearchItem } from "@/utils/review-attachments";
+import {
+  buildForgeAttachmentFromSearchItem,
+  buildLegacyGitHubAttachmentFromSearchItem,
+} from "@/utils/review-attachments";
 
-export function splitComposerAttachmentsForSubmit(attachments: ComposerAttachment[]): {
+export type ComposerAttachmentSubmitFormat = "forge" | "legacy-github";
+
+interface SplitComposerAttachmentsOptions {
+  format?: ComposerAttachmentSubmitFormat;
+}
+
+export function resolveComposerAttachmentSubmitFormat(input: {
+  supportsForgeAttachments?: boolean;
+}): ComposerAttachmentSubmitFormat {
+  return input.supportsForgeAttachments === false ? "legacy-github" : "forge";
+}
+
+export function splitComposerAttachmentsForSubmit(
+  attachments: ComposerAttachment[],
+  options: SplitComposerAttachmentsOptions = {},
+): {
   images: ImageAttachment[];
   attachments: AgentAttachment[];
 } {
   const images: ImageAttachment[] = [];
   const agentAttachments: AgentAttachment[] = [];
+  const buildSearchAttachment =
+    options.format === "legacy-github"
+      ? buildLegacyGitHubAttachmentFromSearchItem
+      : buildForgeAttachmentFromSearchItem;
 
   for (const attachment of attachments) {
     if (attachment.kind === "image") {
@@ -33,7 +55,7 @@ export function splitComposerAttachmentsForSubmit(attachments: ComposerAttachmen
       continue;
     }
 
-    const reviewAttachment = buildGitHubAttachmentFromSearchItem(attachment.item);
+    const reviewAttachment = buildSearchAttachment(attachment.item);
     if (reviewAttachment) {
       agentAttachments.push(reviewAttachment);
     }

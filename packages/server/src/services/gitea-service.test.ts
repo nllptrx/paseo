@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PullRequestCommandStatus } from "./forge-service.js";
+import type { PullRequestCommandStatus, PullRequestTimelineItem } from "./forge-service.js";
 import {
   type CreateGiteaServiceOptions,
   createGiteaService,
@@ -28,6 +28,15 @@ function makeService(responder: Responder, overrides: Partial<CreateGiteaService
     ...overrides,
   });
   return { service, calls };
+}
+
+function locatedCommentThreadId(
+  item: PullRequestTimelineItem,
+): [string, string | undefined] | null {
+  if (item.kind !== "comment" || !item.location) {
+    return null;
+  }
+  return [item.id, item.location.threadId];
 }
 
 // `tea pr list -o json` shape: every value is a string, including
@@ -291,8 +300,7 @@ const TIMELINE_PR_VIEW = {
 const TIMELINE_ISSUE_COMMENTS = [
   {
     id: 1001,
-    html_url:
-      "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1001",
+    html_url: "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1001",
     pull_request_url: "https://gitea.com/example-user/sample-repo/pulls/1",
     issue_url: "",
     user: TIMELINE_USER,
@@ -320,8 +328,7 @@ const TIMELINE_REVIEWS = [
     comments_count: 0,
     submitted_at: "2026-06-28T16:15:28Z",
     updated_at: "2026-06-28T16:15:28Z",
-    html_url:
-      "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1002",
+    html_url: "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1002",
     pull_request_url: "https://gitea.com/example-user/sample-repo/pulls/1",
   },
   {
@@ -337,8 +344,7 @@ const TIMELINE_REVIEWS = [
     comments_count: 1,
     submitted_at: "2026-06-28T16:16:18Z",
     updated_at: "2026-06-28T16:16:18Z",
-    html_url:
-      "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1004",
+    html_url: "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1004",
     pull_request_url: "https://gitea.com/example-user/sample-repo/pulls/1",
   },
 ];
@@ -360,8 +366,7 @@ const TIMELINE_REVIEW_COMMENTS = [
       "@@ -2,2 +2,3 @@\n-Sample timeline fixture\n\\ No newline at end of file\n+Sample timeline fixture.\n+",
     position: 4,
     original_position: 0,
-    html_url:
-      "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1003",
+    html_url: "https://gitea.com/example-user/sample-repo/pulls/1#issuecomment-1003",
     pull_request_url: "https://gitea.com/example-user/sample-repo/pulls/1",
   },
 ];
@@ -889,7 +894,7 @@ describe("createGiteaService", () => {
       },
     );
 
-    const details = await service.getGitHubCheckDetails({
+    const details = await service.getCheckDetails({
       cwd: "/repo",
       repoOwner: "example-user",
       repoName: "sample-repo",
@@ -951,7 +956,7 @@ describe("createGiteaService", () => {
       },
     );
 
-    const details = await service.getGitHubCheckDetails({
+    const details = await service.getCheckDetails({
       cwd: "/repo",
       repoOwner: "example-user",
       repoName: "sample-repo",
@@ -1118,6 +1123,26 @@ describe("createGiteaService", () => {
     expect(pr.headRefName).toBe("feat/conflict");
   });
 
+  it("maps a pull request to a checkout target", async () => {
+    const { service } = makeService(() => ok(JSON.stringify([OPEN_PR])));
+
+    await expect(
+      service.getPullRequestCheckoutTarget?.({ cwd: "/repo", number: 5 }),
+    ).resolves.toEqual({
+      number: 5,
+      baseRefName: "main",
+      headRefName: "feat/sample-change",
+      checkoutRefs: [
+        { remoteName: "origin", remoteRef: "refs/pull/5/head" },
+        { remoteName: "origin", remoteRef: "refs/heads/feat/sample-change" },
+      ],
+      headOwnerLogin: null,
+      headRepositorySshUrl: null,
+      headRepositoryUrl: null,
+      isCrossRepository: false,
+    });
+  });
+
   it("creates a pull request and parses the resulting URL and index", async () => {
     const { service, calls } = makeService((args) => {
       if (args[0] === "pr" && args[1] === "create") {
@@ -1200,27 +1225,13 @@ describe("createGiteaService", () => {
 
     expect(calls).toEqual([
       ["pr", "1", "-o", "json"],
-      [
-        "api",
-        "repos/example-user/sample-repo/issues/1/comments?page=1&limit=100",
-      ],
-      [
-        "api",
-        "repos/example-user/sample-repo/pulls/1/reviews?page=1&limit=100",
-      ],
-      [
-        "api",
-        "repos/example-user/sample-repo/pulls/1/reviews/2002/comments?page=1&limit=100",
-      ],
+      ["api", "repos/example-user/sample-repo/issues/1/comments?page=1&limit=100"],
+      ["api", "repos/example-user/sample-repo/pulls/1/reviews?page=1&limit=100"],
+      ["api", "repos/example-user/sample-repo/pulls/1/reviews/2002/comments?page=1&limit=100"],
     ]);
     expect(timeline.error).toBeNull();
     expect(timeline.truncated).toBe(false);
-    expect(timeline.items.map((item) => item.id)).toEqual([
-      "1001",
-      "2001",
-      "1003",
-      "2002",
-    ]);
+    expect(timeline.items.map((item) => item.id)).toEqual(["1001", "2001", "1003", "2002"]);
     expect(timeline.items[0]).toMatchObject({
       kind: "comment",
       author: "example-user",
@@ -1241,8 +1252,87 @@ describe("createGiteaService", () => {
       kind: "comment",
       id: "1003",
       reviewId: "2002",
-      location: { path: "README.md", line: 4, threadId: "2002" },
+      location: { path: "README.md", line: 4, threadId: "README.md#pos-4" },
     });
+  });
+
+  it("keeps distinct inline locations in separate threads within one review", async () => {
+    const reviews = [{ ...TIMELINE_REVIEWS[1], id: 2002, comments_count: 3 }];
+    // One review, three inline comments: two share a location (a reply chain),
+    // the third sits on a different line. All carry the same review id.
+    const reviewComments = [
+      { ...TIMELINE_REVIEW_COMMENTS[0], id: 3001, path: "README.md", position: 4 },
+      { ...TIMELINE_REVIEW_COMMENTS[0], id: 3002, path: "README.md", position: 4 },
+      { ...TIMELINE_REVIEW_COMMENTS[0], id: 3003, path: "README.md", position: 9 },
+    ];
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "1") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify([]));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?"))
+        return ok(JSON.stringify(reviews));
+      if (args[0] === "api" && args[1].includes("/reviews/2002/comments"))
+        return ok(JSON.stringify(reviewComments));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    const threadIds = new Map(
+      timeline.items
+        .map(locatedCommentThreadId)
+        .filter((entry): entry is [string, string | undefined] => entry !== null),
+    );
+    // Same location means same thread (reply chain); different line means different thread.
+    expect(threadIds.get("3001")).toBe("README.md#pos-4");
+    expect(threadIds.get("3002")).toBe("README.md#pos-4");
+    expect(threadIds.get("3003")).toBe("README.md#pos-9");
+    expect(threadIds.get("3003")).not.toBe(threadIds.get("3001"));
+  });
+
+  it("maps the Gitea review-comment resolver into location.isResolved", async () => {
+    const reviews = [{ ...TIMELINE_REVIEWS[1], id: 2002, comments_count: 3 }];
+    // One inline comment per resolution state: resolved (resolver is a user),
+    // unresolved (resolver explicitly null), and unknown (resolver field absent).
+    const withoutResolver: Record<string, unknown> = { ...TIMELINE_REVIEW_COMMENTS[0], id: 3103 };
+    delete withoutResolver.resolver;
+    const reviewComments = [
+      { ...TIMELINE_REVIEW_COMMENTS[0], id: 3101, resolver: { ...TIMELINE_USER } },
+      { ...TIMELINE_REVIEW_COMMENTS[0], id: 3102, resolver: null },
+      withoutResolver,
+    ];
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "1") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify([]));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?"))
+        return ok(JSON.stringify(reviews));
+      if (args[0] === "api" && args[1].includes("/reviews/2002/comments"))
+        return ok(JSON.stringify(reviewComments));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    const locations = new Map(
+      timeline.items
+        .filter((item) => item.kind === "comment" && item.location)
+        .map((item) => [item.id, item.kind === "comment" ? item.location : undefined]),
+    );
+    expect(locations.get("3101")).toMatchObject({ isResolved: true });
+    expect(locations.get("3102")).toMatchObject({ isResolved: false });
+    expect(locations.get("3103")).toBeDefined();
+    expect(locations.get("3103")).not.toHaveProperty("isResolved");
   });
 
   it("keeps issue comments when the Gitea reviews endpoint fails", async () => {
@@ -1300,12 +1390,7 @@ describe("createGiteaService", () => {
 
     expect(calls).toHaveLength(5);
     expect(timeline.error).toBeNull();
-    expect(timeline.items.map((item) => item.id)).toEqual([
-      "1001",
-      "2001",
-      "1003",
-      "2002",
-    ]);
+    expect(timeline.items.map((item) => item.id)).toEqual(["1001", "2001", "1003", "2002"]);
     expect(timeline.items).toContainEqual(
       expect.objectContaining({
         kind: "comment",
@@ -1313,6 +1398,64 @@ describe("createGiteaService", () => {
         reviewId: "2002",
       }),
     );
+  });
+
+  it("flags truncation when a next-page probe finds more issue comments", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: 4000 + index,
+      type: "comment",
+      body: `comment ${index}`,
+      created_at: "2026-06-28T16:15:18Z",
+    }));
+    const { service, calls } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "1") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments?page=101"))
+        return ok(JSON.stringify([{ id: 4100, type: "comment", body: "overflow" }]));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify(firstPage));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?")) return ok(JSON.stringify([]));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(calls.some((call) => call[1]?.includes("/issues/1/comments?page=101&limit=1"))).toBe(
+      true,
+    );
+    expect(timeline.truncated).toBe(true);
+  });
+
+  it("does not flag truncation when exactly one full page of issue comments exists", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: 4000 + index,
+      type: "comment",
+      body: `comment ${index}`,
+      created_at: "2026-06-28T16:15:18Z",
+    }));
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "1") return ok(JSON.stringify(TIMELINE_PR_VIEW));
+      // The probe for the 101st comment comes back empty.
+      if (args[0] === "api" && args[1].includes("/issues/1/comments?page=101"))
+        return ok(JSON.stringify([]));
+      if (args[0] === "api" && args[1].includes("/issues/1/comments"))
+        return ok(JSON.stringify(firstPage));
+      if (args[0] === "api" && args[1].includes("/pulls/1/reviews?")) return ok(JSON.stringify([]));
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    const timeline = await service.getPullRequestTimeline({
+      cwd: "/repo",
+      prNumber: 1,
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+    });
+
+    expect(timeline.truncated).toBe(false);
   });
 
   it("maps Gitea review verdict states", async () => {
@@ -1468,6 +1611,7 @@ describe("createGiteaService", () => {
         state: "open",
         body: "Implements the sample feature",
         labels: ["enhancement", "review"],
+        projectPath: "example-user/sample-repo",
         baseRefName: "main",
         headRefName: "feat/sample-change",
         updatedAt: "2026-06-26T10:00:00Z",
@@ -1480,6 +1624,7 @@ describe("createGiteaService", () => {
         state: "open",
         body: "On mobile the button overflows",
         labels: ["bug"],
+        projectPath: "example-user/sample-repo",
         baseRefName: null,
         headRefName: null,
         updatedAt: "2026-06-24T09:00:00Z",
@@ -1522,6 +1667,8 @@ describe("createGiteaService", () => {
     const result = await service.searchIssuesAndPrs({ cwd: "/repo", query: "" });
 
     expect(result).toEqual({
+      featuresEnabled: true,
+      authState: "authenticated",
       githubFeaturesEnabled: true,
       items: [
         {
@@ -1532,6 +1679,7 @@ describe("createGiteaService", () => {
           state: "open",
           body: "Implements the sample feature",
           labels: ["enhancement", "review"],
+          projectPath: "example-user/sample-repo",
           baseRefName: "main",
           headRefName: "feat/sample-change",
           updatedAt: "2026-06-26T10:00:00Z",
@@ -1544,6 +1692,7 @@ describe("createGiteaService", () => {
           state: "open",
           body: "On mobile the button overflows",
           labels: ["bug"],
+          projectPath: "example-user/sample-repo",
           baseRefName: null,
           headRefName: null,
           updatedAt: "2026-06-24T09:00:00Z",
@@ -1584,6 +1733,8 @@ describe("createGiteaService", () => {
     const missing = makeService(() => ok("[]"), { resolveTeaPath: async () => null }).service;
     await expect(missing.searchIssuesAndPrs({ cwd: "/repo", query: "x" })).resolves.toEqual({
       items: [],
+      featuresEnabled: false,
+      authState: "cli_missing",
       githubFeaturesEnabled: false,
     });
 
@@ -1593,6 +1744,8 @@ describe("createGiteaService", () => {
     await expect(unauthenticated.searchIssuesAndPrs({ cwd: "/repo", query: "x" })).resolves.toEqual(
       {
         items: [],
+        featuresEnabled: false,
+        authState: "unauthenticated",
         githubFeaturesEnabled: false,
       },
     );
@@ -1616,11 +1769,14 @@ describe("createGiteaService", () => {
           state: "open",
           body: "Implements the sample feature",
           labels: ["enhancement", "review"],
+          projectPath: "example-user/sample-repo",
           baseRefName: "main",
           headRefName: "feat/sample-change",
           updatedAt: "2026-06-26T10:00:00Z",
         },
       ],
+      featuresEnabled: true,
+      authState: "authenticated",
       githubFeaturesEnabled: true,
     });
   });

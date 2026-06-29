@@ -72,13 +72,7 @@ import {
   canAddPullRequestCheckLogsToChat,
 } from "./context-attachment";
 import type { CheckoutPipelineJob, CheckoutPipelineStage } from "@getpaseo/protocol/messages";
-import {
-  getActivityVerb,
-  getStateLabel,
-  GITHUB_PROVIDER,
-  isPipelineActiveStatus,
-  mapPipelineStatus,
-} from "./data";
+import { getActivityVerb, getStateLabel, isPipelineActiveStatus, mapPipelineStatus } from "./data";
 import type {
   CheckStatus,
   GitlabPipelineSummary,
@@ -231,6 +225,9 @@ export function PullRequestPane({
   const canFetchGitHubCheckDetails = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.githubCheckDetails === true,
   );
+  const canFetchForgeCheckDetails = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.forgeCheckDetails === true,
+  );
   const gitlabEnabled = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.gitlab === true,
   );
@@ -377,7 +374,7 @@ export function PullRequestPane({
       }
       const threads = entry.kind === "thread" ? [entry] : entry.threads;
       for (const thread of threads) {
-        if (thread.location.isResolved === true) {
+        if (thread.isResolved === true) {
           continue;
         }
         handleAddThreadToChat(thread);
@@ -405,20 +402,23 @@ export function PullRequestPane({
           data.repoName
         ) {
           try {
-            const payload = await daemonClient.checkoutGithubGetCheckDetails({
+            const request = {
               cwd,
               repoOwner: data.repoOwner,
               repoName: data.repoName,
               checkRunId: ref.checkRunId,
               workflowRunId: ref.workflowRunId,
-            });
+            };
+            const payload = canFetchForgeCheckDetails
+              ? await daemonClient.checkoutForgeGetCheckDetails(request)
+              : await daemonClient.checkoutGithubGetCheckDetails(request);
             details = payload.success ? payload.details : null;
           } catch {
             details = null;
           }
         }
         const attachment = buildPullRequestCheckContextAttachment({
-          provider: GITHUB_PROVIDER,
+          provider: data.provider,
           forge: data.forge,
           pullRequest: { number: data.number, title: data.title, url: data.url },
           check,
@@ -436,11 +436,13 @@ export function PullRequestPane({
     },
     [
       addWorkspaceAttachment,
+      canFetchForgeCheckDetails,
       canFetchGitHubCheckDetails,
       cwd,
       daemonClient,
       data.forge,
       data.number,
+      data.provider,
       data.repoName,
       data.repoOwner,
       data.title,
@@ -1395,10 +1397,10 @@ function ThreadBlock({
     <View onPointerEnter={handlePointerEnter} onPointerLeave={handlePointerLeave}>
       <Pressable onPress={handleHeaderPress} style={threadHeaderPressableStyle}>
         <Text style={styles.threadPath} numberOfLines={1}>
-          {formatPullRequestThreadPath(thread.location)}
+          {thread.location ? formatPullRequestThreadPath(thread.location) : root.author}
         </Text>
-        {thread.location.isResolved ? <StatusBadge label="Resolved" variant="success" /> : null}
-        {thread.location.isOutdated ? <StatusBadge label="Outdated" /> : null}
+        {thread.isResolved ? <StatusBadge label="Resolved" variant="success" /> : null}
+        {thread.location?.isOutdated ? <StatusBadge label="Outdated" /> : null}
         <View style={styles.headerTrailing}>
           {collapsed ? (
             <View style={styles.threadCount}>

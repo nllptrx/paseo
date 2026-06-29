@@ -6,7 +6,8 @@ import {
   type CheckoutSessionHost,
 } from "./checkout-session.js";
 import type { GitMutationService } from "../git-mutation/git-mutation-service.js";
-import { createGitHubService, type ForgeService } from "../../../services/github-service.js";
+import { createGitHubService } from "../../../services/github-service.js";
+import type { ForgeService } from "../../../services/forge-service.js";
 import type { SessionOutboundMessage } from "../../messages.js";
 import type {
   CheckoutDiffCompareInput,
@@ -24,7 +25,7 @@ import { expandTilde } from "../../../utils/path.js";
 import type { GitMetadataGenerator } from "./git-metadata-generator.js";
 
 function isCheckDetailsResponse(msg: SessionOutboundMessage): boolean {
-  return msg.type === "checkout.github.get_check_details.response";
+  return msg.type === "checkout.forge.get_check_details.response";
 }
 
 function isTimelineResponse(msg: SessionOutboundMessage): boolean {
@@ -181,7 +182,7 @@ function createGitSnapshot(
       hasRemote: false,
       diffStat: null,
     },
-    github: { featuresEnabled: false, pullRequest: null, error: null },
+    forge: { featuresEnabled: false, pullRequest: null, error: null },
   };
 }
 
@@ -778,7 +779,7 @@ describe("CheckoutSession", () => {
             success: false,
             error: {
               code: "UNKNOWN",
-              message: "Unable to determine GitHub pull request number for merge",
+              message: "Unable to determine current change request number for merge",
             },
             requestId: "pm1",
           },
@@ -794,7 +795,7 @@ describe("CheckoutSession", () => {
     ): WorkspaceGitRuntimeSnapshot {
       return {
         ...createGitSnapshot(cwd, "feature/gitlab-auto-merge"),
-        github: {
+        forge: {
           featuresEnabled: true,
           error: null,
           pullRequest: {
@@ -861,15 +862,15 @@ describe("CheckoutSession", () => {
         },
       });
 
-      await checkout.handleCheckoutGithubSetAutoMergeRequest({
-        type: "checkout.github.set_auto_merge.request",
+      await checkout.handleCheckoutForgeSetAutoMergeRequest({
+        type: "checkout.forge.set_auto_merge.request",
         cwd: "/repo",
         enabled: true,
         mergeMethod: "squash",
         requestId: "am-enable",
       });
-      await checkout.handleCheckoutGithubSetAutoMergeRequest({
-        type: "checkout.github.set_auto_merge.request",
+      await checkout.handleCheckoutForgeSetAutoMergeRequest({
+        type: "checkout.forge.set_auto_merge.request",
         cwd: "/repo",
         enabled: false,
         requestId: "am-disable",
@@ -882,7 +883,7 @@ describe("CheckoutSession", () => {
       ]);
       expect(emitted).toEqual([
         {
-          type: "checkout.github.set_auto_merge.response",
+          type: "checkout.forge.set_auto_merge.response",
           payload: {
             cwd: "/repo",
             enabled: true,
@@ -892,7 +893,7 @@ describe("CheckoutSession", () => {
           },
         },
         {
-          type: "checkout.github.set_auto_merge.response",
+          type: "checkout.forge.set_auto_merge.response",
           payload: {
             cwd: "/repo",
             enabled: false,
@@ -910,7 +911,7 @@ describe("CheckoutSession", () => {
       const githubCalls: number[] = [];
       const gitlabCalls: Array<{ cwd: string; checkRunId: number }> = [];
       const gitlabService: Partial<ForgeService> = {
-        async getGitHubCheckDetails(input) {
+        async getCheckDetails(input) {
           gitlabCalls.push({ cwd: input.cwd, checkRunId: input.checkRunId });
           return {
             checkRunId: input.checkRunId,
@@ -949,7 +950,7 @@ describe("CheckoutSession", () => {
       };
       const { checkout, emitted } = makeCheckoutSession({
         github: {
-          async getGitHubCheckDetails(input) {
+          async getCheckDetails(input) {
             githubCalls.push(input.checkRunId);
             throw new Error("github adapter should not be reached for a gitlab cwd");
           },
@@ -963,8 +964,8 @@ describe("CheckoutSession", () => {
         },
       });
 
-      await checkout.handleCheckoutGithubGetCheckDetailsRequest({
-        type: "checkout.github.get_check_details.request",
+      await checkout.handleCheckoutForgeGetCheckDetailsRequest({
+        type: "checkout.forge.get_check_details.request",
         cwd: "/repo",
         checkRunId: 306,
         requestId: "cd1",
@@ -1158,6 +1159,45 @@ describe("CheckoutSession", () => {
         },
       });
     });
+
+    it("does not report timeline fetch errors as enabled", async () => {
+      const gitlabService: Partial<ForgeService> = {
+        async isAuthenticated() {
+          return true;
+        },
+        async getPullRequestTimeline() {
+          throw new Error("glab timed out");
+        },
+      };
+      const { checkout, emitted } = makeCheckoutSession({
+        git: {
+          resolveForge: async () => ({
+            forge: "gitlab",
+            host: "gitlab.example.com",
+            service: gitlabService as ForgeService,
+          }),
+        },
+      });
+
+      await checkout.handlePullRequestTimelineRequest({
+        type: "pull_request_timeline_request",
+        cwd: "/repo",
+        prNumber: 14,
+        repoOwner: "g",
+        repoName: "r",
+        requestId: "tl-error",
+      });
+
+      expect(emitted.find(isTimelineResponse)).toMatchObject({
+        payload: {
+          githubFeaturesEnabled: false,
+          error: {
+            kind: "unknown",
+            message: "glab timed out",
+          },
+        },
+      });
+    });
   });
 
   describe("stash list", () => {
@@ -1207,17 +1247,58 @@ describe("CheckoutSession", () => {
         },
       ]);
     });
+
+    it("reports non-auth status errors as errors instead of sign-in setup", async () => {
+      const { checkout, emitted } = makeCheckoutSession({
+        git: {
+          getSnapshot: async () => {
+            throw new Error("glab returned invalid JSON");
+          },
+          resolveForge: async () => ({
+            forge: "gitlab",
+            host: "gitlab.example.com",
+            service: {} as ForgeService,
+          }),
+        },
+      });
+
+      await checkout.handleCheckoutPrStatusRequest({
+        type: "checkout_pr_status_request",
+        cwd: "/repo",
+        requestId: "ps-error",
+      });
+
+      expect(emitted).toEqual([
+        {
+          type: "checkout_pr_status_response",
+          payload: expect.objectContaining({
+            cwd: "/repo",
+            status: null,
+            githubFeaturesEnabled: true,
+            authState: "error",
+            forge: "gitlab",
+            requestId: "ps-error",
+            error: expect.objectContaining({ message: "glab returned invalid JSON" }),
+          }),
+        },
+      ]);
+    });
   });
 
   describe("github search", () => {
     it("returns search results and the github-features flag", async () => {
       const { checkout, emitted } = makeCheckoutSession({
         github: {
-          searchIssuesAndPrs: async () => ({ items: [], githubFeaturesEnabled: false }),
+          searchIssuesAndPrs: async () => ({
+            items: [],
+            featuresEnabled: false,
+            authState: "unauthenticated",
+            githubFeaturesEnabled: false,
+          }),
         },
       });
 
-      await checkout.handleGitHubSearchRequest({
+      await checkout.handleForgeSearchRequest({
         type: "github_search_request",
         cwd: "/repo",
         query: "fix",
@@ -1229,6 +1310,8 @@ describe("CheckoutSession", () => {
           type: "github_search_response",
           payload: {
             items: [],
+            featuresEnabled: false,
+            authState: "unauthenticated",
             githubFeaturesEnabled: false,
             error: null,
             requestId: "gs1",
@@ -1244,7 +1327,12 @@ describe("CheckoutSession", () => {
         github: {
           searchIssuesAndPrs: async () => {
             githubCalled = true;
-            return { items: [], githubFeaturesEnabled: true };
+            return {
+              items: [],
+              featuresEnabled: true,
+              authState: "authenticated",
+              githubFeaturesEnabled: true,
+            };
           },
         },
         git: {
@@ -1269,6 +1357,8 @@ describe("CheckoutSession", () => {
                       updatedAt: "2026-06-28T10:00:00.000Z",
                     },
                   ],
+                  featuresEnabled: true,
+                  authState: "authenticated",
                   githubFeaturesEnabled: true,
                 };
               },
@@ -1277,8 +1367,8 @@ describe("CheckoutSession", () => {
         },
       });
 
-      await checkout.handleGitHubSearchRequest({
-        type: "github_search_request",
+      await checkout.handleForgeSearchRequest({
+        type: "forge.search.request",
         cwd: "/repo",
         query: "fix",
         requestId: "gs2",
@@ -1295,11 +1385,12 @@ describe("CheckoutSession", () => {
       ]);
       expect(emitted).toEqual([
         {
-          type: "github_search_response",
+          type: "forge.search.response",
           payload: {
             items: [
               {
                 kind: "pr",
+                forge: "gitlab",
                 number: 17,
                 title: "GitLab result",
                 url: "https://gitlab.com/acme/repo/-/merge_requests/17",
@@ -1311,6 +1402,8 @@ describe("CheckoutSession", () => {
                 updatedAt: "2026-06-28T10:00:00.000Z",
               },
             ],
+            featuresEnabled: true,
+            authState: "authenticated",
             githubFeaturesEnabled: true,
             error: null,
             requestId: "gs2",

@@ -97,7 +97,7 @@ import { submitAgentInput } from "@/composer/submit";
 import { ComposerKeyboardScopeProvider } from "@/composer/keyboard-scope";
 import { useAppSettings } from "@/hooks/use-settings";
 import { isWeb, isNative } from "@/constants/platform";
-import type { GitHubSearchItem } from "@getpaseo/protocol/messages";
+import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
 import type {
   AttachmentMetadata,
   ComposerAttachment,
@@ -105,6 +105,7 @@ import type {
   WorkspaceComposerAttachment,
 } from "@/attachments/types";
 import type { PickedFile } from "@/attachments/picked-file";
+import { resolveComposerAttachmentSubmitFormat } from "@/composer/attachments/submit";
 import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
 import { useWorkspaceAttachmentsForScopes } from "@/attachments/workspace-attachments-store";
 import { droppedItemsToPickedFiles } from "@/composer/attachments/drop";
@@ -114,7 +115,7 @@ import { AttachmentLabel, AttachmentPill, AttachmentThumbnail } from "@/componen
 import { AttachmentLightbox } from "@/components/attachment-lightbox";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { useIsDictationReady } from "@/hooks/use-is-dictation-ready";
-import { useGithubSearchQuery } from "@/git/use-github-search-query";
+import { useForgeSearchQuery } from "@/git/use-forge-search-query";
 import { useCheckoutStatusQuery } from "@/git/use-status-query";
 import { useCheckoutPrStatusQuery } from "@/git/use-pr-status-query";
 import { type ForgeIconKind, type ForgePresentation, getForgePresentation } from "@/git/forge";
@@ -626,7 +627,10 @@ function ImageAttachmentPill({
 }
 
 interface GithubAttachmentPillProps {
-  attachment: Extract<ComposerAttachment, { kind: "github_pr" | "github_issue" }>;
+  attachment: Extract<
+    ComposerAttachment,
+    { kind: "forge_change_request" | "forge_issue" | "github_pr" | "github_issue" }
+  >;
   index: number;
   disabled: boolean;
   forgePresentation: ForgePresentation;
@@ -720,8 +724,8 @@ interface GithubPickerOptionProps {
   testID: string;
   active: boolean;
   selected: boolean;
-  item: GitHubSearchItem;
-  onToggle: (item: GitHubSearchItem) => void;
+  item: ForgeSearchItem;
+  onToggle: (item: ForgeSearchItem) => void;
 }
 
 function GithubPickerOption({
@@ -1062,6 +1066,9 @@ export function Composer({
   });
   const setSelectedAttachments = onChangeAttachments;
   const checkoutStatusQuery = useCheckoutStatusQuery({ serverId, cwd });
+  const supportsForgeSearch = useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.forgeSearch === true,
+  );
   const githubAutoAttach = useComposerGithubAutoAttach({
     text: userInput,
     remoteUrl: resolveCheckoutRemoteUrl(checkoutStatusQuery.status),
@@ -1070,6 +1077,7 @@ export function Composer({
     isConnected,
     serverId,
     cwd,
+    supportsForgeSearch,
     setAttachments: setSelectedAttachments,
   });
   const [cursorIndex, setCursorIndex] = useState(0);
@@ -1229,12 +1237,23 @@ export function Composer({
         agentId: targetAgentId,
         text,
         attachments: sendAttachments,
+        attachmentSubmitFormat: resolveComposerAttachmentSubmitFormat({
+          supportsForgeAttachments: supportsForgeSearch,
+        }),
         encodeImages,
         stream,
       });
       onAttentionPromptSend?.();
     };
-  }, [client, onAttentionPromptSend, serverId, setAgentStreamTail, setAgentStreamHead, t]);
+  }, [
+    client,
+    onAttentionPromptSend,
+    serverId,
+    setAgentStreamTail,
+    setAgentStreamHead,
+    supportsForgeSearch,
+    t,
+  ]);
 
   useEffect(() => {
     onSubmitMessageRef.current = onSubmitMessage;
@@ -1724,7 +1743,11 @@ export function Composer({
   const hasGithubAttachment = useMemo(
     () =>
       selectedAttachments.some(
-        (attachment) => attachment.kind === "github_pr" || attachment.kind === "github_issue",
+        (attachment) =>
+          attachment.kind === "forge_change_request" ||
+          attachment.kind === "forge_issue" ||
+          attachment.kind === "github_pr" ||
+          attachment.kind === "github_issue",
       ),
     [selectedAttachments],
   );
@@ -1738,11 +1761,12 @@ export function Composer({
   const forgePresentation = useMemo(() => getForgePresentation(forge), [forge]);
 
   const githubSearchQueryTrimmed = githubSearchQuery.trim();
-  const githubSearchResultsQuery = useGithubSearchQuery({
+  const githubSearchResultsQuery = useForgeSearchQuery({
     client,
     serverId,
     cwd,
     query: githubSearchQueryTrimmed,
+    supportsForgeSearch,
     enabled: resolveGithubSearchEnabled(isGithubPickerOpen, isConnected, cwd),
   });
 
@@ -1789,7 +1813,7 @@ export function Composer({
   );
 
   const handleToggleGithubItem = useCallback(
-    (item: GitHubSearchItem) => {
+    (item: ForgeSearchItem) => {
       const nextAttachments = toggleGithubAttachmentFromPicker({
         current: attachments,
         item,
