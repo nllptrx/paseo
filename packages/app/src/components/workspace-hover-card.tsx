@@ -24,6 +24,7 @@ import {
   GitPullRequest,
   Server,
 } from "lucide-react-native";
+import { CodebergIcon } from "@/components/icons/codeberg-icon";
 import { ForgejoIcon } from "@/components/icons/forgejo-icon";
 import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { GitHubIcon } from "@/components/icons/github-icon";
@@ -356,6 +357,7 @@ const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedGitLabIcon = withUnistyles(GitLabIcon);
 const ThemedGiteaIcon = withUnistyles(GiteaIcon);
 const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
+const ThemedCodebergIcon = withUnistyles(CodebergIcon);
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedCircleDot = withUnistyles(CircleDot);
@@ -400,6 +402,9 @@ function renderChecksSummaryForgeIcon(
   }
   if (icon === "forgejo") {
     return <ThemedForgejoIcon size={12} uniProps={iconUniProps} />;
+  }
+  if (icon === "codeberg") {
+    return <ThemedCodebergIcon size={12} uniProps={iconUniProps} />;
   }
   if (icon === "github") {
     return <ThemedGitHubIcon size={12} uniProps={iconUniProps} />;

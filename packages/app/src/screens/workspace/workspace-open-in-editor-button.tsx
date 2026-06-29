@@ -10,6 +10,7 @@ import {
 import { useMutation } from "@tanstack/react-query";
 import { Check, ChevronDown } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { CodebergIcon } from "@/components/icons/codeberg-icon";
 import { EditorAppIcon } from "@/components/icons/editor-app-icons";
 import { ForgejoIcon } from "@/components/icons/forgejo-icon";
 import { GiteaIcon } from "@/components/icons/gitea-icon";
@@ -56,6 +57,7 @@ const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedGitLabIcon = withUnistyles(GitLabIcon);
 const ThemedGiteaIcon = withUnistyles(GiteaIcon);
 const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
+const ThemedCodebergIcon = withUnistyles(CodebergIcon);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedCheckIcon = withUnistyles(Check);
 
@@ -71,6 +73,9 @@ function renderForgeOpenTargetIcon(icon: ForgeIconKind): ReactElement {
   }
   if (icon === "forgejo") {
     return <ThemedForgejoIcon size={16} uniProps={mutedColorMapping} />;
+  }
+  if (icon === "codeberg") {
+    return <ThemedCodebergIcon size={16} uniProps={mutedColorMapping} />;
   }
   return <ThemedGitHubIcon size={16} uniProps={mutedColorMapping} />;
 }

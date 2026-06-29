@@ -1,7 +1,7 @@
 import { isGitHubHost, normalizeHost } from "@getpaseo/protocol/git-remote";
 import { createGitHubService } from "./github-service.js";
 import type { ForgeService } from "./forge-service.js";
-import { createGiteaService, probeGiteaHost } from "./gitea-service.js";
+import { createGiteaService, resolveGiteaFamilyForge } from "./gitea-service.js";
 import { createGitLabService, probeGitLabHost } from "./gitlab-service.js";
 
 export type ForgeServiceFactory = () => ForgeService;
@@ -109,11 +109,18 @@ export const defaultForgeRegistry = new ForgeRegistry([
     {
       createService: createGiteaService,
       matchesHost: (host) => normalizeHost(host) === "gitea.com",
-      probeHost: probeGiteaHost,
+      probeHost: async (host) => (await resolveGiteaFamilyForge(host)) === "gitea",
     },
   ],
   [
     "forgejo",
+    {
+      createService: createGiteaService,
+      probeHost: async (host) => (await resolveGiteaFamilyForge(host)) === "forgejo",
+    },
+  ],
+  [
+    "codeberg",
     {
       createService: createGiteaService,
       matchesHost: (host) => normalizeHost(host) === "codeberg.org",

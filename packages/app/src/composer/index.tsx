@@ -41,6 +41,7 @@ import {
   type DraftAgentControlsProps,
 } from "@/composer/agent-controls";
 import { ContextWindowMeter } from "@/components/context-window-meter";
+import { CodebergIcon } from "@/components/icons/codeberg-icon";
 import { ForgejoIcon } from "@/components/icons/forgejo-icon";
 import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
@@ -2247,6 +2248,7 @@ const ThemedGithub = withUnistyles(Github);
 const ThemedGitlab = withUnistyles(Gitlab);
 const ThemedGiteaIcon = withUnistyles(GiteaIcon);
 const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
+const ThemedCodebergIcon = withUnistyles(CodebergIcon);
 
 const iconForegroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const iconForegroundMutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -2261,6 +2263,9 @@ function renderForgeAttachmentIcon(icon: ForgeIconKind): ReactElement {
   }
   if (icon === "forgejo") {
     return <ThemedForgejoIcon size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />;
+  }
+  if (icon === "codeberg") {
+    return <ThemedCodebergIcon size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />;
   }
   return <ThemedGithub size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />;
 }

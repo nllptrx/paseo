@@ -144,6 +144,7 @@ function formatForgeLabel(forge: string): string {
   if (forge === "gitlab") return "GitLab";
   if (forge === "gitea") return "Gitea";
   if (forge === "forgejo") return "Forgejo";
+  if (forge === "codeberg") return "Codeberg";
   return forge;
 }
 

@@ -4,6 +4,7 @@ import type { PullRequestCommandStatus, PullRequestTimelineItem } from "./forge-
 import {
   type CreateGiteaServiceOptions,
   createGiteaService,
+  detectGiteaFamilySoftware,
   TeaAuthenticationError,
   type TeaCommandResult,
   type TeaCommandRunner,
@@ -1779,5 +1780,96 @@ describe("createGiteaService", () => {
       authState: "authenticated",
       githubFeaturesEnabled: true,
     });
+  });
+});
+
+describe("detectGiteaFamilySoftware", () => {
+  const neverTea = async (): Promise<{ stdout: string; stderr: string }> => {
+    throw new Error("tea should not run when the anonymous tier is conclusive");
+  };
+
+  it("classifies a reachable Forgejo namespace as forgejo without authentication", async () => {
+    const software = await detectGiteaFamilySoftware("forge.example.com", {
+      fetchImpl: async () =>
+        new Response('{"version":"15.0.0+gitea-1.22.0"}', {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      runTea: neverTea,
+    });
+    expect(software).toBe("forgejo");
+  });
+
+  it("does not treat a 200 non-JSON response (e.g. an SSO login page) as forgejo", async () => {
+    const runTea = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+      if (args[0] === "login") {
+        return {
+          stdout: JSON.stringify([{ name: "git.sso.it", url: "https://git.sso.it" }]),
+          stderr: "",
+        };
+      }
+      return { stdout: "Not found.", stderr: "HTTP/1.1 404 Not Found\n" };
+    };
+    const software = await detectGiteaFamilySoftware("git.sso.it", {
+      fetchImpl: async () =>
+        new Response("<!doctype html><title>Sign in</title>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+      runTea,
+    });
+    expect(software).toBe("gitea");
+  });
+
+  it("classifies a 404 Forgejo namespace as gitea without authentication", async () => {
+    const software = await detectGiteaFamilySoftware("git.example.com", {
+      fetchImpl: async () => new Response("Not found.", { status: 404 }),
+      runTea: neverTea,
+    });
+    expect(software).toBe("gitea");
+  });
+
+  it("falls back to the authenticated tea probe when anonymous access is blocked", async () => {
+    const runTea = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+      if (args[0] === "login") {
+        return {
+          stdout: JSON.stringify([{ name: "git.acme.it", url: "https://git.acme.it" }]),
+          stderr: "",
+        };
+      }
+      return { stdout: "Not found.", stderr: "HTTP/1.1 404 Not Found\nServer: Caddy\n" };
+    };
+    const software = await detectGiteaFamilySoftware("git.acme.it", {
+      fetchImpl: async () => new Response("blocked", { status: 403 }),
+      runTea,
+    });
+    expect(software).toBe("gitea");
+  });
+
+  it("reads forgejo from the authenticated tea status line when anonymous access is blocked", async () => {
+    const runTea = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+      if (args[0] === "login") {
+        return {
+          stdout: JSON.stringify([{ name: "forge.acme.it", url: "https://forge.acme.it" }]),
+          stderr: "",
+        };
+      }
+      return { stdout: '{"version":"1.0+gitea"}', stderr: "HTTP/1.1 200 OK\nServer: Caddy\n" };
+    };
+    const software = await detectGiteaFamilySoftware("forge.acme.it", {
+      fetchImpl: async () => new Response("blocked", { status: 403 }),
+      runTea,
+    });
+    expect(software).toBe("forgejo");
+  });
+
+  it("defaults to gitea when every tier is inconclusive", async () => {
+    const software = await detectGiteaFamilySoftware("offline.example.com", {
+      fetchImpl: async () => {
+        throw new Error("network down");
+      },
+      runTea: async () => ({ stdout: "[]", stderr: "" }),
+    });
+    expect(software).toBe("gitea");
   });
 });

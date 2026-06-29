@@ -18,6 +18,7 @@ import {
   Monitor,
   SquareTerminal,
 } from "lucide-react-native";
+import { CodebergIcon } from "@/components/icons/codeberg-icon";
 import { ForgejoIcon } from "@/components/icons/forgejo-icon";
 import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { GitHubIcon } from "@/components/icons/github-icon";
@@ -60,6 +61,7 @@ const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedGitLabIcon = withUnistyles(GitLabIcon);
 const ThemedGiteaIcon = withUnistyles(GiteaIcon);
 const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
+const ThemedCodebergIcon = withUnistyles(CodebergIcon);
 const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
@@ -78,6 +80,9 @@ function renderChecksBadgeForgeIcon(icon: ForgeIconKind) {
   }
   if (icon === "forgejo") {
     return <ThemedForgejoIcon size={10} uniProps={redColorMapping} />;
+  }
+  if (icon === "codeberg") {
+    return <ThemedCodebergIcon size={10} uniProps={redColorMapping} />;
   }
   return <ThemedGitHubIcon size={10} uniProps={redColorMapping} />;
 }

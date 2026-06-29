@@ -11,8 +11,8 @@
 import { isGitHubHost, parseGitRemoteLocation } from "@getpaseo/protocol/git-remote";
 import { buildGitHubBlobUrl, buildGitHubBranchTreeUrl } from "@/git/github-url";
 
-export type Forge = "github" | "gitlab" | "gitea" | "forgejo";
-export type ForgeIconKind = "github" | "gitlab" | "gitea" | "forgejo";
+export type Forge = "github" | "gitlab" | "gitea" | "forgejo" | "codeberg";
+export type ForgeIconKind = "github" | "gitlab" | "gitea" | "forgejo" | "codeberg";
 
 interface ForgeBlobUrlInput {
   remoteUrl: string | null | undefined;
@@ -28,7 +28,7 @@ interface ForgeBranchTreeUrlInput {
 }
 
 export function normalizeForge(raw: string | null | undefined): Forge {
-  if (raw === "gitlab" || raw === "gitea" || raw === "forgejo") {
+  if (raw === "gitlab" || raw === "gitea" || raw === "forgejo" || raw === "codeberg") {
     return raw;
   }
   return "github";
@@ -49,7 +49,7 @@ export function forgeFromRemoteUrl(remoteUrl: string | null | undefined): Forge 
     return "gitlab";
   }
   if (host === "codeberg.org") {
-    return "forgejo";
+    return "codeberg";
   }
   if (host === "gitea.com") {
     return "gitea";
@@ -85,9 +85,9 @@ export interface ForgePresentation {
 }
 
 function buildTeaForgePresentation(
-  forge: Extract<Forge, "gitea" | "forgejo">,
+  forge: Extract<Forge, "gitea" | "forgejo" | "codeberg">,
   brandLabel: string,
-  icon: Extract<ForgeIconKind, "gitea" | "forgejo">,
+  icon: Extract<ForgeIconKind, "gitea" | "forgejo" | "codeberg">,
 ): ForgePresentation {
   return {
     forge,
@@ -145,6 +145,7 @@ const PRESENTATION: Record<Forge, ForgePresentation> = {
   },
   gitea: buildTeaForgePresentation("gitea", "Gitea", "gitea"),
   forgejo: buildTeaForgePresentation("forgejo", "Forgejo", "forgejo"),
+  codeberg: buildTeaForgePresentation("codeberg", "Codeberg", "codeberg"),
 };
 
 export function getForgePresentation(forge: Forge): ForgePresentation {
@@ -155,7 +156,7 @@ export function buildForgeSignInCommand(forge: Forge, host: string | null): stri
   if (forge === "gitlab") {
     return host ? `glab auth login --hostname ${host}` : "glab auth login";
   }
-  if (forge === "gitea" || forge === "forgejo") {
+  if (forge === "gitea" || forge === "forgejo" || forge === "codeberg") {
     return "tea login add";
   }
   return "gh auth login";

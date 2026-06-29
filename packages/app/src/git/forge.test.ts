@@ -65,12 +65,19 @@ describe("getForgePresentation", () => {
       changeRequestAbbrev: "PR",
       cli: "tea",
     });
+    expect(getForgePresentation("codeberg")).toMatchObject({
+      forge: "codeberg",
+      icon: "codeberg",
+      brandLabel: "Codeberg",
+      changeRequestAbbrev: "PR",
+      cli: "tea",
+    });
   });
 });
 
 describe("forgeFromRemoteUrl", () => {
   it("detects only public forge hosts that are safe without daemon probing", () => {
-    expect(forgeFromRemoteUrl("https://codeberg.org/example/repo.git")).toBe("forgejo");
+    expect(forgeFromRemoteUrl("https://codeberg.org/example/repo.git")).toBe("codeberg");
     expect(forgeFromRemoteUrl("https://gitlab.com/example/repo.git")).toBe("gitlab");
     expect(forgeFromRemoteUrl("https://gitea.com/example/repo.git")).toBe("gitea");
   });
@@ -85,6 +92,7 @@ describe("forgeFromRemoteUrl", () => {
 describe("buildForgeSignInCommand", () => {
   it("uses tea login add for both Gitea-family presentations", () => {
     expect(buildForgeSignInCommand("gitea", "gitea.com")).toBe("tea login add");
-    expect(buildForgeSignInCommand("forgejo", "codeberg.org")).toBe("tea login add");
+    expect(buildForgeSignInCommand("forgejo", "forgejo.example.org")).toBe("tea login add");
+    expect(buildForgeSignInCommand("codeberg", "codeberg.org")).toBe("tea login add");
   });
 });

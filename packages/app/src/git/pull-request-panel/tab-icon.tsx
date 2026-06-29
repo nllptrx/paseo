@@ -1,3 +1,4 @@
+import { CodebergIcon } from "@/components/icons/codeberg-icon";
 import { ForgejoIcon } from "@/components/icons/forgejo-icon";
 import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { GitHubIcon } from "@/components/icons/github-icon";
@@ -22,6 +23,9 @@ export function PullRequestTabIcon({
   }
   if (icon === "forgejo") {
     return <ForgejoIcon size={size} color={color} />;
+  }
+  if (icon === "codeberg") {
+    return <CodebergIcon size={size} color={color} />;
   }
   return <GitHubIcon size={size} color={color} />;
 }

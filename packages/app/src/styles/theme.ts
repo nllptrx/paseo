@@ -133,6 +133,7 @@ const lightStatusColors = {
   forgeGitlab: "#FC6D26", // GitLab orange
   forgeGitea: "#609926", // Gitea green
   forgeForgejo: "#FB923C", // Forgejo orange
+  forgeCodeberg: "#2185D0", // Codeberg blue
 };
 
 const darkStatusColors = {
@@ -143,6 +144,7 @@ const darkStatusColors = {
   forgeGitlab: "#FC6D26", // GitLab orange
   forgeGitea: "#609926", // Gitea green
   forgeForgejo: "#FB923C", // Forgejo orange
+  forgeCodeberg: "#2185D0", // Codeberg blue
 };
 
 // Semantic color tokens - Layer-based system

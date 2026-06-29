@@ -50,6 +50,7 @@ import { useCheckoutGitActionsStore } from "@/git/actions-store";
 import { isNative } from "@/constants/platform";
 import { useIsCompactFormFactor, WORKSPACE_SECONDARY_HEADER_HEIGHT } from "@/constants/layout";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { CodebergIcon } from "@/components/icons/codeberg-icon";
 import { ForgejoIcon } from "@/components/icons/forgejo-icon";
 import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { GitLabIcon } from "@/components/icons/gitlab-icon";
@@ -109,12 +110,14 @@ const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 const ThemedGitLabIcon = withUnistyles(GitLabIcon);
 const ThemedGiteaIcon = withUnistyles(GiteaIcon);
 const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
+const ThemedCodebergIcon = withUnistyles(CodebergIcon);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const gitlabBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitlab });
 const giteaBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitea });
 const forgejoBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeForgejo });
+const codebergBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeCodeberg });
 const successColorMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
 const dangerColorMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
 const warningColorMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
@@ -536,6 +539,9 @@ export function PullRequestPane({
                 ) : null}
                 {forgePresentation.icon === "forgejo" ? (
                   <ThemedForgejoIcon size={12} uniProps={forgejoBrandColorMapping} />
+                ) : null}
+                {forgePresentation.icon === "codeberg" ? (
+                  <ThemedCodebergIcon size={12} uniProps={codebergBrandColorMapping} />
                 ) : null}
                 {data.gitlabApprovals ? (
                   <View style={styles.approvalsBadge} testID="pr-pane-approvals">

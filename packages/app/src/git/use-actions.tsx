@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, type ReactElement } from "re
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTranslation } from "react-i18next";
 import { withUnistyles } from "react-native-unistyles";
+import { CodebergIcon } from "@/components/icons/codeberg-icon";
 import { ForgejoIcon } from "@/components/icons/forgejo-icon";
 import { GiteaIcon } from "@/components/icons/gitea-icon";
 import { GitHubIcon } from "@/components/icons/github-icon";
@@ -37,10 +38,12 @@ const ThemedGitHubIcon = withUnistyles(GitHubIcon);
 const ThemedGitLabIcon = withUnistyles(GitLabIcon);
 const ThemedGiteaIcon = withUnistyles(GiteaIcon);
 const ThemedForgejoIcon = withUnistyles(ForgejoIcon);
+const ThemedCodebergIcon = withUnistyles(CodebergIcon);
 const forgeMutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const gitlabBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitlab });
 const giteaBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeGitea });
 const forgejoBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeForgejo });
+const codebergBrandColorMapping = (theme: Theme) => ({ color: theme.colors.forgeCodeberg });
 
 /**
  * The leading icon for every change-request action (create/view/merge) is the
@@ -57,6 +60,9 @@ function renderForgePrIcon(forge: Forge): ReactElement {
   }
   if (icon === "forgejo") {
     return <ThemedForgejoIcon size={16} uniProps={forgejoBrandColorMapping} />;
+  }
+  if (icon === "codeberg") {
+    return <ThemedCodebergIcon size={16} uniProps={codebergBrandColorMapping} />;
   }
   return <ThemedGitHubIcon size={16} uniProps={forgeMutedColorMapping} />;
 }

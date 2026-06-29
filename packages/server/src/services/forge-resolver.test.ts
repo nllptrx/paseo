@@ -19,7 +19,7 @@ describe("forgeForHost", () => {
     expect(forgeForHost("github.com")).toBe("github");
     expect(forgeForHost("gitlab.com")).toBe("gitlab");
     expect(forgeForHost("gitea.com")).toBe("gitea");
-    expect(forgeForHost("codeberg.org")).toBe("forgejo");
+    expect(forgeForHost("codeberg.org")).toBe("codeberg");
   });
 
   it("returns null for hosts with no known adapter", () => {
@@ -52,11 +52,11 @@ describe("createForgeResolver", () => {
     expect(probeForge).toHaveBeenCalledWith("gitlab.example.com");
   });
 
-  it("resolves Gitea and Forgejo remotes to their registered top-level forges", async () => {
+  it("resolves Gitea and Codeberg remotes to their registered top-level forges", async () => {
     const gitea = createForgeResolver({
       resolveRemoteUrl: async () => "https://gitea.com/example/repo.git",
     });
-    const forgejo = createForgeResolver({
+    const codeberg = createForgeResolver({
       resolveRemoteUrl: async () => "git@codeberg.org:example/repo.git",
     });
 
@@ -64,8 +64,8 @@ describe("createForgeResolver", () => {
       forge: "gitea",
       host: "gitea.com",
     });
-    await expect(forgejo.resolve("/forgejo")).resolves.toMatchObject({
-      forge: "forgejo",
+    await expect(codeberg.resolve("/codeberg")).resolves.toMatchObject({
+      forge: "codeberg",
       host: "codeberg.org",
     });
   });

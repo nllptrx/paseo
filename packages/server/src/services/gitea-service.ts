@@ -895,19 +895,19 @@ export async function probeGiteaHost(host: string): Promise<boolean> {
   }
 }
 
-function hostHasLogin(stdout: string, host: string): boolean {
+function findTeaLoginNameForHost(stdout: string, host: string): string | null {
   let data: unknown;
   try {
     data = JSON.parse(stdout);
   } catch {
-    return false;
+    return null;
   }
   const parsed = z.array(GiteaLoginSchema).safeParse(data);
   if (!parsed.success) {
-    return false;
+    return null;
   }
   const target = host.toLowerCase();
-  return parsed.data.some((login) => {
+  const match = parsed.data.find((login) => {
     const candidates = [login.ssh_host, login.name];
     if (login.url) {
       try {
@@ -918,6 +918,183 @@ function hostHasLogin(stdout: string, host: string): boolean {
     }
     return candidates.some((candidate) => candidate?.toLowerCase() === target);
   });
+  return match?.name ?? null;
+}
+
+function hostHasLogin(stdout: string, host: string): boolean {
+  return findTeaLoginNameForHost(stdout, host) !== null;
+}
+
+export type GiteaFamilySoftware = "gitea" | "forgejo";
+
+/**
+ * The Forgejo REST namespace (/api/forgejo/v1) exists only on Forgejo; Gitea's
+ * router returns 404 for it. A reachable response there is therefore the signal
+ * that a Gitea-family host runs Forgejo rather than Gitea.
+ */
+const FORGEJO_VERSION_PATH = "/api/forgejo/v1/version";
+const GITEA_SOFTWARE_PROBE_TIMEOUT_MS = 5_000;
+
+type ForgejoNamespaceFetch = (
+  url: string,
+  init: {
+    headers: Record<string, string>;
+    method: "GET";
+    redirect: "manual";
+    signal: AbortSignal;
+  },
+) => Promise<Response>;
+
+type TeaApiRunner = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
+
+export interface DetectGiteaFamilyOptions {
+  /** Unauthenticated tier transport; defaults to the global fetch. */
+  fetchImpl?: ForgejoNamespaceFetch | null;
+  /** Authenticated tier transport; defaults to spawning `tea`. */
+  runTea?: TeaApiRunner;
+}
+
+async function defaultRunTea(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  const { stdout, stderr } = await execCommand("tea", args, {
+    envOverlay: TEA_ENV,
+    timeout: GITEA_SOFTWARE_PROBE_TIMEOUT_MS,
+  });
+  return { stdout, stderr };
+}
+
+async function isForgejoVersionBody(response: Response): Promise<boolean> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    return false;
+  }
+  const body = (await response.json().catch(() => null)) as { version?: unknown } | null;
+  return typeof body?.version === "string";
+}
+
+/**
+ * Probe the Forgejo namespace anonymously. Returns true (Forgejo), false (Gitea
+ * — route absent), or null when inconclusive (the host blocks anonymous API
+ * access, times out, or is unreachable) so the caller falls back to an
+ * authenticated probe. Redirects are not followed and a 2xx only counts when it
+ * carries the Forgejo version JSON, so an SSO/reverse-proxy login page served at
+ * 200 cannot masquerade as a Forgejo response.
+ */
+async function probeForgejoNamespaceByHttp(
+  host: string,
+  fetchImpl: ForgejoNamespaceFetch | null | undefined,
+): Promise<boolean | null> {
+  if (!fetchImpl) {
+    return null;
+  }
+  try {
+    const response = await fetchImpl(`https://${host}${FORGEJO_VERSION_PATH}`, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(GITEA_SOFTWARE_PROBE_TIMEOUT_MS),
+    });
+    if (response.status === 404) {
+      return false;
+    }
+    if (response.ok && (await isForgejoVersionBody(response))) {
+      return true;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const HTTP_STATUS_LINE = /^HTTP\/\d(?:\.\d)?\s+(\d{3})/m;
+
+function parseHttpStatus(headerDump: string): number | null {
+  const match = headerDump.match(HTTP_STATUS_LINE);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Probe the Forgejo namespace through an authenticated `tea` request, used when
+ * the anonymous tier is inconclusive (e.g. a reverse proxy blocks anonymous
+ * /api access). `tea api` exits 0 regardless of HTTP status, so the verdict is
+ * read from the status line `tea api -i` writes to stderr.
+ */
+async function probeForgejoNamespaceByTea(
+  host: string,
+  runTea: TeaApiRunner,
+): Promise<boolean | null> {
+  let loginName: string | null;
+  try {
+    const { stdout } = await runTea(["login", "list", "-o", "json"]);
+    loginName = findTeaLoginNameForHost(stdout, host);
+  } catch {
+    return null;
+  }
+  if (!loginName) {
+    return null;
+  }
+  try {
+    const { stderr } = await runTea(["api", "--login", loginName, "-i", FORGEJO_VERSION_PATH]);
+    const status = parseHttpStatus(stderr);
+    if (status === 404) {
+      return false;
+    }
+    if (status !== null && status >= 200 && status < 300) {
+      return true;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide whether a Gitea-family host runs Forgejo or Gitea, cascading by
+ * authentication level: an anonymous public probe first, an authenticated `tea`
+ * probe when that is inconclusive, and finally Gitea as the safe default (the
+ * historical assumption, so an undetected host keeps rendering as before).
+ */
+export async function detectGiteaFamilySoftware(
+  host: string,
+  options: DetectGiteaFamilyOptions = {},
+): Promise<GiteaFamilySoftware> {
+  const fetchImpl = options.fetchImpl === undefined ? globalThis.fetch : options.fetchImpl;
+  const runTea = options.runTea ?? defaultRunTea;
+
+  const viaHttp = await probeForgejoNamespaceByHttp(host, fetchImpl);
+  if (viaHttp !== null) {
+    return viaHttp ? "forgejo" : "gitea";
+  }
+  const viaTea = await probeForgejoNamespaceByTea(host, runTea);
+  if (viaTea !== null) {
+    return viaTea ? "forgejo" : "gitea";
+  }
+  return "gitea";
+}
+
+const inFlightFamilyProbes = new Map<string, Promise<GiteaFamilySoftware | null>>();
+
+/**
+ * Resolve which Gitea-family forge id a host maps to for the open registry:
+ * null when there is no usable `tea` login (Paseo cannot operate the host),
+ * otherwise the detected software. Concurrent calls for the same host — the
+ * gitea and forgejo registrations probing in parallel — share one probe so
+ * detection runs once.
+ */
+export function resolveGiteaFamilyForge(host: string): Promise<GiteaFamilySoftware | null> {
+  const existing = inFlightFamilyProbes.get(host);
+  if (existing) {
+    return existing;
+  }
+  const pending = (async () => {
+    if (!(await probeGiteaHost(host))) {
+      return null;
+    }
+    return detectGiteaFamilySoftware(host);
+  })().finally(() => {
+    inFlightFamilyProbes.delete(host);
+  });
+  inFlightFamilyProbes.set(host, pending);
+  return pending;
 }
 
 export function createGiteaService(options: CreateGiteaServiceOptions = {}): ForgeService {
