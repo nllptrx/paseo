@@ -422,8 +422,7 @@ export interface SearchResult {
   featuresEnabled: boolean;
   authState: ForgeAuthState;
   /**
-   * COMPAT(githubFeaturesEnabled): added in v0.1.102, remove after 2026-12-28.
-   * TODO(before merge): align the added version and removal date with the maintainer's target release.
+   * COMPAT(githubFeaturesEnabled): added in v0.1.104, remove after 2026-12-28.
    */
   githubFeaturesEnabled?: boolean;
 }
@@ -460,7 +459,7 @@ export interface ForgeService {
   listIssues(options: ListIssuesOptions): Promise<IssueSummary[]>;
   getPullRequest(options: GetPullRequestOptions): Promise<PullRequestSummary>;
   getPullRequestHeadRef(options: GetPullRequestOptions): Promise<string>;
-  getPullRequestCheckoutTarget?(options: GetPullRequestOptions): Promise<PullRequestCheckoutTarget>;
+  getPullRequestCheckoutTarget(options: GetPullRequestOptions): Promise<PullRequestCheckoutTarget>;
   getCurrentPullRequestStatus(
     options: {
       cwd: string;

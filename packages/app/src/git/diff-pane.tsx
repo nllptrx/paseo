@@ -1671,8 +1671,7 @@ function computeForgeSetupAction(input: {
     case "error":
       return null;
     default:
-      // COMPAT(forgeAuthState): added in v0.1.102, remove after 2026-12-28.
-      // TODO(before merge): align the added version and removal date with the maintainer's target release.
+      // COMPAT(forgeAuthState): added in v0.1.104, remove after 2026-12-28.
       // A daemon predating authState only sends the
       // boolean; keep the original generic GitLab callout until the floor moves.
       return input.forge === "gitlab" && !input.githubFeaturesEnabled ? "generic" : null;

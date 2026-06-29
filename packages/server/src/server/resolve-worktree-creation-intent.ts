@@ -15,8 +15,7 @@ export interface ResolveWorktreeCreationIntentInput {
     projectPath?: string;
   };
   /**
-   * COMPAT(githubPrNumber): added in v0.1.102, remove after 2026-12-28.
-   * TODO(before merge): align the added version and removal date with the maintainer's target release.
+   * COMPAT(githubPrNumber): added in v0.1.104, remove after 2026-12-28.
    */
   githubPrNumber?: number;
 }
@@ -170,17 +169,7 @@ async function resolvePrCheckoutIntent(
 
 async function resolveForgePrCheckoutIntent(
   params: PrCheckoutIntentParams,
-): Promise<
-  Extract<WorktreeCreationIntent, { kind: "checkout-change-request" | "checkout-branch" }>
-> {
-  const directRefName = params.refName?.trim();
-  if (directRefName && !params.deps.forgeService.getPullRequestCheckoutTarget) {
-    return {
-      kind: "checkout-branch",
-      branchName: directRefName,
-    };
-  }
-
+): Promise<Extract<WorktreeCreationIntent, { kind: "checkout-change-request" }>> {
   const checkoutTarget = await resolvePrCheckoutTarget(params);
   const headRef = await resolvePrHeadRef({
     refName: params.refName,
@@ -189,16 +178,15 @@ async function resolveForgePrCheckoutIntent(
     repoRoot: params.repoRoot,
     deps: params.deps,
   });
-  if (checkoutTarget?.isCrossRepository && !hasCheckoutRefs(checkoutTarget)) {
+  if (checkoutTarget.isCrossRepository && !hasCheckoutRefs(checkoutTarget)) {
     throw new UnsupportedForgeCheckoutTargetError(params.deps.forge);
   }
   const baseRefName =
-    checkoutTarget?.baseRefName?.trim() ||
-    (await resolveDefaultBranch(params.repoRoot, params.deps));
-  const pushRemoteUrl = checkoutTarget?.isCrossRepository
+    checkoutTarget.baseRefName.trim() || (await resolveDefaultBranch(params.repoRoot, params.deps));
+  const pushRemoteUrl = checkoutTarget.isCrossRepository
     ? checkoutTarget.headRepositorySshUrl || checkoutTarget.headRepositoryUrl || undefined
     : undefined;
-  const trackOriginHead = checkoutTarget ? !checkoutTarget.isCrossRepository : false;
+  const trackOriginHead = !checkoutTarget.isCrossRepository;
 
   return {
     kind: "checkout-change-request",
@@ -206,7 +194,7 @@ async function resolveForgePrCheckoutIntent(
     changeRequestNumber: params.changeRequestNumber,
     headRef,
     baseRefName,
-    checkoutRefs: checkoutTarget?.checkoutRefs ?? buildDefaultCheckoutRefs(params, headRef),
+    checkoutRefs: checkoutTarget.checkoutRefs ?? buildDefaultCheckoutRefs(params, headRef),
     ...(pushRemoteUrl ? { pushRemoteUrl } : {}),
     ...(trackOriginHead ? { trackOriginHead } : {}),
   };
@@ -224,13 +212,12 @@ async function resolveGitHubPrCheckoutIntent(
     deps: params.deps,
   });
   const baseRefName =
-    checkoutTarget?.baseRefName?.trim() ||
-    (await resolveDefaultBranch(params.repoRoot, params.deps));
+    checkoutTarget.baseRefName.trim() || (await resolveDefaultBranch(params.repoRoot, params.deps));
   const localBranchName = buildGitHubPrLocalBranchName({ headRef, checkoutTarget });
-  const pushRemoteUrl = checkoutTarget?.isCrossRepository
+  const pushRemoteUrl = checkoutTarget.isCrossRepository
     ? checkoutTarget.headRepositorySshUrl || checkoutTarget.headRepositoryUrl || undefined
     : undefined;
-  const trackOriginHead = checkoutTarget ? !checkoutTarget.isCrossRepository : false;
+  const trackOriginHead = !checkoutTarget.isCrossRepository;
 
   return {
     kind: "checkout-change-request",
@@ -238,7 +225,7 @@ async function resolveGitHubPrCheckoutIntent(
     changeRequestNumber: params.changeRequestNumber,
     headRef,
     baseRefName,
-    checkoutRefs: checkoutTarget?.checkoutRefs ?? buildDefaultCheckoutRefs(params, headRef),
+    checkoutRefs: checkoutTarget.checkoutRefs ?? buildDefaultCheckoutRefs(params, headRef),
     ...(localBranchName !== headRef ? { localBranchName } : {}),
     ...(pushRemoteUrl ? { pushRemoteUrl } : {}),
     ...(trackOriginHead ? { trackOriginHead } : {}),
@@ -263,13 +250,7 @@ async function resolvePrCheckoutTarget(params: {
   changeRequestNumber: number;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
-}): Promise<PullRequestCheckoutTarget | null> {
-  if (!params.deps.forgeService.getPullRequestCheckoutTarget) {
-    if (params.deps.forge === "github") {
-      return null;
-    }
-    throw new UnsupportedForgeCheckoutTargetError(params.deps.forge);
-  }
+}): Promise<PullRequestCheckoutTarget> {
   return params.deps.forgeService.getPullRequestCheckoutTarget({
     cwd: params.repoRoot,
     number: params.changeRequestNumber,
@@ -290,7 +271,7 @@ async function resolveDefaultBranch(
 async function resolvePrHeadRef(params: {
   refName?: string;
   changeRequestNumber: number;
-  checkoutTarget?: PullRequestCheckoutTarget | null;
+  checkoutTarget: PullRequestCheckoutTarget;
   repoRoot: string;
   deps: ResolveWorktreeCreationIntentDeps;
 }): Promise<string> {
@@ -298,7 +279,7 @@ async function resolvePrHeadRef(params: {
   if (trimmedRefName) {
     return trimmedRefName;
   }
-  const checkoutTargetHeadRef = params.checkoutTarget?.headRefName.trim();
+  const checkoutTargetHeadRef = params.checkoutTarget.headRefName.trim();
   if (checkoutTargetHeadRef) {
     return checkoutTargetHeadRef;
   }
@@ -310,9 +291,9 @@ async function resolvePrHeadRef(params: {
 
 function buildGitHubPrLocalBranchName(params: {
   headRef: string;
-  checkoutTarget: PullRequestCheckoutTarget | null;
+  checkoutTarget: PullRequestCheckoutTarget;
 }): string {
-  const owner = params.checkoutTarget?.isCrossRepository
+  const owner = params.checkoutTarget.isCrossRepository
     ? normalizeGitHubOwnerForBranch(params.checkoutTarget.headOwnerLogin)
     : null;
   return owner ? `${owner}/${params.headRef}` : params.headRef;

@@ -181,6 +181,35 @@ const GiteaPullRequestViewSchema = z
   })
   .passthrough();
 
+/**
+ * Subset of the Gitea/Forgejo REST PR object (`GET repos/{owner}/{repo}/pulls/{index}`)
+ * that `tea pr -o json` flattens away: the head/base repositories. Comparing their
+ * ids tells a fork PR (cross-repo) from a same-repo PR, and the head repo carries
+ * the contributor remote we push back to. `head.repo` is null when the fork was
+ * deleted, which we treat as same-repo.
+ */
+const GiteaPullRequestRepoSchema = z
+  .object({
+    id: z.number().optional(),
+    ssh_url: z.string().nullable().optional(),
+    html_url: z.string().nullable().optional(),
+    owner: z.object({ login: z.string().optional() }).passthrough().nullable().optional(),
+  })
+  .passthrough();
+
+const GiteaPullRequestApiSchema = z
+  .object({
+    head: z
+      .object({ repo: GiteaPullRequestRepoSchema.nullable().optional() })
+      .passthrough()
+      .optional(),
+    base: z
+      .object({ repo: GiteaPullRequestRepoSchema.nullable().optional() })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
 const GiteaCommitStatusSchema = z
   .object({
     id: z.number(),
@@ -1153,6 +1182,46 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
     return runJsonParse(args, runOptions, stdout, schema);
   }
 
+  async function resolveForkCheckoutFacts(
+    cwd: string,
+    summary: PullRequestSummary,
+  ): Promise<{
+    isCrossRepository: boolean;
+    headOwnerLogin: string | null;
+    headRepositorySshUrl: string | null;
+    headRepositoryUrl: string | null;
+  }> {
+    const sameRepo = {
+      isCrossRepository: false,
+      headOwnerLogin: null,
+      headRepositorySshUrl: null,
+      headRepositoryUrl: null,
+    };
+    const { owner, name } = parseGiteaRepoFromUrl(summary.url);
+    if (!owner || !name) {
+      return sameRepo;
+    }
+    const pr = await runJson(
+      [
+        "api",
+        `repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${summary.number}`,
+      ],
+      { cwd },
+      GiteaPullRequestApiSchema,
+    );
+    const headRepo = pr.head?.repo ?? null;
+    const baseRepo = pr.base?.repo ?? null;
+    if (headRepo?.id == null || baseRepo?.id == null || headRepo.id === baseRepo.id) {
+      return sameRepo;
+    }
+    return {
+      isCrossRepository: true,
+      headOwnerLogin: headRepo.owner?.login ?? null,
+      headRepositorySshUrl: headRepo.ssh_url ?? null,
+      headRepositoryUrl: headRepo.html_url ?? null,
+    };
+  }
+
   async function listPullRequestItems(input: {
     cwd: string;
     state: "open" | "closed" | "all";
@@ -1507,15 +1576,16 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       if (summary.headRefName) {
         checkoutRefs.push({ remoteName: "origin", remoteRef: `refs/heads/${summary.headRefName}` });
       }
+      const fork = await resolveForkCheckoutFacts(input.cwd, summary);
       return {
         number: summary.number,
         baseRefName: summary.baseRefName,
         headRefName: summary.headRefName,
         checkoutRefs,
-        headOwnerLogin: null,
-        headRepositorySshUrl: null,
-        headRepositoryUrl: null,
-        isCrossRepository: false,
+        headOwnerLogin: fork.headOwnerLogin,
+        headRepositorySshUrl: fork.headRepositorySshUrl,
+        headRepositoryUrl: fork.headRepositoryUrl,
+        isCrossRepository: fork.isCrossRepository,
       };
     },
 

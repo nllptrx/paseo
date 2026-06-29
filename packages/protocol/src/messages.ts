@@ -1167,8 +1167,7 @@ const GitSetupOptionsSchema = z.object({
   refName: z.string().min(1).optional(),
   action: z.enum(["branch-off", "checkout"]).optional(),
   checkoutSource: ChangeRequestCheckoutSourceSchema.optional(),
-  // COMPAT(githubPrNumber): added in v0.1.102, remove after 2026-12-28 once
-  // TODO(before merge): align the added version and removal date with the maintainer's target release.
+  // COMPAT(githubPrNumber): added in v0.1.104, remove after 2026-12-28 once
   // clients send checkoutSource.
   githubPrNumber: z.number().int().positive().optional(),
 });
@@ -1581,8 +1580,7 @@ export const CheckoutForgeSetAutoMergeRequestSchema = z.object({
   requestId: z.string(),
 });
 
-// COMPAT(githubAutoMergeRpc): added in v0.1.102, remove after 2026-12-28 once
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(githubAutoMergeRpc): added in v0.1.104, remove after 2026-12-28 once
 // all supported clients use checkout.forge.set_auto_merge.*.
 export const CheckoutGithubSetAutoMergeRequestSchema = z.object({
   type: z.literal("checkout.github.set_auto_merge.request"),
@@ -1610,8 +1608,7 @@ export const CheckoutForgeGetCheckDetailsRequestSchema =
     type: z.literal("checkout.forge.get_check_details.request"),
   });
 
-// COMPAT(githubCheckDetailsRpc): added in v0.1.102, remove after 2026-12-28 once
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(githubCheckDetailsRpc): added in v0.1.104, remove after 2026-12-28 once
 // all supported clients use checkout.forge.get_check_details.*.
 export const CheckoutGithubGetCheckDetailsRequestSchema =
   CheckoutCheckDetailsRequestPayloadSchema.extend({
@@ -1712,8 +1709,7 @@ export const ForgeSearchKindSchema = z.preprocess((value) => {
   return value;
 }, ForgeSearchKindSchemaBase);
 
-// COMPAT(githubSearchKind): added in v0.1.102, remove after 2026-12-28 once
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(githubSearchKind): added in v0.1.104, remove after 2026-12-28 once
 // clients send neutral issue/change_request kinds only.
 export const GitHubSearchKindSchema = ForgeSearchKindSchema;
 
@@ -1726,8 +1722,7 @@ export const ForgeSearchRequestSchema = z.object({
   requestId: z.string(),
 });
 
-// COMPAT(githubSearchRpc): added in v0.1.102, remove after 2026-12-28 once
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(githubSearchRpc): added in v0.1.104, remove after 2026-12-28 once
 // clients use forge.search.*.
 export const GitHubSearchRequestSchema = z.object({
   type: z.literal("github_search_request"),
@@ -1796,8 +1791,7 @@ export const CreatePaseoWorktreeRequestSchema = z.object({
   refName: z.string().min(1).optional(),
   action: z.enum(["branch-off", "checkout"]).optional(),
   checkoutSource: ChangeRequestCheckoutSourceSchema.optional(),
-  // COMPAT(githubPrNumber): added in v0.1.102, remove after 2026-12-28 once
-  // TODO(before merge): align the added version and removal date with the maintainer's target release.
+  // COMPAT(githubPrNumber): added in v0.1.104, remove after 2026-12-28 once
   // clients send checkoutSource: { kind: "change_request", forge, number }.
   githubPrNumber: z.number().int().positive().optional(),
   requestId: z.string(),
@@ -1870,8 +1864,7 @@ export const WorkspaceCreateRequestSchema = z.object({
       refName: z.string().min(1).optional(),
       baseBranch: z.string().optional(),
       checkoutSource: ChangeRequestCheckoutSourceSchema.optional(),
-      // COMPAT(githubPrNumber): added in v0.1.102, remove after 2026-12-28 once
-      // TODO(before merge): align the added version and removal date with the maintainer's target release.
+      // COMPAT(githubPrNumber): added in v0.1.104, remove after 2026-12-28 once
       // clients send checkoutSource.
       githubPrNumber: z.number().int().positive().optional(),
       worktreeSlug: z.string().optional(),
@@ -2423,18 +2416,15 @@ export const ServerInfoStatusPayloadSchema = z
     features: z
       .object({
         providersSnapshot: z.boolean().optional(),
-        // COMPAT(checkoutForgeSetAutoMerge): added in v0.1.102, remove old
-        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // COMPAT(checkoutForgeSetAutoMerge): added in v0.1.104, remove old
         // checkoutGithubSetAutoMerge fallback after 2026-12-28.
         checkoutForgeSetAutoMerge: z.boolean().optional(),
         checkoutGithubSetAutoMerge: z.boolean().optional(),
         // COMPAT(githubCheckDetails): added in v0.1.92, remove gate after 2026-12-08.
         githubCheckDetails: z.boolean().optional(),
-        // COMPAT(forgeCheckDetails): added in v0.1.102, remove githubCheckDetails fallback after 2026-12-28.
-        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // COMPAT(forgeCheckDetails): added in v0.1.104, remove githubCheckDetails fallback after 2026-12-28.
         forgeCheckDetails: z.boolean().optional(),
-        // COMPAT(forgeSearch): added in v0.1.102, remove github_search fallback after 2026-12-28.
-        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // COMPAT(forgeSearch): added in v0.1.104, remove github_search fallback after 2026-12-28.
         forgeSearch: z.boolean().optional(),
         // COMPAT(daemonStatusRpc): added in v0.1.76, remove gate after 2026-11-18.
         daemonStatusRpc: z.boolean().optional(),
@@ -2460,10 +2450,9 @@ export const ServerInfoStatusPayloadSchema = z
         daemonDiagnostics: z.boolean().optional(),
         // COMPAT(daemonSelfUpdate): added in v0.1.93, remove gate after 2026-12-13.
         daemonSelfUpdate: z.boolean().optional(),
-        // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
+        // COMPAT(agentForkContext): added in v0.1.104, remove gate after 2026-12-28.
         agentForkContext: z.boolean().optional(),
-        // COMPAT(gitlab): added in v0.1.102, drop the gate when daemon floor >= v0.1.102.
-        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // COMPAT(gitlab): added in v0.1.104, drop the gate when daemon floor >= v0.1.104.
         gitlab: z.boolean().optional(),
       })
       .optional(),
@@ -2764,8 +2753,7 @@ export const WorkspaceDescriptorPayloadSchema = z
     scripts: z.array(WorkspaceScriptPayloadSchema).default([]),
     gitRuntime: WorkspaceGitRuntimePayloadSchema,
     githubRuntime: WorkspaceGitHubRuntimePayloadSchema,
-    // COMPAT(forge): added in v0.1.102, remove after 2026-12-27. The forge resolved
-    // TODO(before merge): align the added version and removal date with the maintainer's target release.
+    // COMPAT(forge): added in v0.1.104, remove after 2026-12-27. The forge resolved
     // for this workspace, so the sidebar/hover-card render the right brand mark.
     // Old daemons omit it; absent means the client falls back to GitHub.
     forge: z.string().optional(),
@@ -3435,8 +3423,7 @@ const CheckoutPrUnknownForgeSpecificSchema = z
   .passthrough()
   .refine(({ forge }) => forge !== "github" && forge !== "gitlab" && forge !== "gitea");
 
-// COMPAT(forgeSpecific): added in v0.1.102, remove after 2026-12-27. Known
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(forgeSpecific): added in v0.1.104, remove after 2026-12-27. Known
 // adapters get validated typed arms; an unknown adapter retains passthrough facts
 // so newer registry entries do not break older neutral clients. Malformed known
 // arms still degrade to absent via `.catch(undefined)`. The `github` field above
@@ -3452,8 +3439,7 @@ const CheckoutPrForgeSpecificSchema = z
   .catch(undefined);
 
 export const CheckoutPrStatusSchema = z.object({
-  // COMPAT(forge): added in v0.1.102, remove the default after 2026-12-27 once daemon floor >= v0.1.102.
-  // TODO(before merge): align the added version and removal date with the maintainer's target release.
+  // COMPAT(forge): added in v0.1.104, remove the default after 2026-12-27 once daemon floor >= v0.1.104.
   forge: z.string().optional().default("github"),
   projectPath: z.string().optional(),
   number: z.number().optional(),
@@ -3505,14 +3491,12 @@ const CheckoutPrStatusPayloadSchema = z.object({
   cwd: z.string(),
   status: CheckoutPrStatusSchema.nullable(),
   githubFeaturesEnabled: z.boolean(),
-  // COMPAT(forgeAuthState): added in v0.1.102, remove after 2026-12-27. Optional richer
-  // TODO(before merge): align the added version and removal date with the maintainer's target release.
+  // COMPAT(forgeAuthState): added in v0.1.104, remove after 2026-12-27. Optional richer
   // signal that supersedes githubFeaturesEnabled. The legacy boolean stays for old clients
   // and may remain true for non-auth error payloads so old clients still show the error.
-  // Drop the boolean once the daemon floor >= v0.1.102.
+  // Drop the boolean once the daemon floor >= v0.1.104.
   authState: ForgeAuthStateSchema,
-  // COMPAT(forge): added in v0.1.102, remove the default after 2026-12-27 once daemon floor >= v0.1.102.
-  // TODO(before merge): align the added version and removal date with the maintainer's target release.
+  // COMPAT(forge): added in v0.1.104, remove the default after 2026-12-27 once daemon floor >= v0.1.104.
   forge: z.string().optional().default("github"),
   error: CheckoutErrorSchema.nullable(),
   requestId: z.string(),
@@ -3644,8 +3628,7 @@ export const CheckoutForgeSetAutoMergeResponseSchema = z.object({
   }),
 });
 
-// COMPAT(githubAutoMergeRpc): added in v0.1.102, remove after 2026-12-28 once
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(githubAutoMergeRpc): added in v0.1.104, remove after 2026-12-28 once
 // all supported clients use checkout.forge.set_auto_merge.*.
 export const CheckoutGithubSetAutoMergeResponseSchema = z.object({
   type: z.literal("checkout.github.set_auto_merge.response"),
@@ -3678,8 +3661,7 @@ const CheckoutGithubCheckJobSchema = z.object({
   logTruncated: z.boolean().optional(),
 });
 
-// COMPAT(gitlabPipeline): added in v0.1.102, remove no later than 2026-12-28
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(gitlabPipeline): added in v0.1.104, remove no later than 2026-12-28
 // once the supported daemon floor includes structured GitLab pipelines.
 // Statuses stay open strings so future forge values cannot break parsing.
 const CheckoutPipelineJobSchema = z.object({
@@ -3745,8 +3727,7 @@ export const CheckoutForgeGetCheckDetailsResponseSchema = z.object({
   }),
 });
 
-// COMPAT(githubCheckDetailsRpc): added in v0.1.102, remove after 2026-12-28 once
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(githubCheckDetailsRpc): added in v0.1.104, remove after 2026-12-28 once
 // all supported clients use checkout.forge.get_check_details.*.
 export const CheckoutGithubGetCheckDetailsResponseSchema = z.object({
   type: z.literal("checkout.github.get_check_details.response"),
@@ -3967,11 +3948,9 @@ const ForgeSearchResponsePayloadSchema = z
   .object({
     items: z.array(ForgeSearchItemSchema),
     featuresEnabled: z.boolean().optional(),
-    // COMPAT(forgeSearchAuthState): added in v0.1.102, remove fallback after 2026-12-28.
-    // TODO(before merge): align the added version and removal date with the maintainer's target release.
+    // COMPAT(forgeSearchAuthState): added in v0.1.104, remove fallback after 2026-12-28.
     authState: ForgeAuthStateSchema,
-    // COMPAT(githubFeaturesEnabled): added in v0.1.102, remove after 2026-12-28
-    // TODO(before merge): align the added version and removal date with the maintainer's target release.
+    // COMPAT(githubFeaturesEnabled): added in v0.1.104, remove after 2026-12-28
     // once clients consume featuresEnabled/authState.
     githubFeaturesEnabled: z.boolean().optional(),
     error: z.string().nullable(),
@@ -3993,8 +3972,7 @@ export const ForgeSearchResponseSchema = z.object({
   payload: ForgeSearchResponsePayloadSchema,
 });
 
-// COMPAT(githubSearchRpc): added in v0.1.102, remove after 2026-12-28 once
-// TODO(before merge): align the added version and removal date with the maintainer's target release.
+// COMPAT(githubSearchRpc): added in v0.1.104, remove after 2026-12-28 once
 // clients use forge.search.*.
 export const GitHubSearchResponseSchema = z.object({
   type: z.literal("github_search_response"),

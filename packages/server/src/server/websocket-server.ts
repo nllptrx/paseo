@@ -1175,18 +1175,15 @@ export class VoiceAssistantWebSocketServer {
       features: {
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,
-        // COMPAT(checkoutForgeSetAutoMerge): added in v0.1.102, remove old
-        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // COMPAT(checkoutForgeSetAutoMerge): added in v0.1.104, remove old
         // checkoutGithubSetAutoMerge fallback after 2026-12-28.
         checkoutForgeSetAutoMerge: true,
         // COMPAT(checkoutGithubSetAutoMerge): added in v0.1.75, remove gate after 2026-11-13.
         checkoutGithubSetAutoMerge: true,
         githubCheckDetails: true,
-        // COMPAT(forgeCheckDetails): added in v0.1.102, remove githubCheckDetails fallback after 2026-12-28.
-        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // COMPAT(forgeCheckDetails): added in v0.1.104, remove githubCheckDetails fallback after 2026-12-28.
         forgeCheckDetails: true,
-        // COMPAT(forgeSearch): added in v0.1.102, remove github_search fallback after 2026-12-28.
-        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // COMPAT(forgeSearch): added in v0.1.104, remove github_search fallback after 2026-12-28.
         forgeSearch: true,
         // COMPAT(daemonStatusRpc): added in v0.1.76, remove gate after 2026-11-18.
         daemonStatusRpc: true,
@@ -1212,10 +1209,9 @@ export class VoiceAssistantWebSocketServer {
         daemonDiagnostics: true,
         // COMPAT(daemonSelfUpdate): added in v0.1.93, remove gate after 2026-12-13.
         daemonSelfUpdate: true,
-        // COMPAT(agentForkContext): added in v0.1.102, remove gate after 2026-12-28.
+        // COMPAT(agentForkContext): added in v0.1.104, remove gate after 2026-12-28.
         agentForkContext: true,
-        // COMPAT(gitlab): added in v0.1.102, drop the gate when daemon floor >= v0.1.102.
-        // TODO(before merge): align the added version and removal date with the maintainer's target release.
+        // COMPAT(gitlab): added in v0.1.104, drop the gate when daemon floor >= v0.1.104.
         gitlab: true,
       },
     };

@@ -284,6 +284,15 @@ function createGitHubServiceStub(): ForgeService {
       labels: [],
     })),
     getPullRequestHeadRef: vi.fn(async () => "feature"),
+    getPullRequestCheckoutTarget: vi.fn(async ({ number }) => ({
+      number,
+      baseRefName: "main",
+      headRefName: "feature",
+      headOwnerLogin: null,
+      headRepositorySshUrl: null,
+      headRepositoryUrl: null,
+      isCrossRepository: false,
+    })),
     getCurrentPullRequestStatus: vi.fn(async () => null),
     getPullRequestTimeline: vi.fn(async () => ({
       pullRequest: null,

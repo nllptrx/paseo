@@ -119,6 +119,15 @@ function createGitHubServiceForStatus(
       labels: [],
     }),
     getPullRequestHeadRef: async () => "feature",
+    getPullRequestCheckoutTarget: async ({ number }) => ({
+      number,
+      baseRefName: "main",
+      headRefName: "feature",
+      headOwnerLogin: null,
+      headRepositorySshUrl: null,
+      headRepositoryUrl: null,
+      isCrossRepository: false,
+    }),
     getCurrentPullRequestStatus: async () => {
       options?.onStatus?.();
       return status;

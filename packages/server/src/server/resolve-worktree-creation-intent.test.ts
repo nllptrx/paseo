@@ -47,6 +47,15 @@ function createResolverHarness(overrides?: {
       headRefLookups.push({ cwd, number });
       return `pr-${number}`;
     },
+    getPullRequestCheckoutTarget: async ({ number }) => ({
+      number,
+      baseRefName: "main",
+      headRefName: `pr-${number}`,
+      headOwnerLogin: null,
+      headRepositorySshUrl: null,
+      headRepositoryUrl: null,
+      isCrossRepository: false,
+    }),
     getCurrentPullRequestStatus: async () => null,
     createPullRequest: async () => ({
       number: 1,
@@ -123,8 +132,9 @@ describe("resolveWorktreeCreationIntent", () => {
       headRef: "pr-42",
       baseRefName: "main",
       checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/42/head" }],
+      trackOriginHead: true,
     });
-    expect(deps.headRefLookups).toEqual([{ cwd: repoRoot, number: 42 }]);
+    expect(deps.headRefLookups).toEqual([]);
   });
 
   test("does not configure a synthetic push remote for same-repo PR targets", async () => {
@@ -196,6 +206,7 @@ describe("resolveWorktreeCreationIntent", () => {
       headRef: "head-ref",
       baseRefName: "main",
       checkoutRefs: [{ remoteName: "origin", remoteRef: "refs/pull/42/head" }],
+      trackOriginHead: true,
     });
     expect(deps.headRefLookups).toEqual([]);
   });
@@ -260,32 +271,25 @@ describe("resolveWorktreeCreationIntent", () => {
     expect(deps.headRefLookups).toEqual([]);
   });
 
-  test("reports unsupported checkout targets for non-GitHub forges without adapter support", async () => {
-    const deps = createResolverHarness({ forge: "gitea" });
+  test("reports unsupported cross-repository checkout targets without a checkout ref", async () => {
+    const deps = createResolverHarness({
+      forge: "gitea",
+      forgeService: {
+        getPullRequestCheckoutTarget: async ({ number }) => ({
+          number,
+          baseRefName: "main",
+          headRefName: "feature/fork",
+          headOwnerLogin: null,
+          headRepositorySshUrl: null,
+          headRepositoryUrl: null,
+          isCrossRepository: true,
+        }),
+      },
+    });
 
     await expect(
       resolveWorktreeCreationIntent({ action: "checkout", githubPrNumber: 7 }, repoRoot, deps),
     ).rejects.toThrow(UnsupportedForgeCheckoutTargetError);
-  });
-
-  test("checks out a non-GitHub change request when the search result supplied the ref", async () => {
-    const deps = createResolverHarness({ forge: "gitea" });
-
-    await expect(
-      resolveWorktreeCreationIntent(
-        {
-          action: "checkout",
-          refName: "feature/gitea-pr",
-          checkoutSource: { kind: "change_request", forge: "gitea", number: 7 },
-        },
-        repoRoot,
-        deps,
-      ),
-    ).resolves.toEqual({
-      kind: "checkout-branch",
-      branchName: "feature/gitea-pr",
-    });
-    expect(deps.headRefLookups).toEqual([]);
   });
 
   test("rejects change request checkout when the source forge differs from the workspace forge", async () => {

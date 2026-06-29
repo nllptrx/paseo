@@ -148,10 +148,9 @@ export function normalizeCheckoutPrStatusPayload(
   }
   if (status.forgeSpecific) {
     payload.forgeSpecific = status.forgeSpecific;
-    // COMPAT(forgeSpecific): added in v0.1.102, remove after 2026-12-27. Keep
-    // TODO(before merge): align the added version and removal date with the maintainer's target release.
+    // COMPAT(forgeSpecific): added in v0.1.104, remove after 2026-12-27. Keep
     // mirroring GitHub facts onto `github` for clients that predate forgeSpecific;
-    // drop once the daemon floor >= v0.1.102.
+    // drop once the daemon floor >= v0.1.104.
     if (status.forgeSpecific.forge === "github") {
       const { forge: _forge, ...githubFacts } = status.forgeSpecific;
       payload.github = githubFacts;

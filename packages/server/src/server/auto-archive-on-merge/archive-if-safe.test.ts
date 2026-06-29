@@ -231,6 +231,15 @@ function createGitHubServiceStub(): ForgeService {
       labels: [],
     }),
     getPullRequestHeadRef: async ({ number }) => `pr-${number}`,
+    getPullRequestCheckoutTarget: async ({ number }) => ({
+      number,
+      baseRefName: "main",
+      headRefName: `pr-${number}`,
+      headOwnerLogin: null,
+      headRepositorySshUrl: null,
+      headRepositoryUrl: null,
+      isCrossRepository: false,
+    }),
     getCurrentPullRequestStatus: async () => null,
     createPullRequest: async () => ({
       number: 1,

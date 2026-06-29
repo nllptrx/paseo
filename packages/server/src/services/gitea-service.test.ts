@@ -1124,11 +1124,15 @@ describe("createGiteaService", () => {
     expect(pr.headRefName).toBe("feat/conflict");
   });
 
-  it("maps a pull request to a checkout target", async () => {
-    const { service } = makeService(() => ok(JSON.stringify([OPEN_PR])));
+  it("maps a same-repo pull request to a checkout target", async () => {
+    const { service } = makeService((args) =>
+      args[0] === "api"
+        ? ok(JSON.stringify({ head: { repo: { id: 1 } }, base: { repo: { id: 1 } } }))
+        : ok(JSON.stringify([OPEN_PR])),
+    );
 
     await expect(
-      service.getPullRequestCheckoutTarget?.({ cwd: "/repo", number: 5 }),
+      service.getPullRequestCheckoutTarget({ cwd: "/repo", number: 5 }),
     ).resolves.toEqual({
       number: 5,
       baseRefName: "main",
@@ -1142,6 +1146,44 @@ describe("createGiteaService", () => {
       headRepositoryUrl: null,
       isCrossRepository: false,
     });
+  });
+
+  it("maps a fork pull request to a cross-repository checkout target", async () => {
+    const { service, calls } = makeService((args) =>
+      args[0] === "api"
+        ? ok(
+            JSON.stringify({
+              head: {
+                repo: {
+                  id: 2,
+                  owner: { login: "contributor" },
+                  ssh_url: "git@gitea.com:contributor/sample-repo.git",
+                  html_url: "https://gitea.com/contributor/sample-repo",
+                },
+              },
+              base: { repo: { id: 1 } },
+            }),
+          )
+        : ok(JSON.stringify([OPEN_PR])),
+    );
+
+    await expect(
+      service.getPullRequestCheckoutTarget({ cwd: "/repo", number: 5 }),
+    ).resolves.toEqual({
+      number: 5,
+      baseRefName: "main",
+      headRefName: "feat/sample-change",
+      checkoutRefs: [
+        { remoteName: "origin", remoteRef: "refs/pull/5/head" },
+        { remoteName: "origin", remoteRef: "refs/heads/feat/sample-change" },
+      ],
+      headOwnerLogin: "contributor",
+      headRepositorySshUrl: "git@gitea.com:contributor/sample-repo.git",
+      headRepositoryUrl: "https://gitea.com/contributor/sample-repo",
+      isCrossRepository: true,
+    });
+
+    expect(calls).toContainEqual(["api", "repos/example-user/sample-repo/pulls/5"]);
   });
 
   it("creates a pull request and parses the resulting URL and index", async () => {
