@@ -28,6 +28,21 @@ describe("getForgeBrandColorMapping", () => {
     }
   });
 
+  it("resolves the light or dark brand color from the theme color scheme", () => {
+    const branded = CLIENT_FORGE_VIEW_MODULES.find((module) => module.brandColor);
+    expect(branded).toBeDefined();
+    if (!branded?.brandColor) {
+      return;
+    }
+    const mapping = getForgeBrandColorMapping(branded.id);
+    expect(mapping?.({ colorScheme: "light" } as never)).toEqual({
+      color: branded.brandColor.light,
+    });
+    expect(mapping?.({ colorScheme: "dark" } as never)).toEqual({
+      color: branded.brandColor.dark,
+    });
+  });
+
   it("returns null for unknown icon kinds", () => {
     expect(getForgeBrandColorMapping("some-unknown-forge")).toBeNull();
   });

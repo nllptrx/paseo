@@ -101,6 +101,7 @@ export const ar: TranslationResources = {
       addImage: "أضف صورة",
       addFile: "Upload file",
       addIssueOrPr: "أضف مشكلة أو PR",
+      addIssueOrPr_mr: "أضف مشكلة أو MR",
       dropImagesHere: "إسقاط الصور هنا",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "تحرير الرسالة في قائمة الانتظار",
@@ -133,7 +134,9 @@ export const ar: TranslationResources = {
       searching: "جارٍ البحث...",
       noResults: "لم يتم العثور على نتائج.",
       searchPlaceholder: "بحث القضايا والعلاقات العامة...",
+      searchPlaceholder_mr: "بحث القضايا و MR...",
       title: "إرفاق المشكلة أو PR",
+      title_mr: "إرفاق المشكلة أو MR",
     },
   },
   agentControls: {
@@ -607,6 +610,9 @@ export const ar: TranslationResources = {
           label: "إنشاء PR",
           pending: "إنشاء PR...",
           success: "تم إنشاء PR",
+          label_mr: "إنشاء MR",
+          pending_mr: "إنشاء MR...",
+          success_mr: "تم إنشاء MR",
         },
         mergeBranch: {
           label: "دمج محليا",
@@ -629,7 +635,13 @@ export const ar: TranslationResources = {
           rebase: "دمج PR (rebase)",
           pending: "دمج PR...",
           success: "تم دمج PR",
+          squash_mr: "دمج MR (squash)",
+          merge_mr: "دمج MR (merge)",
+          rebase_mr: "دمج MR (rebase)",
+          pending_mr: "دمج MR...",
+          success_mr: "تم دمج MR",
         },
+        viewPr_mr: "عرض MR",
         autoMerge: {
           enableSquash: "دمج تلقائي (squash)",
           enableMerge: "دمج تلقائي (merge)",
@@ -745,10 +757,19 @@ export const ar: TranslationResources = {
         },
         sections: {
           checks: "الشيكات",
+          pipeline: "خط المعالجة",
           reviews: "التعليقات",
         },
+        empty: {
+          noJobs: "لا توجد مهام",
+          loadingPipeline: "جارٍ تحميل خط المعالجة...",
+          pipelineJobsLoadFailed: "تعذر تحميل مهام خط المعالجة",
+          allowedToFail: "مسموح بالفشل",
+        },
+        approvals: "{{given}} من {{required}} موافقات",
         accessibility: {
           pullRequest: "سحب الطلب #{{number}}",
+          pullRequest_mr: "طلب دمج !{{number}}",
         },
         states: {
           draft: "مسودة",

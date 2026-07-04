@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test, afterEach } from "vitest";
 import type { ForgeService } from "../services/forge-service.js";
+import { createGitLabService } from "../services/gitlab-service.js";
 import {
   getCheckoutSnapshotFacts,
   getCheckoutStatus,
@@ -263,6 +264,55 @@ function createGitLabMrRefOnlyRemoteRepo(): {
     },
   );
   execFileSync("git", ["branch", "-D", featureBranch], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["remote", "add", "origin", remoteDir], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["fetch", "origin"], { cwd: repoDir, stdio: "pipe" });
+
+  return { tempDir, repoDir, paseoHome };
+}
+
+function createGitLabMrWithConflictingOriginBranchRepo(): {
+  tempDir: string;
+  repoDir: string;
+  paseoHome: string;
+} {
+  const { tempDir, repoDir, paseoHome } = createGitRepo();
+  const featureBranch = "feature/gitlab-mr";
+  execFileSync("git", ["checkout", "-b", featureBranch], { cwd: repoDir, stdio: "pipe" });
+  writeFileSync(path.join(repoDir, "README.md"), "target repo branch with same name\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync(
+    "git",
+    ["-c", "commit.gpgsign=false", "commit", "-m", "target branch with same name"],
+    {
+      cwd: repoDir,
+      stdio: "pipe",
+    },
+  );
+  execFileSync("git", ["checkout", "main"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["checkout", "-b", "mr-head"], { cwd: repoDir, stdio: "pipe" });
+  writeFileSync(path.join(repoDir, "README.md"), "authoritative merge request head\n");
+  execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "merge request head"], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
+  const mrHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoDir, stdio: "pipe" })
+    .toString()
+    .trim();
+  execFileSync("git", ["checkout", "main"], { cwd: repoDir, stdio: "pipe" });
+
+  const remoteDir = path.join(tempDir, "origin.git");
+  execFileSync("git", ["clone", "--bare", repoDir, remoteDir], { stdio: "pipe" });
+  execFileSync(
+    "git",
+    [`--git-dir=${remoteDir}`, "update-ref", "refs/merge-requests/14/head", mrHead],
+    { stdio: "pipe" },
+  );
+  execFileSync("git", [`--git-dir=${remoteDir}`, "update-ref", "-d", "refs/heads/mr-head"], {
+    stdio: "pipe",
+  });
+  execFileSync("git", ["branch", "-D", featureBranch], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["branch", "-D", "mr-head"], { cwd: repoDir, stdio: "pipe" });
   execFileSync("git", ["remote", "add", "origin", remoteDir], { cwd: repoDir, stdio: "pipe" });
   execFileSync("git", ["fetch", "origin"], { cwd: repoDir, stdio: "pipe" });
 
@@ -665,6 +715,57 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
         "gitlab mr branch\n",
       );
       expect(getBranchUpstream(result.worktree.worktreePath)).toBeNull();
+    });
+
+    test("checks out the authoritative GitLab MR ref before a same-named origin branch", async () => {
+      const { tempDir, repoDir, paseoHome } = createGitLabMrWithConflictingOriginBranchRepo();
+      cleanupPaths.push(tempDir);
+      const gitlab = createGitLabService({
+        resolveGlabPath: async () => "/usr/bin/glab",
+        resolveRemoteUrl: async () => "git@gitlab.example.com:example-group/example-project.git",
+        runner: async (args) => {
+          if (args[0] === "mr" && args[1] === "view") {
+            return {
+              stdout: JSON.stringify({
+                iid: 14,
+                title: "Review actual merge request head",
+                web_url:
+                  "https://gitlab.example.com/example-group/example-project/-/merge_requests/14",
+                state: "opened",
+                source_branch: "feature/gitlab-mr",
+                target_branch: "main",
+                source_project_id: 202,
+                target_project_id: 101,
+              }),
+              stderr: "",
+            };
+          }
+          throw new Error(`unexpected glab args: ${args.join(" ")}`);
+        },
+      });
+
+      const result = await createCoreWorktree(
+        {
+          cwd: repoDir,
+          action: "checkout",
+          githubPrNumber: 14,
+          paseoHome,
+          runSetup: false,
+        },
+        createCoreDeps({ forge: { forge: "gitlab", service: gitlab } }),
+      );
+
+      expect(result.intent).toMatchObject({
+        kind: "checkout-change-request",
+        forge: "gitlab",
+        checkoutRefs: [
+          { remoteName: "origin", remoteRef: "refs/merge-requests/14/head" },
+          { remoteName: "origin", remoteRef: "refs/heads/feature/gitlab-mr" },
+        ],
+      });
+      expect(readFileSync(path.join(result.worktree.worktreePath, "README.md"), "utf8")).toBe(
+        "authoritative merge request head\n",
+      );
     });
 
     test("does not add a fallback push remote for a cross-repo MR without a push URL", async () => {

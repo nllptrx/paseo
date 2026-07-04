@@ -2,6 +2,7 @@ import { getForgeDefinition } from "@getpaseo/protocol/forge-manifest";
 import { normalizeHost } from "@getpaseo/protocol/git-remote";
 import { createGitHubService, probeGitHubHost } from "./github-service.js";
 import type { ForgeService } from "./forge-service.js";
+import { createGitLabService, probeGitLabHost } from "./gitlab-service.js";
 
 export type ForgeServiceFactory = () => ForgeService;
 
@@ -139,6 +140,14 @@ export const defaultForgeRegistry = new ForgeRegistry([
       createService: createGitHubService,
       matchesHost: matchesCloudHost("github"),
       probeHost: probeGitHubHost,
+    },
+  ],
+  [
+    "gitlab",
+    {
+      createService: createGitLabService,
+      matchesHost: matchesCloudHost("gitlab"),
+      probeHost: probeGitLabHost,
     },
   ],
 ]);

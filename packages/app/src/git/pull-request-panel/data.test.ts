@@ -3,13 +3,12 @@ import type {
   CheckoutPrStatusResponse,
   PullRequestTimelineResponse,
 } from "@getpaseo/protocol/messages";
+import { isPipelineActiveStatus, mapPipelineStatus } from "@/git/forges/gitlab";
 import {
   deriveAvatarColor,
   formatAge,
   getActivityVerb,
   getStateLabel,
-  isPipelineActiveStatus,
-  mapPipelineStatus,
   mapPrPaneData,
 } from "./data";
 
@@ -510,6 +509,43 @@ describe("mapPrPaneData", () => {
   it("omits forgeSpecific when the status carries no native facts", () => {
     expect(mapPrPaneData(baseStatus, baseTimeline)?.forgeSpecific).toBeUndefined();
   });
+
+  it("carries the resolved forge brand and activity provider for GitLab", () => {
+    const data = mapPrPaneData(
+      status({
+        url: "https://gitlab.com/group/repo/-/merge_requests/7",
+        github: undefined,
+        forgeSpecific: {
+          forge: "gitlab",
+          detailedMergeStatus: "mergeable",
+          hasConflicts: false,
+          blockingDiscussionsResolved: true,
+          approvalsRequired: 2,
+          approvalsGiven: 1,
+          pipelineStatus: null,
+          pipelineId: null,
+          pipelineUrl: null,
+          mergeWhenPipelineSucceeds: false,
+        },
+      }),
+      timeline({
+        items: [
+          {
+            id: "note-1",
+            kind: "comment",
+            author: "reviewer",
+            body: "Looks good",
+            createdAt: 1000,
+            url: "https://gitlab.com/group/repo/-/merge_requests/7#note_1",
+          },
+        ],
+      }),
+      2000,
+      "gitlab",
+    );
+    expect(data?.provider).toEqual({ id: "gitlab", label: "GitLab" });
+    expect(data?.activity[0]?.provider).toBe("gitlab");
+  });
 });
 
 describe("mapPipelineStatus", () => {
@@ -519,7 +555,7 @@ describe("mapPipelineStatus", () => {
     expect(mapPipelineStatus("failed")).toBe("failure");
     expect(mapPipelineStatus("canceled")).toBe("skipped");
     expect(mapPipelineStatus("skipped")).toBe("skipped");
-    expect(mapPipelineStatus("manual")).toBe("skipped");
+    expect(mapPipelineStatus("manual")).toBe("pending");
     expect(mapPipelineStatus("running")).toBe("pending");
     expect(mapPipelineStatus("pending")).toBe("pending");
     expect(mapPipelineStatus("created")).toBe("pending");

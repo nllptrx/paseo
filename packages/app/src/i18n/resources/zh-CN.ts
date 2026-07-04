@@ -101,6 +101,7 @@ export const zhCN: TranslationResources = {
       addImage: "添加图片",
       addFile: "Upload file",
       addIssueOrPr: "添加 issue 或 PR",
+      addIssueOrPr_mr: "添加 issue 或 MR",
       dropImagesHere: "将图片拖放到这里",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "编辑排队消息",
@@ -133,7 +134,9 @@ export const zhCN: TranslationResources = {
       searching: "正在搜索...",
       noResults: "没有结果。",
       searchPlaceholder: "搜索 issues 和 PRs...",
+      searchPlaceholder_mr: "搜索 issues 和 MRs...",
       title: "附加 issue 或 PR",
+      title_mr: "附加 issue 或 MR",
     },
   },
   agentControls: {
@@ -605,6 +608,9 @@ export const zhCN: TranslationResources = {
           label: "创建 PR",
           pending: "正在创建 PR...",
           success: "PR 已创建",
+          label_mr: "创建 MR",
+          pending_mr: "正在创建 MR...",
+          success_mr: "MR 已创建",
         },
         mergeBranch: {
           label: "本地 merge",
@@ -627,7 +633,13 @@ export const zhCN: TranslationResources = {
           rebase: "Merge PR (rebase)",
           pending: "正在 merge PR...",
           success: "PR 已 merge",
+          squash_mr: "Merge MR (squash)",
+          merge_mr: "Merge MR (merge)",
+          rebase_mr: "Merge MR (rebase)",
+          pending_mr: "正在 merge MR...",
+          success_mr: "MR 已 merge",
         },
+        viewPr_mr: "查看 MR",
         autoMerge: {
           enableSquash: "Auto merge (squash)",
           enableMerge: "Auto merge (merge)",
@@ -739,10 +751,19 @@ export const zhCN: TranslationResources = {
         },
         sections: {
           checks: "Checks",
+          pipeline: "流水线",
           reviews: "Reviews",
         },
+        empty: {
+          noJobs: "无作业",
+          loadingPipeline: "正在加载流水线...",
+          pipelineJobsLoadFailed: "无法加载流水线作业",
+          allowedToFail: "允许失败",
+        },
+        approvals: "{{given}} / {{required}} 批准",
         accessibility: {
           pullRequest: "Pull request #{{number}}",
+          pullRequest_mr: "合并请求 !{{number}}",
         },
         states: {
           draft: "Draft",

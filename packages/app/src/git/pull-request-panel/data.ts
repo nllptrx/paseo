@@ -8,7 +8,6 @@ import { type CheckStatus, mapCheckStatus } from "./check-status";
 import { getNativeFallbackChecks } from "./native-data";
 
 export type { CheckStatus } from "./check-status";
-export { mapPipelineStatus, isPipelineActiveStatus } from "./check-status";
 
 export type PrState = "open" | "draft" | "merged" | "closed";
 export type ReviewState = "approved" | "changes_requested" | "commented";

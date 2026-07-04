@@ -274,22 +274,24 @@ describe("checkout git utilities", () => {
     });
   });
 
-  it("resolves a github remote through the resolver and creates via the github adapter", async () => {
+  it("resolves a gitlab remote through the resolver and creates via the gitlab adapter", async () => {
+    // origin is a real local bare repo so the push succeeds; the resolver reads a
+    // gitlab remote URL (injected) so it selects the gitlab adapter from the host.
     setupRemoteTrackingMain(repoDir, tempDir);
     let adapterReached = false;
-    const github = createGitHubServiceForStatus(null);
-    github.createPullRequest = async () => {
+    const adapter = createGitHubServiceForStatus(null);
+    adapter.createPullRequest = async () => {
       adapterReached = true;
-      return { url: "https://github.com/group/proj/pull/9", number: 9 };
+      return { url: "https://gitlab.com/group/proj/-/merge_requests/9", number: 9 };
     };
 
     const resolver = createForgeResolver({
-      resolveRemoteUrl: async () => "git@github.com:group/proj.git",
-      createService: (forge) => (forge === "github" ? github : null),
+      resolveRemoteUrl: async () => "git@gitlab.com:group/proj.git",
+      createService: (forge) => (forge === "gitlab" ? adapter : null),
     });
     const resolution = await resolver.resolve(repoDir);
-    expect(resolution).toMatchObject({ forge: "github", host: "github.com" });
-    expect(resolution?.service).toBe(github);
+    expect(resolution).toMatchObject({ forge: "gitlab", host: "gitlab.com" });
+    expect(resolution?.service).toBe(adapter);
 
     const result = await createPullRequest(
       repoDir,
@@ -299,7 +301,7 @@ describe("checkout git utilities", () => {
 
     expect(adapterReached).toBe(true);
     expect(result).toEqual({
-      url: "https://github.com/group/proj/pull/9",
+      url: "https://gitlab.com/group/proj/-/merge_requests/9",
       number: 9,
     });
   });

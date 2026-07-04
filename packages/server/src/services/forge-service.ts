@@ -148,6 +148,7 @@ export type PullRequestTimelineItem =
       kind: "comment";
       reviewId?: string;
       threadId?: string;
+      threadIsResolved?: boolean;
       location?: PullRequestTimelineCommentLocation;
     });
 
@@ -260,6 +261,13 @@ export type GetCheckDetailsOptions = {
   repoName?: string;
   checkRunId: number;
   workflowRunId?: number;
+  /**
+   * GitLab-only: the change request iid. GitLab routes the fetch to the change
+   * request's head pipeline (`glab ci get --merge-request`), so a fork/detached
+   * MR pipeline living in the source project resolves instead of 404ing against
+   * the checkout's target project. GitHub ignores it.
+   */
+  changeRequestNumber?: number;
 } & ForgeReadOptions;
 
 export interface CheckAnnotation {

@@ -102,6 +102,7 @@ export const fr: TranslationResources = {
       addImage: "Ajouter une image",
       addFile: "Upload file",
       addIssueOrPr: "Ajouter un problème ouPR",
+      addIssueOrPr_mr: "Ajouter un problème ou MR",
       dropImagesHere: "Déposez des images ici",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Modifier le message en file d'attente",
@@ -134,7 +135,9 @@ export const fr: TranslationResources = {
       searching: "Recherche...",
       noResults: "Aucun résultat trouvé.",
       searchPlaceholder: "Problèmes de recherche et PR...",
+      searchPlaceholder_mr: "Problèmes de recherche et MR...",
       title: "Joindre le problème ouPR",
+      title_mr: "Joindre le problème ou MR",
     },
   },
   agentControls: {
@@ -613,6 +616,9 @@ export const fr: TranslationResources = {
           label: "CréerPR",
           pending: "Création dePR...",
           success: "PRcréé",
+          label_mr: "Créer MR",
+          pending_mr: "Création de MR...",
+          success_mr: "MR créé",
         },
         mergeBranch: {
           label: "Fusionner localement",
@@ -635,7 +641,13 @@ export const fr: TranslationResources = {
           rebase: "Fusionner PR (rebase)",
           pending: "Fusion de PR...",
           success: "PR fusionné",
+          squash_mr: "Fusionner MR (squash)",
+          merge_mr: "Fusionner MR (merge)",
+          rebase_mr: "Fusionner MR (rebase)",
+          pending_mr: "Fusion de MR...",
+          success_mr: "MR fusionné",
         },
+        viewPr_mr: "Voir MR",
         autoMerge: {
           enableSquash: "Fusion automatique (squash)",
           enableMerge: "Fusion automatique (merge)",
@@ -774,10 +786,19 @@ export const fr: TranslationResources = {
         },
         sections: {
           checks: "Chèques",
+          pipeline: "Pipeline",
           reviews: "Avis",
         },
+        empty: {
+          noJobs: "Aucune tâche",
+          loadingPipeline: "Chargement du pipeline...",
+          pipelineJobsLoadFailed: "Impossible de charger les tâches du pipeline",
+          allowedToFail: "autorisé à échouer",
+        },
+        approvals: "{{given}} sur {{required}} approbations",
         accessibility: {
           pullRequest: "Demande de tirage #{{number}}",
+          pullRequest_mr: "Demande de fusion !{{number}}",
         },
         states: {
           draft: "Brouillon",

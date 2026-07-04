@@ -67,10 +67,18 @@ export interface MergeCapability {
 export interface PaneChecksSlotContext {
   serverId: string;
   cwd: string;
+  /** Change request (PR/MR) number, so a section can address its head pipeline. */
+  changeRequestNumber: number;
   open: boolean;
   onToggle: () => void;
   /** Whether the daemon advertises pluggable forge support (gates rich sections). */
   enabled: boolean;
+  /**
+   * Whether the daemon can serve forge check/pipeline details over the
+   * forge-routed RPC. Single source of truth for gating on-demand detail
+   * fetches so a section never reaches an RPC the daemon lacks.
+   */
+  canFetchCheckDetails: boolean;
 }
 
 export interface PaneNativeContribution {

@@ -101,6 +101,7 @@ export const ru: TranslationResources = {
       addImage: "Добавить изображение",
       addFile: "Upload file",
       addIssueOrPr: "Добавить проблему или PR",
+      addIssueOrPr_mr: "Добавить проблему или MR",
       dropImagesHere: "Скиньте изображения сюда",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Изменить сообщение в очереди",
@@ -133,7 +134,9 @@ export const ru: TranslationResources = {
       searching: "Идет поиск...",
       noResults: "Результаты не найдены.",
       searchPlaceholder: "Поиск проблем и пиар...",
+      searchPlaceholder_mr: "Поиск проблем и MR...",
       title: "Прикрепите проблему или PR",
+      title_mr: "Прикрепите проблему или MR",
     },
   },
   agentControls: {
@@ -612,6 +615,9 @@ export const ru: TranslationResources = {
           label: "Создать PR",
           pending: "Создание PR...",
           success: "PR создано",
+          label_mr: "Создать MR",
+          pending_mr: "Создание MR...",
+          success_mr: "MR создано",
         },
         mergeBranch: {
           label: "Объединить локально",
@@ -634,7 +640,13 @@ export const ru: TranslationResources = {
           rebase: "Объединить PR (rebase)",
           pending: "Объединение PR...",
           success: "PR объединен",
+          squash_mr: "Объединить MR (squash)",
+          merge_mr: "Объединить MR (merge)",
+          rebase_mr: "Объединить MR (rebase)",
+          pending_mr: "Объединение MR...",
+          success_mr: "MR объединен",
         },
+        viewPr_mr: "Посмотреть MR",
         autoMerge: {
           enableSquash: "Автообъединение (squash)",
           enableMerge: "Автообъединение (merge)",
@@ -767,10 +779,19 @@ export const ru: TranslationResources = {
         },
         sections: {
           checks: "Чеки",
+          pipeline: "Пайплайн",
           reviews: "Отзывы",
         },
+        empty: {
+          noJobs: "Нет задач",
+          loadingPipeline: "Загрузка пайплайна...",
+          pipelineJobsLoadFailed: "Не удалось загрузить задачи пайплайна",
+          allowedToFail: "допускается сбой",
+        },
+        approvals: "{{given}} из {{required}} одобрений",
         accessibility: {
           pullRequest: "Запрос на извлечение №{{number}}",
+          pullRequest_mr: "Запрос на слияние !{{number}}",
         },
         states: {
           draft: "Черновик",
