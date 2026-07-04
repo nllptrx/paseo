@@ -108,8 +108,8 @@ export const ru: TranslationResources = {
       openImage: "Открыть прикрепленное изображение",
       removeImage: "Удалить прикрепленное изображение",
       removeFile: "Remove file attachment",
-      openGithub: "Открыть{{kind}}#{{number}}",
-      removeGithub: "Удалить{{kind}}#{{number}}",
+      openGithub: "Открыть {{kind}} {{number}}",
+      removeGithub: "Удалить {{kind}} {{number}}",
       element: "Элемент",
       openBrowserElement: "Открыть вложение элемента браузера",
       removeBrowserElement: "Удалить вложение элемента браузера",
@@ -645,7 +645,7 @@ export const ru: TranslationResources = {
           disabled: "Автоматическое объединение отключено",
         },
         unavailable: {
-          viewPrNoGithub: "Просмотр PR сейчас недоступен, поскольку GitHub не подключен.",
+          viewPrNoForge: "Просмотр {{noun}} сейчас недоступен, поскольку {{brand}} не подключен.",
           pullNoRemote:
             "Функция Pull здесь недоступна, поскольку эта ветка еще не подключена к удаленному серверу.",
           pullDirty:
@@ -659,10 +659,14 @@ export const ru: TranslationResources = {
             "Функция Pull and Push здесь недоступна, поскольку эта ветка еще не подключена к удаленному устройству.",
           pullAndPushDirty:
             "Функция извлечения и отправки недоступна, пока у вас есть локальные изменения, поэтому сначала зафиксируйте или сохраните их.",
+          pullAndPushNoIncoming:
+            "Функция Pull and Push недоступна, поскольку сначала нечего получать.",
           pullAndPushInSync:
             "Функция Pull and Push недоступна, поскольку эта ветвь уже синхронизирована.",
-          createPrNoGithub:
-            "Функция «Создать PR» сейчас недоступна, поскольку GitHub не подключен.",
+          pullAndPushNothingToPush:
+            "Функция Pull and Push недоступна, поскольку после pull нечего отправлять.",
+          createPrNoForge:
+            "Функция «Создать {{noun}}» сейчас недоступна, поскольку {{brand}} не подключен.",
           createPrNoCommits:
             "Функция «Создать PR» недоступна, поскольку в этой ветке еще нет новых коммитов.",
           mergeNoBase: "Объединение недоступно, поскольку нам не удалось определить базовую ветку.",
@@ -677,7 +681,8 @@ export const ru: TranslationResources = {
             "Обновление недоступно, поскольку эта ветка уже обновлена ​​до версии{{baseRef}}.",
           archiveNotWorktree:
             "Архив здесь недоступен, поскольку это рабочее пространство не было создано как рабочее дерево Paseo.",
-          mergePrNoGithub: "Объединение PR сейчас недоступно, поскольку GitHub не подключен.",
+          mergePrNoForge:
+            "Объединение {{noun}} сейчас недоступно, поскольку {{brand}} не подключен.",
           mergePrMissing: "Объединение PR недоступно, поскольку еще нет запроса на включение",
           mergePrDraft:
             "Объединение PR недоступно, поскольку запрос на включение все еще находится на стадии черновика.",
@@ -688,7 +693,7 @@ export const ru: TranslationResources = {
           mergePrQueue:
             "Слияние PR здесь недоступно, поскольку этот репозиторий использует очередь слияния.",
           mergePrNotReady:
-            "Функция слияния PR недоступна до тех пор, пока GitHub не сообщит, что запрос на включение готов к слиянию.",
+            "Функция слияния {{noun}} недоступна до тех пор, пока {{brand}} не сообщит, что {{noun}} готов к слиянию.",
           autoMergeCannotDisable:
             "Автоматическое объединение включено, но этот аккаунт не может его отключить.",
         },
@@ -733,7 +738,7 @@ export const ru: TranslationResources = {
         expandAll: "Развернуть все файлы",
         refreshing: "Освежающий",
         refresh: "Обновить",
-        refreshState: "Обновить состояние git и GitHub.",
+        refreshState: "Обновить состояние git и {{brand}}",
         failedRefresh: "Не удалось обновить состояние git.",
         emptyHiddenWhitespace: "Никаких видимых изменений после скрытия пробелов",
         emptyUncommitted: "Нет незафиксированных изменений",
@@ -758,6 +763,7 @@ export const ru: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "Открыть",
+          openOn: "Открыть на {{brand}}",
         },
         sections: {
           checks: "Чеки",
@@ -781,10 +787,18 @@ export const ru: TranslationResources = {
         time: {
           justNow: "прямо сейчас",
         },
+        thread: {
+          discussion: "Обсуждение",
+        },
         errors: {
           statusLoadFailed: "Невозможно загрузить статус запроса на включение",
           activityLoadFailed: "Невозможно загрузить активность запроса на включение",
         },
+      },
+      forgeSetup: {
+        installCli: "Установите CLI {{cli}}, чтобы использовать возможности {{brand}}.",
+        signIn: "Выполните {{command}}, чтобы использовать возможности {{brand}}.",
+        generic: "Настройте {{brand}} на этом хосте, чтобы использовать его функции.",
       },
     },
   },
@@ -900,10 +914,11 @@ export const ru: TranslationResources = {
     refPicker: {
       startingRef: "Начальная ссылка",
       chooseStart: "Выберите, с чего начать",
-      checkoutHint: "Проверьте PR#{{number}}?",
-      checkoutPr: "Проверьте PR#{{number}}",
-      dismissCheckoutHint: "Отклонить подсказку по оформлению заказа PR#{{number}}",
-      intoBase: "в{{baseRef}}",
+      checkoutHint: "Проверьте {{noun}} {{numberPrefix}}{{number}}?",
+      checkoutPr: "Проверьте {{noun}} {{numberPrefix}}{{number}}",
+      dismissCheckoutHint:
+        "Отклонить подсказку по оформлению заказа {{noun}} {{numberPrefix}}{{number}}",
+      intoBase: "в {{baseRef}}",
       searching: "Идет поиск...",
       noMatchingRefs: "Нет подходящих ссылок.",
       searchPlaceholder: "Поиск филиалов и PR",

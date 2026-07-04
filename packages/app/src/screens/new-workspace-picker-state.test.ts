@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { UserComposerAttachment } from "@/attachments/types";
-import type { GitHubSearchItem } from "@getpaseo/protocol/messages";
+import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
 import { findCheckoutHintPrAttachment, syncPickerPrAttachment } from "./new-workspace-picker-state";
 
-function makePrItem(number: number, title: string, headRefName = "feature/x"): GitHubSearchItem {
+function makePrItem(number: number, title: string, headRefName = "feature/x"): ForgeSearchItem {
   return {
-    kind: "pr",
+    kind: "change_request",
     number,
     title,
     url: `https://example.com/pull/${number}`,
@@ -18,7 +18,7 @@ function makePrItem(number: number, title: string, headRefName = "feature/x"): G
 }
 
 function prAttachment(
-  item: GitHubSearchItem,
+  item: ForgeSearchItem,
 ): Extract<UserComposerAttachment, { kind: "github_pr" }> {
   return { kind: "github_pr", item };
 }

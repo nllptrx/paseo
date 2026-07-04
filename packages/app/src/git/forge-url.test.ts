@@ -1,36 +1,10 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildGitHubBlobUrl,
-  buildGitHubBranchTreeUrl,
-  parseGitHubRepoFromRemote,
-} from "./github-url";
+import { buildForgeBlobUrl, buildForgeBranchTreeUrl, hasForgeWebUrls } from "./forge-url";
 
-describe("parseGitHubRepoFromRemote", () => {
-  it.each([
-    ["https://github.com/acme/repo.git", "acme/repo"],
-    ["https://github.com/acme/repo", "acme/repo"],
-    ["http://github.com/acme/repo.git", "acme/repo"],
-    ["git@github.com:acme/repo.git", "acme/repo"],
-    ["ssh://git@github.com/acme/repo.git", "acme/repo"],
-    ["ssh://git@ssh.github.com/acme/repo.git", "acme/repo"],
-    ["https://github.com/acme/repo/", "acme/repo"],
-  ])("extracts the repo from %s", (remoteUrl, expected) => {
-    expect(parseGitHubRepoFromRemote(remoteUrl)).toBe(expected);
-  });
-
-  it("returns null for non-GitHub remotes", () => {
-    expect(parseGitHubRepoFromRemote("git@gitlab.com:acme/repo.git")).toBeNull();
-  });
-
-  it("returns null for invalid URLs", () => {
-    expect(parseGitHubRepoFromRemote("not a url")).toBeNull();
-  });
-});
-
-describe("buildGitHubBranchTreeUrl", () => {
+describe("buildForgeBranchTreeUrl", () => {
   it("builds a branch-specific GitHub tree URL", () => {
     expect(
-      buildGitHubBranchTreeUrl({
+      buildForgeBranchTreeUrl("github", {
         remoteUrl: "git@github.com:acme/repo.git",
         branch: "feature/workspace-button",
       }),
@@ -39,7 +13,7 @@ describe("buildGitHubBranchTreeUrl", () => {
 
   it("encodes reserved branch characters while preserving slash-separated branch names", () => {
     expect(
-      buildGitHubBranchTreeUrl({
+      buildForgeBranchTreeUrl("github", {
         remoteUrl: "https://github.com/acme/repo.git",
         branch: "feature/ship #42",
       }),
@@ -48,18 +22,27 @@ describe("buildGitHubBranchTreeUrl", () => {
 
   it("returns null when the current branch is unavailable", () => {
     expect(
-      buildGitHubBranchTreeUrl({
+      buildForgeBranchTreeUrl("github", {
         remoteUrl: "https://github.com/acme/repo.git",
         branch: "HEAD",
       }),
     ).toBeNull();
   });
+
+  it("returns null for a forge with no known URL grammar", () => {
+    expect(
+      buildForgeBranchTreeUrl("bitbucket", {
+        remoteUrl: "https://bitbucket.org/acme/repo.git",
+        branch: "main",
+      }),
+    ).toBeNull();
+  });
 });
 
-describe("buildGitHubBlobUrl", () => {
+describe("buildForgeBlobUrl", () => {
   it("builds a blob URL for a file path", () => {
     expect(
-      buildGitHubBlobUrl({
+      buildForgeBlobUrl("github", {
         remoteUrl: "git@github.com:acme/repo.git",
         branch: "main",
         path: "src/index.ts",
@@ -69,7 +52,7 @@ describe("buildGitHubBlobUrl", () => {
 
   it("appends a single-line anchor", () => {
     expect(
-      buildGitHubBlobUrl({
+      buildForgeBlobUrl("github", {
         remoteUrl: "https://github.com/acme/repo.git",
         branch: "main",
         path: "src/index.ts",
@@ -78,9 +61,9 @@ describe("buildGitHubBlobUrl", () => {
     ).toBe("https://github.com/acme/repo/blob/main/src/index.ts#L12");
   });
 
-  it("appends a line range anchor", () => {
+  it("appends a GitHub line range anchor (#L12-L20)", () => {
     expect(
-      buildGitHubBlobUrl({
+      buildForgeBlobUrl("github", {
         remoteUrl: "https://github.com/acme/repo.git",
         branch: "main",
         path: "src/index.ts",
@@ -90,9 +73,29 @@ describe("buildGitHubBlobUrl", () => {
     ).toBe("https://github.com/acme/repo/blob/main/src/index.ts#L12-L20");
   });
 
+  it("derives the web host from a self-hosted remote (GitHub Enterprise)", () => {
+    expect(
+      buildForgeBlobUrl("github", {
+        remoteUrl: "git@github.acme.internal:team/repo.git",
+        branch: "main",
+        path: "src/index.ts",
+      }),
+    ).toBe("https://github.acme.internal/team/repo/blob/main/src/index.ts");
+  });
+
+  it("canonicalizes the github.com SSH-alias host to the web host", () => {
+    expect(
+      buildForgeBlobUrl("github", {
+        remoteUrl: "ssh://git@ssh.github.com/acme/repo.git",
+        branch: "main",
+        path: "src/index.ts",
+      }),
+    ).toBe("https://github.com/acme/repo/blob/main/src/index.ts");
+  });
+
   it("strips leading slashes and encodes path segments", () => {
     expect(
-      buildGitHubBlobUrl({
+      buildForgeBlobUrl("github", {
         remoteUrl: "https://github.com/acme/repo.git",
         branch: "main",
         path: "/src/a b/c#d.ts",
@@ -102,7 +105,7 @@ describe("buildGitHubBlobUrl", () => {
 
   it("normalizes harmless dot segments in the blob path", () => {
     expect(
-      buildGitHubBlobUrl({
+      buildForgeBlobUrl("github", {
         remoteUrl: "https://github.com/acme/repo.git",
         branch: "main",
         path: "./src/../index.ts",
@@ -112,7 +115,7 @@ describe("buildGitHubBlobUrl", () => {
 
   it("returns null for blob paths that escape above the repo root", () => {
     expect(
-      buildGitHubBlobUrl({
+      buildForgeBlobUrl("github", {
         remoteUrl: "https://github.com/acme/repo.git",
         branch: "main",
         path: "../outside.ts",
@@ -122,11 +125,31 @@ describe("buildGitHubBlobUrl", () => {
 
   it("returns null when the path is missing", () => {
     expect(
-      buildGitHubBlobUrl({
+      buildForgeBlobUrl("github", {
         remoteUrl: "https://github.com/acme/repo.git",
         branch: "main",
         path: "",
       }),
     ).toBeNull();
+  });
+
+  it("returns null for a forge with no known URL grammar", () => {
+    expect(
+      buildForgeBlobUrl("bitbucket", {
+        remoteUrl: "https://bitbucket.org/acme/repo.git",
+        branch: "main",
+        path: "src/index.ts",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("hasForgeWebUrls", () => {
+  it("is true for forges with a known URL grammar", () => {
+    expect(hasForgeWebUrls("github")).toBe(true);
+  });
+
+  it("is false for an unknown forge", () => {
+    expect(hasForgeWebUrls("bitbucket")).toBe(false);
   });
 });

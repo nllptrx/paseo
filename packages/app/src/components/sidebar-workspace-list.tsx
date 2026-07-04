@@ -84,6 +84,7 @@ import {
 import { SyncedLoader } from "@/components/synced-loader";
 import { useToast } from "@/contexts/toast-context";
 import { useCheckoutGitActionsStore } from "@/git/actions-store";
+import { getForgePresentation, normalizeForge } from "@/git/forge";
 import { toWorktreeArchiveRisk } from "@/git/worktree-archive-warning";
 import { hasVisibleOrderChanged, mergeWithRemainder } from "@/utils/sidebar-reorder";
 import { decideLongPressMove } from "@/utils/sidebar-gesture-arbitration";
@@ -322,12 +323,14 @@ export function PrBadge({ hint }: { hint: PrHint }) {
 
   const textStyle = isHovered ? prBadgeTextHoveredCombined : prBadgeStyles.text;
   const iconUniProps = isHovered ? foregroundColorMapping : getPrIconUniMapping(hint.state);
+  const presentation = getForgePresentation(normalizeForge(hint.forge));
 
   return (
     <Pressable
       accessibilityRole="link"
       accessibilityLabel={t("workspace.git.pr.accessibility.pullRequest", {
         number: hint.number,
+        context: presentation.changeRequestContext,
       })}
       hitSlop={4}
       onPressIn={handlePressIn}
@@ -342,6 +345,7 @@ export function PrBadge({ hint }: { hint: PrHint }) {
         <ThemedGitPullRequest size={12} uniProps={iconUniProps} />
       )}
       <Text style={textStyle} numberOfLines={1}>
+        {presentation.numberPrefix}
         {hint.number}
       </Text>
     </Pressable>

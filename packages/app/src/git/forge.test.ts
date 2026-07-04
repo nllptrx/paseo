@@ -1,0 +1,54 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildForgeSignInCommand,
+  forgeFromRemoteUrl,
+  getForgePresentation,
+  normalizeForge,
+} from "./forge";
+
+describe("normalizeForge", () => {
+  it("maps the gitlab discriminant to gitlab", () => {
+    expect(normalizeForge("gitlab")).toBe("gitlab");
+  });
+
+  it("keeps any non-empty forge id and defaults only absent values to github", () => {
+    expect(normalizeForge("github")).toBe("github");
+    expect(normalizeForge("gitea")).toBe("gitea");
+    expect(normalizeForge("forgejo")).toBe("forgejo");
+    expect(normalizeForge(undefined)).toBe("github");
+    expect(normalizeForge(null)).toBe("github");
+    // An unknown forge id is preserved (rendered neutrally), not collapsed to
+    // GitHub, so a newer daemon's forge degrades gracefully on an older client.
+    expect(normalizeForge("bitbucket")).toBe("bitbucket");
+  });
+});
+
+describe("getForgePresentation", () => {
+  it("keeps GitHub on the pull-request noun and the # prefix", () => {
+    const github = getForgePresentation("github");
+    expect(github.brandLabel).toBe("GitHub");
+    expect(github.changeRequestAbbrev).toBe("PR");
+    expect(github.numberPrefix).toBe("#");
+    expect(github.issueNumberPrefix).toBe("#");
+    expect(github.changeRequestContext).toBeUndefined();
+  });
+});
+
+describe("forgeFromRemoteUrl", () => {
+  it("does not classify self-managed hosts by substring", () => {
+    expect(forgeFromRemoteUrl("git@gitlab.example.org:example/repo.git")).toBeNull();
+    expect(forgeFromRemoteUrl("git@forgejo.example.org:example/repo.git")).toBeNull();
+    expect(forgeFromRemoteUrl("https://notgitlab.example.org/example/repo.git")).toBeNull();
+  });
+});
+
+describe("buildForgeSignInCommand", () => {
+  it("uses plain gh auth login for GitHub (incl. the ssh.github.com endpoint)", () => {
+    expect(buildForgeSignInCommand("github", "github.com")).toBe("gh auth login");
+    expect(buildForgeSignInCommand("github", "ssh.github.com")).toBe("gh auth login");
+  });
+
+  it("returns no sign-in command for an unknown forge with no known CLI", () => {
+    expect(buildForgeSignInCommand("bitbucket", "bitbucket.org")).toBeNull();
+  });
+});

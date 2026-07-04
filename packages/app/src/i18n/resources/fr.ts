@@ -109,8 +109,8 @@ export const fr: TranslationResources = {
       openImage: "Ouvrir la pièce jointe de l'image",
       removeImage: "Supprimer l'image jointe",
       removeFile: "Remove file attachment",
-      openGithub: "Ouvrir{{kind}}#{{number}}",
-      removeGithub: "Supprimer{{kind}}#{{number}}",
+      openGithub: "Ouvrir {{kind}} {{number}}",
+      removeGithub: "Supprimer {{kind}} {{number}}",
       element: "Élément",
       openBrowserElement: "Ouvrir la pièce jointe de l'élément de navigateur",
       removeBrowserElement: "Supprimer la pièce jointe d'un élément de navigateur",
@@ -646,7 +646,8 @@ export const fr: TranslationResources = {
           disabled: "Fusion automatique désactivée",
         },
         unavailable: {
-          viewPrNoGithub: "ViewPRn'est pas disponible pour le moment carGitHubn'est pas connecté",
+          viewPrNoForge:
+            "Voir {{noun}} n'est pas disponible pour le moment car {{brand}} n'est pas connecté",
           pullNoRemote:
             "Pull n'est pas disponible ici car cette branche n'est pas encore connectée à une télécommande",
           pullDirty:
@@ -661,10 +662,14 @@ export const fr: TranslationResources = {
             "Le pull et le push ne sont pas disponibles ici car cette branche n'est pas encore connectée à une télécommande",
           pullAndPushDirty:
             "Pull et push ne sont pas disponibles tant que vous avez des modifications locales, alors validez-les ou cachez-les d'abord",
+          pullAndPushNoIncoming:
+            "Pull et push ne sont pas disponibles car il n'y a aucun changement entrant à récupérer d'abord",
           pullAndPushInSync:
             "Les fonctions Pull et Push ne sont pas disponibles car cette branche est déjà synchronisée",
-          createPrNoGithub:
-            "CréerPRn'est pas disponible pour le moment carGitHubn'est pas connecté",
+          pullAndPushNothingToPush:
+            "Pull et push ne sont pas disponibles car il n'y a rien de nouveau à envoyer après le pull",
+          createPrNoForge:
+            "Créer {{noun}} n'est pas disponible pour le moment car {{brand}} n'est pas connecté",
           createPrNoCommits:
             "CréerPRn'est pas disponible car cette branche n'a pas encore de nouveaux commits",
           mergeNoBase:
@@ -681,8 +686,8 @@ export const fr: TranslationResources = {
             "La mise à jour n'est pas disponible car cette branche est déjà à jour avec{{baseRef}}",
           archiveNotWorktree:
             "L'archive n'est pas disponible ici car cet espace de travail n'a pas été créé en tant qu'arbre de travailPaseo",
-          mergePrNoGithub:
-            "La fusionPRn'est pas disponible pour le moment carGitHubn'est pas connecté",
+          mergePrNoForge:
+            "La fusion {{noun}} n'est pas disponible pour le moment car {{brand}} n'est pas connecté",
           mergePrMissing:
             "La fusionPRn'est pas disponible car il n'y a pas encore de demande d'extraction",
           mergePrDraft:
@@ -695,7 +700,7 @@ export const fr: TranslationResources = {
           mergePrQueue:
             "MergePRn'est pas disponible ici car ce référentiel utilise une file d'attente de fusion",
           mergePrNotReady:
-            "La fusionPRn'est pas disponible jusqu'à ce queGitHubsignale que la demande d'extraction est prête à fusionner",
+            "La fusion {{noun}} n'est pas disponible jusqu'à ce que {{brand}} signale que {{noun}} est prête à fusionner",
           autoMergeCannotDisable:
             "La fusion automatique est activée, mais ce compte ne peut pas la désactiver",
         },
@@ -740,7 +745,7 @@ export const fr: TranslationResources = {
         expandAll: "Développer tous les fichiers",
         refreshing: "Rafraîchissant",
         refresh: "Rafraîchir",
-        refreshState: "Actualiser l'état de git etGitHub",
+        refreshState: "Actualiser l'état de git et de {{brand}}",
         failedRefresh: "Échec de l'actualisation de l'état git.",
         emptyHiddenWhitespace: "Aucun changement visible après avoir masqué les espaces",
         emptyUncommitted: "Aucune modification non validée",
@@ -765,6 +770,7 @@ export const fr: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "Voir",
+          openOn: "Ouvrir sur {{brand}}",
         },
         sections: {
           checks: "Chèques",
@@ -788,10 +794,18 @@ export const fr: TranslationResources = {
         time: {
           justNow: "tout à l' heure",
         },
+        thread: {
+          discussion: "Fil de discussion",
+        },
         errors: {
           statusLoadFailed: "Impossible de charger le statut de la demande d'extraction",
           activityLoadFailed: "Impossible de charger l'activité de demande d'extraction",
         },
+      },
+      forgeSetup: {
+        installCli: "Installez la CLI {{cli}} pour utiliser les fonctionnalités {{brand}}.",
+        signIn: "Exécutez {{command}} pour utiliser les fonctionnalités {{brand}}.",
+        generic: "Configurez {{brand}} sur cet hôte pour utiliser ses fonctionnalités.",
       },
     },
   },
@@ -907,10 +921,10 @@ export const fr: TranslationResources = {
     refPicker: {
       startingRef: "Réf de départ",
       chooseStart: "Choisissez par où commencer",
-      checkoutHint: "DécouvrezPR#{{number}}?",
-      checkoutPr: "DécouvrezPR#{{number}}",
-      dismissCheckoutHint: "Ignorer l'indice de paiementPR#{{number}}",
-      intoBase: "dans{{baseRef}}",
+      checkoutHint: "Découvrez {{noun}} {{numberPrefix}}{{number}} ?",
+      checkoutPr: "Découvrez {{noun}} {{numberPrefix}}{{number}}",
+      dismissCheckoutHint: "Ignorer l'indice de paiement {{noun}} {{numberPrefix}}{{number}}",
+      intoBase: "dans {{baseRef}}",
       searching: "Recherche...",
       noMatchingRefs: "Aucune référence correspondante.",
       searchPlaceholder: "Rechercher des succursales et des PR",
