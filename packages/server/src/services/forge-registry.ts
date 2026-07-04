@@ -2,6 +2,7 @@ import { getForgeDefinition } from "@getpaseo/protocol/forge-manifest";
 import { normalizeHost } from "@getpaseo/protocol/git-remote";
 import { createGitHubService, probeGitHubHost } from "./github-service.js";
 import type { ForgeService } from "./forge-service.js";
+import { createGiteaService, resolveGiteaFamilyForge } from "./gitea-service.js";
 import { createGitLabService, probeGitLabHost } from "./gitlab-service.js";
 
 export type ForgeServiceFactory = () => ForgeService;
@@ -150,6 +151,22 @@ export const defaultForgeRegistry = new ForgeRegistry([
       probeHost: probeGitLabHost,
     },
   ],
+  [
+    "gitea",
+    {
+      createService: createGiteaService,
+      matchesHost: matchesCloudHost("gitea"),
+      probeHost: async (host) => (await resolveGiteaFamilyForge(host)) === "gitea",
+    },
+  ],
+  [
+    "forgejo",
+    {
+      createService: createGiteaService,
+      probeHost: async (host) => (await resolveGiteaFamilyForge(host)) === "forgejo",
+    },
+  ],
+  ["codeberg", { createService: createGiteaService, matchesHost: matchesCloudHost("codeberg") }],
 ]);
 
 export function createForgeService(forge: string): ForgeService | null {

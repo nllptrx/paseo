@@ -78,6 +78,38 @@ export const FORGE_DEFINITIONS: ForgeDefinition[] = [
     signIn: { cli: "glab", command: "glab auth login", hostnameFlag: "--hostname" },
     cloudHosts: ["gitlab.com"],
   },
+  {
+    id: "gitea",
+    displayName: "Gitea",
+    changeRequestAbbrev: "PR",
+    changeRequestNoun: "pull request",
+    changeRequestNumberPrefix: "#",
+    issueNumberPrefix: "#",
+    iconKind: "gitea",
+    signIn: { cli: "tea", command: "tea login add" },
+    cloudHosts: ["gitea.com"],
+  },
+  {
+    id: "forgejo",
+    displayName: "Forgejo",
+    changeRequestAbbrev: "PR",
+    changeRequestNoun: "pull request",
+    changeRequestNumberPrefix: "#",
+    issueNumberPrefix: "#",
+    iconKind: "forgejo",
+    signIn: { cli: "tea", command: "tea login add" },
+  },
+  {
+    id: "codeberg",
+    displayName: "Codeberg",
+    changeRequestAbbrev: "PR",
+    changeRequestNoun: "pull request",
+    changeRequestNumberPrefix: "#",
+    issueNumberPrefix: "#",
+    iconKind: "codeberg",
+    signIn: { cli: "tea", command: "tea login add" },
+    cloudHosts: ["codeberg.org"],
+  },
 ];
 
 /** Forge definitions only present in dev builds (none today; mirrors providers). */

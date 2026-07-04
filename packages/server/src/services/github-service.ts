@@ -1164,9 +1164,12 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): G
     },
 
     getCheckDetails(input) {
-      const { repoOwner, repoName } = input;
+      const { repoOwner, repoName, checkRunId } = input;
       if (!repoOwner || !repoName) {
         throw new Error("GitHub getCheckDetails requires repoOwner and repoName");
+      }
+      if (checkRunId === undefined) {
+        throw new Error("GitHub getCheckDetails requires checkRunId");
       }
       return cached({
         cwd: input.cwd,
@@ -1174,7 +1177,7 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): G
         args: {
           repoOwner,
           repoName,
-          checkRunId: input.checkRunId,
+          checkRunId,
           workflowRunId: input.workflowRunId,
         },
         readOptions: input,
@@ -1182,7 +1185,7 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): G
           const repoPath = `repos/${repoOwner}/${repoName}`;
           const checkRun = toGitHubCheckRunDetails(
             await runGhJson(
-              ["api", `${repoPath}/check-runs/${input.checkRunId}`],
+              ["api", `${repoPath}/check-runs/${checkRunId}`],
               { cwd: input.cwd },
               GitHubCheckRunDetailsSchema,
               "{}",
@@ -1192,7 +1195,7 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): G
             await runGhJson(
               [
                 "api",
-                `${repoPath}/check-runs/${input.checkRunId}/annotations`,
+                `${repoPath}/check-runs/${checkRunId}/annotations`,
                 "-f",
                 `per_page=${CHECK_ANNOTATION_PAGE_MAX}`,
               ],

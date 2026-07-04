@@ -29,6 +29,21 @@ describe("buildForgeBranchTreeUrl", () => {
     ).toBe("https://gitlab.com/group/sub/repo/-/tree/main");
   });
 
+  it("uses the Gitea-family /src/branch/ infix", () => {
+    expect(
+      buildForgeBranchTreeUrl("gitea", {
+        remoteUrl: "https://gitea.com/acme/repo.git",
+        branch: "main",
+      }),
+    ).toBe("https://gitea.com/acme/repo/src/branch/main");
+    expect(
+      buildForgeBranchTreeUrl("codeberg", {
+        remoteUrl: "https://codeberg.org/acme/repo.git",
+        branch: "main",
+      }),
+    ).toBe("https://codeberg.org/acme/repo/src/branch/main");
+  });
+
   it("returns null when the current branch is unavailable", () => {
     expect(
       buildForgeBranchTreeUrl("github", {
@@ -92,6 +107,18 @@ describe("buildForgeBlobUrl", () => {
         lineEnd: 20,
       }),
     ).toBe("https://gitlab.com/group/sub/repo/-/blob/main/src/index.ts#L12-20");
+  });
+
+  it("uses the Gitea-family /src/branch/ blob path with a #L12-L20 anchor", () => {
+    expect(
+      buildForgeBlobUrl("forgejo", {
+        remoteUrl: "https://codeberg.org/acme/repo.git",
+        branch: "main",
+        path: "src/index.ts",
+        lineStart: 12,
+        lineEnd: 20,
+      }),
+    ).toBe("https://codeberg.org/acme/repo/src/branch/main/src/index.ts#L12-L20");
   });
 
   it("derives the web host from a self-hosted remote (GitHub Enterprise)", () => {
@@ -167,7 +194,7 @@ describe("buildForgeBlobUrl", () => {
 
 describe("hasForgeWebUrls", () => {
   it("is true for forges with a known URL grammar", () => {
-    for (const forge of ["github", "gitlab"]) {
+    for (const forge of ["github", "gitlab", "gitea", "forgejo", "codeberg"]) {
       expect(hasForgeWebUrls(forge)).toBe(true);
     }
   });

@@ -46,6 +46,7 @@ import { startGitCommandMetrics, stopGitCommandMetrics } from "./run-git-command
 import { createForgeResolver } from "../services/forge-resolver.js";
 import { GitHubCommandError, GitHubCliMissingError } from "../services/github-service.js";
 import type { CurrentPullRequestStatus, ForgeService } from "../services/forge-service.js";
+import { TeaAuthenticationError, TeaCliMissingError } from "../services/gitea-service.js";
 import {
   createWorktree as createWorktreePrimitive,
   type CreateWorktreeOptions,
@@ -2662,6 +2663,42 @@ const x = 1;
     } finally {
       __resetPullRequestStatusCacheForTests();
     }
+  });
+
+  it("maps missing Gitea CLI PR status lookups to cli_missing auth state", async () => {
+    execFileSync("git", ["checkout", "-b", "feature"], { cwd: repoDir });
+    execFileSync("git", ["remote", "add", "origin", "https://gitea.example.com/acme/repo.git"], {
+      cwd: repoDir,
+    });
+
+    const service = createGitHubServiceForStatus(null);
+    service.getCurrentPullRequestStatus = async () => {
+      throw new TeaCliMissingError();
+    };
+
+    await expect(getPullRequestStatus(repoDir, service)).resolves.toEqual({
+      status: null,
+      authState: "cli_missing",
+      githubFeaturesEnabled: false,
+    });
+  });
+
+  it("maps Gitea authentication PR status failures to unauthenticated auth state", async () => {
+    execFileSync("git", ["checkout", "-b", "feature"], { cwd: repoDir });
+    execFileSync("git", ["remote", "add", "origin", "https://gitea.example.com/acme/repo.git"], {
+      cwd: repoDir,
+    });
+
+    const service = createGitHubServiceForStatus(null);
+    service.getCurrentPullRequestStatus = async () => {
+      throw new TeaAuthenticationError({ stderr: "401 unauthorized" });
+    };
+
+    await expect(getPullRequestStatus(repoDir, service)).resolves.toEqual({
+      status: null,
+      authState: "unauthenticated",
+      githubFeaturesEnabled: false,
+    });
   });
 
   it("dedupes concurrent PR status lookups for the same cwd", async () => {

@@ -1053,6 +1053,75 @@ describe("CheckoutSession", () => {
       });
     });
 
+    it("routes the timeline request through the resolved Gitea adapter", async () => {
+      const giteaCalls: Array<{ cwd: string; prNumber: number }> = [];
+      const giteaService: Partial<ForgeService> = {
+        async isAuthenticated() {
+          return true;
+        },
+        async getPullRequestTimeline(input) {
+          giteaCalls.push({ cwd: input.cwd, prNumber: input.prNumber });
+          return {
+            prNumber: input.prNumber,
+            repoOwner: input.repoOwner,
+            repoName: input.repoName,
+            items: [
+              {
+                kind: "review",
+                id: "2001",
+                author: "reviewer-a",
+                authorUrl: "https://gitea.com/reviewer-a",
+                avatarUrl: null,
+                body: "Approved",
+                createdAt: 1710000000000,
+                url: "https://gitea.com/g/r/pulls/12#issuecomment-2001",
+                reviewState: "approved",
+              },
+            ],
+            truncated: false,
+            error: null,
+          };
+        },
+      };
+      const { checkout, emitted } = makeCheckoutSession({
+        github: {
+          async isAuthenticated() {
+            throw new Error("github adapter should not be reached for a gitea cwd");
+          },
+          async getPullRequestTimeline() {
+            throw new Error("github adapter should not be reached for a gitea cwd");
+          },
+        },
+        git: {
+          resolveForge: async () => ({
+            forge: "gitea",
+            host: "gitea.com",
+            service: giteaService as ForgeService,
+          }),
+        },
+      });
+
+      await checkout.handlePullRequestTimelineRequest({
+        type: "pull_request_timeline_request",
+        cwd: "/repo",
+        prNumber: 12,
+        repoOwner: "g",
+        repoName: "r",
+        requestId: "tl-gitea",
+      });
+
+      expect(giteaCalls).toEqual([{ cwd: "/repo", prNumber: 12 }]);
+      const response = emitted.find(isTimelineResponse);
+      expect(response).toMatchObject({
+        payload: {
+          prNumber: 12,
+          items: [{ id: "2001", kind: "review", author: "reviewer-a" }],
+          githubFeaturesEnabled: true,
+          error: null,
+        },
+      });
+    });
+
     it("derives the unauthenticated timeline error label from the forge brand for GitLab", async () => {
       const gitlabService: Partial<ForgeService> = {
         async isAuthenticated() {

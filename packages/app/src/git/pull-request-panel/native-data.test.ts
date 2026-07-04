@@ -83,7 +83,73 @@ describe("deriveGitlabApprovals", () => {
 });
 
 describe("getNativeFallbackChecks", () => {
+  it("surfaces the Gitea aggregate CI status branded with the top-level forge", () => {
+    expect(
+      getNativeFallbackChecks(
+        status(
+          { forge: "gitea", mergeable: true, hasMerged: false, ciStatus: "success" },
+          "https://gitea.com/group/repo/pulls/7",
+        ),
+        "gitea",
+      ),
+    ).toEqual([
+      {
+        provider: "gitea",
+        name: "CI",
+        status: "success",
+        url: "https://gitea.com/group/repo/pulls/7",
+      },
+    ]);
+  });
+
+  it("keeps Forgejo branding for the Gitea-family aggregate check", () => {
+    expect(
+      getNativeFallbackChecks(
+        status(
+          { forge: "gitea", mergeable: true, hasMerged: false, ciStatus: "failure" },
+          "https://forgejo.example.com/group/repo/pulls/7",
+        ),
+        "forgejo",
+      ),
+    ).toEqual([
+      {
+        provider: "forgejo",
+        name: "CI",
+        status: "failure",
+        url: "https://forgejo.example.com/group/repo/pulls/7",
+      },
+    ]);
+  });
+
+  it("maps a Gitea 'warning' aggregate to a failing fallback check, not pending", () => {
+    expect(
+      getNativeFallbackChecks(
+        status(
+          { forge: "gitea", mergeable: true, hasMerged: false, ciStatus: "warning" },
+          "https://gitea.com/group/repo/pulls/7",
+        ),
+        "gitea",
+      ),
+    ).toEqual([
+      {
+        provider: "gitea",
+        name: "CI",
+        status: "failure",
+        url: "https://gitea.com/group/repo/pulls/7",
+      },
+    ]);
+  });
+
   it("returns no fallback checks for a forge that reports none", () => {
+    expect(
+      getNativeFallbackChecks(
+        status(
+          { forge: "gitea", mergeable: true, hasMerged: false, ciStatus: null },
+          "https://gitea.com/group/repo/pulls/7",
+        ),
+        "gitea",
+      ),
+    ).toEqual([]);
     expect(
       getNativeFallbackChecks(
         status(gitlabFacts(), "https://gitlab.com/group/repo/-/merge_requests/7"),

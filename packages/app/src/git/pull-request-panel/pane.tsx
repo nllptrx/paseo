@@ -179,6 +179,9 @@ function getCheckIdentity(check: PrPaneCheck): string {
   if (check.detailRef?.checkRunId !== undefined) {
     return `${check.provider}:check-run:${check.detailRef.checkRunId}`;
   }
+  if (check.detailRef?.workflowRunId !== undefined) {
+    return `${check.provider}:workflow-run:${check.detailRef.workflowRunId}`;
+  }
   return `${check.provider}:${check.name}:${check.url}`;
 }
 
@@ -397,7 +400,7 @@ export function PullRequestPane({
         if (
           canFetchDetail &&
           daemonClient &&
-          ref?.checkRunId !== undefined &&
+          (ref?.checkRunId !== undefined || ref?.workflowRunId !== undefined) &&
           data.repoOwner &&
           data.repoName
         ) {

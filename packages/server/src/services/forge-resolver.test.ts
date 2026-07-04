@@ -28,6 +28,8 @@ describe("forgeForHost", () => {
   it("maps public registered forge hosts without resolver-specific branches", () => {
     expect(forgeForHost("github.com")).toBe("github");
     expect(forgeForHost("gitlab.com")).toBe("gitlab");
+    expect(forgeForHost("gitea.com")).toBe("gitea");
+    expect(forgeForHost("codeberg.org")).toBe("codeberg");
   });
 
   it("returns null for hosts with no known adapter", () => {
@@ -147,6 +149,24 @@ describe("createForgeResolver", () => {
 
     await expect(resolver.resolve("/repo")).resolves.toBeNull();
     expect(resolveSshHostname).not.toHaveBeenCalled();
+  });
+
+  it("resolves Gitea and Codeberg remotes to their registered top-level forges", async () => {
+    const gitea = createForgeResolver({
+      resolveRemoteUrl: async () => "https://gitea.com/example/repo.git",
+    });
+    const codeberg = createForgeResolver({
+      resolveRemoteUrl: async () => "git@codeberg.org:example/repo.git",
+    });
+
+    await expect(gitea.resolve("/gitea")).resolves.toMatchObject({
+      forge: "gitea",
+      host: "gitea.com",
+    });
+    await expect(codeberg.resolve("/codeberg")).resolves.toMatchObject({
+      forge: "codeberg",
+      host: "codeberg.org",
+    });
   });
 
   it("does not classify an overlapping gitea-forgejo hostname without a probe", async () => {
@@ -286,6 +306,8 @@ describe("createForgeResolver", () => {
   it.each([
     ["github", "git@github.com:owner/repo.git", "github.com"],
     ["gitlab", "git@gitlab.com:group/repo.git", "gitlab.com"],
+    ["gitea", "git@gitea.com:owner/repo.git", "gitea.com"],
+    ["codeberg", "git@codeberg.org:owner/repo.git", "codeberg.org"],
   ])("resolves the %s cloud host without probing CLI auth", async (forge, remoteUrl, host) => {
     const probeForge = vi.fn(async () => {
       throw new Error("cloud host should not probe");

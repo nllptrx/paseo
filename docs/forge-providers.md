@@ -143,7 +143,17 @@ To add `acme`:
    `CLIENT_FORGE_VIEW_MODULES` entry (`view.ts`).
 7. Add/update the icon component only if the client bundle should show a brand
    mark.
-8. Run targeted tests: manifest/registry/resolver, the adapter test, protocol
+8. If the forge's CI/data model does not fit an existing required
+   `ForgeService` field, widen the shared interface (plus the protocol schema
+   and its guards) instead of faking a value — e.g. Gitea Actions runs carry no
+   check-run id, so `GetCheckDetailsOptions.checkRunId` became optional with
+   `workflowRunId` as the alternative address. Expect this step to touch
+   `forge-service.ts`, `messages.ts`, and the call-site guards of the other
+   adapters. Widening a shared field is not forge-local: it also affects the
+   already-shipped forges/GitHub call sites and the capability-gated RPC (e.g.
+   `forgeCheckDetails`), so verify every consumer rather than assuming the change
+   only reaches the new adapter.
+9. Run targeted tests: manifest/registry/resolver, the adapter test, protocol
    checkout PR schema, app forge URL/presentation tests, app merge capability,
    and any PR-pane native data tests touched.
 
