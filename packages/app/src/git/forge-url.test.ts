@@ -20,6 +20,15 @@ describe("buildForgeBranchTreeUrl", () => {
     ).toBe("https://github.com/acme/repo/tree/feature/ship%20%2342");
   });
 
+  it("uses the GitLab /-/tree/ infix and supports subgroups", () => {
+    expect(
+      buildForgeBranchTreeUrl("gitlab", {
+        remoteUrl: "https://gitlab.com/group/sub/repo.git",
+        branch: "main",
+      }),
+    ).toBe("https://gitlab.com/group/sub/repo/-/tree/main");
+  });
+
   it("returns null when the current branch is unavailable", () => {
     expect(
       buildForgeBranchTreeUrl("github", {
@@ -71,6 +80,18 @@ describe("buildForgeBlobUrl", () => {
         lineEnd: 20,
       }),
     ).toBe("https://github.com/acme/repo/blob/main/src/index.ts#L12-L20");
+  });
+
+  it("uses the GitLab /-/blob/ infix and #L12-20 range anchor", () => {
+    expect(
+      buildForgeBlobUrl("gitlab", {
+        remoteUrl: "https://gitlab.com/group/sub/repo.git",
+        branch: "main",
+        path: "src/index.ts",
+        lineStart: 12,
+        lineEnd: 20,
+      }),
+    ).toBe("https://gitlab.com/group/sub/repo/-/blob/main/src/index.ts#L12-20");
   });
 
   it("derives the web host from a self-hosted remote (GitHub Enterprise)", () => {
@@ -146,7 +167,9 @@ describe("buildForgeBlobUrl", () => {
 
 describe("hasForgeWebUrls", () => {
   it("is true for forges with a known URL grammar", () => {
-    expect(hasForgeWebUrls("github")).toBe(true);
+    for (const forge of ["github", "gitlab"]) {
+      expect(hasForgeWebUrls(forge)).toBe(true);
+    }
   });
 
   it("is false for an unknown forge", () => {

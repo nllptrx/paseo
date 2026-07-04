@@ -3627,6 +3627,7 @@ export class DaemonClient {
       repoName?: string;
       checkRunId: number;
       workflowRunId?: number;
+      changeRequestNumber?: number;
     },
     requestId?: string,
   ): Promise<CheckoutForgeGetCheckDetailsPayload> {
@@ -3640,6 +3641,7 @@ export class DaemonClient {
           repoName: input.repoName,
           checkRunId: input.checkRunId,
           workflowRunId: input.workflowRunId,
+          changeRequestNumber: input.changeRequestNumber,
         },
         timeout: 60000,
       },

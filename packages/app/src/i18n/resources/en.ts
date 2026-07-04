@@ -100,6 +100,7 @@ export const en = {
       addImage: "Add image",
       addFile: "Upload file",
       addIssueOrPr: "Add issue or PR",
+      addIssueOrPr_mr: "Add issue or MR",
       dropImagesHere: "Drop images here",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Edit queued message",
@@ -132,7 +133,9 @@ export const en = {
       searching: "Searching...",
       noResults: "No results found.",
       searchPlaceholder: "Search issues and PRs...",
+      searchPlaceholder_mr: "Search issues and MRs...",
       title: "Attach issue or PR",
+      title_mr: "Attach issue or MR",
     },
   },
   agentControls: {
@@ -612,10 +615,14 @@ export const en = {
           success: "Pulled and pushed",
         },
         viewPr: "View PR",
+        viewPr_mr: "View MR",
         createPr: {
           label: "Create PR",
           pending: "Creating PR...",
           success: "PR Created",
+          label_mr: "Create MR",
+          pending_mr: "Creating MR...",
+          success_mr: "MR Created",
         },
         mergeBranch: {
           label: "Merge locally",
@@ -638,6 +645,11 @@ export const en = {
           rebase: "Merge PR (rebase)",
           pending: "Merging PR...",
           success: "PR merged",
+          squash_mr: "Merge MR (squash)",
+          merge_mr: "Merge MR (merge)",
+          rebase_mr: "Merge MR (rebase)",
+          pending_mr: "Merging MR...",
+          success_mr: "MR merged",
         },
         autoMerge: {
           enableSquash: "Auto merge (squash)",
@@ -785,10 +797,19 @@ export const en = {
         },
         sections: {
           checks: "Checks",
+          pipeline: "Pipeline",
           reviews: "Reviews",
         },
+        empty: {
+          noJobs: "No jobs",
+          loadingPipeline: "Loading pipeline…",
+          pipelineJobsLoadFailed: "Could not load pipeline jobs",
+          allowedToFail: "allowed to fail",
+        },
+        approvals: "{{given}} of {{required}} approvals",
         accessibility: {
           pullRequest: "Pull request #{{number}}",
+          pullRequest_mr: "Merge request !{{number}}",
         },
         states: {
           draft: "Draft",

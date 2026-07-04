@@ -18,10 +18,13 @@ export function prPanePipelineQueryKey({
   serverId,
   cwd,
   pipelineId,
+  changeRequestNumber,
 }: {
   serverId: string;
   cwd: string;
   pipelineId: number | null;
+  /** MR iid the pipeline is fetched by; part of the key since the fetch routes by it. */
+  changeRequestNumber: number;
 }) {
-  return [prPanePipelineQueryKind, serverId, cwd, pipelineId] as const;
+  return [prPanePipelineQueryKind, serverId, cwd, pipelineId, changeRequestNumber] as const;
 }

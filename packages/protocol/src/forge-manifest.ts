@@ -67,6 +67,17 @@ export const FORGE_DEFINITIONS: ForgeDefinition[] = [
     signIn: { cli: "gh", command: "gh auth login" },
     cloudHosts: ["github.com", "ssh.github.com"],
   },
+  {
+    id: "gitlab",
+    displayName: "GitLab",
+    changeRequestAbbrev: "MR",
+    changeRequestNoun: "merge request",
+    changeRequestNumberPrefix: "!",
+    issueNumberPrefix: "#",
+    iconKind: "gitlab",
+    signIn: { cli: "glab", command: "glab auth login", hostnameFlag: "--hostname" },
+    cloudHosts: ["gitlab.com"],
+  },
 ];
 
 /** Forge definitions only present in dev builds (none today; mirrors providers). */

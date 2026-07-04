@@ -1211,7 +1211,8 @@ export class CheckoutSession {
       }
     >,
   ): Promise<void> {
-    const { cwd, repoOwner, repoName, checkRunId, workflowRunId, requestId } = msg;
+    const { cwd, repoOwner, repoName, checkRunId, workflowRunId, changeRequestNumber, requestId } =
+      msg;
     const responseType =
       msg.type === "checkout.forge.get_check_details.request"
         ? "checkout.forge.get_check_details.response"
@@ -1225,6 +1226,7 @@ export class CheckoutSession {
         repoName,
         checkRunId,
         workflowRunId,
+        changeRequestNumber,
       });
       this.host.emit({
         type: responseType,

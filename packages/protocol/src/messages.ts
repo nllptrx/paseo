@@ -1732,6 +1732,11 @@ const CheckoutCheckDetailsRequestPayloadSchema = z.object({
   repoName: GitHubRepoSegmentSchema.optional(),
   checkRunId: z.number().int().positive(),
   workflowRunId: z.number().int().positive().optional(),
+  // Permanent forge-routing field, optional because only some forges need it:
+  // GitLab routes the check-details fetch to the change request's head pipeline
+  // by iid, so a fork/detached MR pipeline (which lives in the source project,
+  // not the checkout's target project) resolves correctly. GitHub ignores it.
+  changeRequestNumber: z.number().int().positive().optional(),
   requestId: z.string(),
 });
 

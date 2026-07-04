@@ -32,9 +32,22 @@ describe("getForgePresentation", () => {
     expect(github.issueNumberPrefix).toBe("#");
     expect(github.changeRequestContext).toBeUndefined();
   });
+
+  it("relabels GitLab to the merge-request noun and the ! prefix", () => {
+    const gitlab = getForgePresentation("gitlab");
+    expect(gitlab.brandLabel).toBe("GitLab");
+    expect(gitlab.changeRequestAbbrev).toBe("MR");
+    expect(gitlab.numberPrefix).toBe("!");
+    expect(gitlab.issueNumberPrefix).toBe("#");
+    expect(gitlab.changeRequestContext).toBe("mr");
+  });
 });
 
 describe("forgeFromRemoteUrl", () => {
+  it("detects only public forge hosts that are safe without daemon probing", () => {
+    expect(forgeFromRemoteUrl("https://gitlab.com/example/repo.git")).toBe("gitlab");
+  });
+
   it("does not classify self-managed hosts by substring", () => {
     expect(forgeFromRemoteUrl("git@gitlab.example.org:example/repo.git")).toBeNull();
     expect(forgeFromRemoteUrl("git@forgejo.example.org:example/repo.git")).toBeNull();
@@ -46,6 +59,12 @@ describe("buildForgeSignInCommand", () => {
   it("uses plain gh auth login for GitHub (incl. the ssh.github.com endpoint)", () => {
     expect(buildForgeSignInCommand("github", "github.com")).toBe("gh auth login");
     expect(buildForgeSignInCommand("github", "ssh.github.com")).toBe("gh auth login");
+  });
+
+  it("targets the workspace host for self-hosted GitLab", () => {
+    expect(buildForgeSignInCommand("gitlab", "gitlab.acme.com")).toBe(
+      "glab auth login --hostname gitlab.acme.com",
+    );
   });
 
   it("returns no sign-in command for an unknown forge with no known CLI", () => {

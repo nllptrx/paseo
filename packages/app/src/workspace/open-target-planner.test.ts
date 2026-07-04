@@ -153,6 +153,32 @@ describe("planWorkspaceOpenTargets", () => {
     ]);
   });
 
+  it("infers the forge from the remote URL when the forge input is null", () => {
+    const targets = planWorkspaceOpenTargets({
+      workspaceDirectory: "/repo",
+      activeFile: { path: "src/app.ts", lineStart: 3, lineEnd: 5 },
+      desktopTargets: [],
+      canUseDesktopBridge: false,
+      isLocalExecution: false,
+      checkoutStatus: {
+        isGit: true,
+        remoteUrl: "git@gitlab.com:group/project.git",
+        currentBranch: "main",
+      },
+      forge: null,
+    });
+
+    expect(targets).toEqual([
+      {
+        source: "forge",
+        forge: "gitlab",
+        id: "gitlab",
+        label: "GitLab",
+        url: "https://gitlab.com/group/project/-/blob/main/src/app.ts#L3-5",
+      },
+    ]);
+  });
+
   it("suppresses desktop targets when Electron bridge is unavailable", () => {
     const targets = planWorkspaceOpenTargets({
       workspaceDirectory: "/repo",

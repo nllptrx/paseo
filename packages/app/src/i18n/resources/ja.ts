@@ -102,6 +102,7 @@ export const ja: TranslationResources = {
       addImage: "画像を追加",
       addFile: "ファイルをアップロード",
       addIssueOrPr: "イシューまたはPRを追加",
+      addIssueOrPr_mr: "イシューまたはMRを追加",
       dropImagesHere: "ここに画像をドロップ",
       dropFilesHere: "ここにファイルをドロップ",
       editQueuedMessage: "キューに入れたメッセージを編集",
@@ -134,7 +135,9 @@ export const ja: TranslationResources = {
       searching: "検索中...",
       noResults: "結果が見つかりません。",
       searchPlaceholder: "イシューとPRを検索...",
+      searchPlaceholder_mr: "イシューとMRを検索...",
       title: "イシューまたはPRを添付",
+      title_mr: "イシューまたはMRを添付",
     },
   },
   agentControls: {
@@ -622,6 +625,9 @@ export const ja: TranslationResources = {
           label: "PRを作成",
           pending: "PRを作成中...",
           success: "PRが作成されました",
+          label_mr: "MRを作成",
+          pending_mr: "MRを作成中...",
+          success_mr: "MRが作成されました",
         },
         mergeBranch: {
           label: "ローカルでマージ",
@@ -644,7 +650,13 @@ export const ja: TranslationResources = {
           rebase: "PRをマージ（リベース）",
           pending: "PRをマージ中...",
           success: "PRがマージされました",
+          squash_mr: "MRをマージ（スカッシュ）",
+          merge_mr: "MRをマージ（マージ）",
+          rebase_mr: "MRをマージ（リベース）",
+          pending_mr: "MRをマージ中...",
+          success_mr: "MRがマージされました",
         },
+        viewPr_mr: "MRを表示",
         autoMerge: {
           enableSquash: "自動マージ（スカッシュ）",
           enableMerge: "自動マージ（マージ）",
@@ -787,10 +799,19 @@ export const ja: TranslationResources = {
         },
         sections: {
           checks: "チェック",
+          pipeline: "パイプライン",
           reviews: "レビュー",
         },
+        empty: {
+          noJobs: "ジョブなし",
+          loadingPipeline: "パイプラインを読み込み中...",
+          pipelineJobsLoadFailed: "パイプラインのジョブを読み込めませんでした",
+          allowedToFail: "失敗を許可",
+        },
+        approvals: "{{given}} / {{required}} 承認",
         accessibility: {
           pullRequest: "プルリクエスト#{{number}}",
+          pullRequest_mr: "マージリクエスト !{{number}}",
         },
         states: {
           draft: "ドラフト",

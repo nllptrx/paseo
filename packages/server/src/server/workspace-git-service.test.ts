@@ -390,22 +390,25 @@ describe("WorkspaceGitServiceImpl", () => {
   });
 
   test("getSnapshot does not probe isAuthenticated for a forge adapter that never throws from it", async () => {
-    const githubIsAuthenticated = vi.fn(async () => false);
-    const githubStub: ForgeService = {
+    const gitlabIsAuthenticated = vi.fn(async () => false);
+    const gitlabStub: ForgeService = {
       ...createGitHubServiceStub(),
-      isAuthenticated: githubIsAuthenticated,
+      isAuthenticated: gitlabIsAuthenticated,
       authProbeCanThrow: undefined,
     };
     const getPullRequestStatus = vi.fn(async () => createPullRequestStatusResult());
 
     const service = createService({
+      getCheckoutStatus: vi.fn(async (cwd: string) =>
+        createCheckoutStatus(cwd, { remoteUrl: "https://gitlab.com/acme/repo.git" }),
+      ),
       getPullRequestStatus,
-      forgeOverrides: { github: githubStub },
+      forgeOverrides: { gitlab: gitlabStub },
     });
 
     await service.getSnapshot(REPO_CWD);
 
-    expect(githubIsAuthenticated).not.toHaveBeenCalled();
+    expect(gitlabIsAuthenticated).not.toHaveBeenCalled();
     expect(getPullRequestStatus).toHaveBeenCalledTimes(1);
 
     service.dispose();

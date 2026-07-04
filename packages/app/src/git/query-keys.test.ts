@@ -30,15 +30,23 @@ describe("checkout query keys", () => {
     queryClient.setQueryData(prPaneTimelineQueryKey({ serverId, cwd, prNumber: 13 }), {
       items: [],
     });
-    queryClient.setQueryData(prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 }), {
-      stages: [],
-    });
+    queryClient.setQueryData(
+      prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001, changeRequestNumber: 1 }),
+      {
+        stages: [],
+      },
+    );
     queryClient.setQueryData(
       prPaneTimelineQueryKey({ serverId, cwd: "/tmp/other", prNumber: 12 }),
       { items: [] },
     );
     queryClient.setQueryData(
-      prPanePipelineQueryKey({ serverId, cwd: "/tmp/other", pipelineId: 9001 }),
+      prPanePipelineQueryKey({
+        serverId,
+        cwd: "/tmp/other",
+        pipelineId: 9001,
+        changeRequestNumber: 1,
+      }),
       { stages: [] },
     );
 
@@ -63,8 +71,9 @@ describe("checkout query keys", () => {
         ?.isInvalidated,
     ).toBe(true);
     expect(
-      queryClient.getQueryState(prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 }))
-        ?.isInvalidated,
+      queryClient.getQueryState(
+        prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001, changeRequestNumber: 1 }),
+      )?.isInvalidated,
     ).toBe(true);
     expect(
       queryClient.getQueryState(
@@ -73,7 +82,12 @@ describe("checkout query keys", () => {
     ).toBe(false);
     expect(
       queryClient.getQueryState(
-        prPanePipelineQueryKey({ serverId, cwd: "/tmp/other", pipelineId: 9001 }),
+        prPanePipelineQueryKey({
+          serverId,
+          cwd: "/tmp/other",
+          pipelineId: 9001,
+          changeRequestNumber: 1,
+        }),
       )?.isInvalidated,
     ).toBe(false);
 
@@ -91,9 +105,12 @@ describe("checkout query keys", () => {
     queryClient.setQueryData(prPaneTimelineQueryKey({ serverId, cwd, prNumber: 12 }), {
       items: [],
     });
-    queryClient.setQueryData(prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 }), {
-      stages: [],
-    });
+    queryClient.setQueryData(
+      prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001, changeRequestNumber: 1 }),
+      {
+        stages: [],
+      },
+    );
     // Subscription-fed diff queries are deliberately not part of the server-wide sweep.
     queryClient.setQueryData(checkoutDiffQueryKey(serverId, cwd, "base", "main", true), {
       files: [],
@@ -116,8 +133,9 @@ describe("checkout query keys", () => {
         ?.isInvalidated,
     ).toBe(true);
     expect(
-      queryClient.getQueryState(prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 }))
-        ?.isInvalidated,
+      queryClient.getQueryState(
+        prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001, changeRequestNumber: 1 }),
+      )?.isInvalidated,
     ).toBe(true);
     expect(
       queryClient.getQueryState(checkoutDiffQueryKey(serverId, cwd, "base", "main", true))

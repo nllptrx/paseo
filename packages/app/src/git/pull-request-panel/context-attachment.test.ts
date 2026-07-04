@@ -117,6 +117,41 @@ describe("pull request context attachments", () => {
     });
   });
 
+  it("labels a GitLab comment as a merge request with the ! prefix", () => {
+    expect(
+      buildPullRequestCommentContextAttachment({
+        ...baseInput,
+        provider: { id: "gitlab", label: "GitLab" },
+        forge: "gitlab",
+        pullRequest: {
+          number: 14,
+          title: "Wire up the timeline",
+          url: "https://gitlab.com/acme/app/-/merge_requests/14",
+        },
+        activity: comment({
+          provider: "gitlab",
+          url: "https://gitlab.com/acme/app/-/merge_requests/14#note_401",
+        }),
+      }),
+    ).toEqual({
+      kind: "forge.change_request_comment",
+      id: "14:comment-1",
+      title: "octocat",
+      subtitle: "!14 Wire up the timeline",
+      url: "https://gitlab.com/acme/app/-/merge_requests/14#note_401",
+      text: [
+        "GitLab merge request comment",
+        "Merge request: !14 Wire up the timeline",
+        "Merge request URL: https://gitlab.com/acme/app/-/merge_requests/14",
+        "URL: https://gitlab.com/acme/app/-/merge_requests/14#note_401",
+        "Author: octocat",
+        "Created: 3d ago",
+        "",
+        "Looks good.",
+      ].join("\n"),
+    });
+  });
+
   it("does not add bodyless approvals to chat", () => {
     const activity = review({ reviewState: "approved", body: "" });
 
@@ -260,6 +295,42 @@ describe("pull request context attachments", () => {
         "Check: status/context",
         "Status: failure",
         "Check URL: https://github.com/getpaseo/paseo/status/context",
+      ].join("\n"),
+    });
+  });
+
+  it("formats GitLab failed check context as a merge request", () => {
+    expect(
+      buildPullRequestCheckContextAttachment({
+        ...baseInput,
+        provider: { id: "gitlab", label: "GitLab" },
+        forge: "gitlab",
+        pullRequest: {
+          number: 14,
+          title: "Wire up pipelines",
+          url: "https://gitlab.com/acme/app/-/merge_requests/14",
+        },
+        check: check({
+          name: "pipeline",
+          provider: "gitlab",
+          url: "https://gitlab.com/acme/app/-/pipelines/99",
+          detailRef: undefined,
+        }),
+        githubDetails: null,
+      }),
+    ).toEqual({
+      kind: "forge.change_request_check",
+      id: "14:check:pipeline",
+      title: "pipeline",
+      subtitle: "!14 Wire up pipelines",
+      url: "https://gitlab.com/acme/app/-/pipelines/99",
+      text: [
+        "GitLab merge request check",
+        "Merge request: !14 Wire up pipelines",
+        "Merge request URL: https://gitlab.com/acme/app/-/merge_requests/14",
+        "Check: pipeline",
+        "Status: failure",
+        "Check URL: https://gitlab.com/acme/app/-/pipelines/99",
       ].join("\n"),
     });
   });

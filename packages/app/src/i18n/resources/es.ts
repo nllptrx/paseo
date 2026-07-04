@@ -102,6 +102,7 @@ export const es: TranslationResources = {
       addImage: "Agregar imagen",
       addFile: "Upload file",
       addIssueOrPr: "Agregar problema oPR",
+      addIssueOrPr_mr: "Agregar problema o MR",
       dropImagesHere: "Suelta imágenes aquí",
       dropFilesHere: "Drop files here",
       editQueuedMessage: "Editar mensaje en cola",
@@ -134,7 +135,9 @@ export const es: TranslationResources = {
       searching: "Búsqueda...",
       noResults: "No se encontraron resultados.",
       searchPlaceholder: "Problemas de búsqueda y relaciones públicas...",
+      searchPlaceholder_mr: "Problemas de búsqueda y MRs...",
       title: "Adjuntar problema oPR",
+      title_mr: "Adjuntar problema o MR",
     },
   },
   agentControls: {
@@ -624,6 +627,9 @@ export const es: TranslationResources = {
           label: "CrearPR",
           pending: "CreandoPR...",
           success: "PRcreado",
+          label_mr: "Crear MR",
+          pending_mr: "Creando MR...",
+          success_mr: "MR creado",
         },
         mergeBranch: {
           label: "Fusionar localmente",
@@ -646,7 +652,13 @@ export const es: TranslationResources = {
           rebase: "Fusionar PR (rebase)",
           pending: "Fusionando PR...",
           success: "PR fusionado",
+          squash_mr: "Fusionar MR (squash)",
+          merge_mr: "Fusionar MR (merge)",
+          rebase_mr: "Fusionar MR (rebase)",
+          pending_mr: "Fusionando MR...",
+          success_mr: "MR fusionado",
         },
+        viewPr_mr: "Ver MR",
         autoMerge: {
           enableSquash: "Fusión automática (squash)",
           enableMerge: "Fusión automática (merge)",
@@ -805,10 +817,19 @@ export const es: TranslationResources = {
         },
         sections: {
           checks: "cheques",
+          pipeline: "Pipeline",
           reviews: "Reseñas",
         },
+        empty: {
+          noJobs: "Sin trabajos",
+          loadingPipeline: "Cargando pipeline...",
+          pipelineJobsLoadFailed: "No se pudieron cargar los trabajos del pipeline",
+          allowedToFail: "permitido fallar",
+        },
+        approvals: "{{given}} de {{required}} aprobaciones",
         accessibility: {
           pullRequest: "Solicitud de extracción n.°{{number}}",
+          pullRequest_mr: "Solicitud de fusión !{{number}}",
         },
         states: {
           draft: "Borrador",

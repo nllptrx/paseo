@@ -25,6 +25,19 @@ type GithubMergeFactsFixture = ForgeSpecificStatusFacts & {
   isInMergeQueue: boolean;
 };
 
+type GitlabMergeFactsFixture = ForgeSpecificStatusFacts & {
+  forge: "gitlab";
+  detailedMergeStatus: string | null;
+  hasConflicts: boolean;
+  blockingDiscussionsResolved: boolean;
+  approvalsRequired: number;
+  approvalsGiven: number;
+  pipelineStatus: string | null;
+  pipelineId: number | null;
+  pipelineUrl: string | null;
+  mergeWhenPipelineSucceeds: boolean;
+};
+
 function facts(overrides: Partial<GithubMergeFactsFixture> = {}): GithubMergeFactsFixture {
   return {
     forge: "github",
@@ -43,6 +56,22 @@ function facts(overrides: Partial<GithubMergeFactsFixture> = {}): GithubMergeFac
     },
     isMergeQueueEnabled: false,
     isInMergeQueue: false,
+    ...overrides,
+  };
+}
+
+function gitlabFacts(overrides: Partial<GitlabMergeFactsFixture> = {}): GitlabMergeFactsFixture {
+  return {
+    forge: "gitlab",
+    detailedMergeStatus: "mergeable",
+    hasConflicts: false,
+    blockingDiscussionsResolved: true,
+    approvalsRequired: 0,
+    approvalsGiven: 0,
+    pipelineStatus: "success",
+    pipelineId: null,
+    pipelineUrl: null,
+    mergeWhenPipelineSucceeds: false,
     ...overrides,
   };
 }
@@ -156,5 +185,73 @@ describe("deriveMergeCapability (legacy github fallback)", () => {
   it("returns null when both forgeSpecific and legacy github facts are absent", () => {
     expect(deriveMergeCapability(undefined, null)).toBeNull();
     expect(deriveMergeCapability(undefined, undefined)).toBeNull();
+  });
+});
+
+describe("deriveMergeCapability (gitlab)", () => {
+  it("produces a non-null capability for the gitlab arm", () => {
+    expect(deriveMergeCapability(gitlabFacts())).not.toBeNull();
+  });
+
+  it("marks direct merge ready only when GitLab reports the mergeable status", () => {
+    expect(
+      deriveMergeCapability(gitlabFacts({ detailedMergeStatus: "mergeable" }))?.directMergeReady,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ detailedMergeStatus: "ci_still_running" }))
+        ?.directMergeReady,
+    ).toBe(false);
+    expect(
+      deriveMergeCapability(gitlabFacts({ detailedMergeStatus: "discussions_not_resolved" }))
+        ?.directMergeReady,
+    ).toBe(false);
+    expect(
+      deriveMergeCapability(gitlabFacts({ detailedMergeStatus: null }))?.directMergeReady,
+    ).toBe(false);
+  });
+
+  it("reflects merge-when-pipeline-succeeds as an enabled auto-merge", () => {
+    const enabled = deriveMergeCapability(
+      gitlabFacts({ mergeWhenPipelineSucceeds: true, pipelineStatus: "running" }),
+    );
+    expect(enabled?.autoMergeEnabled).toBe(true);
+    expect(enabled?.canDisableAutoMerge).toBe(true);
+    expect(enabled?.canEnableAutoMerge).toBe(false);
+    expect(deriveMergeCapability(gitlabFacts())?.autoMergeEnabled).toBe(false);
+  });
+
+  it("can enable auto-merge only while a pipeline is still in flight", () => {
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "created" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "waiting_for_resource" }))
+        ?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "preparing" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "pending" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "running" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "scheduled" }))?.canEnableAutoMerge,
+    ).toBe(true);
+    expect(
+      deriveMergeCapability(gitlabFacts({ pipelineStatus: "success" }))?.canEnableAutoMerge,
+    ).toBe(false);
+    expect(deriveMergeCapability(gitlabFacts({ pipelineStatus: null }))?.canEnableAutoMerge).toBe(
+      false,
+    );
+  });
+
+  it("offers GitLab merge methods and never reports a merge queue", () => {
+    const cap = deriveMergeCapability(gitlabFacts());
+    expect(cap?.allowedMethods).toEqual(["merge", "squash", "rebase"]);
+    expect(cap?.mergeBlockedByQueue).toBe(false);
+    expect(cap?.canEnableAutoMerge).toBe(false);
   });
 });

@@ -184,7 +184,12 @@ describe("applyCheckoutStatusUpdateFromEvent", () => {
       prStatus({ requestId: "pr-v1" }),
     );
     const timelineKey = prPaneTimelineQueryKey({ serverId, cwd, prNumber: 42 });
-    const pipelineKey = prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 });
+    const pipelineKey = prPanePipelineQueryKey({
+      serverId,
+      cwd,
+      pipelineId: 9001,
+      changeRequestNumber: 1,
+    });
     queryClient.setQueryData(timelineKey, { items: [] });
     queryClient.setQueryData(pipelineKey, { stages: [] });
 
@@ -215,11 +220,17 @@ describe("applyCheckoutStatusUpdateFromEvent", () => {
     const queryClient = createQueryClient();
     const timelineKey = prPaneTimelineQueryKey({ serverId, cwd, prNumber: 42 });
     const otherTimelineKey = prPaneTimelineQueryKey({ serverId, cwd: "/repo2", prNumber: 42 });
-    const pipelineKey = prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 });
+    const pipelineKey = prPanePipelineQueryKey({
+      serverId,
+      cwd,
+      pipelineId: 9001,
+      changeRequestNumber: 1,
+    });
     const otherPipelineKey = prPanePipelineQueryKey({
       serverId,
       cwd: "/repo2",
       pipelineId: 9001,
+      changeRequestNumber: 1,
     });
     queryClient.setQueryData(timelineKey, { items: [] });
     queryClient.setQueryData(otherTimelineKey, { items: [] });

@@ -480,9 +480,11 @@ export function PullRequestPane({
     ? nativeContribution?.renderChecksSection(data.forgeSpecific, {
         serverId,
         cwd,
+        changeRequestNumber: data.number,
         open: checksOpen,
         onToggle: handleToggleChecks,
         enabled: forgeProvidersEnabled,
+        canFetchCheckDetails: canFetchForgeCheckDetails,
       })
     : null;
 
