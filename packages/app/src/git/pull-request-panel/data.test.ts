@@ -191,6 +191,25 @@ describe("mapPrPaneData", () => {
     ]);
   });
 
+  it("keeps a workflowRunId-only detail ref so Gitea Actions rows stay fetchable", () => {
+    const data = mapPrPaneData(
+      status({
+        forge: "gitea",
+        checks: [
+          {
+            name: "e2e",
+            status: "failure",
+            url: "https://gitea.com/acme/repo/actions/runs/7001",
+            workflowRunId: 7001,
+          },
+        ],
+      }),
+      baseTimeline,
+    );
+
+    expect(data?.checks[0]?.detailRef).toEqual({ workflowRunId: 7001 });
+  });
+
   it("preserves timeline item order while mapping mixed reviews and comments", () => {
     const data = mapPrPaneData(
       baseStatus,
@@ -508,6 +527,62 @@ describe("mapPrPaneData", () => {
 
   it("omits forgeSpecific when the status carries no native facts", () => {
     expect(mapPrPaneData(baseStatus, baseTimeline)?.forgeSpecific).toBeUndefined();
+  });
+
+  it("surfaces Gitea aggregate CI status as a check row", () => {
+    const data = mapPrPaneData(
+      status({
+        forge: "gitea",
+        url: "https://gitea.com/group/repo/pulls/7",
+        github: undefined,
+        forgeSpecific: {
+          forge: "gitea",
+          mergeable: true,
+          hasMerged: false,
+          ciStatus: "success",
+        },
+      }),
+      baseTimeline,
+      undefined,
+      "gitea",
+    );
+
+    expect(data?.checks).toEqual([
+      {
+        provider: "gitea",
+        name: "CI",
+        status: "success",
+        url: "https://gitea.com/group/repo/pulls/7",
+      },
+    ]);
+  });
+
+  it("keeps Forgejo branding for aggregate Gitea-family CI status", () => {
+    const data = mapPrPaneData(
+      status({
+        forge: "forgejo",
+        url: "https://forgejo.example.com/group/repo/pulls/7",
+        github: undefined,
+        forgeSpecific: {
+          forge: "gitea",
+          mergeable: true,
+          hasMerged: false,
+          ciStatus: "failure",
+        },
+      }),
+      baseTimeline,
+      undefined,
+      "forgejo",
+    );
+
+    expect(data?.checks).toEqual([
+      {
+        provider: "forgejo",
+        name: "CI",
+        status: "failure",
+        url: "https://forgejo.example.com/group/repo/pulls/7",
+      },
+    ]);
   });
 
   it("carries the resolved forge brand and activity provider for GitLab", () => {

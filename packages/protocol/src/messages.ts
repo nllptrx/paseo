@@ -1613,7 +1613,11 @@ const CheckoutCheckDetailsRequestPayloadSchema = z.object({
   // cwd and omits these GitHub-only single-segment fields.
   repoOwner: GitHubRepoSegmentSchema.optional(),
   repoName: GitHubRepoSegmentSchema.optional(),
-  checkRunId: z.number().int().positive(),
+  // Permanently optional: a check addressed only by workflowRunId (Gitea
+  // Actions runs carry no check-run id) is fetchable. Callers send at least one
+  // of checkRunId/workflowRunId; the gated forge RPC only reaches daemons that
+  // understand this.
+  checkRunId: z.number().int().positive().optional(),
   workflowRunId: z.number().int().positive().optional(),
   // Permanent forge-routing field, optional because only some forges need it:
   // GitLab routes the check-details fetch to the change request's head pipeline

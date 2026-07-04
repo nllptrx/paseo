@@ -259,7 +259,12 @@ export type GetCheckDetailsOptions = {
    */
   repoOwner?: string;
   repoName?: string;
-  checkRunId: number;
+  /**
+   * Check-run id. Optional because some checks are addressed only by
+   * workflowRunId (Gitea Actions runs carry no check-run id). Callers pass at
+   * least one of checkRunId/workflowRunId.
+   */
+  checkRunId?: number;
   workflowRunId?: number;
   /**
    * GitLab-only: the change request iid. GitLab routes the fetch to the change

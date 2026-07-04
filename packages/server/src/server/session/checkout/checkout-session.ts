@@ -1176,6 +1176,17 @@ export class CheckoutSession {
         : "checkout.github.get_check_details.response";
 
     try {
+      // The payload schema keeps checkRunId and workflowRunId optional (a Gitea
+      // Actions run has no check-run id; GitLab routes by changeRequestNumber),
+      // but a request that addresses no check at all is not actionable — reject
+      // it here with a clear message instead of failing deep in an adapter. The
+      // schema itself cannot enforce this: it is a discriminated-union member, so
+      // a refine would turn it into a ZodEffects and break the union.
+      if (checkRunId === undefined && workflowRunId === undefined) {
+        throw new Error(
+          "Check details request must address a check by checkRunId or workflowRunId",
+        );
+      }
       const { service } = await this.requireForgeService(cwd);
       const details = await service.getCheckDetails({
         cwd,

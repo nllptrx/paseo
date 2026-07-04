@@ -3324,7 +3324,7 @@ export class DaemonClient {
       cwd: string;
       repoOwner?: string;
       repoName?: string;
-      checkRunId: number;
+      checkRunId?: number;
       workflowRunId?: number;
       changeRequestNumber?: number;
     },
@@ -3352,7 +3352,7 @@ export class DaemonClient {
       cwd: string;
       repoOwner?: string;
       repoName?: string;
-      checkRunId: number;
+      checkRunId?: number;
       workflowRunId?: number;
     },
     requestId?: string,

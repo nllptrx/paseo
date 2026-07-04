@@ -159,6 +159,42 @@ describe("checkout status projection", () => {
     expect(CheckoutPrStatusSchema.parse(payload)).toEqual(payload);
   });
 
+  test("projects Gitea-family facts while preserving the resolved Forgejo brand", () => {
+    const payload = normalizeCheckoutPrStatusPayload(
+      {
+        number: 5,
+        repoOwner: "example",
+        repoName: "repo",
+        url: "https://codeberg.org/example/repo/pulls/5",
+        title: "Add sample change",
+        state: "open",
+        baseRefName: "main",
+        headRefName: "feat/sample-change",
+        isMerged: false,
+        mergeable: "MERGEABLE",
+        checksStatus: "success",
+        forgeSpecific: {
+          forge: "gitea",
+          mergeable: true,
+          hasMerged: false,
+          ciStatus: "success",
+        },
+      },
+      "forgejo",
+    );
+
+    expect(payload).toMatchObject({
+      forge: "forgejo",
+      forgeSpecific: {
+        forge: "gitea",
+        mergeable: true,
+        hasMerged: false,
+        ciStatus: "success",
+      },
+    });
+    expect(CheckoutPrStatusSchema.parse(payload)).toEqual(payload);
+  });
+
   test("labels the nested status.forge with the resolved forge", () => {
     const payload = normalizeCheckoutPrStatusPayload(
       {
@@ -244,6 +280,49 @@ describe("checkout status projection", () => {
       forge: "git.internal",
       error: null,
       requestId: "req-neutral",
+    });
+  });
+
+  test("a forgejo-resolved snapshot keeps Forgejo branding with Gitea-family facts", () => {
+    const snapshot = {
+      git: { remoteUrl: "git@codeberg.org:example/repo.git" },
+      forge: {
+        featuresEnabled: true,
+        authState: "authenticated",
+        forge: "forgejo",
+        error: null,
+        pullRequest: {
+          number: 5,
+          url: "https://codeberg.org/example/repo/pulls/5",
+          title: "PR 5",
+          state: "open",
+          baseRefName: "main",
+          headRefName: "feat/five",
+          isMerged: false,
+          mergeable: "MERGEABLE",
+          forgeSpecific: {
+            forge: "gitea",
+            mergeable: true,
+            hasMerged: false,
+            ciStatus: "success",
+          },
+        },
+      },
+    } as unknown as WorkspaceGitRuntimeSnapshot;
+
+    const payload = buildCheckoutPrStatusPayloadFromSnapshot({
+      cwd: "/repo",
+      requestId: "req-forgejo",
+      snapshot,
+    });
+
+    expect(payload.forge).toBe("forgejo");
+    expect(payload.status?.forge).toBe("forgejo");
+    expect(payload.status?.forgeSpecific).toEqual({
+      forge: "gitea",
+      mergeable: true,
+      hasMerged: false,
+      ciStatus: "success",
     });
   });
 

@@ -41,11 +41,39 @@ describe("getForgePresentation", () => {
     expect(gitlab.issueNumberPrefix).toBe("#");
     expect(gitlab.changeRequestContext).toBe("mr");
   });
+
+  it("presents Gitea and Forgejo with GitHub nouns and the tea CLI", () => {
+    expect(getForgePresentation("gitea")).toMatchObject({
+      forge: "gitea",
+      icon: "gitea",
+      brandLabel: "Gitea",
+      changeRequestAbbrev: "PR",
+      numberPrefix: "#",
+      issueNumberPrefix: "#",
+      signInCli: "tea",
+    });
+    expect(getForgePresentation("forgejo")).toMatchObject({
+      forge: "forgejo",
+      icon: "forgejo",
+      brandLabel: "Forgejo",
+      changeRequestAbbrev: "PR",
+      signInCli: "tea",
+    });
+    expect(getForgePresentation("codeberg")).toMatchObject({
+      forge: "codeberg",
+      icon: "codeberg",
+      brandLabel: "Codeberg",
+      changeRequestAbbrev: "PR",
+      signInCli: "tea",
+    });
+  });
 });
 
 describe("forgeFromRemoteUrl", () => {
   it("detects only public forge hosts that are safe without daemon probing", () => {
+    expect(forgeFromRemoteUrl("https://codeberg.org/example/repo.git")).toBe("codeberg");
     expect(forgeFromRemoteUrl("https://gitlab.com/example/repo.git")).toBe("gitlab");
+    expect(forgeFromRemoteUrl("https://gitea.com/example/repo.git")).toBe("gitea");
   });
 
   it("does not classify self-managed hosts by substring", () => {
@@ -56,6 +84,12 @@ describe("forgeFromRemoteUrl", () => {
 });
 
 describe("buildForgeSignInCommand", () => {
+  it("uses tea login add for both Gitea-family presentations", () => {
+    expect(buildForgeSignInCommand("gitea", "gitea.com")).toBe("tea login add");
+    expect(buildForgeSignInCommand("forgejo", "forgejo.example.org")).toBe("tea login add");
+    expect(buildForgeSignInCommand("codeberg", "codeberg.org")).toBe("tea login add");
+  });
+
   it("uses plain gh auth login for GitHub (incl. the ssh.github.com endpoint)", () => {
     expect(buildForgeSignInCommand("github", "github.com")).toBe("gh auth login");
     expect(buildForgeSignInCommand("github", "ssh.github.com")).toBe("gh auth login");
