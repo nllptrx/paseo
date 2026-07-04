@@ -7,7 +7,10 @@ import {
   invalidateCheckoutGitQueriesForClient,
   invalidateCheckoutGitQueriesForServer,
 } from "@/git/query-keys";
-import { prPaneTimelineQueryKey } from "@/git/pull-request-panel/query-keys";
+import {
+  prPanePipelineQueryKey,
+  prPaneTimelineQueryKey,
+} from "@/git/pull-request-panel/query-keys";
 
 describe("checkout query keys", () => {
   const serverId = "server-1";
@@ -27,9 +30,16 @@ describe("checkout query keys", () => {
     queryClient.setQueryData(prPaneTimelineQueryKey({ serverId, cwd, prNumber: 13 }), {
       items: [],
     });
+    queryClient.setQueryData(prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 }), {
+      stages: [],
+    });
     queryClient.setQueryData(
       prPaneTimelineQueryKey({ serverId, cwd: "/tmp/other", prNumber: 12 }),
       { items: [] },
+    );
+    queryClient.setQueryData(
+      prPanePipelineQueryKey({ serverId, cwd: "/tmp/other", pipelineId: 9001 }),
+      { stages: [] },
     );
 
     await invalidateCheckoutGitQueriesForClient(queryClient, { serverId, cwd });
@@ -53,8 +63,17 @@ describe("checkout query keys", () => {
         ?.isInvalidated,
     ).toBe(true);
     expect(
+      queryClient.getQueryState(prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 }))
+        ?.isInvalidated,
+    ).toBe(true);
+    expect(
       queryClient.getQueryState(
         prPaneTimelineQueryKey({ serverId, cwd: "/tmp/other", prNumber: 12 }),
+      )?.isInvalidated,
+    ).toBe(false);
+    expect(
+      queryClient.getQueryState(
+        prPanePipelineQueryKey({ serverId, cwd: "/tmp/other", pipelineId: 9001 }),
       )?.isInvalidated,
     ).toBe(false);
 
@@ -71,6 +90,9 @@ describe("checkout query keys", () => {
     queryClient.setQueryData(checkoutPrStatusQueryKey(serverId, cwd), { status: { number: 12 } });
     queryClient.setQueryData(prPaneTimelineQueryKey({ serverId, cwd, prNumber: 12 }), {
       items: [],
+    });
+    queryClient.setQueryData(prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 }), {
+      stages: [],
     });
     // Subscription-fed diff queries are deliberately not part of the server-wide sweep.
     queryClient.setQueryData(checkoutDiffQueryKey(serverId, cwd, "base", "main", true), {
@@ -91,6 +113,10 @@ describe("checkout query keys", () => {
     );
     expect(
       queryClient.getQueryState(prPaneTimelineQueryKey({ serverId, cwd, prNumber: 12 }))
+        ?.isInvalidated,
+    ).toBe(true);
+    expect(
+      queryClient.getQueryState(prPanePipelineQueryKey({ serverId, cwd, pipelineId: 9001 }))
         ?.isInvalidated,
     ).toBe(true);
     expect(

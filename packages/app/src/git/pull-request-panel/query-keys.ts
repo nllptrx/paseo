@@ -11,3 +11,17 @@ export function prPaneTimelineQueryKey({
 }) {
   return [prPaneTimelineQueryKind, serverId, cwd, prNumber] as const;
 }
+
+export const prPanePipelineQueryKind = "prPanePipeline";
+
+export function prPanePipelineQueryKey({
+  serverId,
+  cwd,
+  pipelineId,
+}: {
+  serverId: string;
+  cwd: string;
+  pipelineId: number | null;
+}) {
+  return [prPanePipelineQueryKind, serverId, cwd, pipelineId] as const;
+}

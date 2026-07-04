@@ -109,8 +109,8 @@ export const ar: TranslationResources = {
       openImage: "فتح مرفق الصورة",
       removeImage: "إزالة مرفق الصورة",
       removeFile: "Remove file attachment",
-      openGithub: "افتح{{kind}}#{{number}}",
-      removeGithub: "إزالة{{kind}}#{{number}}",
+      openGithub: "افتح {{kind}} {{number}}",
+      removeGithub: "إزالة {{kind}} {{number}}",
       element: "عنصر",
       openBrowserElement: "افتح مرفق عنصر المتصفح",
       removeBrowserElement: "إزالة مرفق عنصر المتصفح",
@@ -651,7 +651,7 @@ export const ar: TranslationResources = {
           disabled: "تم تعطيل الدمج التلقائي",
         },
         unavailable: {
-          viewPrNoGithub: "عرض PR غير متاح الآن لأن GitHub غير متصل",
+          viewPrNoForge: "عرض {{noun}} غير متاح الآن لأن {{brand}} غير متصل",
           pullNoRemote: "السحب غير متاح هنا لأن هذا الفرع غير متصل بجهاز التحكم عن بعد بعد",
           pullDirty: "السحب غير متاح أثناء وجود تغييرات محلية، لذا قم بتنفيذها أو تخزينها أولاً",
           pullUpToDate: "السحب غير متاح لأن هذا الفرع محدث بالفعل",
@@ -662,8 +662,10 @@ export const ar: TranslationResources = {
             "السحب والدفع غير متاح هنا لأن هذا الفرع غير متصل بجهاز التحكم عن بعد بعد",
           pullAndPushDirty:
             "لا يتوفر السحب والدفع أثناء وجود تغييرات محلية، لذا قم بتنفيذها أو تخزينها أولاً",
+          pullAndPushNoIncoming: "السحب والدفع غير متاحين لأنه لا توجد تغييرات واردة للسحب أولاً",
           pullAndPushInSync: "السحب والدفع غير متاح لأن هذا الفرع متزامن بالفعل",
-          createPrNoGithub: "إنشاء PR غير متاح حاليًا لأن GitHub غير متصل",
+          pullAndPushNothingToPush: "السحب والدفع غير متاحين لأنه لا يوجد شيء جديد لإرساله بعد السحب",
+          createPrNoForge: "إنشاء {{noun}} غير متاح حاليًا لأن {{brand}} غير متصل",
           createPrNoCommits: "إنشاء PR غير متاح لأن هذا الفرع ليس لديه أي التزامات جديدة حتى الآن",
           mergeNoBase: "الدمج غير متاح لأننا لم نتمكن من تحديد الفرع الأساسي",
           mergeDirty:
@@ -673,13 +675,16 @@ export const ar: TranslationResources = {
           updateDirty: "التحديث غير متاح أثناء وجود تغييرات محلية، لذا قم بتنفيذها أو تخزينها أولاً",
           updateCurrent: "التحديث غير متاح لأن هذا الفرع محدث بالفعل باستخدام{{baseRef}}",
           mergePrNoGithub: "دمج PR غير متاح الآن لأن GitHub غير متصل",
+          archiveNotWorktree:
+            "الأرشيف غير متاح هنا لأنه لم يتم إنشاء مساحة العمل هذه كشجرة عمل Paseo",
+          mergePrNoForge: "دمج {{noun}} غير متاح الآن لأن {{brand}} غير متصل",
           mergePrMissing: "دمج PR غير متاح لأنه لا يوجد طلب سحب حتى الآن",
           mergePrDraft: "دمج PR غير متاح لأن طلب السحب لا يزال مسودة",
           mergePrMerged: "دمج PR غير متاح لأن طلب السحب مدمج بالفعل",
           mergePrClosed: "دمج PR غير متاح لأن طلب السحب مغلق",
           mergePrConflicts: "دمج PR غير متاح لأن طلب السحب به تعارضات",
           mergePrQueue: "دمج PR غير متاح هنا لأن هذا المستودع يستخدم قائمة انتظار دمج",
-          mergePrNotReady: "دمج PR غير متاح حتى يبلغ GitHub أن طلب السحب جاهز للدمج",
+          mergePrNotReady: "دمج {{noun}} غير متاح حتى يبلغ {{brand}} أن {{noun}} جاهز للدمج",
           autoMergeCannotDisable: "تم تمكين الدمج التلقائي، ولكن لا يمكن لهذا الحساب تعطيله",
         },
         toasts: {
@@ -729,7 +734,7 @@ export const ar: TranslationResources = {
         expandAllFolders: "توسيع كافة المجلدات",
         refreshing: "منعش",
         refresh: "ينعش",
-        refreshState: "تحديث بوابة وحالة GitHub",
+        refreshState: "تحديث حالة git و{{brand}}",
         failedRefresh: "فشل تحديث حالة git.",
         emptyHiddenWhitespace: "لا توجد تغييرات مرئية بعد إخفاء المسافة البيضاء",
         emptyUncommitted: "لا توجد تغييرات غير ملتزم بها",
@@ -765,6 +770,7 @@ export const ar: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "عرض",
+          openOn: "فتح على {{brand}}",
         },
         sections: {
           checks: "الشيكات",
@@ -788,10 +794,18 @@ export const ar: TranslationResources = {
         time: {
           justNow: "الآن",
         },
+        thread: {
+          discussion: "سلسلة المناقشة",
+        },
         errors: {
           statusLoadFailed: "غير قادر على تحميل حالة طلب السحب",
           activityLoadFailed: "غير قادر على تحميل نشاط طلب السحب",
         },
+      },
+      forgeSetup: {
+        installCli: "ثبّت واجهة سطر الأوامر {{cli}} لاستخدام ميزات {{brand}}.",
+        signIn: "نفّذ {{command}} لاستخدام ميزات {{brand}}.",
+        generic: "قم بإعداد {{brand}} على هذا المضيف لاستخدام ميزاته.",
       },
     },
   },
@@ -924,10 +938,10 @@ export const ar: TranslationResources = {
     refPicker: {
       startingRef: "بدء المرجع",
       chooseStart: "اختر من أين تبدأ",
-      checkoutHint: "تحقق من PR#{{number}}؟",
-      checkoutPr: "تحقق من PR#{{number}}",
-      dismissCheckoutHint: "تجاهل تلميح الخروج PR#{{number}}",
-      intoBase: "إلى{{baseRef}}",
+      checkoutHint: "تحقق من {{noun}} {{numberPrefix}}{{number}}؟",
+      checkoutPr: "تحقق من {{noun}} {{numberPrefix}}{{number}}",
+      dismissCheckoutHint: "تجاهل تلميح الخروج {{noun}} {{numberPrefix}}{{number}}",
+      intoBase: "إلى {{baseRef}}",
       searching: "جارٍ البحث...",
       noMatchingRefs: "لا توجد مراجع مطابقة.",
       searchPlaceholder: "بحث الفروع والعلاقات العامة",

@@ -1,0 +1,215 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { createForgeService } from "./forge-registry.js";
+import { createForgeResolver, forgeForHost, parseRemoteHost } from "./forge-resolver.js";
+
+function createSshHostnameResolver(hostnameByAlias: Record<string, string | null>) {
+  return vi.fn(async (host: string): Promise<string | null> => {
+    return hostnameByAlias[host] ?? null;
+  });
+}
+
+async function resolveSshHostnameAsLiteralHost(host: string): Promise<string | null> {
+  return host;
+}
+
+describe("parseRemoteHost", () => {
+  it("parses ssh and https remotes", () => {
+    expect(parseRemoteHost("git@github.com:owner/repo.git")).toBe("github.com");
+    expect(parseRemoteHost("git@gitlab.example.com:group/sub/repo.git")).toBe("gitlab.example.com");
+    expect(parseRemoteHost("https://GitLab.Example.Com./group/repo.git")).toBe(
+      "gitlab.example.com",
+    );
+    expect(parseRemoteHost("not a url")).toBeNull();
+  });
+});
+
+describe("forgeForHost", () => {
+  it("maps public registered forge hosts without resolver-specific branches", () => {
+    expect(forgeForHost("github.com")).toBe("github");
+  });
+
+  it("returns null for hosts with no known adapter", () => {
+    expect(forgeForHost("example.com")).toBeNull();
+    expect(forgeForHost("bitbucket.org")).toBeNull();
+    expect(forgeForHost("gitlab.example.com")).toBeNull();
+    expect(forgeForHost("forgejo.example.org")).toBeNull();
+    expect(forgeForHost("notgitlab.example.org")).toBeNull();
+  });
+});
+
+describe("createForgeResolver", () => {
+  it("resolves a github.com remote to the github forge", async () => {
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@github.com:owner/repo.git",
+    });
+    const resolution = await resolver.resolve("/repo");
+    expect(resolution).toMatchObject({ forge: "github", host: "github.com" });
+    expect(resolution?.service.getCurrentPullRequestStatus).toBeTypeOf("function");
+  });
+
+  it("resolves an SSH alias that maps to github.com", async () => {
+    const probeForge = vi.fn(async () => {
+      throw new Error("github cloud alias should not probe CLI auth");
+    });
+    const resolveSshHostname = createSshHostnameResolver({ "github-work": "github.com" });
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@github-work:acme/repo.git",
+      probeForge,
+      resolveSshHostname,
+    });
+
+    await expect(resolver.resolve("/repo")).resolves.toMatchObject({
+      forge: "github",
+      host: "github.com",
+    });
+    expect(resolveSshHostname).toHaveBeenCalledWith("github-work");
+    expect(probeForge).not.toHaveBeenCalled();
+  });
+
+  it("lets the sync resolver reuse an SSH-alias forge discovered by an async resolve", async () => {
+    const remoteUrl = "git@github-work:acme/repo.git";
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => remoteUrl,
+      probeForge: async () => null,
+      resolveSshHostname: createSshHostnameResolver({ "github-work": "github.com" }),
+    });
+
+    expect(resolver.resolveFromRemoteUrl(remoteUrl)).toBeNull();
+    await resolver.resolve("/repo");
+    expect(resolver.resolveFromRemoteUrl(remoteUrl)).toMatchObject({ forge: "github" });
+  });
+
+  it("returns null when an SSH alias cannot be resolved to a forge host", async () => {
+    const probeForge = vi.fn(async () => null);
+    const resolveSshHostname = createSshHostnameResolver({ "github-work": null });
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@github-work:acme/repo.git",
+      probeForge,
+      resolveSshHostname,
+    });
+
+    await expect(resolver.resolve("/repo")).resolves.toBeNull();
+  });
+
+  it("does not use SSH hostname resolution for non-SSH remotes", async () => {
+    const probeForge = vi.fn(async () => null);
+    const resolveSshHostname = createSshHostnameResolver({ "github-work": "github.com" });
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "https://github-work/acme/repo.git",
+      probeForge,
+      resolveSshHostname,
+    });
+
+    await expect(resolver.resolve("/repo")).resolves.toBeNull();
+    expect(resolveSshHostname).not.toHaveBeenCalled();
+  });
+
+  it("does not classify an overlapping gitea-forgejo hostname without a probe", async () => {
+    const probeForge = vi.fn(async () => null);
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@gitea-forgejo.example.org:example/repo.git",
+      probeForge,
+      resolveSshHostname: resolveSshHostnameAsLiteralHost,
+    });
+
+    await expect(resolver.resolve("/repo")).resolves.toBeNull();
+    expect(probeForge).toHaveBeenCalledWith("gitea-forgejo.example.org");
+  });
+
+  it("returns null when the cwd has no origin remote", async () => {
+    const resolver = createForgeResolver({ resolveRemoteUrl: async () => null });
+    expect(await resolver.resolve("/repo")).toBeNull();
+  });
+
+  it("degrades to no forge when the host probe throws instead of crashing resolution", async () => {
+    const probeForge = vi.fn(async () => {
+      throw new Error("registry probe blew up");
+    });
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@git.acme.internal:team/repo.git",
+      probeForge,
+      resolveSshHostname: resolveSshHostnameAsLiteralHost,
+    });
+
+    await expect(resolver.resolve("/repo")).resolves.toBeNull();
+    expect(probeForge).toHaveBeenCalledWith("git.acme.internal");
+  });
+
+  it("reuses one adapter instance per forge across resolutions", async () => {
+    let built = 0;
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@github.com:owner/repo.git",
+      createService: (forge) => {
+        built += 1;
+        return createForgeService(forge);
+      },
+    });
+    const first = await resolver.resolve("/a");
+    const second = await resolver.resolve("/b");
+    expect(built).toBe(1);
+    expect(first?.service).toBe(second?.service);
+  });
+
+  it("memoizes the remote-url resolution per cwd", async () => {
+    const resolveRemoteUrl = vi.fn(async () => "git@github.com:owner/repo.git");
+    const resolver = createForgeResolver({ resolveRemoteUrl });
+
+    await resolver.resolve("/repo");
+    await resolver.resolve("/repo");
+    expect(resolveRemoteUrl).toHaveBeenCalledTimes(1);
+
+    await resolver.resolve("/other-repo");
+    expect(resolveRemoteUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-resolves the remote url for a cwd after invalidate()", async () => {
+    const resolveRemoteUrl = vi.fn(async () => "git@github.com:owner/repo.git");
+    const resolver = createForgeResolver({ resolveRemoteUrl });
+
+    await resolver.resolve("/repo");
+    resolver.invalidate("/repo");
+    await resolver.resolve("/repo");
+
+    expect(resolveRemoteUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips the probe when the name heuristic already resolves the host", async () => {
+    const probeForge = vi.fn(async () => null);
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@github.com:owner/repo.git",
+      probeForge,
+    });
+    const resolution = await resolver.resolve("/repo");
+    expect(resolution).toMatchObject({ forge: "github", host: "github.com" });
+    expect(probeForge).not.toHaveBeenCalled();
+  });
+
+  it.each([["github", "git@github.com:owner/repo.git", "github.com"]])(
+    "resolves the %s cloud host without probing CLI auth",
+    async (forge, remoteUrl, host) => {
+      const probeForge = vi.fn(async () => {
+        throw new Error("cloud host should not probe");
+      });
+      const resolver = createForgeResolver({
+        resolveRemoteUrl: async () => remoteUrl,
+        probeForge,
+      });
+
+      await expect(resolver.resolve("/repo")).resolves.toMatchObject({ forge, host });
+      expect(probeForge).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns null and probes a foreign host only once", async () => {
+    const probeForge = vi.fn(async () => null);
+    const resolver = createForgeResolver({
+      resolveRemoteUrl: async () => "git@bitbucket.org:owner/repo.git",
+      probeForge,
+      resolveSshHostname: resolveSshHostnameAsLiteralHost,
+    });
+    expect(await resolver.resolve("/a")).toBeNull();
+    expect(await resolver.resolve("/b")).toBeNull();
+    expect(probeForge).toHaveBeenCalledTimes(1);
+  });
+});

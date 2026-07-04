@@ -109,8 +109,8 @@ export const ja: TranslationResources = {
       openImage: "画像添付ファイルを開く",
       removeImage: "画像添付ファイルを削除",
       removeFile: "ファイル添付ファイルを削除",
-      openGithub: "{{kind}} #{{number}}を開く",
-      removeGithub: "{{kind}} #{{number}}を削除",
+      openGithub: "{{kind}} {{number}}を開く",
+      removeGithub: "{{kind}} {{number}}を削除",
       element: "要素",
       openBrowserElement: "ブラウザ要素の添付ファイルを開く",
       removeBrowserElement: "ブラウザ要素の添付ファイルを削除",
@@ -655,7 +655,7 @@ export const ja: TranslationResources = {
           disabled: "自動マージが無効になりました",
         },
         unavailable: {
-          viewPrNoGithub: "GitHubが接続されていないため、PRの表示は現在利用できません",
+          viewPrNoForge: "{{brand}}が接続されていないため、{{noun}}の表示は現在利用できません",
           pullNoRemote:
             "このブランチはまだリモートに接続されていないため、プルはここでは利用できません",
           pullDirty:
@@ -669,9 +669,12 @@ export const ja: TranslationResources = {
             "このブランチはまだリモートに接続されていないため、プル＆プッシュはここでは利用できません",
           pullAndPushDirty:
             "ローカルに変更があるためプル＆プッシュは利用できません。先にコミットまたはスタッシュしてください",
+          pullAndPushNoIncoming: "先にプルする受信変更がないため、プル＆プッシュは利用できません",
           pullAndPushInSync:
             "このブランチはすでに同期されているため、プル＆プッシュは利用できません",
-          createPrNoGithub: "GitHubが接続されていないため、PRの作成は現在利用できません",
+          pullAndPushNothingToPush:
+            "プル後に送信する新しい変更がないため、プル＆プッシュは利用できません",
+          createPrNoForge: "{{brand}}が接続されていないため、{{noun}}の作成は現在利用できません",
           createPrNoCommits: "このブランチにまだ新しいコミットがないため、PRの作成は利用できません",
           mergeNoBase: "ベースブランチを特定できなかったため、マージは利用できません",
           mergeDirty:
@@ -682,6 +685,9 @@ export const ja: TranslationResources = {
             "ローカルに変更があるため更新は利用できません。先にコミットまたはスタッシュしてください",
           updateCurrent: "このブランチはすでに{{baseRef}}と最新の状態のため、更新は利用できません",
           mergePrNoGithub: "GitHubが接続されていないため、PRのマージは現在利用できません",
+          archiveNotWorktree:
+            "このワークスペースはPaseoワークツリーとして作成されていないため、アーカイブはここでは利用できません",
+          mergePrNoForge: "{{brand}}が接続されていないため、{{noun}}のマージは現在利用できません",
           mergePrMissing: "プルリクエストがまだないため、PRのマージは利用できません",
           mergePrDraft: "プルリクエストがまだドラフトのため、PRのマージは利用できません",
           mergePrMerged: "プルリクエストはすでにマージされているため、PRのマージは利用できません",
@@ -690,7 +696,7 @@ export const ja: TranslationResources = {
           mergePrQueue:
             "このリポジトリはマージキューを使用しているため、PRのマージはここでは利用できません",
           mergePrNotReady:
-            "GitHub上でプルリクエストがマージ可能になるまで、PRのマージは利用できません",
+            "{{brand}}上で{{noun}}がマージ可能になるまで、{{noun}}のマージは利用できません",
           autoMergeCannotDisable:
             "自動マージは有効になっていますが、このアカウントでは無効にできません",
         },
@@ -741,7 +747,7 @@ export const ja: TranslationResources = {
         expandAllFolders: "すべてのフォルダを展開",
         refreshing: "更新中",
         refresh: "更新",
-        refreshState: "gitとGitHubの状態を更新",
+        refreshState: "gitと{{brand}}の状態を更新",
         failedRefresh: "gitの状態の更新に失敗しました。",
         emptyHiddenWhitespace: "空白を非表示にすると変更は表示されません",
         emptyUncommitted: "未コミットの変更なし",
@@ -777,6 +783,7 @@ export const ja: TranslationResources = {
       pr: {
         actions: {
           viewPullRequest: "表示",
+          openOn: "{{brand}}で開く",
         },
         sections: {
           checks: "チェック",
@@ -800,10 +807,18 @@ export const ja: TranslationResources = {
         time: {
           justNow: "たった今",
         },
+        thread: {
+          discussion: "ディスカッションスレッド",
+        },
         errors: {
           statusLoadFailed: "プルリクエストのステータスを読み込めません",
           activityLoadFailed: "プルリクエストのアクティビティを読み込めません",
         },
+      },
+      forgeSetup: {
+        installCli: "{{brand}} の機能を使うには {{cli}} CLI をインストールしてください。",
+        signIn: "{{brand}} の機能を使うには {{command}} を実行してください。",
+        generic: "このホストで {{brand}} をセットアップすると、その機能を使えます。",
       },
     },
   },
@@ -936,9 +951,9 @@ export const ja: TranslationResources = {
     refPicker: {
       startingRef: "開始Ref",
       chooseStart: "開始点を選択",
-      checkoutHint: "PR #{{number}}をチェックアウトしますか？",
-      checkoutPr: "PR #{{number}}をチェックアウト",
-      dismissCheckoutHint: "PR #{{number}}のチェックアウトヒントを閉じる",
+      checkoutHint: "{{noun}} {{numberPrefix}}{{number}}をチェックアウトしますか？",
+      checkoutPr: "{{noun}} {{numberPrefix}}{{number}}をチェックアウト",
+      dismissCheckoutHint: "{{noun}} {{numberPrefix}}{{number}}のチェックアウトヒントを閉じる",
       intoBase: "{{baseRef}}に",
       searching: "検索中...",
       noMatchingRefs: "一致するRefがありません。",

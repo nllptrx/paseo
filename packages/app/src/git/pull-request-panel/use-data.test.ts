@@ -38,6 +38,7 @@ const githubStatus: CheckoutPrStatus["github"] = {
 
 function prStatus(overrides: Partial<CheckoutPrStatus> = {}): CheckoutPrStatus {
   return {
+    forge: "github",
     number: 42,
     url: "https://github.com/getpaseo/paseo/pull/42",
     title: "Wire real PR pane data",

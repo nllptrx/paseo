@@ -135,7 +135,8 @@ describe("planWorkspaceOpenTargets", () => {
 
     expect(blobTargets).toEqual([
       {
-        source: "github",
+        source: "forge",
+        forge: "github",
         id: "github",
         label: "GitHub",
         url: "https://github.com/getpaseo/paseo/blob/main/src/app.ts#L3-L5",
@@ -143,7 +144,8 @@ describe("planWorkspaceOpenTargets", () => {
     ]);
     expect(treeTargets).toEqual([
       {
-        source: "github",
+        source: "forge",
+        forge: "github",
         id: "github",
         label: "GitHub",
         url: "https://github.com/getpaseo/paseo/tree/main",
