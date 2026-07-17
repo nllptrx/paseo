@@ -1241,6 +1241,60 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
     }
   });
 
+  test("generic forge poll refreshes immediately when checkout HEAD changes", async () => {
+    let nowMs = 0;
+    let headSha = "1111111111111111111111111111111111111111";
+    const forge = {
+      ...createGitHubServiceStub(),
+      retainCurrentPullRequestStatusPoll: undefined,
+      getCurrentPullRequestStatus: vi.fn(async () => createCurrentPullRequestStatus()),
+    };
+    const unregister = defaultForgeRegistry.register("forge-head-change-test", {
+      createService: () => forge,
+      matchesHost: (host) => host === "forge-head-change.test",
+    });
+    const service = createService({
+      now: () => new Date(nowMs),
+      getCheckoutSnapshotFacts: vi.fn(async (cwd: string) =>
+        createCheckoutFacts(cwd, {
+          currentBranch: "feature",
+          remoteUrl: "https://forge-head-change.test/acme/repo.git",
+          pullRequestLookupTarget: { headRef: "feature", headSha },
+        }),
+      ),
+      getCheckoutStatus: vi.fn(async (cwd: string) =>
+        createCheckoutStatus(cwd, {
+          currentBranch: "feature",
+          remoteUrl: "https://forge-head-change.test/acme/repo.git",
+        }),
+      ),
+      getPullRequestStatus: vi.fn(async () => createPullRequestStatusResult("Visible PR")),
+    });
+
+    try {
+      await service.getSnapshot(REPO_CWD);
+      const subscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+      expect(service.peekSnapshot(REPO_CWD)?.forge.pullRequest?.title).toBe("Visible PR");
+
+      headSha = "2222222222222222222222222222222222222222";
+      nowMs = 3_000;
+      await service.refresh(REPO_CWD);
+
+      expect(service.peekSnapshot(REPO_CWD)?.forge.pullRequest).toBeNull();
+      expect(forge.getCurrentPullRequestStatus).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(0);
+      await flushPromises();
+
+      expect(forge.getCurrentPullRequestStatus).toHaveBeenCalledTimes(1);
+      expect(service.peekSnapshot(REPO_CWD)?.forge.pullRequest?.title).toBe("MR self-healed");
+      subscription.unsubscribe();
+    } finally {
+      service.dispose();
+      unregister();
+    }
+  });
+
   test("subscription cancels generic forge PR status self-heal polling after unsubscribe", async () => {
     const forge = {
       ...createGitHubServiceStub(),

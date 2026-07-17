@@ -1257,6 +1257,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       forge: resolution.forge,
       service: resolution.service,
       pollTarget,
+      pollImmediately: target.latestForge?.authState === "no_remote",
     });
   }
 
@@ -1265,11 +1266,13 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
     forge,
     service,
     pollTarget,
+    pollImmediately,
   }: {
     target: WorkspaceGitTarget;
     forge: string;
     service: ForgeService;
     pollTarget: WorkspaceForgePrStatusPollTarget;
+    pollImmediately: boolean;
   }): { unsubscribe: () => void } {
     let closed = false;
     let timer: NodeJS.Timeout | null = null;
@@ -1326,7 +1329,12 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       }
     };
 
-    schedule(computeGenericForgeNextInterval(latestStatus, consecutiveErrors));
+    // A git-only refresh clears forge state when the commit-aware poll identity
+    // changes. Revalidate that new identity immediately instead of leaving the
+    // PR panel empty for the full stable polling interval.
+    schedule(
+      pollImmediately ? 0 : computeGenericForgeNextInterval(latestStatus, consecutiveErrors),
+    );
     return {
       unsubscribe: () => {
         closed = true;

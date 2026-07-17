@@ -2236,12 +2236,16 @@ function comparePullRequestCandidatePreference(
   right: ResolvedPullRequestCandidate,
   headSha?: string,
 ): number {
+  const stateRank = getPullRequestStateRank(left.status) - getPullRequestStateRank(right.status);
+  if (stateRank !== 0) {
+    return stateRank;
+  }
   const leftExact = headSha !== undefined && left.headSha === headSha;
   const rightExact = headSha !== undefined && right.headSha === headSha;
   if (leftExact !== rightExact) {
     return leftExact ? -1 : 1;
   }
-  return getPullRequestStateRank(left.status) - getPullRequestStateRank(right.status);
+  return 0;
 }
 
 function getPullRequestStateRank(status: CurrentPullRequestStatus): number {

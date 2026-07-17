@@ -1077,6 +1077,43 @@ describe("createGiteaService", () => {
     ]);
   });
 
+  it("resolves terminal PR check details by explicit change request number", async () => {
+    const headSha = "8888888888888888888888888888888888888888";
+    const terminalView = {
+      ...STATUS_PR_VIEW,
+      index: 8,
+      state: "closed",
+      head: "feat/recently-closed",
+      headSha,
+      hasMerged: true,
+      mergedAt: "2026-06-28T17:00:00Z",
+    };
+    const { service, calls } = makeService(
+      (args) => {
+        if (args[0] === "pr" && args[1] === "8") return ok(JSON.stringify(terminalView));
+        if (args[0] === "api" && args[1].endsWith(`/commits/${headSha}/status`)) {
+          return ok(JSON.stringify(SAMPLE_COMBINED_STATUS));
+        }
+        throw new Error(`unexpected call: ${args.join(" ")}`);
+      },
+      { resolveCurrentBranch: async () => "feat/recently-closed" },
+    );
+
+    const details = await service.getCheckDetails({
+      cwd: "/repo",
+      repoOwner: "example-user",
+      repoName: "sample-repo",
+      checkRunId: 2,
+      changeRequestNumber: 8,
+    });
+
+    expect(details).toMatchObject({ checkRunId: 2, name: "ci/lint", status: "pending" });
+    expect(calls).toEqual([
+      ["pr", "8", "-o", "json"],
+      ["api", `repos/example-user/sample-repo/commits/${headSha}/status`],
+    ]);
+  });
+
   it("resolves Gitea Actions check details addressed only by workflowRunId", async () => {
     const { service } = makeService(
       (args) => {
