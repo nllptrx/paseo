@@ -403,7 +403,7 @@ describe("selectPrPaneState", () => {
     });
 
     expect(state.data?.provider).toEqual({ id: "gitlab", label: "GitLab" });
-    expect(state.data?.forgeSpecific).toEqual(gitlabFacts);
+    expect(state.data?.forgeSpecific).toEqual({ ...gitlabFacts, mergeStatus: null });
   });
 
   it("returns null data when the consumer disabled timeline rendering", () => {
