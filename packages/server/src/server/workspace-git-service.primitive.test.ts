@@ -1144,7 +1144,10 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
       createCheckoutFacts(cwd, {
         currentBranch: "feature",
         remoteUrl: "https://forge-self-heal.test/acme/repo.git",
-        pullRequestLookupTarget: { headRef: "feature" },
+        pullRequestLookupTarget: {
+          headRef: "feature",
+          headSha: "1111111111111111111111111111111111111111",
+        },
       }),
     );
     const getCheckoutStatus = vi.fn(async (cwd: string) =>
@@ -1163,12 +1166,13 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
       const subscription = service.registerWorkspace({ cwd: REPO_CWD }, listener);
       await flushPromises();
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(120_000);
       await flushPromises();
 
       expect(forge.getCurrentPullRequestStatus).toHaveBeenCalledWith({
         cwd: REPO_CWD,
         headRef: "feature",
+        headSha: "1111111111111111111111111111111111111111",
         reason: "self-heal-forge-pr-status",
       });
       expect(listener).toHaveBeenCalledWith(
@@ -1182,6 +1186,54 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
         }),
       );
 
+      subscription.unsubscribe();
+    } finally {
+      service.dispose();
+      unregister();
+    }
+  });
+
+  test("generic forge self-heal uses the fast poll window while checks are pending", async () => {
+    const forge = {
+      ...createGitHubServiceStub(),
+      retainCurrentPullRequestStatusPoll: undefined,
+      getCurrentPullRequestStatus: vi.fn(async () =>
+        createCurrentPullRequestStatus({ checksStatus: "pending" }),
+      ),
+    };
+    const unregister = defaultForgeRegistry.register("forge-pending-test", {
+      createService: () => forge,
+      matchesHost: (host) => host === "forge-pending.test",
+    });
+    const pendingResult = createPullRequestStatusResult();
+    if (pendingResult.status) {
+      pendingResult.status.checksStatus = "pending";
+      pendingResult.status.checks = [{ name: "ci", status: "pending" }];
+    }
+    const service = createService({
+      getCheckoutSnapshotFacts: vi.fn(async (cwd: string) =>
+        createCheckoutFacts(cwd, {
+          currentBranch: "feature",
+          remoteUrl: "https://forge-pending.test/acme/repo.git",
+          pullRequestLookupTarget: { headRef: "feature" },
+        }),
+      ),
+      getCheckoutStatus: vi.fn(async (cwd: string) =>
+        createCheckoutStatus(cwd, {
+          currentBranch: "feature",
+          remoteUrl: "https://forge-pending.test/acme/repo.git",
+        }),
+      ),
+      getPullRequestStatus: vi.fn(async () => pendingResult),
+    });
+
+    try {
+      const subscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await flushPromises();
+
+      expect(forge.getCurrentPullRequestStatus).toHaveBeenCalledTimes(1);
       subscription.unsubscribe();
     } finally {
       service.dispose();
@@ -1221,7 +1273,7 @@ describe("WorkspaceGitServiceImpl primitive refresh entrypoint", () => {
       await flushPromises();
       subscription.unsubscribe();
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(120_000);
       await flushPromises();
 
       expect(forge.getCurrentPullRequestStatus).not.toHaveBeenCalled();

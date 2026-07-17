@@ -74,6 +74,35 @@ const CONFLICTING_PR = {
   ci: "failure",
 };
 
+function currentPullRequestApi(input: {
+  number: number;
+  state: "open" | "closed";
+  headRef: string;
+  headSha: string;
+  merged?: boolean;
+}) {
+  return {
+    number: input.number,
+    html_url: `https://gitea.com/example-user/sample-repo/pulls/${input.number}`,
+    title: "Historical pull request",
+    body: "",
+    state: input.state,
+    merged: input.merged ?? false,
+    mergeable: true,
+    updated_at: "2026-06-26T10:00:00Z",
+    labels: [],
+    head: {
+      ref: input.headRef,
+      sha: input.headSha,
+      repo: { id: 1, owner: { login: "example-user" } },
+    },
+    base: {
+      ref: "main",
+      repo: { id: 1, owner: { login: "example-user" } },
+    },
+  };
+}
+
 const STATUS_PR_VIEW = {
   id: 161482,
   index: 5,
@@ -1172,6 +1201,9 @@ describe("createGiteaService", () => {
     const { service, calls } = makeService(
       (args) => {
         if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([]));
+        if (args[0] === "api" && args[1].includes("/pulls?state=all")) {
+          return ok(JSON.stringify([]));
+        }
         throw new Error(`unexpected call: ${args.join(" ")}`);
       },
       {
@@ -1187,14 +1219,9 @@ describe("createGiteaService", () => {
         checkRunId: 2,
       }),
     ).rejects.toThrow("Gitea pull request for branch feat/nonexistent was not found");
-    expect(
-      calls
-        .filter((args) => args[0] === "pr" && args[1] === "list")
-        .map((args) => [argValue(args, "--state"), argValue(args, "--page")]),
-    ).toEqual([
-      ["open", "1"],
-      ["all", undefined],
-    ]);
+    expect(calls.some((args) => args[0] === "api" && args[1].includes("/pulls?state=all"))).toBe(
+      true,
+    );
   });
 
   it("throws when check details address neither a checkRunId nor a workflowRunId", async () => {
@@ -1337,7 +1364,7 @@ describe("createGiteaService", () => {
     expect(status?.checksStatus).toBe("failure");
   });
 
-  it("finds the current branch PR on the second open pull-request page", async () => {
+  it("finds the open current-branch PR even when its remote head SHA differs", async () => {
     const firstPage = Array.from({ length: 50 }, (_, index) => ({
       ...OPEN_PR,
       index: String(100 + index),
@@ -1367,6 +1394,7 @@ describe("createGiteaService", () => {
     const status = await service.getCurrentPullRequestStatus({
       cwd: "/repo",
       headRef: "feat/sample-change",
+      headSha: "9999999999999999999999999999999999999999",
     });
 
     expect(status?.number).toBe(5);
@@ -1381,18 +1409,18 @@ describe("createGiteaService", () => {
   });
 
   it("falls back to the recent all-state PR window for a recently closed current branch PR", async () => {
-    const closedPr = {
-      ...OPEN_PR,
-      index: "8",
+    const headSha = "8888888888888888888888888888888888888888";
+    const closedPr = currentPullRequestApi({
+      number: 8,
       state: "closed",
-      url: "https://gitea.com/example-user/sample-repo/pulls/8",
-      head: "feat/recently-closed",
-    };
+      headRef: "feat/recently-closed",
+      headSha,
+    });
     const { service, calls } = makeService((args) => {
       if (args[0] === "pr" && args[1] === "list" && argValue(args, "--state") === "open") {
         return ok(JSON.stringify([]));
       }
-      if (args[0] === "pr" && args[1] === "list" && argValue(args, "--state") === "all") {
+      if (args[0] === "api" && args[1].includes("/pulls?state=all")) {
         return ok(JSON.stringify([closedPr]));
       }
       throw new Error(`unexpected call: ${args.join(" ")}`);
@@ -1401,22 +1429,47 @@ describe("createGiteaService", () => {
     const status = await service.getCurrentPullRequestStatus({
       cwd: "/repo",
       headRef: "feat/recently-closed",
+      headSha,
     });
 
     expect(status).toMatchObject({ number: 8, headRefName: "feat/recently-closed" });
-    expect(
-      calls
-        .filter((args) => args[0] === "pr" && args[1] === "list")
-        .map((args) => [argValue(args, "--state"), argValue(args, "--page")]),
-    ).toEqual([
-      ["open", "1"],
-      ["all", undefined],
+    expect(calls[1]).toEqual([
+      "api",
+      "repos/example-user/sample-repo/pulls?state=all&sort=recentupdate&page=1&limit=50",
     ]);
+  });
+
+  it("does not attach a stale Gitea-family PR after a same-name branch advances", async () => {
+    const stale = currentPullRequestApi({
+      number: 8,
+      state: "closed",
+      headRef: "dev",
+      headSha: "1111111111111111111111111111111111111111",
+      merged: true,
+    });
+    const { service } = makeService((args) => {
+      if (args[0] === "pr" && args[1] === "list") return ok("[]");
+      if (args[0] === "api" && args[1].includes("/pulls?state=all")) {
+        return ok(JSON.stringify([stale]));
+      }
+      throw new Error(`unexpected call: ${args.join(" ")}`);
+    });
+
+    await expect(
+      service.getCurrentPullRequestStatus({
+        cwd: "/repo",
+        headRef: "dev",
+        headSha: "2222222222222222222222222222222222222222",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("returns null when no PR matches the current branch", async () => {
     const { service, calls } = makeService((args) => {
       if (args[0] === "pr" && args[1] === "list") return ok(JSON.stringify([]));
+      if (args[0] === "api" && args[1].includes("/pulls?state=all")) {
+        return ok(JSON.stringify([]));
+      }
       throw new Error(`unexpected call: ${args.join(" ")}`);
     });
 
@@ -1426,14 +1479,9 @@ describe("createGiteaService", () => {
     });
 
     expect(status).toBeNull();
-    expect(
-      calls
-        .filter((args) => args[0] === "pr" && args[1] === "list")
-        .map((args) => [argValue(args, "--state"), argValue(args, "--page")]),
-    ).toEqual([
-      ["open", "1"],
-      ["all", undefined],
-    ]);
+    expect(calls.some((args) => args[0] === "api" && args[1].includes("/pulls?state=all"))).toBe(
+      true,
+    );
   });
 
   it("lists open pull requests", async () => {

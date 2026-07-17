@@ -456,6 +456,7 @@ export interface ForgeService {
     options: {
       cwd: string;
       headRef: string;
+      headSha?: string;
       headRepositoryOwner?: string;
     } & ForgeReadOptions,
   ): Promise<CurrentPullRequestStatus | null>;
@@ -496,6 +497,7 @@ export interface ForgeService {
   retainCurrentPullRequestStatusPoll?(options: {
     cwd: string;
     headRef: string;
+    headSha?: string;
     headRepositoryOwner?: string;
     onStatus?: (status: CurrentPullRequestStatus | null) => void;
     onError?: (error: unknown) => void;
