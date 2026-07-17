@@ -3,6 +3,7 @@ import type {
   PullRequestTimelineResponse,
 } from "@getpaseo/protocol/messages";
 import { type Forge, getForgePresentation } from "@/git/forge";
+import { parseClientForgeFacts } from "@/git/forges";
 import type { ForgeSpecificStatusFacts } from "@/git/merge-capability";
 import { type CheckStatus, mapCheckStatus } from "./check-status";
 import { getNativeFallbackChecks } from "./native-data";
@@ -128,6 +129,7 @@ export function mapPrPaneData(
 
   const timelineMatchesStatus = timeline?.prNumber === number;
   const provider = toProviderMetadata(forge);
+  const forgeSpecific = parseClientForgeFacts(status.forgeSpecific);
 
   return {
     provider,
@@ -143,7 +145,7 @@ export function mapPrPaneData(
     // Requested reviewers are intentionally unwired until the server exposes them.
     awaitingReviewers: [],
     checks: mapChecks(status, forge),
-    ...(status.forgeSpecific ? { forgeSpecific: status.forgeSpecific } : {}),
+    ...(forgeSpecific ? { forgeSpecific } : {}),
     activity: timelineMatchesStatus
       ? timeline.items.flatMap((item) => mapActivity(item, nowMs, forge))
       : [],

@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
-import type { CheckoutPrStatusResponse } from "@getpaseo/protocol/messages";
 import { checkoutPrStatusQueryKey } from "@/git/query-keys";
 import { normalizeForge } from "@/git/forge";
 import { selectPrHintFromStatus, type PrHint } from "@/git/pr-hint";
+import { type CheckoutPrStatusPayload, normalizeCheckoutPrStatusPayload } from "@/git/pr-status";
 
 interface UseCheckoutPrStatusQueryOptions {
   serverId: string;
@@ -12,7 +12,7 @@ interface UseCheckoutPrStatusQueryOptions {
   enabled?: boolean;
 }
 
-export type CheckoutPrStatusPayload = CheckoutPrStatusResponse["payload"];
+export type { CheckoutPrStatusPayload } from "@/git/pr-status";
 export { selectPrHintFromStatus, type PrHint } from "@/git/pr-hint";
 
 function selectWorkspacePrHint(payload: CheckoutPrStatusPayload): PrHint | null {
@@ -34,7 +34,7 @@ export function useCheckoutPrStatusQuery({
       if (!client) {
         throw new Error(t("common.errors.daemonClientUnavailable"));
       }
-      return await client.checkoutPrStatus(cwd);
+      return normalizeCheckoutPrStatusPayload(await client.checkoutPrStatus(cwd));
     },
     enabled: !!client && isConnected && !!cwd && enabled,
     staleTime: Infinity,
@@ -76,7 +76,7 @@ export function useWorkspacePrHint({
       if (!client) {
         throw new Error(t("common.errors.daemonClientUnavailable"));
       }
-      return await client.checkoutPrStatus(cwd);
+      return normalizeCheckoutPrStatusPayload(await client.checkoutPrStatus(cwd));
     },
     enabled: !!client && isConnected && !!cwd && enabled,
     staleTime: Infinity,

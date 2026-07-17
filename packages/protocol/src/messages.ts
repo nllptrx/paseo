@@ -1843,17 +1843,16 @@ export const ForgeSearchItemSchema = GitHubSearchItemSchema.extend({
   kind: z.enum(["issue", "change_request"]),
 });
 
-const ForgeSearchKindSchemaBase = z.enum(["issue", "change_request"]);
+// COMPAT(githubSearchKind): added in v0.1.106, remove with the legacy
+// github_search_request RPC after 2026-12-28.
+export const ForgeSearchKindSchema = z.enum([
+  "issue",
+  "change_request",
+  "github-issue",
+  "github-pr",
+  "pr",
+]);
 
-export const ForgeSearchKindSchema = z.preprocess((value) => {
-  if (value === "github-issue") return "issue";
-  if (value === "github-pr") return "change_request";
-  if (value === "pr") return "change_request";
-  return value;
-}, ForgeSearchKindSchemaBase);
-
-// COMPAT(githubSearchKind): added in v0.1.106, remove after 2026-12-28 once
-// clients send neutral issue/change_request kinds only.
 export const GitHubSearchKindSchema = ForgeSearchKindSchema;
 
 export const ForgeSearchRequestSchema = z.object({
@@ -1872,7 +1871,7 @@ export const GitHubSearchRequestSchema = z.object({
   cwd: z.string(),
   query: z.string(),
   limit: z.number().int().min(1).max(50).optional(),
-  kinds: z.array(ForgeSearchKindSchema).optional(),
+  kinds: z.array(GitHubSearchKindSchema).optional(),
   requestId: z.string(),
 });
 
@@ -3793,11 +3792,7 @@ const CheckoutPrGithubStatusSchema = CheckoutPrGithubStatusObjectSchema.optional
 // because they share one facts shape, while the top-level `forge` above carries
 // the specific brand. Validation of family-specific payloads happens at runtime
 // in the consumer that knows that forge family.
-const CheckoutPrForgeSpecificSchema = z
-  .object({ forge: z.string() })
-  .passthrough()
-  .optional()
-  .catch(undefined);
+const CheckoutPrForgeSpecificSchema = z.unknown().optional();
 
 export const CheckoutPrStatusSchema = z.object({
   // COMPAT(forge): added in v0.1.106, remove the default after 2026-12-27 once daemon floor >= v0.1.106.
@@ -3839,19 +3834,16 @@ export const CheckoutPrStatusSchema = z.object({
 });
 
 // Why a forge's PR/MR features are (un)available, so the client can offer the
-// precise next step instead of a generic dead-end. Unknown values from a future
-// daemon degrade to absent rather than breaking the parse.
-const ForgeAuthStateValueSchema = z.enum([
-  "authenticated",
-  "unauthenticated",
-  "cli_missing",
-  "no_remote",
-  "error",
-]);
+// precise next step instead of a generic dead-end. Kept open on the wire so
+// feature consumers can ignore values introduced by newer daemons.
+export type ForgeAuthState =
+  | "authenticated"
+  | "unauthenticated"
+  | "cli_missing"
+  | "no_remote"
+  | "error";
 
-export const ForgeAuthStateSchema = ForgeAuthStateValueSchema.optional().catch(undefined);
-
-export type ForgeAuthState = z.infer<typeof ForgeAuthStateValueSchema>;
+export const ForgeAuthStateSchema = z.unknown().optional();
 
 const CheckoutPrStatusPayloadSchema = z.object({
   cwd: z.string(),
@@ -4337,50 +4329,21 @@ export const BranchSuggestionsResponseSchema = z.object({
   }),
 });
 
-function createLegacySearchResponsePayloadSchema<T extends z.ZodTypeAny>(itemSchema: T) {
-  return z
-    .object({
-      items: z.array(itemSchema),
-      featuresEnabled: z.boolean().optional(),
-      // COMPAT(githubSearchAuthState): added in v0.1.106, remove fallback after 2026-12-28.
-      authState: ForgeAuthStateSchema,
-      // COMPAT(githubFeaturesEnabled): added in v0.1.106, remove after 2026-12-28
-      // once clients consume featuresEnabled/authState.
-      githubFeaturesEnabled: z.boolean().optional(),
-      error: z.string().nullable(),
-      requestId: z.string(),
-    })
-    .transform((payload) => {
-      const featuresEnabled = payload.featuresEnabled ?? payload.githubFeaturesEnabled ?? true;
-      const authState =
-        payload.authState ?? (featuresEnabled ? "authenticated" : "unauthenticated");
-      return {
-        ...payload,
-        featuresEnabled,
-        authState,
-        githubFeaturesEnabled: payload.githubFeaturesEnabled ?? featuresEnabled,
-      };
-    });
-}
-
 const ForgeSearchResponsePayloadSchema = z.object({
-  // Tolerant parse (matches the legacy search path): a newer daemon adding a
-  // result kind or auth state must not make an older client reject the whole
-  // response. Unknown-kind items drop out; an unknown auth state degrades to
-  // "unauthenticated" (prompt sign-in) rather than throwing.
-  items: z.array(z.unknown()).transform((entries) =>
-    entries.flatMap((entry) => {
-      const parsed = ForgeSearchItemSchema.safeParse(entry);
-      return parsed.success ? [parsed.data] : [];
-    }),
-  ),
-  authState: ForgeAuthStateValueSchema.catch("unauthenticated"),
+  items: z.array(z.unknown()),
+  authState: z.unknown().optional(),
   error: z.string().nullable(),
   requestId: z.string(),
 });
 
-const GitHubSearchResponsePayloadSchema =
-  createLegacySearchResponsePayloadSchema(GitHubSearchItemSchema);
+const GitHubSearchResponsePayloadSchema = z.object({
+  items: z.array(z.unknown()),
+  featuresEnabled: z.boolean().optional(),
+  authState: z.unknown().optional(),
+  githubFeaturesEnabled: z.boolean().optional(),
+  error: z.string().nullable(),
+  requestId: z.string(),
+});
 
 export const ForgeSearchResponseSchema = z.object({
   type: z.literal("forge.search.response"),
@@ -5297,7 +5260,7 @@ export type ValidateBranchResponse = z.infer<typeof ValidateBranchResponseSchema
 export type BranchSuggestionsRequest = z.infer<typeof BranchSuggestionsRequestSchema>;
 export type BranchSuggestionsResponse = z.infer<typeof BranchSuggestionsResponseSchema>;
 export type ForgeSearchItem = z.infer<typeof ForgeSearchItemSchema>;
-export type ForgeSearchKind = z.infer<typeof ForgeSearchKindSchema>;
+export type ForgeSearchKind = "issue" | "change_request";
 export type ForgeSearchRequest = z.infer<typeof ForgeSearchRequestSchema>;
 export type ForgeSearchResponse = z.infer<typeof ForgeSearchResponseSchema>;
 export type GitHubSearchItem = z.infer<typeof GitHubSearchItemSchema>;

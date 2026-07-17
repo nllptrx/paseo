@@ -1,4 +1,4 @@
-import type { ClientForgeLogicModule } from "@/git/client-forge-module";
+import type { ClientForgeLogicModule, ForgeSpecificEnvelope } from "@/git/client-forge-module";
 import { codebergForgeLogic } from "./codeberg";
 import { forgejoForgeLogic } from "./forgejo";
 import { giteaForgeLogic } from "./gitea";
@@ -21,4 +21,14 @@ export const CLIENT_FORGE_LOGIC_MODULES: readonly ClientForgeLogicModule[] = [
 
 export function getClientForgeLogicModule(id: string): ClientForgeLogicModule | null {
   return CLIENT_FORGE_LOGIC_MODULES.find((module) => module.id === id) ?? null;
+}
+
+export function parseClientForgeFacts(facts: unknown): ForgeSpecificEnvelope | null {
+  for (const module of CLIENT_FORGE_LOGIC_MODULES) {
+    const parsed = module.facts?.parse(facts);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return null;
 }

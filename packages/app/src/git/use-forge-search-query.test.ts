@@ -158,6 +158,68 @@ describe("buildForgeSearchQueryOptions", () => {
     ]);
   });
 
+  it("interprets modern search payloads at the query boundary", async () => {
+    const query = buildForgeSearchQueryOptions({
+      client: {
+        async searchForge() {
+          return {
+            items: [
+              {
+                kind: "issue",
+                number: 23,
+                title: "Keep this",
+                url: "https://gitlab.com/acme/repo/-/issues/23",
+                state: "open",
+                body: null,
+                labels: [],
+              },
+              { kind: "future_kind", futureField: true },
+            ],
+            authState: "future_auth_state",
+            error: null,
+            requestId: "forge-request",
+          };
+        },
+      },
+      serverId: "server-1",
+      cwd: "/repo",
+      query: "23",
+      enabled: true,
+      supportsForgeSearch: true,
+    });
+
+    const result = await query.queryFn();
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.kind).toBe("issue");
+    expect(result.authState).toBe("unauthenticated");
+  });
+
+  it("derives legacy search auth from legacy feature flags", async () => {
+    const query = buildForgeSearchQueryOptions({
+      client: {
+        async searchForge() {
+          throw new Error("unexpected forge search");
+        },
+        async searchGitHub() {
+          return {
+            items: [],
+            githubFeaturesEnabled: false,
+            error: null,
+            requestId: "github-request",
+          };
+        },
+      },
+      serverId: "server-1",
+      cwd: "/repo",
+      query: "23",
+      enabled: true,
+      supportsForgeSearch: false,
+    });
+
+    expect((await query.queryFn()).authState).toBe("unauthenticated");
+  });
+
   it("invokes forge search bound to the client so this-dependent methods work", async () => {
     const client = new ThisDependentSearchClient();
 

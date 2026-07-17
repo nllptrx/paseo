@@ -13,6 +13,7 @@
  */
 import { FORGE_DEFINITIONS, getForgeDefinitionOrNeutral } from "@getpaseo/protocol/forge-manifest";
 import { normalizeHost, parseGitRemoteLocation } from "@getpaseo/protocol/git-remote";
+import type { ForgeAuthState } from "@getpaseo/protocol/messages";
 import {
   buildForgeBlobUrl,
   buildForgeBranchTreeUrl,
@@ -30,6 +31,19 @@ export type Forge = string;
 
 export function normalizeForge(raw: string | null | undefined): string {
   return raw && raw.length > 0 ? raw : "github";
+}
+
+export function parseForgeAuthState(value: unknown): ForgeAuthState | undefined {
+  switch (value) {
+    case "authenticated":
+    case "unauthenticated":
+    case "cli_missing":
+    case "no_remote":
+    case "error":
+      return value;
+    default:
+      return undefined;
+  }
 }
 
 export function forgeFromRemoteUrl(remoteUrl: string | null | undefined): string | null {

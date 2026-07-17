@@ -1,11 +1,15 @@
 import type { ForgeSearchKind } from "@getpaseo/protocol/messages";
 
+export type ForgeSearchRequestKind = ForgeSearchKind | "github-issue" | "github-pr" | "pr";
+
 export function normalizeForgeSearchKinds(
-  kinds: readonly (ForgeSearchKind | "github-issue" | "github-pr" | "pr")[] | undefined,
+  kinds: readonly ForgeSearchRequestKind[] | undefined,
 ): ForgeSearchKind[] {
   if (!kinds) return ["issue", "change_request"];
 
   return kinds.map((kind) => {
+    // COMPAT(githubSearchKind): added in v0.1.106, remove with the legacy
+    // github_search_request RPC after 2026-12-28.
     if (kind === "github-issue") return "issue";
     if (kind === "github-pr" || kind === "pr") return "change_request";
     return kind;
@@ -406,7 +410,7 @@ export type SearchIssuesAndPrsOptions = {
   cwd: string;
   query: string;
   limit?: number;
-  kinds?: ForgeSearchKind[];
+  kinds?: ForgeSearchRequestKind[];
 } & ForgeReadOptions;
 
 export interface CreatePullRequestOptions {

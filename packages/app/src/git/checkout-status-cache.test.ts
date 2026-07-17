@@ -64,6 +64,7 @@ function prStatus(overrides: Partial<CheckoutPrStatusPayload> = {}): CheckoutPrS
       reviewDecision: null,
     },
     githubFeaturesEnabled: true,
+    authState: "authenticated",
     forge: "github",
     error: null,
     requestId: "pr-status-1",
@@ -73,7 +74,7 @@ function prStatus(overrides: Partial<CheckoutPrStatusPayload> = {}): CheckoutPrS
 
 function checkoutStatusUpdate(
   payload: CheckoutStatusPayload,
-  extraPrStatus?: CheckoutPrStatusPayload,
+  extraPrStatus?: NonNullable<CheckoutStatusUpdate["payload"]["prStatus"]>,
 ): CheckoutStatusUpdate {
   return {
     type: "checkout_status_update",
@@ -149,6 +150,29 @@ describe("applyCheckoutStatusUpdateFromEvent", () => {
       message: checkoutStatusUpdate(checkoutStatus({ cwd: otherCwd, repoRoot: otherCwd })),
     });
     expect(queryClient.getQueryData(checkoutPrStatusQueryKey(serverId, otherCwd))).toBeUndefined();
+  });
+
+  it("normalizes legacy PR auth state at the pushed-cache boundary", () => {
+    const queryClient = createQueryClient();
+    const { authState: _authState, ...legacyPrStatus } = prStatus({
+      githubFeaturesEnabled: false,
+    });
+
+    applyCheckoutStatusUpdateFromEvent({
+      queryClient,
+      serverId,
+      message: checkoutStatusUpdate(checkoutStatus(), legacyPrStatus),
+    });
+
+    expect(
+      queryClient.getQueryData<CheckoutPrStatusPayload>(checkoutPrStatusQueryKey(serverId, cwd))
+        ?.authState,
+    ).toBe("unauthenticated");
+    expect(
+      queryClient.getQueryData<CheckoutStatusUpdate["payload"]>(
+        checkoutStatusQueryKey(serverId, cwd),
+      )?.prStatus?.authState,
+    ).toBe("unauthenticated");
   });
 
   it("expires a manual diff-mode override when the pushed dirty state flipped", () => {

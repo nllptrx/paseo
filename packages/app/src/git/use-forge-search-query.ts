@@ -1,34 +1,47 @@
 import { useTranslation } from "react-i18next";
-import type {
+import {
+  ForgeSearchItemSchema,
+  GitHubSearchItemSchema,
+  type ForgeAuthState,
+  type ForgeSearchItem,
   ForgeSearchKind,
-  ForgeSearchRequest,
-  ForgeSearchResponse,
-  GitHubSearchResponse,
+  type ForgeSearchResponse,
+  type GitHubSearchResponse,
 } from "@getpaseo/protocol/messages";
 import { i18n } from "@/i18n/i18next";
 import { useFetchQuery } from "@/data/query";
+import { parseForgeAuthState } from "@/git/forge";
 
 export const FORGE_SEARCH_STALE_TIME = 30_000;
 
-export type ForgeSearchPayload = ForgeSearchResponse["payload"];
+export interface ForgeSearchPayload {
+  items: ForgeSearchItem[];
+  authState: ForgeAuthState;
+  error: string | null;
+  requestId: string;
+}
+
+interface ForgeSearchOptions {
+  cwd: string;
+  query: string;
+  limit?: number;
+  kinds?: ForgeSearchKind[];
+}
+
+interface LegacyGitHubSearchOptions {
+  cwd: string;
+  query: string;
+  limit?: number;
+  kinds?: LegacyGitHubSearchKind[];
+}
 
 export interface ForgeSearchClient {
   searchForge: (
-    options: {
-      cwd: string;
-      query: string;
-      limit?: number;
-      kinds?: ForgeSearchRequest["kinds"];
-    },
+    options: ForgeSearchOptions,
     requestId?: string,
-  ) => Promise<ForgeSearchPayload>;
+  ) => Promise<ForgeSearchResponse["payload"]>;
   searchGitHub?: (
-    options: {
-      cwd: string;
-      query: string;
-      limit?: number;
-      kinds?: ForgeSearchRequest["kinds"];
-    },
+    options: LegacyGitHubSearchOptions,
     requestId?: string,
   ) => Promise<GitHubSearchResponse["payload"]>;
 }
@@ -40,7 +53,7 @@ interface ForgeSearchQueryInput {
   serverId: string;
   cwd: string;
   query: string;
-  kinds?: ForgeSearchRequest["kinds"];
+  kinds?: ForgeSearchKind[];
   enabled: boolean;
   supportsForgeSearch?: boolean;
   hostDisconnectedMessage?: string;
@@ -50,7 +63,7 @@ export function forgeSearchQueryKey(
   serverId: string,
   cwd: string,
   query: string,
-  kinds?: ForgeSearchRequest["kinds"],
+  kinds?: ForgeSearchKind[],
   transport: "forge" | "github" = "forge",
 ) {
   const trimmedQuery = query.trim();
@@ -85,11 +98,11 @@ export function buildForgeSearchQueryOptions(input: ForgeSearchQueryInput) {
       // COMPAT(githubSearchRpc): added in v0.1.106, remove after 2026-12-28 once
       // clients use forge.search.*.
       if (transport === "github" && input.client.searchGitHub) {
-        return toForgeSearchPayload(
+        return normalizeLegacyGitHubSearchPayload(
           await input.client.searchGitHub(toLegacyGitHubSearchRequest(request)),
         );
       }
-      return input.client.searchForge(request);
+      return normalizeForgeSearchPayload(await input.client.searchForge(request));
     },
     enabled: input.enabled && Boolean(input.client),
     dataShape: "list" as const,
@@ -97,19 +110,38 @@ export function buildForgeSearchQueryOptions(input: ForgeSearchQueryInput) {
   };
 }
 
-function toForgeSearchPayload(payload: GitHubSearchResponse["payload"]): ForgeSearchPayload {
-  // COMPAT(githubFeaturesEnabled): added in v0.1.106, remove after 2026-12-28
-  // once clients consume featuresEnabled/authState.
+function normalizeForgeSearchPayload(payload: ForgeSearchResponse["payload"]): ForgeSearchPayload {
+  return {
+    items: payload.items.flatMap((item) => {
+      const result = ForgeSearchItemSchema.safeParse(item);
+      return result.success ? [result.data] : [];
+    }),
+    authState: parseForgeAuthState(payload.authState) ?? "unauthenticated",
+    error: payload.error,
+    requestId: payload.requestId,
+  };
+}
+
+function normalizeLegacyGitHubSearchPayload(
+  payload: GitHubSearchResponse["payload"],
+): ForgeSearchPayload {
+  // COMPAT(githubSearchAuthState): added in v0.1.106, remove after 2026-12-28.
   const featuresEnabled = payload.featuresEnabled ?? payload.githubFeaturesEnabled ?? true;
   return {
-    items: payload.items.map((item) => {
-      if (item.kind === "pr") {
-        return { ...item, kind: "change_request" };
+    items: payload.items.flatMap((item) => {
+      const result = GitHubSearchItemSchema.safeParse(item);
+      if (!result.success) {
+        return [];
       }
-      return { ...item, kind: "issue" };
+      return [
+        result.data.kind === "pr"
+          ? { ...result.data, kind: "change_request" as const }
+          : { ...result.data, kind: "issue" as const },
+      ];
     }),
-    // COMPAT(githubSearchAuthState): added in v0.1.106, remove fallback after 2026-12-28.
-    authState: payload.authState ?? (featuresEnabled ? "authenticated" : "unauthenticated"),
+    authState:
+      parseForgeAuthState(payload.authState) ??
+      (featuresEnabled ? "authenticated" : "unauthenticated"),
     error: payload.error,
     requestId: payload.requestId,
   };
@@ -119,16 +151,14 @@ function toLegacyGitHubSearchKind(kind: ForgeSearchKind): LegacyGitHubSearchKind
   return kind === "change_request" ? "github-pr" : "github-issue";
 }
 
-function toLegacyGitHubSearchRequest<T extends { kinds?: ForgeSearchRequest["kinds"] }>(
-  request: T,
-): T {
+function toLegacyGitHubSearchRequest(request: ForgeSearchOptions): LegacyGitHubSearchOptions {
   if (!request.kinds) {
-    return request;
+    return { cwd: request.cwd, query: request.query, limit: request.limit };
   }
   return {
     ...request,
     kinds: request.kinds.map(toLegacyGitHubSearchKind),
-  } as T;
+  };
 }
 
 export function useForgeSearchQuery(input: ForgeSearchQueryInput) {

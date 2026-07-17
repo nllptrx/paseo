@@ -522,11 +522,20 @@ describe("mapPrPaneData", () => {
       "gitlab",
     );
 
-    expect(data?.forgeSpecific).toEqual(gitlabFacts);
+    expect(data?.forgeSpecific).toEqual({ ...gitlabFacts, mergeStatus: null });
   });
 
   it("omits forgeSpecific when the status carries no native facts", () => {
     expect(mapPrPaneData(baseStatus, baseTimeline)?.forgeSpecific).toBeUndefined();
+  });
+
+  it("omits forgeSpecific when no registered forge schema accepts it", () => {
+    const data = mapPrPaneData(
+      status({ forgeSpecific: { forge: "gitlab", approvalsRequired: "two" } }),
+      baseTimeline,
+    );
+
+    expect(data?.forgeSpecific).toBeUndefined();
   });
 
   it("surfaces Gitea aggregate CI status as a check row", () => {

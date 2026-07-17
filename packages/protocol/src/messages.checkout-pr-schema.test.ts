@@ -305,7 +305,7 @@ describe("checkout PR schemas", () => {
     });
   });
 
-  test("drops forgeSpecific when the runtime facts-family tag is missing", () => {
+  test("keeps forge-specific facts structural for feature-owned interpretation", () => {
     const parsed = CheckoutPrStatusSchema.parse({
       number: 12,
       url: "https://example.com/forge/12",
@@ -316,29 +316,11 @@ describe("checkout PR schemas", () => {
       isMerged: false,
       forgeSpecific: { approvalsRequired: 2 },
     });
-    expect(parsed.forgeSpecific).toBeUndefined();
+
+    expect(parsed.forgeSpecific).toEqual({ approvalsRequired: 2 });
   });
 
-  test("defaults search auth state for legacy GitHub search responses", () => {
-    const parsed = GitHubSearchResponseSchema.parse({
-      type: "github_search_response",
-      payload: {
-        items: [],
-        featuresEnabled: false,
-        githubFeaturesEnabled: false,
-        error: null,
-        requestId: "search-1",
-      },
-    });
-
-    expect(parsed.payload).toMatchObject({
-      featuresEnabled: false,
-      authState: "unauthenticated",
-      githubFeaturesEnabled: false,
-    });
-  });
-
-  test("tolerantly parses auth state and omits legacy-only fields on forge search responses", () => {
+  test("keeps forge search responses structural", () => {
     expect(
       ForgeSearchResponseSchema.parse({
         type: "forge.search.response",
@@ -353,8 +335,9 @@ describe("checkout PR schemas", () => {
               body: null,
               labels: [],
             },
+            { kind: "future_kind", futureField: true },
           ],
-          authState: "authenticated",
+          authState: "future_auth_state",
           error: null,
           requestId: "search-2",
         },
@@ -370,58 +353,28 @@ describe("checkout PR schemas", () => {
           body: null,
           labels: [],
         },
+        { kind: "future_kind", futureField: true },
       ],
-      authState: "authenticated",
+      authState: "future_auth_state",
       error: null,
       requestId: "search-2",
     });
 
     expect(
-      ForgeSearchResponseSchema.parse({
-        type: "forge.search.response",
+      GitHubSearchResponseSchema.parse({
+        type: "github_search_response",
         payload: {
           items: [],
-          featuresEnabled: true,
-          githubFeaturesEnabled: true,
-          authState: "authenticated",
+          githubFeaturesEnabled: false,
           error: null,
-          requestId: "search-legacy-fields",
+          requestId: "search-legacy",
         },
       }).payload,
     ).toEqual({
       items: [],
-      authState: "authenticated",
+      githubFeaturesEnabled: false,
       error: null,
-      requestId: "search-legacy-fields",
-    });
-
-    // Forward-compat: a newer daemon must not break an older client. A missing
-    // or unknown auth state degrades to "unauthenticated", and an unknown result
-    // kind drops out of the list instead of failing the whole response.
-    expect(
-      ForgeSearchResponseSchema.parse({
-        type: "forge.search.response",
-        payload: {
-          items: [
-            {
-              kind: "future_kind",
-              number: 9,
-              title: "From a newer daemon",
-              url: "https://gitlab.com/acme/repo/-/merge_requests/9",
-              state: "open",
-              body: null,
-              labels: [],
-            },
-          ],
-          error: null,
-          requestId: "search-3",
-        },
-      }).payload,
-    ).toEqual({
-      items: [],
-      authState: "unauthenticated",
-      error: null,
-      requestId: "search-3",
+      requestId: "search-legacy",
     });
   });
 

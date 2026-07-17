@@ -52,7 +52,7 @@ function githubStatus(overrides: Partial<GithubMergeFactsFixture> = {}): GithubM
 
 function createInput(
   overrides: Partial<Omit<BuildGitActionsInput, "mergeCapability">> & {
-    pullRequestGithub?: ForgeSpecificStatusFacts | null;
+    pullRequestGithub?: unknown;
   } = {},
 ): BuildGitActionsInput {
   const { pullRequestGithub = null, ...rest } = overrides;

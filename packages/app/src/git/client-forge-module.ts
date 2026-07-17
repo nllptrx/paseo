@@ -82,17 +82,13 @@ export interface PaneChecksSlotContext {
 }
 
 export interface PaneNativeContribution {
-  guard: (facts: ForgeSpecificEnvelope | null | undefined) => boolean;
-  renderHeaderMeta: (facts: ForgeSpecificEnvelope) => ReactNode;
-  renderChecksSection: (facts: ForgeSpecificEnvelope, ctx: PaneChecksSlotContext) => ReactNode;
+  guard: (facts: unknown) => boolean;
+  renderHeaderMeta: (facts: unknown) => ReactNode;
+  renderChecksSection: (facts: unknown, ctx: PaneChecksSlotContext) => ReactNode;
 }
 
 export interface NativeFallbackCheckEntry {
-  contribute: (
-    facts: ForgeSpecificEnvelope,
-    status: CheckoutPrStatus,
-    forge: Forge,
-  ) => PrPaneCheck | null;
+  contribute: (facts: unknown, status: CheckoutPrStatus, forge: Forge) => PrPaneCheck | null;
 }
 
 interface TypedPaneContribution<TFacts extends ForgeSpecificEnvelope> {
@@ -106,8 +102,8 @@ interface TypedNativeFallbackCheck<TFacts extends ForgeSpecificEnvelope> {
 
 export interface ClientForgeFactsEntry<TFacts extends ForgeSpecificEnvelope> {
   readonly family: TFacts["forge"];
-  parse: (facts: ForgeSpecificEnvelope | null | undefined) => TFacts | null;
-  deriveMergeCapability: (facts: ForgeSpecificEnvelope) => MergeCapability | null;
+  parse: (facts: unknown) => TFacts | null;
+  deriveMergeCapability: (facts: unknown) => MergeCapability | null;
   readonly nativeFallbackChecks: readonly NativeFallbackCheckEntry[];
 }
 
@@ -120,7 +116,7 @@ export interface ClientForgeFactsRegistration<TFacts extends ForgeSpecificEnvelo
 
 function parseFacts<TFacts extends ForgeSpecificEnvelope>(
   schema: z.ZodType<TFacts>,
-  facts: ForgeSpecificEnvelope | null | undefined,
+  facts: unknown,
 ): TFacts | null {
   if (!facts) {
     return null;

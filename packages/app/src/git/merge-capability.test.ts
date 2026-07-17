@@ -99,6 +99,16 @@ describe("deriveMergeCapability", () => {
     expect(deriveMergeCapability(undefined)).toBeNull();
   });
 
+  it("rejects untagged and schema-mismatched forge facts at the registry boundary", () => {
+    expect(deriveMergeCapability({ approvalsRequired: 2 })).toBeNull();
+    expect(
+      deriveMergeCapability({
+        ...gitlabFacts(),
+        approvalsRequired: "two",
+      }),
+    ).toBeNull();
+  });
+
   it("marks direct merge ready only for the GitHub clean states", () => {
     expect(deriveMergeCapability(facts({ mergeStateStatus: "CLEAN" }))?.directMergeReady).toBe(
       true,

@@ -14,7 +14,7 @@ export type { LegacyGithubMergeFacts, MergeCapability };
  * Returns null for an unregistered, unknown, or schema-mismatched facts family;
  * callers then fall back to raw git state.
  */
-function deriveForgeMergeCapability(facts: ForgeSpecificStatusFacts): MergeCapability | null {
+function deriveForgeMergeCapability(facts: unknown): MergeCapability | null {
   for (const module of CLIENT_FORGE_LOGIC_MODULES) {
     const capability = module.facts?.deriveMergeCapability(facts);
     if (capability) {
@@ -38,7 +38,7 @@ function deriveForgeMergeCapability(facts: ForgeSpecificStatusFacts): MergeCapab
  * an old daemon.
  */
 export function deriveMergeCapability(
-  forgeSpecific: ForgeSpecificStatusFacts | null | undefined,
+  forgeSpecific: unknown,
   legacyGithubFacts?: LegacyGithubMergeFacts | null,
 ): MergeCapability | null {
   if (forgeSpecific === null || forgeSpecific === undefined) {
