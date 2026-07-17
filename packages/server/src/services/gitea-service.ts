@@ -1434,13 +1434,16 @@ export function createGiteaService(options: CreateGiteaServiceOptions = {}): For
       return openMatch;
     }
 
-    if (!repoIdentity) {
-      return null;
-    }
+    // tea discovers repository context from any configured git remote, while
+    // the default remote resolver reads origin only. Preserve that broader
+    // discovery for repositories whose primary remote has another name.
+    const repoPath = repoIdentity
+      ? `repos/${encodeURIComponent(repoIdentity.owner)}/${encodeURIComponent(repoIdentity.name)}`
+      : "repos/{owner}/{repo}";
     const recentItems = await runJsonArray(
       [
         "api",
-        `repos/${encodeURIComponent(repoIdentity.owner)}/${encodeURIComponent(repoIdentity.name)}/pulls?state=all&sort=recentupdate&page=1&limit=${CURRENT_PR_LOOKUP_PAGE_SIZE}`,
+        `${repoPath}/pulls?state=all&sort=recentupdate&page=1&limit=${CURRENT_PR_LOOKUP_PAGE_SIZE}`,
       ],
       { cwd: input.cwd },
       GiteaCurrentPullRequestApiSchema,

@@ -1209,9 +1209,11 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       remoteUrl,
       target: pollTarget,
     });
+    const previousPollKey = target.forgePrStatusPollKey;
     if (target.forgePrStatusPollKey === pollKey && target.forgePrStatusPollSubscription) {
       return;
     }
+    const pollImmediately = previousPollKey !== null && previousPollKey !== pollKey;
 
     this.stopForgePrStatusPollForTarget(target);
     target.forgePrStatusPollKey = pollKey;
@@ -1257,7 +1259,7 @@ export class WorkspaceGitServiceImpl implements WorkspaceGitService {
       forge: resolution.forge,
       service: resolution.service,
       pollTarget,
-      pollImmediately: target.latestForge?.authState === "no_remote",
+      pollImmediately,
     });
   }
 

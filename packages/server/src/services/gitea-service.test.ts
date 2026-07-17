@@ -1256,9 +1256,10 @@ describe("createGiteaService", () => {
         checkRunId: 2,
       }),
     ).rejects.toThrow("Gitea pull request for branch feat/nonexistent was not found");
-    expect(calls.some((args) => args[0] === "api" && args[1].includes("/pulls?state=all"))).toBe(
-      true,
-    );
+    expect(calls[1]).toEqual([
+      "api",
+      "repos/example-user/sample-repo/pulls?state=all&sort=recentupdate&page=1&limit=50",
+    ]);
   });
 
   it("throws when check details address neither a checkRunId nor a workflowRunId", async () => {
@@ -1476,6 +1477,38 @@ describe("createGiteaService", () => {
     ]);
   });
 
+  it("uses tea repository context when origin identity is unavailable", async () => {
+    const headSha = "8888888888888888888888888888888888888888";
+    const closedPr = currentPullRequestApi({
+      number: 8,
+      state: "closed",
+      headRef: "feat/recently-closed",
+      headSha,
+    });
+    const { service, calls } = makeService(
+      (args) => {
+        if (args[0] === "pr" && args[1] === "list") return ok("[]");
+        if (args[0] === "api" && args[1].startsWith("repos/{owner}/{repo}/pulls?")) {
+          return ok(JSON.stringify([closedPr]));
+        }
+        throw new Error(`unexpected call: ${args.join(" ")}`);
+      },
+      { resolveRemoteUrl: async () => null },
+    );
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/recently-closed",
+      headSha,
+    });
+
+    expect(status).toMatchObject({ number: 8, headRefName: "feat/recently-closed" });
+    expect(calls[1]).toEqual([
+      "api",
+      "repos/{owner}/{repo}/pulls?state=all&sort=recentupdate&page=1&limit=50",
+    ]);
+  });
+
   it("does not attach a stale Gitea-family PR after a same-name branch advances", async () => {
     const stale = currentPullRequestApi({
       number: 8,
@@ -1516,9 +1549,10 @@ describe("createGiteaService", () => {
     });
 
     expect(status).toBeNull();
-    expect(calls.some((args) => args[0] === "api" && args[1].includes("/pulls?state=all"))).toBe(
-      true,
-    );
+    expect(calls[1]).toEqual([
+      "api",
+      "repos/example-user/sample-repo/pulls?state=all&sort=recentupdate&page=1&limit=50",
+    ]);
   });
 
   it("lists open pull requests", async () => {
