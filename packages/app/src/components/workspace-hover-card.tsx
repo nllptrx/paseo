@@ -42,6 +42,12 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { FloatingSurface } from "@/components/ui/floating";
 import { isWeb } from "@/constants/platform";
 import { useHosts } from "@/runtime/host-runtime";
+import { ManualStatusIcon } from "@/components/icons/manual-status-icon";
+import {
+  countCheckPresentations,
+  formatCheckPresentationCountsLabel,
+} from "@/git/check-presentation";
+import { buildForgeChecksUrl } from "@/git/forge-url";
 
 interface Rect {
   x: number;
@@ -351,6 +357,7 @@ const ThemedExternalLink = withUnistyles(ExternalLink);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedCircleDot = withUnistyles(CircleDot);
 const ThemedCircleX = withUnistyles(CircleX);
+const ThemedManualStatusIcon = withUnistyles(ManualStatusIcon);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedCheck = withUnistyles(Check);
 
@@ -448,24 +455,12 @@ function CopyableInfoRow({
   );
 }
 
-function getChecksSummaryCounts(checks: NonNullable<PrHint["checks"]>) {
-  return checks.reduce(
-    (counts, check) => {
-      if (check.status === "success") counts.passed += 1;
-      else if (check.status === "failure") counts.failed += 1;
-      else if (check.status !== "skipped" && check.status !== "cancelled") counts.pending += 1;
-      return counts;
-    },
-    { passed: 0, failed: 0, pending: 0 },
-  );
-}
-
 function ChecksSummaryPill({
   count,
   kind,
 }: {
   count: number;
-  kind: "passed" | "failed" | "pending";
+  kind: "passed" | "failed" | "warning" | "actionRequired" | "manual" | "pending";
 }) {
   if (count === 0) return null;
 
@@ -483,6 +478,33 @@ function ChecksSummaryPill({
       <View style={styles.checksSummaryPill}>
         <ThemedCircleX size={12} uniProps={dangerColorMapping} />
         <Text style={styles.checksStatusTextFailed}>{count}</Text>
+      </View>
+    );
+  }
+
+  if (kind === "warning") {
+    return (
+      <View style={styles.checksSummaryPill}>
+        <ThemedCircleX size={12} uniProps={warningColorMapping} />
+        <Text style={styles.checksStatusTextPending}>{count}</Text>
+      </View>
+    );
+  }
+
+  if (kind === "actionRequired") {
+    return (
+      <View style={styles.checksSummaryPill}>
+        <ThemedManualStatusIcon size={12} uniProps={warningColorMapping} />
+        <Text style={styles.checksStatusTextPending}>{count}</Text>
+      </View>
+    );
+  }
+
+  if (kind === "manual") {
+    return (
+      <View style={styles.checksSummaryPill}>
+        <ThemedManualStatusIcon size={12} uniProps={foregroundMutedColorMapping} />
+        <Text style={styles.checksStatusTextMuted}>{count}</Text>
       </View>
     );
   }
@@ -505,7 +527,8 @@ function ChecksSummaryContent({
   hovered: boolean;
 }) {
   const { t } = useTranslation();
-  const { passed, failed, pending } = getChecksSummaryCounts(checks);
+  const { passed, failed, warnings, actionRequired, manual, pending } =
+    countCheckPresentations(checks);
 
   const labelStyle = hovered
     ? [styles.checksSummaryLabel, styles.checksSummaryLabelHovered]
@@ -524,6 +547,9 @@ function ChecksSummaryContent({
       <View style={styles.checksSummaryCounts}>
         <ChecksSummaryPill count={passed} kind="passed" />
         <ChecksSummaryPill count={failed} kind="failed" />
+        <ChecksSummaryPill count={warnings} kind="warning" />
+        <ChecksSummaryPill count={actionRequired} kind="actionRequired" />
+        <ChecksSummaryPill count={manual} kind="manual" />
         <ChecksSummaryPill count={pending} kind="pending" />
       </View>
     </>
@@ -539,9 +565,22 @@ function ChecksSummaryPressable({
   forge: PrHint["forge"];
   url: string;
 }) {
+  const { t } = useTranslation();
+  const counts = countCheckPresentations(checks);
+  const accessibilityLabel = formatCheckPresentationCountsLabel(counts, {
+    heading: t("workspace.git.pr.sections.checks"),
+    passed: t("sidebar.workspace.checks.passed", { count: counts.passed }),
+    failed: t("sidebar.workspace.checks.failed", { count: counts.failed }),
+    warnings: t("sidebar.workspace.checks.warning", { count: counts.warnings }),
+    actionRequired: t("sidebar.workspace.checks.actionRequired", {
+      count: counts.actionRequired,
+    }),
+    manual: t("sidebar.workspace.checks.manual", { count: counts.manual }),
+    pending: t("sidebar.workspace.checks.pending", { count: counts.pending }),
+  });
   const handlePress = useCallback(() => {
-    void openExternalUrl(`${url}/checks`);
-  }, [url]);
+    void openExternalUrl(buildForgeChecksUrl(forge, url) ?? url);
+  }, [forge, url]);
 
   const renderChildren = useCallback(
     ({ hovered }: { pressed: boolean; hovered?: boolean }) => (
@@ -551,7 +590,12 @@ function ChecksSummaryPressable({
   );
 
   return (
-    <Pressable style={checksSummaryPressableStyle} onPress={handlePress}>
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="link"
+      style={checksSummaryPressableStyle}
+      onPress={handlePress}
+    >
       {renderChildren}
     </Pressable>
   );
@@ -671,5 +715,10 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.statusSuccess,
+  },
+  checksStatusTextMuted: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
+    color: theme.colors.foregroundMuted,
   },
 }));

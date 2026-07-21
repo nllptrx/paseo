@@ -830,6 +830,16 @@ export const ar: TranslationResources = {
         accessibility: {
           pullRequest: "سحب الطلب #{{number}}",
           pullRequest_mr: "طلب دمج !{{number}}",
+          checkStatus: {
+            passed: "ناجح",
+            failed: "فاشل",
+            warning: "تحذير",
+            actionRequired: "إجراء مطلوب",
+            manual: "يدوي",
+            pending: "قيد الانتظار",
+            skipped: "تم التخطي",
+            cancelled: "تم الإلغاء",
+          },
         },
         states: {
           draft: "مسودة",
@@ -929,6 +939,14 @@ export const ar: TranslationResources = {
       status: {
         scriptsAvailable: "البرامج النصية المتاحة",
         creating: "جارٍ الإنشاء...",
+      },
+      checks: {
+        passed: "ناجحة: {{count}}",
+        failed: "فاشلة: {{count}}",
+        warning: "تحذيرات: {{count}}",
+        actionRequired: "إجراء مطلوب: {{count}}",
+        manual: "يدوية: {{count}}",
+        pending: "قيد الانتظار: {{count}}",
       },
       actions: {
         menu: "إجراءات Workspace",

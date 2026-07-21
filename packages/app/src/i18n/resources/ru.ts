@@ -852,6 +852,16 @@ export const ru: TranslationResources = {
         accessibility: {
           pullRequest: "Запрос на извлечение №{{number}}",
           pullRequest_mr: "Запрос на слияние !{{number}}",
+          checkStatus: {
+            passed: "Успешно",
+            failed: "Ошибка",
+            warning: "Предупреждение",
+            actionRequired: "Требуется действие",
+            manual: "Вручную",
+            pending: "Ожидание",
+            skipped: "Пропущено",
+            cancelled: "Отменено",
+          },
         },
         states: {
           draft: "Черновик",
@@ -951,6 +961,14 @@ export const ru: TranslationResources = {
       status: {
         scriptsAvailable: "Доступны скрипты",
         creating: "Создание...",
+      },
+      checks: {
+        passed: "Успешные: {{count}}",
+        failed: "Ошибки: {{count}}",
+        warning: "Предупреждения: {{count}}",
+        actionRequired: "Требуется действие: {{count}}",
+        manual: "Вручную: {{count}}",
+        pending: "Ожидают: {{count}}",
       },
       actions: {
         menu: "Действия Workspace",

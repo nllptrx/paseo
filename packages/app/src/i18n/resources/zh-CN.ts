@@ -822,6 +822,16 @@ export const zhCN: TranslationResources = {
         accessibility: {
           pullRequest: "Pull request #{{number}}",
           pullRequest_mr: "合并请求 !{{number}}",
+          checkStatus: {
+            passed: "成功",
+            failed: "失败",
+            warning: "警告",
+            actionRequired: "需要操作",
+            manual: "手动",
+            pending: "等待中",
+            skipped: "已跳过",
+            cancelled: "已取消",
+          },
         },
         states: {
           draft: "Draft",
@@ -919,6 +929,14 @@ export const zhCN: TranslationResources = {
       status: {
         scriptsAvailable: "有可用 scripts",
         creating: "正在创建...",
+      },
+      checks: {
+        passed: "成功: {{count}}",
+        failed: "失败: {{count}}",
+        warning: "警告: {{count}}",
+        actionRequired: "需要操作: {{count}}",
+        manual: "手动: {{count}}",
+        pending: "等待中: {{count}}",
       },
       actions: {
         menu: "Workspace 操作",

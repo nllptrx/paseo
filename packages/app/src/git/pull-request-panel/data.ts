@@ -26,6 +26,9 @@ export interface PrPaneCheck {
   name: string;
   workflow?: string;
   status: CheckStatus;
+  rawStatus?: string;
+  isManual?: boolean;
+  requiresAction?: boolean;
   duration?: string;
   url: string;
   /**
@@ -204,7 +207,7 @@ function derivePrState(status: NonNullable<CheckoutPrStatus>): PrState {
 }
 
 function mapChecks(status: NonNullable<CheckoutPrStatus>, forge: Forge): PrPaneCheck[] {
-  const checks = (status.checks ?? []).flatMap((check) => mapCheck(check, forge));
+  const checks = (status.checks ?? []).map((check) => mapCheck(check, forge, status.url));
   if (checks.length > 0) {
     return checks;
   }
@@ -214,29 +217,29 @@ function mapChecks(status: NonNullable<CheckoutPrStatus>, forge: Forge): PrPaneC
 function mapCheck(
   check: NonNullable<CheckoutPrStatus>["checks"][number],
   forge: Forge,
-): PrPaneCheck[] {
-  if (check.url === null) {
-    return [];
-  }
-
-  return [
-    {
-      provider: forge,
-      name: check.name,
-      status: mapCheckStatus(check.status),
-      url: check.url,
-      ...(check.workflow ? { workflow: check.workflow } : {}),
-      ...(check.duration ? { duration: check.duration } : {}),
-      ...(check.checkRunId !== undefined || check.workflowRunId !== undefined
-        ? {
-            detailRef: {
-              ...(check.checkRunId !== undefined ? { checkRunId: check.checkRunId } : {}),
-              ...(check.workflowRunId !== undefined ? { workflowRunId: check.workflowRunId } : {}),
-            },
-          }
-        : {}),
-    },
-  ];
+  fallbackUrl: string,
+): PrPaneCheck {
+  return {
+    provider: forge,
+    name: check.name,
+    status: mapCheckStatus(check.status),
+    ...(check.rawStatus || check.status === "cancelled"
+      ? { rawStatus: check.rawStatus ?? check.status }
+      : {}),
+    ...(check.isManual ? { isManual: true } : {}),
+    ...(check.requiresAction ? { requiresAction: true } : {}),
+    url: check.url ?? fallbackUrl,
+    ...(check.workflow ? { workflow: check.workflow } : {}),
+    ...(check.duration ? { duration: check.duration } : {}),
+    ...(check.checkRunId !== undefined || check.workflowRunId !== undefined
+      ? {
+          detailRef: {
+            ...(check.checkRunId !== undefined ? { checkRunId: check.checkRunId } : {}),
+            ...(check.workflowRunId !== undefined ? { workflowRunId: check.workflowRunId } : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 function mapActivity(item: PullRequestTimelineItem, nowMs: number, forge: Forge): PrPaneActivity[] {

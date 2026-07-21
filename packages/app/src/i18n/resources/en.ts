@@ -840,6 +840,16 @@ export const en = {
         accessibility: {
           pullRequest: "Pull request #{{number}}",
           pullRequest_mr: "Merge request !{{number}}",
+          checkStatus: {
+            passed: "Passed",
+            failed: "Failed",
+            warning: "Warning",
+            actionRequired: "Action required",
+            manual: "Manual",
+            pending: "Pending",
+            skipped: "Skipped",
+            cancelled: "Cancelled",
+          },
         },
         states: {
           draft: "Draft",
@@ -939,6 +949,14 @@ export const en = {
       status: {
         scriptsAvailable: "Scripts available",
         creating: "Creating...",
+      },
+      checks: {
+        passed: "Passed: {{count}}",
+        failed: "Failed: {{count}}",
+        warning: "Warnings: {{count}}",
+        actionRequired: "Action required: {{count}}",
+        manual: "Manual: {{count}}",
+        pending: "Pending: {{count}}",
       },
       actions: {
         menu: "Workspace actions",

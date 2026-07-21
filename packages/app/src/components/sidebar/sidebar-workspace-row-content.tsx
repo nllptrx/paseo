@@ -32,6 +32,7 @@ import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
+import { countCheckPresentations } from "@/git/check-presentation";
 
 const DEFAULT_STATUS_DOT_SIZE = 7;
 const EMPHASIZED_STATUS_DOT_SIZE = 9;
@@ -50,6 +51,7 @@ const syncedLoaderColorMapping = (theme: Theme) => ({
 const blueColorMapping = (theme: Theme) => ({ color: theme.colors.palette.blue[500] });
 const greenColorMapping = (theme: Theme) => ({ color: theme.colors.palette.green[500] });
 const redColorMapping = (theme: Theme) => ({ color: theme.colors.palette.red[500] });
+const warningColorMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
 const purpleColorMapping = (theme: Theme) => ({ color: theme.colors.palette.purple[500] });
 
 const ThemedExternalLink = withUnistyles(ExternalLink);
@@ -63,8 +65,14 @@ const ThemedFolderGit2 = withUnistyles(FolderGit2);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 
-function renderChecksBadgeForgeIcon(icon: string) {
-  return <ForgeBrandIcon iconKind={icon} size={10} uniProps={redColorMapping} />;
+function renderChecksBadgeForgeIcon(icon: string, hasFailures: boolean) {
+  return (
+    <ForgeBrandIcon
+      iconKind={icon}
+      size={10}
+      uniProps={hasFailures ? redColorMapping : warningColorMapping}
+    />
+  );
 }
 
 type SidebarWorkspaceScriptIconKind = "service" | "command";
@@ -348,14 +356,28 @@ function PrBadge({ hint }: { hint: PrHint }) {
 }
 
 function ChecksBadge({ checks, forge }: { checks: PrHint["checks"]; forge: PrHint["forge"] }) {
+  const { t } = useTranslation();
   if (!checks || checks.length === 0) return null;
-  const failed = checks.filter((check) => check.status === "failure").length;
-  if (failed === 0) return null;
+  const { failed, warnings, actionRequired } = countCheckPresentations(checks);
+  if (failed === 0 && warnings === 0 && actionRequired === 0) return null;
+  const labels = [
+    failed > 0 ? t("sidebar.workspace.checks.failed", { count: failed }) : null,
+    warnings > 0 ? t("sidebar.workspace.checks.warning", { count: warnings }) : null,
+    actionRequired > 0
+      ? t("sidebar.workspace.checks.actionRequired", { count: actionRequired })
+      : null,
+  ].filter((label): label is string => label !== null);
+  const summary = labels.join(" · ");
   const icon = getForgePresentation(normalizeForge(forge)).icon;
   return (
-    <View style={checksBadgeStyles.badge}>
-      {renderChecksBadgeForgeIcon(icon)}
-      <Text style={checksBadgeStyles.text}>{failed} failed</Text>
+    <View style={checksBadgeStyles.badge} accessible accessibilityLabel={summary}>
+      {renderChecksBadgeForgeIcon(icon, failed > 0)}
+      <Text
+        numberOfLines={1}
+        style={failed > 0 ? checksBadgeStyles.text : checksBadgeStyles.textWarning}
+      >
+        {summary}
+      </Text>
     </View>
   );
 }
@@ -409,14 +431,24 @@ const prBadgeStyles = StyleSheet.create((theme) => ({
 const checksBadgeStyles = StyleSheet.create((theme) => ({
   badge: {
     flexDirection: "row",
+    flexShrink: 1,
+    minWidth: 0,
     alignItems: "center",
     gap: 2,
   },
   text: {
+    flexShrink: 1,
     fontSize: theme.fontSize.xs,
     fontWeight: theme.fontWeight.normal,
     lineHeight: 14,
     color: theme.colors.palette.red[500],
+  },
+  textWarning: {
+    flexShrink: 1,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.normal,
+    lineHeight: 14,
+    color: theme.colors.statusWarning,
   },
 }));
 

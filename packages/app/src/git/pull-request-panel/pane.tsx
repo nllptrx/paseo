@@ -70,6 +70,11 @@ import { getActivityVerb, getStateLabel } from "./data";
 import type { PrPaneActivity, PrPaneCheck, PrPaneData, PrState } from "./data";
 import type { ForgeSpecificStatusFacts } from "@/git/merge-capability";
 import {
+  classifyCheck,
+  countCheckPresentations,
+  formatCheckPresentationCountsLabel,
+} from "@/git/check-presentation";
+import {
   buildPrTimeline,
   type PrReviewEntry,
   type PrThreadEntry,
@@ -78,8 +83,11 @@ import {
 import {
   CheckStatusIcon,
   Section,
+  SUMMARY_ACTION_REQUIRED_ICON,
   SUMMARY_DANGER_ICON,
+  SUMMARY_MANUAL_ICON,
   SUMMARY_SUCCESS_ICON,
+  SUMMARY_WARNING_FAILURE_ICON,
   SUMMARY_WARNING_ICON,
   SummaryPill,
   dangerColorMapping,
@@ -268,9 +276,17 @@ export function PullRequestPane({
     setActivityOpen((open) => !open);
   }, []);
 
-  const passed = data.checks.filter((check) => check.status === "success").length;
-  const failed = data.checks.filter((check) => check.status === "failure").length;
-  const pending = data.checks.filter((check) => check.status === "pending").length;
+  const checkCounts = countCheckPresentations(data.checks);
+  const { passed, failed, warnings, actionRequired, manual, pending } = checkCounts;
+  const checksAccessibilityLabel = formatCheckPresentationCountsLabel(checkCounts, {
+    heading: t("workspace.git.pr.sections.checks"),
+    passed: t("sidebar.workspace.checks.passed", { count: passed }),
+    failed: t("sidebar.workspace.checks.failed", { count: failed }),
+    warnings: t("sidebar.workspace.checks.warning", { count: warnings }),
+    actionRequired: t("sidebar.workspace.checks.actionRequired", { count: actionRequired }),
+    manual: t("sidebar.workspace.checks.manual", { count: manual }),
+    pending: t("sidebar.workspace.checks.pending", { count: pending }),
+  });
 
   const approvals = data.activity.filter(
     (item) => item.kind === "review" && item.reviewState === "approved",
@@ -571,6 +587,7 @@ export function PullRequestPane({
             title="Checks"
             open={checksOpen}
             onToggle={handleToggleChecks}
+            accessibilityLabel={checksAccessibilityLabel}
             summary={
               <>
                 <SummaryPill
@@ -584,6 +601,24 @@ export function PullRequestPane({
                   icon={SUMMARY_DANGER_ICON}
                   variant="danger"
                   testID="pr-pane-check-failed"
+                />
+                <SummaryPill
+                  count={warnings}
+                  icon={SUMMARY_WARNING_FAILURE_ICON}
+                  variant="warning"
+                  testID="pr-pane-check-warning"
+                />
+                <SummaryPill
+                  count={actionRequired}
+                  icon={SUMMARY_ACTION_REQUIRED_ICON}
+                  variant="warning"
+                  testID="pr-pane-check-action-required"
+                />
+                <SummaryPill
+                  count={manual}
+                  icon={SUMMARY_MANUAL_ICON}
+                  variant="muted"
+                  testID="pr-pane-check-manual"
                 />
                 <SummaryPill
                   count={pending}
@@ -683,6 +718,26 @@ function CheckRow({
   isAddingLogsToChat: boolean;
   onAddLogsToChat: (check: PrPaneCheck) => void;
 }) {
+  const { t } = useTranslation();
+  const presentation = classifyCheck(check);
+  let statusLabel: string;
+  if (presentation === "success") {
+    statusLabel = t("workspace.git.pr.accessibility.checkStatus.passed");
+  } else if (presentation === "failure") {
+    statusLabel = t("workspace.git.pr.accessibility.checkStatus.failed");
+  } else if (presentation === "warning") {
+    statusLabel = t("workspace.git.pr.accessibility.checkStatus.warning");
+  } else if (presentation === "actionRequired") {
+    statusLabel = t("workspace.git.pr.accessibility.checkStatus.actionRequired");
+  } else if (presentation === "manual") {
+    statusLabel = t("workspace.git.pr.accessibility.checkStatus.manual");
+  } else if (presentation === "pending") {
+    statusLabel = t("workspace.git.pr.accessibility.checkStatus.pending");
+  } else if (check.rawStatus?.toLowerCase() === "cancelled") {
+    statusLabel = t("workspace.git.pr.accessibility.checkStatus.cancelled");
+  } else {
+    statusLabel = t("workspace.git.pr.accessibility.checkStatus.skipped");
+  }
   const handlePress = useCallback(() => {
     void openExternalUrl(check.url);
   }, [check.url]);
@@ -694,8 +749,13 @@ function CheckRow({
     [check, onAddLogsToChat],
   );
   return (
-    <Pressable onPress={handlePress} style={rowPressableStyle}>
-      <CheckStatusIcon status={check.status} />
+    <Pressable
+      accessibilityLabel={`${check.name}, ${statusLabel}`}
+      accessibilityRole="link"
+      onPress={handlePress}
+      style={rowPressableStyle}
+    >
+      <CheckStatusIcon status={check.status} presentation={presentation} />
       <Text style={sectionKitStyles.checkName} numberOfLines={1}>
         {check.name}
       </Text>
