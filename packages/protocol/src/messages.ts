@@ -3023,6 +3023,9 @@ const WorkspaceGitHubRuntimePayloadSchema = z
               url: z.string().nullable(),
               workflow: z.string().optional(),
               duration: z.string().optional(),
+              rawStatus: z.string().optional(),
+              isManual: z.boolean().optional(),
+              requiresAction: z.boolean().optional(),
             }),
           )
           .optional(),
@@ -4002,6 +4005,9 @@ export const CheckoutPrStatusSchema = z.object({
         duration: z.string().optional(),
         checkRunId: z.number().optional(),
         workflowRunId: z.number().optional(),
+        rawStatus: z.string().optional(),
+        isManual: z.boolean().optional(),
+        requiresAction: z.boolean().optional(),
       }),
     )
     .optional()
