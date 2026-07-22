@@ -221,9 +221,6 @@ function mapCheck(
     provider: forge,
     name: check.name,
     status: mapCheckStatus(check.status),
-    ...(check.rawStatus || check.status === "cancelled"
-      ? { rawStatus: check.rawStatus ?? check.status }
-      : {}),
     ...(check.traits ? { traits: check.traits } : {}),
     url: check.url ?? fallbackUrl,
     ...(check.workflow ? { workflow: check.workflow } : {}),

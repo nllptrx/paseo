@@ -765,7 +765,6 @@ describe("workspace message schemas", () => {
         name: "deploy",
         status: "pending",
         url: null,
-        rawStatus: "manual",
         traits: ["manual", "action_required", "future-forge-trait"],
       },
     ];
