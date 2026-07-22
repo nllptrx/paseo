@@ -3,6 +3,7 @@ import type {
   PullRequestTimelineResponse,
 } from "@getpaseo/protocol/messages";
 import { type Forge, getForgePresentation } from "@/git/forge";
+import type { PresentableCheck } from "@/git/check-presentation";
 import { parseClientForgeFacts } from "@/git/forges";
 import type { ForgeSpecificStatusFacts } from "@/git/merge-capability";
 import { type CheckStatus, mapCheckStatus } from "./check-status";
@@ -21,14 +22,11 @@ export interface PullRequestProviderMetadata {
   url?: string | null;
 }
 
-export interface PrPaneCheck {
+export interface PrPaneCheck extends PresentableCheck {
   provider: PullRequestProvider;
   name: string;
   workflow?: string;
   status: CheckStatus;
-  rawStatus?: string;
-  isManual?: boolean;
-  requiresAction?: boolean;
   duration?: string;
   url: string;
   /**
