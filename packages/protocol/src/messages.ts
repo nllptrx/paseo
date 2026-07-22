@@ -3048,8 +3048,8 @@ const WorkspaceGitHubRuntimePayloadSchema = z
               workflow: z.string().optional(),
               duration: z.string().optional(),
               rawStatus: z.string().optional(),
-              isManual: z.boolean().optional(),
-              requiresAction: z.boolean().optional(),
+              // Open so future forge-neutral refinements remain parse-compatible.
+              traits: z.array(z.string()).optional(),
             }),
           )
           .optional(),
@@ -4035,8 +4035,8 @@ export const CheckoutPrStatusSchema = z.object({
         checkRunId: z.number().optional(),
         workflowRunId: z.number().optional(),
         rawStatus: z.string().optional(),
-        isManual: z.boolean().optional(),
-        requiresAction: z.boolean().optional(),
+        // Open so future forge-neutral refinements remain parse-compatible.
+        traits: z.array(z.string()).optional(),
       }),
     )
     .optional()
