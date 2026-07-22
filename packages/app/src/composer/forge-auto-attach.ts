@@ -10,14 +10,14 @@ import {
   type SetStateAction,
 } from "react";
 import type { ComposerAttachment, UserComposerAttachment } from "@/attachments/types";
+import { extractForgeRefs, type ForgeRef } from "@/git/forge-refs";
 import { buildForgeSearchQueryOptions, type ForgeSearchClient } from "@/git/use-forge-search-query";
-import { extractGithubRefs, type GithubRef } from "@/utils/github-refs";
 import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
-import { isAttachmentSelectedForGithubItem, toggleGithubAttachment } from "../actions";
+import { isAttachmentSelectedForForgeItem, toggleForgeAttachment } from "./actions";
 
 const AUTO_ATTACH_DEBOUNCE_MS = 300;
 
-interface ComposerGithubAutoAttachInput {
+interface ComposerForgeAutoAttachInput {
   text: string;
   remoteUrl: string | null | undefined;
   attachments: UserComposerAttachment[];
@@ -27,23 +27,23 @@ interface ComposerGithubAutoAttachInput {
   cwd: string;
   supportsForgeSearch?: boolean;
   setAttachments: Dispatch<SetStateAction<UserComposerAttachment[]>>;
-  onPullRequestDetected?: () => void;
-  onPullRequestAdded?: (item: ForgeSearchItem) => void;
+  onChangeRequestDetected?: () => void;
+  onChangeRequestAdded?: (item: ForgeSearchItem) => void;
 }
 
-interface ComposerGithubAutoAttachResult {
+interface ComposerForgeAutoAttachResult {
   isResolving: boolean;
-  markGithubAttachmentRemoved: (attachment: ComposerAttachment | undefined) => void;
+  markForgeAttachmentRemoved: (attachment: ComposerAttachment | undefined) => void;
 }
 
-export function useComposerGithubAutoAttach(
-  params: ComposerGithubAutoAttachInput,
-): ComposerGithubAutoAttachResult {
+export function useComposerForgeAutoAttach(
+  params: ComposerForgeAutoAttachInput,
+): ComposerForgeAutoAttachResult {
   const queryClient = useQueryClient();
   const latestRef = useRef(params);
   const removedRefKeysRef = useRef(new Set<string>());
   const pendingRefKeysRef = useRef(new Set<string>());
-  const presentPullRequestKeysRef = useRef(new Set<string>());
+  const presentChangeRequestKeysRef = useRef(new Set<string>());
   const previousTargetRef = useRef({ serverId: params.serverId, cwd: params.cwd });
   const [resolvingRefCounts, setResolvingRefCounts] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
@@ -57,9 +57,9 @@ export function useComposerGithubAutoAttach(
       previousTargetRef,
       removedRefKeys: removedRefKeysRef.current,
     });
-    notifyNewPullRequestRefs({
+    notifyNewChangeRequestRefs({
       params: latestRef.current,
-      presentPullRequestKeysRef,
+      presentChangeRequestKeysRef,
     });
     const refs = refsReadyForLookup({
       params: latestRef.current,
@@ -70,7 +70,7 @@ export function useComposerGithubAutoAttach(
       return;
     }
 
-    const refKeys = refs.map(githubRefKey);
+    const refKeys = refs.map(forgeRefKey);
     setResolvingRefCounts((current) => addKeys(current, refKeys));
     let resolvingReleased = false;
     const releaseResolving = () => {
@@ -105,7 +105,7 @@ export function useComposerGithubAutoAttach(
     queryClient,
   ]);
 
-  const markGithubAttachmentRemoved = useCallback((attachment: ComposerAttachment | undefined) => {
+  const markForgeAttachmentRemoved = useCallback((attachment: ComposerAttachment | undefined) => {
     const key = attachmentKey(attachment);
     if (key) {
       removedRefKeysRef.current.add(key);
@@ -115,9 +115,9 @@ export function useComposerGithubAutoAttach(
   return useMemo(
     () => ({
       isResolving: resolvingRefCounts.size > 0,
-      markGithubAttachmentRemoved,
+      markForgeAttachmentRemoved,
     }),
-    [markGithubAttachmentRemoved, resolvingRefCounts.size],
+    [markForgeAttachmentRemoved, resolvingRefCounts.size],
   );
 }
 
@@ -126,7 +126,7 @@ function suppressRefsCarriedAcrossTargets({
   previousTargetRef,
   removedRefKeys,
 }: {
-  params: ComposerGithubAutoAttachInput;
+  params: ComposerForgeAutoAttachInput;
   previousTargetRef: RefObject<{ serverId: string; cwd: string }>;
   removedRefKeys: Set<string>;
 }): void {
@@ -138,29 +138,29 @@ function suppressRefsCarriedAcrossTargets({
   previousTargetRef.current = { serverId: params.serverId, cwd: params.cwd };
   if (!targetChanged) return;
 
-  for (const ref of extractGithubRefs(params.text, params.remoteUrl)) {
-    removedRefKeys.add(githubRefKey(ref));
+  for (const ref of extractForgeRefs(params.text, params.remoteUrl)) {
+    removedRefKeys.add(forgeRefKey(ref));
   }
 }
 
-function notifyNewPullRequestRefs({
+function notifyNewChangeRequestRefs({
   params,
-  presentPullRequestKeysRef,
+  presentChangeRequestKeysRef,
 }: {
-  params: ComposerGithubAutoAttachInput;
-  presentPullRequestKeysRef: RefObject<Set<string>>;
+  params: ComposerForgeAutoAttachInput;
+  presentChangeRequestKeysRef: RefObject<Set<string>>;
 }): void {
   const currentKeys = new Set(
-    extractGithubRefs(params.text, params.remoteUrl)
-      .filter((ref) => ref.kind === "pull")
-      .map(githubRefKey),
+    extractForgeRefs(params.text, params.remoteUrl)
+      .filter((ref) => ref.kind === "change_request")
+      .map(forgeRefKey),
   );
   for (const key of currentKeys) {
-    if (!presentPullRequestKeysRef.current.has(key)) {
-      params.onPullRequestDetected?.();
+    if (!presentChangeRequestKeysRef.current.has(key)) {
+      params.onChangeRequestDetected?.();
     }
   }
-  presentPullRequestKeysRef.current = currentKeys;
+  presentChangeRequestKeysRef.current = currentKeys;
 }
 
 function addKeys(
@@ -199,14 +199,14 @@ async function attachRefs({
   removedRefKeys,
   pendingRefKeys,
 }: {
-  refs: GithubRef[];
+  refs: ForgeRef[];
   queryClient: QueryClient;
-  latestRef: RefObject<ComposerGithubAutoAttachInput>;
+  latestRef: RefObject<ComposerForgeAutoAttachInput>;
   removedRefKeys: Set<string>;
   pendingRefKeys: Set<string>;
 }): Promise<void> {
   for (const ref of refs) {
-    const key = githubRefKey(ref);
+    const key = forgeRefKey(ref);
     if (pendingRefKeys.has(key)) {
       continue;
     }
@@ -226,10 +226,10 @@ async function attachRef({
   latestRef,
   removedRefKeys,
 }: {
-  ref: GithubRef;
+  ref: ForgeRef;
   key: string;
   queryClient: QueryClient;
-  latestRef: RefObject<ComposerGithubAutoAttachInput>;
+  latestRef: RefObject<ComposerForgeAutoAttachInput>;
   removedRefKeys: Set<string>;
 }): Promise<void> {
   const snapshot = latestRef.current;
@@ -237,11 +237,11 @@ async function attachRef({
     return;
   }
 
-  const search = await fetchGithubRefSearch({ ref, snapshot, queryClient });
+  const search = await fetchForgeRefSearch({ ref, snapshot, queryClient });
   if (!search) {
     return;
   }
-  const item = search.items.find((candidate) => githubItemMatchesRef(candidate, ref));
+  const item = search.items.find((candidate) => forgeItemMatchesRef(candidate, ref));
   const current = latestRef.current;
   if (
     !item ||
@@ -252,17 +252,17 @@ async function attachRef({
     return;
   }
 
-  if (isAttachmentSelectedForGithubItem(current.attachments, item)) {
+  if (isAttachmentSelectedForForgeItem(current.attachments, item)) {
     return;
   }
   current.setAttachments((attachments) => {
-    if (removedRefKeys.has(key) || isAttachmentSelectedForGithubItem(attachments, item)) {
+    if (removedRefKeys.has(key) || isAttachmentSelectedForForgeItem(attachments, item)) {
       return attachments;
     }
-    return toggleGithubAttachment(attachments, item);
+    return toggleForgeAttachment(attachments, item);
   });
   if (item.kind === "change_request") {
-    current.onPullRequestAdded?.(item);
+    current.onChangeRequestAdded?.(item);
   }
 }
 
@@ -271,31 +271,31 @@ function refsReadyForLookup({
   removedRefKeys,
   pendingRefKeys,
 }: {
-  params: ComposerGithubAutoAttachInput;
+  params: ComposerForgeAutoAttachInput;
   removedRefKeys: Set<string>;
   pendingRefKeys: Set<string>;
-}): GithubRef[] {
+}): ForgeRef[] {
   if (!params.client || !params.isConnected || params.cwd.trim().length === 0) {
     return [];
   }
 
-  return extractGithubRefs(params.text, params.remoteUrl).filter((ref) => {
-    const key = githubRefKey(ref);
+  return extractForgeRefs(params.text, params.remoteUrl).filter((ref) => {
+    const key = forgeRefKey(ref);
     return (
       !removedRefKeys.has(key) &&
       !pendingRefKeys.has(key) &&
-      !hasGithubAttachment(params.attachments, ref)
+      !hasForgeAttachment(params.attachments, ref)
     );
   });
 }
 
-async function fetchGithubRefSearch({
+async function fetchForgeRefSearch({
   ref,
   snapshot,
   queryClient,
 }: {
-  ref: GithubRef;
-  snapshot: ComposerGithubAutoAttachInput;
+  ref: ForgeRef;
+  snapshot: ComposerForgeAutoAttachInput;
   queryClient: QueryClient;
 }) {
   if (!snapshot.client) {
@@ -318,15 +318,15 @@ async function fetchGithubRefSearch({
   }
 }
 
-function isRefStillPresent(ref: GithubRef, params: ComposerGithubAutoAttachInput): boolean {
-  return extractGithubRefs(params.text, params.remoteUrl).some(
-    (candidate) => githubRefKey(candidate) === githubRefKey(ref),
+function isRefStillPresent(ref: ForgeRef, params: ComposerForgeAutoAttachInput): boolean {
+  return extractForgeRefs(params.text, params.remoteUrl).some(
+    (candidate) => forgeRefKey(candidate) === forgeRefKey(ref),
   );
 }
 
 function isSameLookupTarget(
-  initial: ComposerGithubAutoAttachInput,
-  current: ComposerGithubAutoAttachInput,
+  initial: ComposerForgeAutoAttachInput,
+  current: ComposerForgeAutoAttachInput,
 ): boolean {
   return (
     initial.serverId === current.serverId &&
@@ -335,20 +335,16 @@ function isSameLookupTarget(
   );
 }
 
-function hasGithubAttachment(attachments: UserComposerAttachment[], ref: GithubRef): boolean {
-  return attachments.some((attachment) => attachmentKey(attachment) === githubRefKey(ref));
+function hasForgeAttachment(attachments: UserComposerAttachment[], ref: ForgeRef): boolean {
+  return attachments.some((attachment) => attachmentKey(attachment) === forgeRefKey(ref));
 }
 
-function githubItemMatchesRef(item: ForgeSearchItem, ref: GithubRef): boolean {
-  return item.kind === githubItemKind(ref) && item.number === ref.number;
+function forgeItemMatchesRef(item: ForgeSearchItem, ref: ForgeRef): boolean {
+  return item.kind === ref.kind && item.number === ref.number;
 }
 
-function githubItemKind(ref: GithubRef): ForgeSearchItem["kind"] {
-  return ref.kind === "pull" ? "change_request" : "issue";
-}
-
-function githubRefKey(ref: GithubRef): string {
-  return `${githubItemKind(ref)}:${ref.number}`;
+function forgeRefKey(ref: ForgeRef): string {
+  return `${ref.kind}:${ref.number}`;
 }
 
 function attachmentKey(attachment: ComposerAttachment | undefined): string | null {
