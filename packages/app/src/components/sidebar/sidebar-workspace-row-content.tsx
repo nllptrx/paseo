@@ -32,7 +32,8 @@ import { isEmphasizedStatusDotBucket } from "@/utils/status-dot-color";
 import { shouldRenderSyncedStatusLoader } from "@/utils/status-loader";
 import { openExternalUrl } from "@/utils/open-external-url";
 import { resolveSidebarWorkspacePrimaryLabel } from "@/components/sidebar/sidebar-workspace-title";
-import { countCheckPresentations } from "@/git/check-presentation";
+import { ATTENTION_CHECK_PRESENTATIONS, countCheckPresentations } from "@/git/check-presentation";
+import { getCheckPresentationCountLabel } from "@/git/check-presentation-copy";
 
 const DEFAULT_STATUS_DOT_SIZE = 7;
 const EMPHASIZED_STATUS_DOT_SIZE = 9;
@@ -358,23 +359,23 @@ function PrBadge({ hint }: { hint: PrHint }) {
 function ChecksBadge({ checks, forge }: { checks: PrHint["checks"]; forge: PrHint["forge"] }) {
   const { t } = useTranslation();
   if (!checks || checks.length === 0) return null;
-  const { failed, warnings, actionRequired } = countCheckPresentations(checks);
-  if (failed === 0 && warnings === 0 && actionRequired === 0) return null;
-  const labels = [
-    failed > 0 ? t("sidebar.workspace.checks.failed", { count: failed }) : null,
-    warnings > 0 ? t("sidebar.workspace.checks.warning", { count: warnings }) : null,
-    actionRequired > 0
-      ? t("sidebar.workspace.checks.actionRequired", { count: actionRequired })
-      : null,
-  ].filter((label): label is string => label !== null);
+  const counts = countCheckPresentations(checks);
+  const visiblePresentations = ATTENTION_CHECK_PRESENTATIONS.filter(
+    (presentation) => counts[presentation] > 0,
+  );
+  if (visiblePresentations.length === 0) return null;
+  const labels = visiblePresentations.map((presentation) =>
+    getCheckPresentationCountLabel(presentation, counts[presentation], t),
+  );
   const summary = labels.join(" · ");
+  const hasFailures = counts.failure > 0;
   const icon = getForgePresentation(normalizeForge(forge)).icon;
   return (
     <View style={checksBadgeStyles.badge} accessible accessibilityLabel={summary}>
-      {renderChecksBadgeForgeIcon(icon, failed > 0)}
+      {renderChecksBadgeForgeIcon(icon, hasFailures)}
       <Text
         numberOfLines={1}
-        style={failed > 0 ? checksBadgeStyles.text : checksBadgeStyles.textWarning}
+        style={hasFailures ? checksBadgeStyles.text : checksBadgeStyles.textWarning}
       >
         {summary}
       </Text>

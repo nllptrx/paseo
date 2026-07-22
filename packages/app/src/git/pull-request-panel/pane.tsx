@@ -70,10 +70,15 @@ import { getActivityVerb, getStateLabel } from "./data";
 import type { PrPaneActivity, PrPaneCheck, PrPaneData, PrState } from "./data";
 import type { ForgeSpecificStatusFacts } from "@/git/merge-capability";
 import {
+  COUNTED_CHECK_PRESENTATIONS,
   classifyCheck,
   countCheckPresentations,
-  formatCheckPresentationCountsLabel,
 } from "@/git/check-presentation";
+import {
+  formatCheckPresentationCountsLabel,
+  getCheckPresentationStatusLabel,
+} from "@/git/check-presentation-copy";
+import { CheckPresentationIcon } from "@/git/check-presentation.view";
 import {
   buildPrTimeline,
   type PrReviewEntry,
@@ -81,14 +86,8 @@ import {
   type PrTimelineEntry,
 } from "./timeline";
 import {
-  CheckStatusIcon,
+  CheckPresentationSummaryPill,
   Section,
-  SUMMARY_ACTION_REQUIRED_ICON,
-  SUMMARY_DANGER_ICON,
-  SUMMARY_MANUAL_ICON,
-  SUMMARY_SUCCESS_ICON,
-  SUMMARY_WARNING_FAILURE_ICON,
-  SUMMARY_WARNING_ICON,
   SummaryPill,
   dangerColorMapping,
   foregroundMutedColorMapping,
@@ -142,6 +141,8 @@ const PR_STATE_PRESENTATION: Record<PrState, PrStatePresentation> = {
 const SUMMARY_COMMENT_ICON = (
   <ThemedMessageSquare size={11} uniProps={foregroundMutedColorMapping} />
 );
+const SUMMARY_APPROVAL_ICON = <CheckPresentationIcon presentation="success" size={12} />;
+const SUMMARY_CHANGES_REQUESTED_ICON = <CheckPresentationIcon presentation="failure" size={12} />;
 const ADD_TO_CHAT_MENU_ICON = (
   <ThemedMessageSquarePlus size={14} uniProps={foregroundMutedColorMapping} />
 );
@@ -277,16 +278,11 @@ export function PullRequestPane({
   }, []);
 
   const checkCounts = countCheckPresentations(data.checks);
-  const { passed, failed, warnings, actionRequired, manual, pending } = checkCounts;
-  const checksAccessibilityLabel = formatCheckPresentationCountsLabel(checkCounts, {
-    heading: t("workspace.git.pr.sections.checks"),
-    passed: t("sidebar.workspace.checks.passed", { count: passed }),
-    failed: t("sidebar.workspace.checks.failed", { count: failed }),
-    warnings: t("sidebar.workspace.checks.warning", { count: warnings }),
-    actionRequired: t("sidebar.workspace.checks.actionRequired", { count: actionRequired }),
-    manual: t("sidebar.workspace.checks.manual", { count: manual }),
-    pending: t("sidebar.workspace.checks.pending", { count: pending }),
-  });
+  const checksAccessibilityLabel = formatCheckPresentationCountsLabel(
+    checkCounts,
+    t("workspace.git.pr.sections.checks"),
+    t,
+  );
 
   const approvals = data.activity.filter(
     (item) => item.kind === "review" && item.reviewState === "approved",
@@ -590,42 +586,14 @@ export function PullRequestPane({
             accessibilityLabel={checksAccessibilityLabel}
             summary={
               <>
-                <SummaryPill
-                  count={passed}
-                  icon={SUMMARY_SUCCESS_ICON}
-                  variant="success"
-                  testID="pr-pane-check-passed"
-                />
-                <SummaryPill
-                  count={failed}
-                  icon={SUMMARY_DANGER_ICON}
-                  variant="danger"
-                  testID="pr-pane-check-failed"
-                />
-                <SummaryPill
-                  count={warnings}
-                  icon={SUMMARY_WARNING_FAILURE_ICON}
-                  variant="warning"
-                  testID="pr-pane-check-warning"
-                />
-                <SummaryPill
-                  count={actionRequired}
-                  icon={SUMMARY_ACTION_REQUIRED_ICON}
-                  variant="warning"
-                  testID="pr-pane-check-action-required"
-                />
-                <SummaryPill
-                  count={manual}
-                  icon={SUMMARY_MANUAL_ICON}
-                  variant="muted"
-                  testID="pr-pane-check-manual"
-                />
-                <SummaryPill
-                  count={pending}
-                  icon={SUMMARY_WARNING_ICON}
-                  variant="warning"
-                  testID="pr-pane-check-pending"
-                />
+                {COUNTED_CHECK_PRESENTATIONS.map((presentation) => (
+                  <CheckPresentationSummaryPill
+                    key={presentation}
+                    count={checkCounts[presentation]}
+                    presentation={presentation}
+                    testID={`pr-pane-check-${presentation}`}
+                  />
+                ))}
               </>
             }
           >
@@ -656,8 +624,12 @@ export function PullRequestPane({
           onToggle={handleToggleActivity}
           summary={
             <>
-              <SummaryPill count={approvals} icon={SUMMARY_SUCCESS_ICON} variant="success" />
-              <SummaryPill count={changesRequested} icon={SUMMARY_DANGER_ICON} variant="danger" />
+              <SummaryPill count={approvals} icon={SUMMARY_APPROVAL_ICON} variant="success" />
+              <SummaryPill
+                count={changesRequested}
+                icon={SUMMARY_CHANGES_REQUESTED_ICON}
+                variant="danger"
+              />
               <SummaryPill count={commentCount} icon={SUMMARY_COMMENT_ICON} variant="muted" />
             </>
           }
@@ -720,24 +692,7 @@ function CheckRow({
 }) {
   const { t } = useTranslation();
   const presentation = classifyCheck(check);
-  let statusLabel: string;
-  if (presentation === "success") {
-    statusLabel = t("workspace.git.pr.accessibility.checkStatus.passed");
-  } else if (presentation === "failure") {
-    statusLabel = t("workspace.git.pr.accessibility.checkStatus.failed");
-  } else if (presentation === "warning") {
-    statusLabel = t("workspace.git.pr.accessibility.checkStatus.warning");
-  } else if (presentation === "actionRequired") {
-    statusLabel = t("workspace.git.pr.accessibility.checkStatus.actionRequired");
-  } else if (presentation === "manual") {
-    statusLabel = t("workspace.git.pr.accessibility.checkStatus.manual");
-  } else if (presentation === "pending") {
-    statusLabel = t("workspace.git.pr.accessibility.checkStatus.pending");
-  } else if (check.rawStatus?.toLowerCase() === "cancelled") {
-    statusLabel = t("workspace.git.pr.accessibility.checkStatus.cancelled");
-  } else {
-    statusLabel = t("workspace.git.pr.accessibility.checkStatus.skipped");
-  }
+  const statusLabel = getCheckPresentationStatusLabel(check, t);
   const handlePress = useCallback(() => {
     void openExternalUrl(check.url);
   }, [check.url]);
@@ -755,7 +710,7 @@ function CheckRow({
       onPress={handlePress}
       style={rowPressableStyle}
     >
-      <CheckStatusIcon status={check.status} presentation={presentation} />
+      <CheckPresentationIcon presentation={presentation} size={14} />
       <Text style={sectionKitStyles.checkName} numberOfLines={1}>
         {check.name}
       </Text>
