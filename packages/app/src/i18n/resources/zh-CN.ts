@@ -923,6 +923,59 @@ export const zhCN: TranslationResources = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "看板",
+      loadError: "无法加载看板",
+      hostLoadError: "{{host}}:无法加载看板",
+      emptyTitle: "暂无看板",
+      emptyDescription: "从项目或工作区菜单将工作区添加到看板后,即可在此处看到它。",
+    },
+    board: {
+      menu: "看板操作",
+      createOrchestrator: "创建编排器",
+    },
+    column: {
+      empty: "暂无计划",
+      addPlan: "新建计划",
+    },
+    card: {
+      moveMenu: "移动卡片",
+      moveToColumn: "移动到列",
+      nestedPlanCount: "{{count}} 个计划",
+    },
+    step: {
+      status: {
+        notRun: "未运行",
+        running: "运行中",
+        succeeded: "成功",
+        failed: "失败",
+        interrupted: "已中断",
+        canceled: "已取消",
+        skipped: "已跳过",
+      },
+      actions: {
+        run: "运行",
+        retry: "重试",
+        skip: "跳过",
+        cancel: "取消",
+      },
+    },
+    planSheet: {
+      noSteps: "此计划尚无步骤。",
+    },
+    planForm: {
+      title: "新建计划",
+      titleLabel: "标题",
+      titlePlaceholder: "计划标题",
+      descriptionLabel: "描述",
+      descriptionPlaceholder: "可选描述",
+      promptLabel: "提示词",
+      promptHint: "此步骤的智能体将执行的指令。",
+      promptPlaceholder: "智能体应该做什么?",
+      submit: "创建计划",
+    },
+  },
   sidebar: {
     display: {
       trigger: "显示偏好",
@@ -986,6 +1039,7 @@ export const zhCN: TranslationResources = {
     sections: {
       sessions: "历史",
       schedules: "计划",
+      kanbans: "看板",
     },
     worktreeSetup: {
       title: "设置 worktree scripts",

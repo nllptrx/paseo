@@ -961,6 +961,60 @@ export const fr: TranslationResources = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "Kanbans",
+      loadError: "Impossible de charger les kanbans",
+      hostLoadError: "{{host}} : impossible de charger les kanbans",
+      emptyTitle: "Aucun kanban pour le moment",
+      emptyDescription:
+        "Ajoutez un espace de travail à un kanban depuis son menu de projet ou d'espace de travail pour le voir ici.",
+    },
+    board: {
+      menu: "Actions du tableau",
+      createOrchestrator: "Créer un orchestrateur",
+    },
+    column: {
+      empty: "Aucun plan",
+      addPlan: "Nouveau plan",
+    },
+    card: {
+      moveMenu: "Déplacer la carte",
+      moveToColumn: "Déplacer vers la colonne",
+      nestedPlanCount: "{{count}} plans",
+    },
+    step: {
+      status: {
+        notRun: "Non exécutée",
+        running: "En cours",
+        succeeded: "Réussie",
+        failed: "Échouée",
+        interrupted: "Interrompue",
+        canceled: "Annulée",
+        skipped: "Ignorée",
+      },
+      actions: {
+        run: "Exécuter",
+        retry: "Réessayer",
+        skip: "Ignorer",
+        cancel: "Annuler",
+      },
+    },
+    planSheet: {
+      noSteps: "Ce plan n'a encore aucune étape.",
+    },
+    planForm: {
+      title: "Nouveau plan",
+      titleLabel: "Titre",
+      titlePlaceholder: "Titre du plan",
+      descriptionLabel: "Description",
+      descriptionPlaceholder: "Description facultative",
+      promptLabel: "Consigne",
+      promptHint: "Les instructions exécutées par l'agent de cette étape.",
+      promptPlaceholder: "Que doit faire l'agent ?",
+      submit: "Créer le plan",
+    },
+  },
   sidebar: {
     display: {
       trigger: "Préférences d'affichage",
@@ -1024,6 +1078,7 @@ export const fr: TranslationResources = {
     sections: {
       sessions: "Historique",
       schedules: "Planifications",
+      kanbans: "Kanbans",
     },
     worktreeSetup: {
       title: "Configurer les scripts d'arbre de travail",

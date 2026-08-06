@@ -13,7 +13,9 @@ import {
   selectWorkspaceExists,
   selectWorkspaceFields,
   selectWorkspaceKeys,
+  selectProjectDisplayName,
   selectWorkspaceOrderByScope,
+  selectWorkspaceStatusesByIds,
   selectWorkspaceStatusesForBadges,
   selectWorkspaceStructureProjects,
   workspaceEqualityFns,
@@ -51,6 +53,28 @@ export function useWorkspaceFields<T>(
   return useStoreWithEqualityFn(
     useSessionStore,
     (state) => selectWorkspaceFields(state, serverId, workspaceId, project),
+    workspaceEqualityFns.deep,
+  );
+}
+
+export function useProjectDisplayName(
+  serverId: string | null,
+  projectId: string | null,
+): string | null {
+  return useStoreWithEqualityFn(
+    useSessionStore,
+    (state) => selectProjectDisplayName(state, serverId, projectId),
+    workspaceEqualityFns.identity,
+  );
+}
+
+export function useWorkspaceStatusesByIds(
+  serverId: string | null,
+  workspaceIds: readonly string[],
+): ReadonlyMap<string, WorkspaceDescriptor["status"]> {
+  return useStoreWithEqualityFn(
+    useSessionStore,
+    (state) => selectWorkspaceStatusesByIds(state, serverId, workspaceIds),
     workspaceEqualityFns.deep,
   );
 }

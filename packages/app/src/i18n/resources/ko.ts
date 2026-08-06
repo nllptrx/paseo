@@ -938,6 +938,60 @@ export const ko: TranslationResources = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "칸반",
+      loadError: "칸반을 불러올 수 없습니다",
+      hostLoadError: "{{host}}: 칸반을 불러올 수 없습니다",
+      emptyTitle: "아직 칸반이 없습니다",
+      emptyDescription:
+        "프로젝트 또는 워크스페이스 메뉴에서 워크스페이스를 칸반에 추가하면 여기에 표시됩니다.",
+    },
+    board: {
+      menu: "보드 작업",
+      createOrchestrator: "오케스트레이터 생성",
+    },
+    column: {
+      empty: "플랜 없음",
+      addPlan: "새 플랜",
+    },
+    card: {
+      moveMenu: "카드 이동",
+      moveToColumn: "열로 이동",
+      nestedPlanCount: "플랜 {{count}}개",
+    },
+    step: {
+      status: {
+        notRun: "실행 안 됨",
+        running: "실행 중",
+        succeeded: "성공",
+        failed: "실패",
+        interrupted: "중단됨",
+        canceled: "취소됨",
+        skipped: "건너뜀",
+      },
+      actions: {
+        run: "실행",
+        retry: "재시도",
+        skip: "건너뛰기",
+        cancel: "취소",
+      },
+    },
+    planSheet: {
+      noSteps: "이 플랜에는 아직 단계가 없습니다.",
+    },
+    planForm: {
+      title: "새 플랜",
+      titleLabel: "제목",
+      titlePlaceholder: "플랜 제목",
+      descriptionLabel: "설명",
+      descriptionPlaceholder: "선택적 설명",
+      promptLabel: "프롬프트",
+      promptHint: "이 단계의 에이전트가 실행할 지침입니다.",
+      promptPlaceholder: "에이전트가 무엇을 해야 하나요?",
+      submit: "플랜 생성",
+    },
+  },
   sidebar: {
     display: {
       trigger: "표시 설정",
@@ -1001,6 +1055,7 @@ export const ko: TranslationResources = {
     sections: {
       sessions: "기록",
       schedules: "일정",
+      kanbans: "칸반",
     },
     worktreeSetup: {
       title: "워크트리 스크립트 설정",

@@ -931,6 +931,59 @@ export const ar: TranslationResources = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "لوحات كانبان",
+      loadError: "تعذّر تحميل لوحات كانبان",
+      hostLoadError: "{{host}}: تعذّر تحميل لوحات كانبان",
+      emptyTitle: "لا توجد لوحات كانبان بعد",
+      emptyDescription: "أضف مساحة عمل إلى لوحة كانبان من قائمة المشروع أو مساحة العمل لتظهر هنا.",
+    },
+    board: {
+      menu: "إجراءات اللوحة",
+      createOrchestrator: "إنشاء المنسق",
+    },
+    column: {
+      empty: "لا توجد خطط",
+      addPlan: "خطة جديدة",
+    },
+    card: {
+      moveMenu: "نقل البطاقة",
+      moveToColumn: "نقل إلى عمود",
+      nestedPlanCount: "{{count}} خطط",
+    },
+    step: {
+      status: {
+        notRun: "لم يتم التشغيل",
+        running: "قيد التشغيل",
+        succeeded: "نجحت",
+        failed: "فشلت",
+        interrupted: "توقفت",
+        canceled: "أُلغيت",
+        skipped: "تم تخطيها",
+      },
+      actions: {
+        run: "تشغيل",
+        retry: "إعادة المحاولة",
+        skip: "تخطي",
+        cancel: "إلغاء",
+      },
+    },
+    planSheet: {
+      noSteps: "لا توجد خطوات في هذه الخطة بعد.",
+    },
+    planForm: {
+      title: "خطة جديدة",
+      titleLabel: "العنوان",
+      titlePlaceholder: "عنوان الخطة",
+      descriptionLabel: "الوصف",
+      descriptionPlaceholder: "وصف اختياري",
+      promptLabel: "التوجيه",
+      promptHint: "التعليمات التي يشغّلها وكيل هذه الخطوة.",
+      promptPlaceholder: "ماذا يجب أن يفعل الوكيل؟",
+      submit: "إنشاء خطة",
+    },
+  },
   sidebar: {
     display: {
       trigger: "تفضيلات العرض",
@@ -994,6 +1047,7 @@ export const ar: TranslationResources = {
     sections: {
       sessions: "السجل",
       schedules: "الجداول",
+      kanbans: "لوحات كانبان",
     },
     worktreeSetup: {
       title: "إعداد البرامج النصية لشجرة العمل",

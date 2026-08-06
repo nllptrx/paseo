@@ -942,6 +942,60 @@ export const ja: TranslationResources = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "カンバン",
+      loadError: "カンバンを読み込めませんでした",
+      hostLoadError: "{{host}}: カンバンを読み込めませんでした",
+      emptyTitle: "カンバンはまだありません",
+      emptyDescription:
+        "プロジェクトまたはワークスペースのメニューからワークスペースをカンバンに追加すると、ここに表示されます。",
+    },
+    board: {
+      menu: "ボードの操作",
+      createOrchestrator: "オーケストレーターを作成",
+    },
+    column: {
+      empty: "プランはありません",
+      addPlan: "新しいプラン",
+    },
+    card: {
+      moveMenu: "カードを移動",
+      moveToColumn: "列に移動",
+      nestedPlanCount: "{{count}}件のプラン",
+    },
+    step: {
+      status: {
+        notRun: "未実行",
+        running: "実行中",
+        succeeded: "成功",
+        failed: "失敗",
+        interrupted: "中断",
+        canceled: "キャンセル済み",
+        skipped: "スキップ済み",
+      },
+      actions: {
+        run: "実行",
+        retry: "再試行",
+        skip: "スキップ",
+        cancel: "キャンセル",
+      },
+    },
+    planSheet: {
+      noSteps: "このプランにはまだステップがありません。",
+    },
+    planForm: {
+      title: "新しいプラン",
+      titleLabel: "タイトル",
+      titlePlaceholder: "プランのタイトル",
+      descriptionLabel: "説明",
+      descriptionPlaceholder: "説明(任意)",
+      promptLabel: "プロンプト",
+      promptHint: "このステップのエージェントが実行する指示です。",
+      promptPlaceholder: "エージェントに何をさせますか?",
+      submit: "プランを作成",
+    },
+  },
   sidebar: {
     display: {
       trigger: "表示設定",
@@ -1005,6 +1059,7 @@ export const ja: TranslationResources = {
     sections: {
       sessions: "履歴",
       schedules: "スケジュール",
+      kanbans: "カンバン",
     },
     worktreeSetup: {
       title: "ワークツリースクリプトを設定",

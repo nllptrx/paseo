@@ -953,6 +953,60 @@ export const ru: TranslationResources = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "Канбаны",
+      loadError: "Не удалось загрузить канбаны",
+      hostLoadError: "{{host}}: не удалось загрузить канбаны",
+      emptyTitle: "Канбанов пока нет",
+      emptyDescription:
+        "Добавьте рабочее пространство в канбан из меню проекта или рабочего пространства, чтобы увидеть его здесь.",
+    },
+    board: {
+      menu: "Действия доски",
+      createOrchestrator: "Создать оркестратор",
+    },
+    column: {
+      empty: "Нет планов",
+      addPlan: "Новый план",
+    },
+    card: {
+      moveMenu: "Переместить карточку",
+      moveToColumn: "Переместить в столбец",
+      nestedPlanCount: "{{count}} планов",
+    },
+    step: {
+      status: {
+        notRun: "Не выполнялся",
+        running: "Выполняется",
+        succeeded: "Успешно",
+        failed: "Ошибка",
+        interrupted: "Прервано",
+        canceled: "Отменено",
+        skipped: "Пропущено",
+      },
+      actions: {
+        run: "Запустить",
+        retry: "Повторить",
+        skip: "Пропустить",
+        cancel: "Отменить",
+      },
+    },
+    planSheet: {
+      noSteps: "В этом плане пока нет шагов.",
+    },
+    planForm: {
+      title: "Новый план",
+      titleLabel: "Название",
+      titlePlaceholder: "Название плана",
+      descriptionLabel: "Описание",
+      descriptionPlaceholder: "Необязательное описание",
+      promptLabel: "Промпт",
+      promptHint: "Инструкции, которые выполняет агент этого шага.",
+      promptPlaceholder: "Что должен сделать агент?",
+      submit: "Создать план",
+    },
+  },
   sidebar: {
     display: {
       trigger: "Настройки отображения",
@@ -1016,6 +1070,7 @@ export const ru: TranslationResources = {
     sections: {
       sessions: "История",
       schedules: "Расписания",
+      kanbans: "Канбаны",
     },
     worktreeSetup: {
       title: "Настройка сценариев рабочего дерева",

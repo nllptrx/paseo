@@ -953,6 +953,60 @@ export const ptBR: TranslationResources = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "Kanbans",
+      loadError: "Não foi possível carregar os kanbans",
+      hostLoadError: "{{host}}: não foi possível carregar os kanbans",
+      emptyTitle: "Ainda não há kanbans",
+      emptyDescription:
+        "Adicione um espaço de trabalho a um kanban pelo menu do projeto ou do espaço de trabalho para vê-lo aqui.",
+    },
+    board: {
+      menu: "Ações do quadro",
+      createOrchestrator: "Criar orquestrador",
+    },
+    column: {
+      empty: "Sem planos",
+      addPlan: "Novo plano",
+    },
+    card: {
+      moveMenu: "Mover cartão",
+      moveToColumn: "Mover para coluna",
+      nestedPlanCount: "{{count}} planos",
+    },
+    step: {
+      status: {
+        notRun: "Não executado",
+        running: "Em execução",
+        succeeded: "Concluído",
+        failed: "Falhou",
+        interrupted: "Interrompido",
+        canceled: "Cancelado",
+        skipped: "Ignorado",
+      },
+      actions: {
+        run: "Executar",
+        retry: "Repetir",
+        skip: "Ignorar",
+        cancel: "Cancelar",
+      },
+    },
+    planSheet: {
+      noSteps: "Este plano ainda não tem etapas.",
+    },
+    planForm: {
+      title: "Novo plano",
+      titleLabel: "Título",
+      titlePlaceholder: "Título do plano",
+      descriptionLabel: "Descrição",
+      descriptionPlaceholder: "Descrição opcional",
+      promptLabel: "Instrução",
+      promptHint: "As instruções que o agente desta etapa executa.",
+      promptPlaceholder: "O que o agente deve fazer?",
+      submit: "Criar plano",
+    },
+  },
   sidebar: {
     display: {
       trigger: "Preferências de exibição",
@@ -1016,6 +1070,7 @@ export const ptBR: TranslationResources = {
     sections: {
       sessions: "Histórico",
       schedules: "Agendamentos",
+      kanbans: "Kanbans",
     },
     worktreeSetup: {
       title: "Configurar scripts de worktree",

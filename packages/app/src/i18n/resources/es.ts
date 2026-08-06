@@ -962,6 +962,60 @@ export const es: TranslationResources = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "Kanbans",
+      loadError: "No se pudieron cargar los kanbans",
+      hostLoadError: "{{host}}: no se pudieron cargar los kanbans",
+      emptyTitle: "Aún no hay kanbans",
+      emptyDescription:
+        "Añade un espacio de trabajo a un kanban desde su menú de proyecto o de espacio de trabajo para verlo aquí.",
+    },
+    board: {
+      menu: "Acciones del tablero",
+      createOrchestrator: "Crear orquestador",
+    },
+    column: {
+      empty: "Sin planes",
+      addPlan: "Nuevo plan",
+    },
+    card: {
+      moveMenu: "Mover tarjeta",
+      moveToColumn: "Mover a columna",
+      nestedPlanCount: "{{count}} planes",
+    },
+    step: {
+      status: {
+        notRun: "No ejecutado",
+        running: "En ejecución",
+        succeeded: "Correcto",
+        failed: "Fallido",
+        interrupted: "Interrumpido",
+        canceled: "Cancelado",
+        skipped: "Omitido",
+      },
+      actions: {
+        run: "Ejecutar",
+        retry: "Reintentar",
+        skip: "Omitir",
+        cancel: "Cancelar",
+      },
+    },
+    planSheet: {
+      noSteps: "Este plan aún no tiene pasos.",
+    },
+    planForm: {
+      title: "Nuevo plan",
+      titleLabel: "Título",
+      titlePlaceholder: "Título del plan",
+      descriptionLabel: "Descripción",
+      descriptionPlaceholder: "Descripción opcional",
+      promptLabel: "Instrucción",
+      promptHint: "Las instrucciones que ejecuta el agente de este paso.",
+      promptPlaceholder: "¿Qué debe hacer el agente?",
+      submit: "Crear plan",
+    },
+  },
   sidebar: {
     display: {
       trigger: "Preferencias de visualización",
@@ -1025,6 +1079,7 @@ export const es: TranslationResources = {
     sections: {
       sessions: "Historial",
       schedules: "Horarios",
+      kanbans: "Kanbans",
     },
     worktreeSetup: {
       title: "Configurar secuencias de comandos del árbol de trabajo",

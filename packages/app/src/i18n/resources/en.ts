@@ -941,6 +941,60 @@ export const en = {
       },
     },
   },
+  kanban: {
+    screen: {
+      title: "Kanbans",
+      loadError: "Unable to load kanbans",
+      hostLoadError: "{{host}}: Could not load kanbans",
+      emptyTitle: "No kanbans yet",
+      emptyDescription:
+        "Add a workspace to a kanban from its project or workspace menu to see it here.",
+    },
+    board: {
+      menu: "Board actions",
+      createOrchestrator: "Create Orchestrator",
+    },
+    column: {
+      empty: "No plans",
+      addPlan: "New plan",
+    },
+    card: {
+      moveMenu: "Move card",
+      moveToColumn: "Move to column",
+      nestedPlanCount: "{{count}} plans",
+    },
+    step: {
+      status: {
+        notRun: "Not run",
+        running: "Running",
+        succeeded: "Succeeded",
+        failed: "Failed",
+        interrupted: "Interrupted",
+        canceled: "Canceled",
+        skipped: "Skipped",
+      },
+      actions: {
+        run: "Run",
+        retry: "Retry",
+        skip: "Skip",
+        cancel: "Cancel",
+      },
+    },
+    planSheet: {
+      noSteps: "This plan has no steps yet.",
+    },
+    planForm: {
+      title: "New plan",
+      titleLabel: "Title",
+      titlePlaceholder: "Plan title",
+      descriptionLabel: "Description",
+      descriptionPlaceholder: "Optional description",
+      promptLabel: "Prompt",
+      promptHint: "The instructions the step's agent runs on.",
+      promptPlaceholder: "What should the agent do?",
+      submit: "Create plan",
+    },
+  },
   sidebar: {
     display: {
       trigger: "Display preferences",
@@ -1004,6 +1058,7 @@ export const en = {
     sections: {
       sessions: "History",
       schedules: "Schedules",
+      kanbans: "Kanbans",
     },
     worktreeSetup: {
       title: "Set up worktree scripts",

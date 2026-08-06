@@ -108,6 +108,40 @@ export function selectWorkspaceFields<T>(
   return workspace ? project(workspace) : null;
 }
 
+export function selectProjectDisplayName(
+  state: SessionsSnapshot,
+  serverId: string | null,
+  projectId: string | null,
+): string | null {
+  if (!serverId || !projectId) {
+    return null;
+  }
+  const project = state.sessions[serverId]?.projects?.get(projectId);
+  return project ? (project.projectCustomName ?? project.projectDisplayName) : null;
+}
+
+/**
+ * Looks up the sidebar status bucket for a bounded set of workspace ids on one
+ * host, in the same shape the sidebar already derives per workspace
+ * (`WorkspaceDescriptor["status"]`). Callers aggregate the returned buckets
+ * with `aggregateSidebarStateBuckets` rather than inventing a parallel status
+ * vocabulary.
+ */
+export function selectWorkspaceStatusesByIds(
+  state: SessionsSnapshot,
+  serverId: string | null,
+  workspaceIds: readonly string[],
+): ReadonlyMap<string, WorkspaceDescriptor["status"]> {
+  const result = new Map<string, WorkspaceDescriptor["status"]>();
+  for (const workspaceId of workspaceIds) {
+    const workspace = selectWorkspace(state, serverId, workspaceId);
+    if (workspace) {
+      result.set(workspaceId, workspace.status);
+    }
+  }
+  return result;
+}
+
 export function selectWorkspaceDirectory(
   state: SessionsSnapshot,
   serverId: string | null,
