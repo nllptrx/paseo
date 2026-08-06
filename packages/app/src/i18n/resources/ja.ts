@@ -950,6 +950,10 @@ export const ja: TranslationResources = {
       emptyTitle: "カンバンはまだありません",
       emptyDescription:
         "プロジェクトまたはワークスペースのメニューからワークスペースをカンバンに追加すると、ここに表示されます。",
+      backToOverview: "すべてのカンバン",
+      boardMissing: "このカンバンは利用できなくなりました。",
+      planCount_one: "{{count}}件のプラン",
+      planCount_other: "{{count}}件のプラン",
     },
     orchestrator: {
       panel: {

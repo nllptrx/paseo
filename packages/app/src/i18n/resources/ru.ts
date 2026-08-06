@@ -961,6 +961,10 @@ export const ru: TranslationResources = {
       emptyTitle: "Канбанов пока нет",
       emptyDescription:
         "Добавьте рабочее пространство в канбан из меню проекта или рабочего пространства, чтобы увидеть его здесь.",
+      backToOverview: "Все канбаны",
+      boardMissing: "Этот канбан больше недоступен.",
+      planCount_one: "{{count}} план",
+      planCount_other: "{{count}} планов",
     },
     orchestrator: {
       panel: {

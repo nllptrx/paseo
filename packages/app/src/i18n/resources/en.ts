@@ -949,6 +949,10 @@ export const en = {
       emptyTitle: "No kanbans yet",
       emptyDescription:
         "Add a workspace to a kanban from its project or workspace menu to see it here.",
+      backToOverview: "All kanbans",
+      boardMissing: "That kanban is no longer available.",
+      planCount_one: "{{count}} plan",
+      planCount_other: "{{count}} plans",
     },
     orchestrator: {
       panel: {

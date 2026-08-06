@@ -946,6 +946,10 @@ export const ko: TranslationResources = {
       emptyTitle: "아직 칸반이 없습니다",
       emptyDescription:
         "프로젝트 또는 워크스페이스 메뉴에서 워크스페이스를 칸반에 추가하면 여기에 표시됩니다.",
+      backToOverview: "모든 칸반",
+      boardMissing: "해당 칸반을 더 이상 사용할 수 없습니다.",
+      planCount_one: "플랜 {{count}}개",
+      planCount_other: "플랜 {{count}}개",
     },
     orchestrator: {
       panel: {

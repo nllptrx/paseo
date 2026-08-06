@@ -930,6 +930,10 @@ export const zhCN: TranslationResources = {
       hostLoadError: "{{host}}:无法加载看板",
       emptyTitle: "暂无看板",
       emptyDescription: "从项目或工作区菜单将工作区添加到看板后,即可在此处看到它。",
+      backToOverview: "所有看板",
+      boardMissing: "该看板已不可用。",
+      planCount_one: "{{count}} 个计划",
+      planCount_other: "{{count}} 个计划",
     },
     orchestrator: {
       panel: {

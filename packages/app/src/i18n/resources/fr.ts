@@ -969,6 +969,10 @@ export const fr: TranslationResources = {
       emptyTitle: "Aucun kanban pour le moment",
       emptyDescription:
         "Ajoutez un espace de travail à un kanban depuis son menu de projet ou d'espace de travail pour le voir ici.",
+      backToOverview: "Tous les kanbans",
+      boardMissing: "Ce kanban n'est plus disponible.",
+      planCount_one: "{{count}} plan",
+      planCount_other: "{{count}} plans",
     },
     orchestrator: {
       panel: {

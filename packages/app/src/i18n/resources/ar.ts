@@ -938,6 +938,10 @@ export const ar: TranslationResources = {
       hostLoadError: "{{host}}: تعذّر تحميل لوحات كانبان",
       emptyTitle: "لا توجد لوحات كانبان بعد",
       emptyDescription: "أضف مساحة عمل إلى لوحة كانبان من قائمة المشروع أو مساحة العمل لتظهر هنا.",
+      backToOverview: "كل الكانبان",
+      boardMissing: "هذا الكانبان لم يعد متاحًا.",
+      planCount_one: "{{count}} خطة",
+      planCount_other: "{{count}} خطط",
     },
     orchestrator: {
       panel: {

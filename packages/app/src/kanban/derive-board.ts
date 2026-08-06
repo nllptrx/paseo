@@ -172,3 +172,26 @@ export function resolveBoardDrop(input: {
   order.splice(to, 0, activePlanId);
   return { kind: "reorderDraft", order };
 }
+
+/**
+ * One flat, most-relevant-first list for the overview, where a project gets a
+ * single column and the reader wants running work at the top. Capped: the
+ * overview is a way in, and the board itself is one click away.
+ */
+export function flattenBoardForOverview(board: DerivedBoard, limit: number): KanbanPlan[] {
+  const order: DerivedColumnKey[] = ["inProgress", "draft", "done"];
+  const flattened: KanbanPlan[] = [];
+  for (const key of order) {
+    const column = board.columns.find((entry) => entry.key === key);
+    if (!column) {
+      continue;
+    }
+    for (const plan of column.plans) {
+      if (flattened.length >= limit) {
+        return flattened;
+      }
+      flattened.push(plan);
+    }
+  }
+  return flattened;
+}

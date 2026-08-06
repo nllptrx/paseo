@@ -152,6 +152,15 @@ async function openKanbans(page: Page): Promise<void> {
   await waitForSidebarHydration(page);
 }
 
+/** The overview is the way in; the board itself lives one press deeper. */
+async function openBoard(page: Page, kanbanId: string): Promise<void> {
+  await openKanbans(page);
+  const entry = page.getByTestId(`kanban-overview-open-${kanbanId}`);
+  await expect(entry).toBeVisible({ timeout: 30_000 });
+  await entry.click();
+  await expect(page.getByTestId(`kanban-board-${kanbanId}`)).toBeVisible({ timeout: 30_000 });
+}
+
 test.describe("Kanbans board", () => {
   const cleanupTasks: Array<() => Promise<void>> = [];
 
@@ -180,15 +189,11 @@ test.describe("Kanbans board", () => {
     const seeded = await seedKanbanWithPlan(workspace, planTitle);
     cleanupTasks.push(() => archiveKanban(workspace, seeded.kanbanId));
 
-    await openKanbans(page);
-    await expect(page.getByTestId(`kanban-board-${seeded.kanbanId}`)).toBeVisible({
-      timeout: 30_000,
-    });
+    await openBoard(page, seeded.kanbanId);
     const card = page.getByTestId(`kanban-card-${seeded.planId}`);
     await expect(card).toBeVisible({ timeout: 30_000 });
     await expect(card).toContainText(planTitle);
 
-    // Several kanbans share the page, so every column locator is scoped to one board.
     const board = page.getByTestId(`kanban-board-${seeded.kanbanId}`);
     // A plan whose steps have never run reads as a draft, wherever it is stored.
     await expect(board.getByTestId("kanban-column-draft")).toContainText(planTitle);
@@ -219,7 +224,7 @@ test.describe("Kanbans board", () => {
     const seeded = await seedKanbanWithPlan(workspace, planTitle);
     cleanupTasks.push(() => archiveKanban(workspace, seeded.kanbanId));
 
-    await openKanbans(page);
+    await openBoard(page, seeded.kanbanId);
     const board = page.getByTestId(`kanban-board-${seeded.kanbanId}`);
     const card = board.getByTestId(`kanban-card-${seeded.planId}`);
     await expect(card).toBeVisible({ timeout: 30_000 });
@@ -233,5 +238,35 @@ test.describe("Kanbans board", () => {
     await expect
       .poll(() => planHasStepRun(workspace, seeded.kanbanId, seeded.planId), { timeout: 30_000 })
       .toBe(true);
+  });
+});
+
+test.describe("Kanbans overview", () => {
+  test("lists a project column and drills into its board", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-overview-" });
+    const planTitle = `Overview plan ${Date.now()}`;
+    const seeded = await seedKanbanWithPlan(workspace, planTitle);
+
+    try {
+      await openKanbans(page);
+      const column = page.getByTestId(`kanban-overview-${seeded.kanbanId}`);
+      await expect(column).toBeVisible({ timeout: 30_000 });
+      await expect(column).toContainText(planTitle);
+      // One column per project on the overview, not the three-column board.
+      await expect(column.getByTestId("kanban-column-draft")).toHaveCount(0);
+
+      await page.getByTestId(`kanban-overview-open-${seeded.kanbanId}`).click();
+      await expect(page).toHaveURL(new RegExp(`/kanbans/${seeded.kanbanId}$`));
+      const board = page.getByTestId(`kanban-board-${seeded.kanbanId}`);
+      await expect(board.getByTestId("kanban-column-draft")).toBeVisible({ timeout: 30_000 });
+      await expect(board.getByTestId("kanban-column-inProgress")).toBeVisible();
+
+      await page.getByTestId("kanban-board-back").click();
+      await expect(page).toHaveURL(/\/kanbans$/);
+      await expect(page.getByTestId(`kanban-overview-${seeded.kanbanId}`)).toBeVisible();
+    } finally {
+      await archiveKanban(workspace, seeded.kanbanId);
+      await workspace.cleanup();
+    }
   });
 });
