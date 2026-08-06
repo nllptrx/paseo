@@ -947,6 +947,26 @@ export const ko: TranslationResources = {
       emptyDescription:
         "프로젝트 또는 워크스페이스 메뉴에서 워크스페이스를 칸반에 추가하면 여기에 표시됩니다.",
     },
+    orchestrator: {
+      panel: {
+        label: "Orchestrator",
+        open: "Open Orchestrator",
+        loading: "Loading Orchestrator…",
+        notLinked: "This workspace does not orchestrate a kanban.",
+      },
+      rail: {
+        heading: "Orchestrators",
+        empty: "No other Orchestrators yet",
+        loadError: "Unable to load Orchestrators",
+        openThread: "Open the Orchestrators thread for {{name}}",
+      },
+      thread: {
+        placeholder: "Message the Orchestrators…",
+        send: "Send",
+        empty: "No messages yet",
+        loadError: "Unable to load the Orchestrators thread",
+      },
+    },
     board: {
       menu: "보드 작업",
       createOrchestrator: "오케스트레이터 생성",

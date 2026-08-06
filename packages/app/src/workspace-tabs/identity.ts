@@ -57,6 +57,8 @@ function normalizeSimpleWorkspaceTabTarget(value: WorkspaceTabTarget): Workspace
       const sha = trimNonEmpty(value.sha);
       return sha ? { kind: "commit_diff", sha } : null;
     }
+    case "orchestrator":
+      return { kind: "orchestrator" };
     default:
       return null;
   }
@@ -127,6 +129,9 @@ function secondaryWorkspaceTabTargetsEqual(
   if (left.kind === "commit_diff" && right.kind === "commit_diff") {
     return left.sha === right.sha;
   }
+  if (left.kind === "orchestrator" && right.kind === "orchestrator") {
+    return true;
+  }
   return false;
 }
 
@@ -187,6 +192,9 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   }
   if (target.kind === "working_diff") {
     return "working_diff";
+  }
+  if (target.kind === "orchestrator") {
+    return "orchestrator";
   }
   return `file_${target.path}`;
 }

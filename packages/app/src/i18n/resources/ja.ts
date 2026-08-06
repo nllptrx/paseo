@@ -951,6 +951,26 @@ export const ja: TranslationResources = {
       emptyDescription:
         "プロジェクトまたはワークスペースのメニューからワークスペースをカンバンに追加すると、ここに表示されます。",
     },
+    orchestrator: {
+      panel: {
+        label: "Orchestrator",
+        open: "Open Orchestrator",
+        loading: "Loading Orchestrator…",
+        notLinked: "This workspace does not orchestrate a kanban.",
+      },
+      rail: {
+        heading: "Orchestrators",
+        empty: "No other Orchestrators yet",
+        loadError: "Unable to load Orchestrators",
+        openThread: "Open the Orchestrators thread for {{name}}",
+      },
+      thread: {
+        placeholder: "Message the Orchestrators…",
+        send: "Send",
+        empty: "No messages yet",
+        loadError: "Unable to load the Orchestrators thread",
+      },
+    },
     board: {
       menu: "ボードの操作",
       createOrchestrator: "オーケストレーターを作成",

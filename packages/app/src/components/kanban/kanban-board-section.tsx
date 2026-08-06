@@ -1,27 +1,21 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { MoreVertical } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import type { StoredKanban } from "@getpaseo/protocol/kanban/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { HostStatusDot } from "@/components/host-status-dot";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import type { AggregatedKanban } from "@/kanban/aggregated-kanbans";
 import { useKanbanDetail } from "@/hooks/use-kanban-detail";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
 import { useProjectDisplayName } from "@/stores/session-store-hooks";
-import { toErrorMessage } from "@/utils/error-messages";
-import { KanbanBoard } from "./kanban-board";
-import { KanbanPlanFormSheet } from "./kanban-plan-form-sheet";
-import { KanbanPlanSheet } from "./kanban-plan-sheet";
+import { KanbanBoardSurface } from "./kanban-board-surface";
 
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -99,7 +93,7 @@ export function KanbanBoardSection({
         </DropdownMenu>
       </View>
 
-      <KanbanBoardSectionContent
+      <KanbanBoardSurface
         serverId={serverId}
         kanbanId={kanban.id}
         detail={detail}
@@ -109,107 +103,6 @@ export function KanbanBoardSection({
         onRetry={refetch}
       />
     </View>
-  );
-}
-
-function KanbanBoardSectionContent({
-  serverId,
-  kanbanId,
-  detail,
-  isLoading,
-  isError,
-  error,
-  onRetry,
-}: {
-  serverId: string;
-  kanbanId: string;
-  detail: StoredKanban | null;
-  isLoading: boolean;
-  isError: boolean;
-  error: Error | null;
-  onRetry: () => void;
-}): ReactElement | null {
-  const { t } = useTranslation();
-  const { movePlan } = useKanbanMutations({ serverId });
-  const [openPlanId, setOpenPlanId] = useState<string | null>(null);
-  const [createColumnId, setCreateColumnId] = useState<string | null>(null);
-
-  const handleMovePlan = useCallback(
-    (planId: string, columnId: string, index: number) => {
-      void movePlan({ kanbanId, parentPlanId: null, planId, columnId, index, movedBy: "user" });
-    },
-    [kanbanId, movePlan],
-  );
-
-  const handleClosePlan = useCallback(() => setOpenPlanId(null), []);
-  const handleCloseCreatePlan = useCallback(() => setCreateColumnId(null), []);
-
-  const board = useMemo(() => {
-    if (!detail) {
-      return null;
-    }
-    return { columns: detail.columns, plans: detail.plans };
-  }, [detail]);
-
-  if (isLoading && !detail) {
-    return (
-      <View style={styles.centered}>
-        <LoadingSpinner size="small" color={styles.spinner.color} />
-      </View>
-    );
-  }
-
-  if (isError && !detail) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{toErrorMessage(error)}</Text>
-        <Button
-          variant="ghost"
-          size="sm"
-          onPress={onRetry}
-          testID={`kanban-board-retry-${kanbanId}`}
-        >
-          {t("common.actions.retry")}
-        </Button>
-      </View>
-    );
-  }
-
-  if (!detail || !board) {
-    return null;
-  }
-
-  return (
-    <>
-      <KanbanBoard
-        serverId={serverId}
-        board={board}
-        onOpenPlan={setOpenPlanId}
-        onMovePlan={handleMovePlan}
-        onCreatePlan={setCreateColumnId}
-      />
-      {openPlanId ? (
-        <KanbanPlanSheet
-          serverId={serverId}
-          kanbanId={kanbanId}
-          parentPlanId={null}
-          planId={openPlanId}
-          kanban={detail}
-          visible
-          onClose={handleClosePlan}
-        />
-      ) : null}
-      {createColumnId ? (
-        <KanbanPlanFormSheet
-          serverId={serverId}
-          kanbanId={kanbanId}
-          parentPlanId={null}
-          columnId={createColumnId}
-          visible
-          onClose={handleCloseCreatePlan}
-        />
-      ) : null}
-    </>
   );
 }
 
@@ -242,17 +135,5 @@ const styles = StyleSheet.create((theme) => ({
     height: 28,
     alignItems: "center",
     justifyContent: "center",
-  },
-  centered: {
-    alignItems: "center",
-    gap: theme.spacing[2],
-    padding: theme.spacing[6],
-  },
-  errorText: {
-    color: theme.colors.palette.red[300],
-    fontSize: theme.fontSize.sm,
-  },
-  spinner: {
-    color: theme.colors.foregroundMuted,
   },
 }));

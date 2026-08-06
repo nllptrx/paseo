@@ -939,6 +939,26 @@ export const ar: TranslationResources = {
       emptyTitle: "لا توجد لوحات كانبان بعد",
       emptyDescription: "أضف مساحة عمل إلى لوحة كانبان من قائمة المشروع أو مساحة العمل لتظهر هنا.",
     },
+    orchestrator: {
+      panel: {
+        label: "Orchestrator",
+        open: "Open Orchestrator",
+        loading: "Loading Orchestrator…",
+        notLinked: "This workspace does not orchestrate a kanban.",
+      },
+      rail: {
+        heading: "Orchestrators",
+        empty: "No other Orchestrators yet",
+        loadError: "Unable to load Orchestrators",
+        openThread: "Open the Orchestrators thread for {{name}}",
+      },
+      thread: {
+        placeholder: "Message the Orchestrators…",
+        send: "Send",
+        empty: "No messages yet",
+        loadError: "Unable to load the Orchestrators thread",
+      },
+    },
     board: {
       menu: "إجراءات اللوحة",
       createOrchestrator: "إنشاء المنسق",

@@ -25,6 +25,7 @@ import {
   Ellipsis,
   Globe,
   Import as ImportIcon,
+  Network,
   PanelRight,
   Settings,
   SquarePen,
@@ -187,6 +188,7 @@ import {
   type TerminalProfileInput,
 } from "@/screens/workspace/terminals/use-workspace-terminals";
 import { useDaemonConfig } from "@/hooks/use-daemon-config";
+import { useWorkspaceOrchestratorKanban } from "@/hooks/use-workspace-orchestrator-kanban";
 import {
   resolveTerminalProfileLaunch,
   getTerminalProfileIcon,
@@ -249,6 +251,7 @@ const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedImport = withUnistyles(ImportIcon);
 const ThemedSettings = withUnistyles(Settings);
+const ThemedNetwork = withUnistyles(Network);
 const ThemedPanelRight = withUnistyles(PanelRight);
 const ThemedSourceControlPanelIcon = withUnistyles(SourceControlPanelIcon);
 
@@ -279,6 +282,7 @@ const MENU_NEW_BROWSER_ICON = <ThemedGlobe size={16} uniProps={mutedColorMapping
 const MENU_IMPORT_ICON = <ThemedImport size={16} uniProps={mutedColorMapping} />;
 const MENU_COPY_ICON = <ThemedCopy size={16} uniProps={mutedColorMapping} />;
 const MENU_SETTINGS_ICON = <ThemedSettings size={16} uniProps={mutedColorMapping} />;
+const MENU_ORCHESTRATOR_ICON = <ThemedNetwork size={16} uniProps={mutedColorMapping} />;
 const GATED_WORKSPACE_HEADER_LEFT = <SidebarMenuToggle />;
 
 interface WorkspaceScreenProps {
@@ -376,6 +380,7 @@ function getFallbackTabOptionDescription(
     terminal: string;
     browser: string;
     changes: string;
+    orchestrator: string;
   },
 ): string {
   if (tab.target.kind === "draft") {
@@ -401,6 +406,9 @@ function getFallbackTabOptionDescription(
   }
   if (tab.target.kind === "working_diff") {
     return labels.changes;
+  }
+  if (tab.target.kind === "orchestrator") {
+    return labels.orchestrator;
   }
   return tab.target.path;
 }
@@ -921,6 +929,8 @@ interface WorkspaceHeaderMenuProps {
   onCopyWorkspacePath: () => void;
   onCopyBranchName: () => void;
   onOpenSetupTab: () => void;
+  normalizedWorkspaceId: string;
+  onOpenOrchestratorTab: () => void;
 }
 interface HeaderMenuProfileItemProps {
   profile: { id: string; name: string; command: string; args?: string[]; icon?: string };
@@ -996,8 +1006,14 @@ function WorkspaceHeaderMenu({
   onCopyWorkspacePath,
   onCopyBranchName,
   onOpenSetupTab,
+  normalizedWorkspaceId,
+  onOpenOrchestratorTab,
 }: WorkspaceHeaderMenuProps) {
   const { t } = useTranslation();
+  const { kanban: orchestratedKanban } = useWorkspaceOrchestratorKanban({
+    serverId: normalizedServerId,
+    workspaceId: normalizedWorkspaceId,
+  });
   const router = useRouter();
   const { config } = useDaemonConfig(normalizedServerId);
   const profiles = useMemo(
@@ -1072,6 +1088,15 @@ function WorkspaceHeaderMenu({
             onSelect={onCopyBranchName}
           >
             {t("workspace.header.actions.copyBranchName")}
+          </DropdownMenuItem>
+        ) : null}
+        {orchestratedKanban ? (
+          <DropdownMenuItem
+            testID="workspace-header-open-orchestrator"
+            leading={MENU_ORCHESTRATOR_ICON}
+            onSelect={onOpenOrchestratorTab}
+          >
+            {t("kanban.orchestrator.panel.open")}
           </DropdownMenuItem>
         ) : null}
         {showWorkspaceSetup ? (
@@ -1187,6 +1212,7 @@ interface WorkspaceHeaderTitleBarProps {
   onCopyWorkspacePath: () => void;
   onCopyBranchName: () => void;
   onOpenSetupTab: () => void;
+  onOpenOrchestratorTab: () => void;
   onScriptTerminalStarted: (terminalId: string) => void;
   onViewScriptTerminal: (terminalId: string) => void;
   onOpenUrlInBrowserTab: (url: string) => void;
@@ -1222,6 +1248,7 @@ function WorkspaceHeaderTitleBar({
   onCopyWorkspacePath,
   onCopyBranchName,
   onOpenSetupTab,
+  onOpenOrchestratorTab,
   onScriptTerminalStarted,
   onViewScriptTerminal,
   onOpenUrlInBrowserTab,
@@ -1268,6 +1295,8 @@ function WorkspaceHeaderTitleBar({
           onCopyWorkspacePath={onCopyWorkspacePath}
           onCopyBranchName={onCopyBranchName}
           onOpenSetupTab={onOpenSetupTab}
+          normalizedWorkspaceId={normalizedWorkspaceId}
+          onOpenOrchestratorTab={onOpenOrchestratorTab}
         />
         {isMobile && workspaceScripts.length > 0 ? (
           <WorkspaceScriptsButton
@@ -2514,6 +2543,7 @@ function WorkspaceScreenContent({
       browser: t("workspace.tabs.fallback.browser"),
       agent: t("workspace.tabs.fallback.agent"),
       changes: t("panels.diff.changesLabel"),
+      orchestrator: t("kanban.orchestrator.panel.label"),
     }),
     [t],
   );
@@ -2891,6 +2921,13 @@ function WorkspaceScreenContent({
     }
     openWorkspaceTabFocused(persistenceKey, target);
   }, [normalizedWorkspaceId, openWorkspaceTabFocused, persistenceKey]);
+
+  const handleOpenOrchestratorTab = useCallback(() => {
+    if (!persistenceKey) {
+      return;
+    }
+    openWorkspaceTabFocused(persistenceKey, { kind: "orchestrator" });
+  }, [openWorkspaceTabFocused, persistenceKey]);
 
   const handleBulkCloseTabs = useCallback(
     async (input: { tabsToClose: WorkspaceTabDescriptor[]; title: string; logLabel: string }) => {
@@ -3747,6 +3784,7 @@ function WorkspaceScreenContent({
                 onCopyWorkspacePath={handleCopyWorkspacePath}
                 onCopyBranchName={handleCopyBranchName}
                 onOpenSetupTab={handleOpenSetupTab}
+                onOpenOrchestratorTab={handleOpenOrchestratorTab}
                 onScriptTerminalStarted={handleScriptTerminalStarted}
                 onViewScriptTerminal={handleViewScriptTerminal}
                 onOpenUrlInBrowserTab={handleOpenUrlInBrowserTab}

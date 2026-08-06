@@ -11,6 +11,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { StatusBucketDot } from "@/components/status-bucket-dot";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { deriveKanbanPlanWorkspaceIds, deriveWorkflowStepProgress } from "@/kanban/plan-status";
 import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
@@ -85,7 +86,9 @@ export function KanbanCard({
         <Text style={styles.title} numberOfLines={2}>
           {plan.title}
         </Text>
-        <KanbanCardStatusDot bucket={bucket} />
+        <View style={styles.dotSlot}>
+          <StatusBucketDot bucket={bucket} />
+        </View>
       </View>
       <View style={styles.footer}>
         <Text style={styles.progress}>{progressLabel}</Text>
@@ -125,18 +128,6 @@ export function KanbanCard({
   );
 }
 
-function KanbanCardStatusDot({
-  bucket,
-}: {
-  bucket: SidebarStateBucket | null;
-}): ReactElement | null {
-  if (bucket === "needs_input") return <View style={styles.dotWarning} />;
-  if (bucket === "failed") return <View style={styles.dotDanger} />;
-  if (bucket === "running") return <View style={styles.dotRunning} />;
-  if (bucket === "attention") return <View style={styles.dotSuccess} />;
-  return null;
-}
-
 const styles = StyleSheet.create((theme) => ({
   card: {
     backgroundColor: theme.colors.surface1,
@@ -157,33 +148,9 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
   },
-  dotWarning: {
-    width: 8,
-    height: 8,
-    borderRadius: theme.borderRadius.full,
+  // Keeps the dot on the first line of a title that may wrap to two.
+  dotSlot: {
     marginTop: 4,
-    backgroundColor: theme.colors.statusDotWarning,
-  },
-  dotDanger: {
-    width: 8,
-    height: 8,
-    borderRadius: theme.borderRadius.full,
-    marginTop: 4,
-    backgroundColor: theme.colors.statusDotDanger,
-  },
-  dotRunning: {
-    width: 8,
-    height: 8,
-    borderRadius: theme.borderRadius.full,
-    marginTop: 4,
-    backgroundColor: theme.colors.statusDotRunning,
-  },
-  dotSuccess: {
-    width: 8,
-    height: 8,
-    borderRadius: theme.borderRadius.full,
-    marginTop: 4,
-    backgroundColor: theme.colors.statusDotSuccess,
   },
   footer: {
     flexDirection: "row",

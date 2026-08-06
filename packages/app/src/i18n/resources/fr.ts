@@ -970,6 +970,26 @@ export const fr: TranslationResources = {
       emptyDescription:
         "Ajoutez un espace de travail à un kanban depuis son menu de projet ou d'espace de travail pour le voir ici.",
     },
+    orchestrator: {
+      panel: {
+        label: "Orchestrator",
+        open: "Open Orchestrator",
+        loading: "Loading Orchestrator…",
+        notLinked: "This workspace does not orchestrate a kanban.",
+      },
+      rail: {
+        heading: "Orchestrators",
+        empty: "No other Orchestrators yet",
+        loadError: "Unable to load Orchestrators",
+        openThread: "Open the Orchestrators thread for {{name}}",
+      },
+      thread: {
+        placeholder: "Message the Orchestrators…",
+        send: "Send",
+        empty: "No messages yet",
+        loadError: "Unable to load the Orchestrators thread",
+      },
+    },
     board: {
       menu: "Actions du tableau",
       createOrchestrator: "Créer un orchestrateur",

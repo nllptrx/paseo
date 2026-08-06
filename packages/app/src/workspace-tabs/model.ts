@@ -25,7 +25,8 @@ export type WorkspaceTabTarget =
   | WorkspaceFileTabTarget
   | WorkspaceWorkingDiffTabTarget
   | { kind: "setup"; workspaceId: string }
-  | { kind: "commit_diff"; sha: string };
+  | { kind: "commit_diff"; sha: string }
+  | { kind: "orchestrator" };
 
 export interface WorkspaceTab {
   tabId: string;
