@@ -1,3 +1,4 @@
+import type { OrchestratorPeer } from "@getpaseo/protocol/kanban/rpc-schemas";
 import type { KanbanSummary } from "@getpaseo/protocol/kanban/types";
 import { describe, expect, it } from "vitest";
 import type { AggregatedKanban } from "./aggregated-kanbans";
@@ -9,7 +10,6 @@ function kanban(overrides: Partial<AggregatedKanban> = {}): AggregatedKanban {
     projectId: "project-1",
     name: "Board",
     archiveWorkspacesOnDone: false,
-    orchestrator: null,
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
     archivedAt: null,
@@ -17,15 +17,27 @@ function kanban(overrides: Partial<AggregatedKanban> = {}): AggregatedKanban {
   return { ...base, serverId: "host-a", serverName: "Host A", ...overrides };
 }
 
+function peer(overrides: Partial<OrchestratorPeer> = {}): OrchestratorPeer {
+  return {
+    kanbanId: "kanban-1",
+    kanbanName: "Board",
+    projectId: "project-1",
+    workspaceId: "ws-1",
+    agentId: "agent-1",
+    agentTitle: "Board Orchestrator",
+    agentLastStatus: "idle",
+    attention: false,
+    ...overrides,
+  };
+}
+
 describe("resolveOrchestratorKanban", () => {
-  it("finds the kanban whose orchestrator runs in the workspace", () => {
-    const linked = kanban({
-      id: "kanban-2",
-      orchestrator: { workspaceId: "ws-1", agentId: "agent-1" },
-    });
+  it("finds the kanban whose orchestrator agent runs in the workspace", () => {
+    const linked = kanban({ id: "kanban-2" });
 
     const result = resolveOrchestratorKanban({
       kanbans: [kanban(), linked],
+      peers: [peer({ kanbanId: "kanban-2", workspaceId: "ws-1" })],
       serverId: "host-a",
       workspaceId: "ws-1",
     });
@@ -35,9 +47,8 @@ describe("resolveOrchestratorKanban", () => {
 
   it("ignores links on another host", () => {
     const result = resolveOrchestratorKanban({
-      kanbans: [
-        kanban({ serverId: "host-b", orchestrator: { workspaceId: "ws-1", agentId: "agent-1" } }),
-      ],
+      kanbans: [kanban({ serverId: "host-b" })],
+      peers: [peer({ workspaceId: "ws-1" })],
       serverId: "host-a",
       workspaceId: "ws-1",
     });
@@ -47,12 +58,19 @@ describe("resolveOrchestratorKanban", () => {
 
   it("ignores archived kanbans", () => {
     const result = resolveOrchestratorKanban({
-      kanbans: [
-        kanban({
-          orchestrator: { workspaceId: "ws-1", agentId: "agent-1" },
-          archivedAt: "2026-07-02T00:00:00.000Z",
-        }),
-      ],
+      kanbans: [kanban({ archivedAt: "2026-07-02T00:00:00.000Z" })],
+      peers: [peer({ workspaceId: "ws-1" })],
+      serverId: "host-a",
+      workspaceId: "ws-1",
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("resolves to nothing once the workspace hosts no orchestrator agent", () => {
+    const result = resolveOrchestratorKanban({
+      kanbans: [kanban()],
+      peers: [],
       serverId: "host-a",
       workspaceId: "ws-1",
     });
@@ -61,18 +79,17 @@ describe("resolveOrchestratorKanban", () => {
   });
 
   it("breaks ties on kanban id so the pane does not follow list order", () => {
-    const first = kanban({
-      id: "kanban-a",
-      orchestrator: { workspaceId: "ws-1", agentId: "agent-1" },
-    });
-    const second = kanban({
-      id: "kanban-b",
-      orchestrator: { workspaceId: "ws-1", agentId: "agent-2" },
-    });
+    const first = kanban({ id: "kanban-a" });
+    const second = kanban({ id: "kanban-b" });
+    const peers = [
+      peer({ kanbanId: "kanban-a", workspaceId: "ws-1", agentId: "agent-1" }),
+      peer({ kanbanId: "kanban-b", workspaceId: "ws-1", agentId: "agent-2" }),
+    ];
 
     expect(
       resolveOrchestratorKanban({
         kanbans: [second, first],
+        peers,
         serverId: "host-a",
         workspaceId: "ws-1",
       }),
@@ -80,15 +97,34 @@ describe("resolveOrchestratorKanban", () => {
     expect(
       resolveOrchestratorKanban({
         kanbans: [first, second],
+        peers,
         serverId: "host-a",
         workspaceId: "ws-1",
       }),
     ).toBe(first);
   });
 
+  it("keeps every orchestrator of one kanban pointing at that kanban", () => {
+    const board = kanban({ id: "kanban-1" });
+    const peers = [
+      peer({ workspaceId: "ws-1", agentId: "agent-1" }),
+      peer({ workspaceId: "ws-2", agentId: "agent-2" }),
+    ];
+
+    expect(
+      resolveOrchestratorKanban({
+        kanbans: [board],
+        peers,
+        serverId: "host-a",
+        workspaceId: "ws-2",
+      }),
+    ).toBe(board);
+  });
+
   it("returns null without a workspace id", () => {
     const result = resolveOrchestratorKanban({
-      kanbans: [kanban({ orchestrator: { workspaceId: "", agentId: "agent-1" } })],
+      kanbans: [kanban()],
+      peers: [peer({ workspaceId: "" })],
       serverId: "host-a",
       workspaceId: "",
     });

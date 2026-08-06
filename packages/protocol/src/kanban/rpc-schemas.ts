@@ -238,6 +238,7 @@ export const OrchestratorPeerSchema = z.object({
   projectId: z.string(),
   workspaceId: z.string(),
   agentId: z.string(),
+  agentTitle: z.string().nullable(),
   agentLastStatus: z.string().nullable(),
   attention: z.boolean(),
 });

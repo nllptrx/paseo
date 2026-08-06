@@ -52,7 +52,6 @@ function kanban(plans: KanbanPlan[]): StoredKanban {
     projectId: "prj1",
     name: "Board",
     archiveWorkspacesOnDone: false,
-    orchestrator: null,
     plans: Object.fromEntries(plans.map((entry) => [entry.id, entry])),
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

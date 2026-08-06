@@ -14,7 +14,6 @@ function kanban(overrides: Partial<AggregatedKanban> = {}): AggregatedKanban {
     projectId: "project-1",
     name: "Board",
     archiveWorkspacesOnDone: false,
-    orchestrator: null,
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
     archivedAt: null,

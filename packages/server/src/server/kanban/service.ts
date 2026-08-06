@@ -10,6 +10,7 @@ import type {
 import type { OrchestratorPeer } from "@getpaseo/protocol/kanban/rpc-schemas";
 import type { AgentManager } from "../agent/agent-manager.js";
 import type { AgentStorage } from "../agent/agent-storage.js";
+import { getKanbanIdFromLabels, isKanbanOrchestratorAgent } from "./labels.js";
 import { KanbanStore } from "./store.js";
 
 type StepInput = Omit<Step, "id" | "runs">;
@@ -23,7 +24,7 @@ export interface KanbanServiceOptions {
   // listing. Kept optional so callers that never touch the orchestrator mesh (most
   // unit tests) don't have to construct an AgentManager/AgentStorage.
   agentManager?: Pick<AgentManager, "getAgent">;
-  agentStorage?: Pick<AgentStorage, "get">;
+  agentStorage?: Pick<AgentStorage, "get" | "list">;
 }
 
 export type KanbanChangeEvent =
@@ -101,7 +102,7 @@ export class KanbanService {
   private readonly logger: pino.Logger;
   private readonly listeners = new Set<KanbanChangeListener>();
   private readonly agentManager?: Pick<AgentManager, "getAgent">;
-  private readonly agentStorage?: Pick<AgentStorage, "get">;
+  private readonly agentStorage?: Pick<AgentStorage, "get" | "list">;
 
   constructor(options: KanbanServiceOptions) {
     this.store = options.store;
@@ -149,7 +150,6 @@ export class KanbanService {
       // Off by default: tearing down a worktree is not something a board should
       // do to you the first time a plan finishes.
       archiveWorkspacesOnDone: false,
-      orchestrator: null,
       plans: {},
       createdAt: now,
       updatedAt: now,
@@ -361,57 +361,44 @@ export class KanbanService {
     this.notifyUpsert(result);
   }
 
-  // Pointer-only: stamps orchestrator = { workspaceId, agentId } without creating the
-  // workspace or agent. Provisioning the actual control-plane workspace is a later slice.
-  async provisionOrchestratorPointer(
-    kanbanId: string,
-    pointer: { workspaceId: string; agentId: string },
-  ): Promise<StoredKanban> {
-    const updated = await this.store.update(kanbanId, (kanban) => {
-      requireActiveKanban(kanban, kanbanId);
-      if (kanban.orchestrator) {
-        throw new Error(`Kanban already has an orchestrator: ${kanbanId}`);
-      }
-      return {
-        ...kanban,
-        orchestrator: pointer,
-        updatedAt: new Date().toISOString(),
-      };
-    });
-    const result = requireKanban(updated, kanbanId);
-    this.notifyUpsert(result);
-    return result;
+  /**
+   * Orchestrators are agents wearing the kanban's labels, not a pointer stored on
+   * the board. The labels are already the authority on which kanban an agent
+   * steers, so a stored pointer would be a second copy — and it is what capped a
+   * kanban at one Orchestrator. A kanban may have as many as you start.
+   */
+  async listOrchestrators(kanbanId: string): Promise<OrchestratorPeer[]> {
+    const all = await this.listOrchestratorPeers();
+    return all.filter((peer) => peer.kanbanId === kanbanId);
   }
 
-  async unlinkOrchestrator(kanbanId: string): Promise<StoredKanban> {
-    const updated = await this.store.update(kanbanId, (kanban) => ({
-      ...kanban,
-      orchestrator: null,
-      updatedAt: new Date().toISOString(),
-    }));
-    const result = requireKanban(updated, kanbanId);
-    this.notifyUpsert(result);
-    return result;
-  }
-
-  // Joins every non-archived kanban's orchestrator pointer against live agent state
-  // (falling back to the persisted record when the agent isn't currently loaded) —
-  // no peer status is stored on the kanban itself.
   async listOrchestratorPeers(): Promise<OrchestratorPeer[]> {
-    const kanbans = await this.store.list();
+    const agents = (await this.agentStorage?.list()) ?? [];
+    const kanbansById = new Map(
+      (await this.store.list())
+        .filter((kanban) => !kanban.archivedAt)
+        .map((kanban) => [kanban.id, kanban]),
+    );
+
     const peers: OrchestratorPeer[] = [];
-    for (const kanban of kanbans) {
-      if (kanban.archivedAt || !kanban.orchestrator) {
+    for (const agent of agents) {
+      if (!isKanbanOrchestratorAgent(agent.labels)) {
         continue;
       }
-      const { workspaceId, agentId } = kanban.orchestrator;
-      const status = await this.resolveOrchestratorAgentStatus(agentId);
+      const kanbanId = getKanbanIdFromLabels(agent.labels);
+      const kanban = kanbanId ? kanbansById.get(kanbanId) : null;
+      if (!kanban) {
+        // Archived kanban, or an agent whose board is gone: not a live peer.
+        continue;
+      }
+      const status = await this.resolveOrchestratorAgentStatus(agent.id);
       peers.push({
         kanbanId: kanban.id,
         kanbanName: kanban.name,
         projectId: kanban.projectId,
-        workspaceId,
-        agentId,
+        workspaceId: agent.workspaceId ?? "",
+        agentId: agent.id,
+        agentTitle: agent.title ?? null,
         agentLastStatus: status.lastStatus,
         attention: status.attention,
       });

@@ -6,7 +6,6 @@ export interface KanbanRow {
   id: string;
   name: string;
   projectId: string;
-  orchestrator: string;
   archivedAt: string | null;
 }
 
@@ -16,7 +15,6 @@ export const kanbanSchema: OutputSchema<KanbanRow> = {
     { header: "ID", field: "id", width: 10 },
     { header: "NAME", field: "name", width: 24 },
     { header: "PROJECT", field: "projectId", width: 16 },
-    { header: "ORCHESTRATOR", field: "orchestrator", width: 14 },
   ],
 };
 
@@ -25,7 +23,6 @@ export function toKanbanRow(kanban: KanbanSummary | StoredKanban): KanbanRow {
     id: kanban.id,
     name: kanban.name,
     projectId: kanban.projectId,
-    orchestrator: kanban.orchestrator ? kanban.orchestrator.agentId.slice(0, 7) : "none",
     archivedAt: kanban.archivedAt,
   };
 }
@@ -52,12 +49,6 @@ export function createKanbanInspectRows(kanban: StoredKanban): KanbanInspectRow[
     { key: "Name", value: kanban.name },
     { key: "ProjectId", value: kanban.projectId },
     { key: "ArchiveWorkspacesOnDone", value: `${kanban.archiveWorkspacesOnDone}` },
-    {
-      key: "Orchestrator",
-      value: kanban.orchestrator
-        ? `workspace:${kanban.orchestrator.workspaceId} agent:${kanban.orchestrator.agentId}`
-        : "none",
-    },
     { key: "Plans", value: `${Object.keys(kanban.plans).length}` },
     { key: "CreatedAt", value: kanban.createdAt },
     { key: "UpdatedAt", value: kanban.updatedAt },

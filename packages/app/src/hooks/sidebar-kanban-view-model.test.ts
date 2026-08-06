@@ -36,7 +36,6 @@ function kanban(overrides: Partial<StoredKanban> & { id: string }): StoredKanban
     projectId: "project-1",
     name: "Kanban",
     archiveWorkspacesOnDone: false,
-    orchestrator: null,
     plans: {},
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

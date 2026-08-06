@@ -7,24 +7,22 @@ function testLogger() {
   return pino({ level: "silent" });
 }
 
-function fakeKanban(overrides: { orchestrator?: unknown; archivedAt?: string | null } = {}) {
+function fakeKanban(overrides: { archivedAt?: string | null } = {}) {
   return {
     id: "kbn_1",
     projectId: "proj-1",
     name: "Board",
-    orchestrator: overrides.orchestrator ?? null,
+    plans: {},
     archivedAt: overrides.archivedAt ?? null,
   } as never;
 }
 
 describe("provisionKanbanOrchestrator", () => {
-  test("rolls back the workspace when stamping the pointer fails after creation", async () => {
+  test("rolls back the workspace when the agent fails to come up", async () => {
     let archivedWorkspaceId: string | null = null;
     const kanbanService = {
       get: async () => fakeKanban(),
-      provisionOrchestratorPointer: async () => {
-        throw new Error("race: pointer already claimed");
-      },
+      listOrchestrators: async () => [],
     } as unknown as KanbanService;
 
     await expect(
@@ -34,13 +32,9 @@ describe("provisionKanbanOrchestrator", () => {
           logger: testLogger(),
           projectRegistry: { get: async () => ({ rootPath: "/tmp/project-root" }) as never },
           createDirectoryWorkspace: async () => ({ workspaceId: "ws-new", cwd: "/tmp" }) as never,
-          createAgent: async () => ({
-            snapshot: { id: "agent-new" } as never,
-            liveSnapshot: { id: "agent-new" } as never,
-            background: true,
-            initialPromptStarted: false,
-            initialPromptError: null,
-          }),
+          createAgent: async () => {
+            throw new Error("provider unavailable");
+          },
           resolveDefaultProvider: async () => "claude",
           archiveWorkspace: async (workspaceId) => {
             archivedWorkspaceId = workspaceId;
@@ -48,38 +42,76 @@ describe("provisionKanbanOrchestrator", () => {
         },
         "kbn_1",
       ),
-    ).rejects.toThrow(/race: pointer already claimed/);
+    ).rejects.toThrow(/provider unavailable/);
 
     expect(archivedWorkspaceId).toBe("ws-new");
   });
 
-  test("fails fast without creating a workspace when the kanban already has an orchestrator", async () => {
-    let createdWorkspace = false;
+  test("a kanban may have several orchestrators, and later ones get numbered titles", async () => {
+    const titles: string[] = [];
     const kanbanService = {
-      get: async () => fakeKanban({ orchestrator: { workspaceId: "ws-1", agentId: "agent-1" } }),
+      get: async () => fakeKanban(),
+      listOrchestrators: async () => [{ agentId: "agent-1" }] as never,
     } as unknown as KanbanService;
 
-    await expect(
-      provisionKanbanOrchestrator(
-        {
-          kanbanService,
-          logger: testLogger(),
-          projectRegistry: { get: async () => ({ rootPath: "/tmp/project-root" }) as never },
-          createDirectoryWorkspace: async () => {
-            createdWorkspace = true;
-            return { workspaceId: "ws-2", cwd: "/tmp" } as never;
-          },
-          createAgent: async () => {
-            throw new Error("should not be called");
-          },
-          resolveDefaultProvider: async () => "claude",
-          archiveWorkspace: async () => {},
+    await provisionKanbanOrchestrator(
+      {
+        kanbanService,
+        logger: testLogger(),
+        projectRegistry: { get: async () => ({ rootPath: "/tmp/project-root" }) as never },
+        createDirectoryWorkspace: async (_cwd, title) => {
+          titles.push(title ?? "");
+          return { workspaceId: "ws-new", cwd: "/tmp" } as never;
         },
-        "kbn_1",
-      ),
-    ).rejects.toThrow(/already has an orchestrator/);
+        createAgent: async () => ({
+          snapshot: { id: "agent-2" } as never,
+          liveSnapshot: { id: "agent-2" } as never,
+          background: true,
+          initialPromptStarted: true,
+          initialPromptError: null,
+        }),
+        resolveDefaultProvider: async () => "claude",
+        archiveWorkspace: async () => {},
+      },
+      "kbn_1",
+    );
 
-    expect(createdWorkspace).toBe(false);
+    expect(titles).toEqual(["Board Orchestrator 2"]);
+  });
+
+  test("briefs the agent on the board it steers instead of leaving it to guess", async () => {
+    let initialPrompt: string | undefined;
+    const kanbanService = {
+      get: async () => fakeKanban(),
+      listOrchestrators: async () => [],
+    } as unknown as KanbanService;
+
+    await provisionKanbanOrchestrator(
+      {
+        kanbanService,
+        logger: testLogger(),
+        projectRegistry: { get: async () => ({ rootPath: "/tmp/project-root" }) as never },
+        createDirectoryWorkspace: async () => ({ workspaceId: "ws-new", cwd: "/tmp" }) as never,
+        createAgent: async (input) => {
+          initialPrompt = input.initialPrompt;
+          return {
+            snapshot: { id: "agent-1" } as never,
+            liveSnapshot: { id: "agent-1" } as never,
+            background: true,
+            initialPromptStarted: true,
+            initialPromptError: null,
+          };
+        },
+        resolveDefaultProvider: async () => "claude",
+        archiveWorkspace: async () => {},
+      },
+      "kbn_1",
+    );
+
+    expect(initialPrompt).toContain("kbn_1");
+    expect(initialPrompt).toContain("run_plan");
+    // The failure this guards: an agent that answers board questions by grepping.
+    expect(initialPrompt).toMatch(/never answer questions about the board by searching/i);
   });
 
   test("throws when the kanban's project cannot be found", async () => {

@@ -76,13 +76,12 @@ describe("KanbanPlanSchema", () => {
 });
 
 describe("StoredKanbanSchema", () => {
-  it("parses a kanban with an orchestrator pointer", () => {
+  it("parses a kanban with plans", () => {
     const kanban = {
       id: "kbn_00000001",
       projectId: "prj_00000001",
       name: "Widgets",
       archiveWorkspacesOnDone: false,
-      orchestrator: { workspaceId: "ws_1", agentId: "agent_1" },
       plans: {
         pln_00000001: {
           ...basePlanFields(),

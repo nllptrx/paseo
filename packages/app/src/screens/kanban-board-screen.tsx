@@ -83,7 +83,7 @@ function LoadedKanbanBoardScreen({
   onBack,
 }: {
   kanbanId: string;
-  summary: { serverId: string; projectId: string; name: string; orchestrator: unknown };
+  summary: { serverId: string; projectId: string; name: string };
   onBack: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -123,36 +123,34 @@ function LoadedKanbanBoardScreen({
         </Button>
         <View style={styles.subHeaderTrailing}>
           <Text style={styles.count}>{t("kanban.screen.planCount", { count: totalCount })}</Text>
-          {summary.orchestrator ? null : (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                style={styles.menuTrigger}
-                testID={`kanban-board-menu-${kanbanId}`}
-                accessibilityRole="button"
-                accessibilityLabel={t("kanban.board.menu")}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              style={styles.menuTrigger}
+              testID={`kanban-board-menu-${kanbanId}`}
+              accessibilityRole="button"
+              accessibilityLabel={t("kanban.board.menu")}
+            >
+              {({ hovered }) => (
+                <ThemedMoreVertical
+                  size={ICON_SIZE.sm}
+                  uniProps={hovered ? foregroundIconMapping : mutedIconMapping}
+                />
+              )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="bottom"
+              align="end"
+              testID={`kanban-board-menu-content-${kanbanId}`}
+            >
+              <DropdownMenuItem
+                testID={`kanban-create-orchestrator-${kanbanId}`}
+                onSelect={handleProvisionOrchestrator}
+                disabled={isProvisioning}
               >
-                {({ hovered }) => (
-                  <ThemedMoreVertical
-                    size={ICON_SIZE.sm}
-                    uniProps={hovered ? foregroundIconMapping : mutedIconMapping}
-                  />
-                )}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                side="bottom"
-                align="end"
-                testID={`kanban-board-menu-content-${kanbanId}`}
-              >
-                <DropdownMenuItem
-                  testID={`kanban-create-orchestrator-${kanbanId}`}
-                  onSelect={handleProvisionOrchestrator}
-                  disabled={isProvisioning}
-                >
-                  {t("kanban.board.createOrchestrator")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+                {t("kanban.board.createOrchestrator")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </View>
       </View>
       <ScrollView

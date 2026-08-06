@@ -18,18 +18,45 @@ export interface OrchestratorProvisioningDeps {
   ) => Promise<PersistedWorkspaceRecord>;
   createAgent: (input: CreateAgentFromMcpInput) => Promise<CreateAgentCommandResult>;
   resolveDefaultProvider: () => Promise<string>;
-  // Rolls back a just-created workspace (and any agent inside it) if stamping the
-  // orchestrator pointer fails after the workspace/agent already exist.
+  // Rolls back a just-created workspace (and any agent inside it) when the agent
+  // fails to come up after the workspace already exists.
   archiveWorkspace: (workspaceId: string) => Promise<void>;
   logger: Logger;
 }
 
 /**
- * Provisions an Orchestrator for a kanban: a `local` workspace on the project root, a
- * primary agent in it stamped with the orchestrator labels, and the kanban's
- * orchestrator pointer — atomically from the caller's point of view. If stamping the
- * pointer fails (for example a concurrent provision already claimed it), the freshly
- * created workspace is rolled back so no orphaned orchestrator workspace is left behind.
+ * What the Orchestrator is told on its first turn. Without it the agent is just a
+ * model sitting in a directory: asked about the board it greps the repository,
+ * because nothing ever told it the board exists or that it has tools for it.
+ */
+function buildOrchestratorBriefing(kanban: StoredKanban): string {
+  const planCount = Object.values(kanban.plans).filter((plan) => !plan.archivedAt).length;
+  return [
+    `You are the Orchestrator for the kanban "${kanban.name}" (id: ${kanban.id}).`,
+    "",
+    `That board currently holds ${planCount} plan(s). Read and steer it with the kanban`,
+    "tools: get_kanban, list_plans, get_plan, create_plan, run_plan, archive_plan.",
+    "Never answer questions about the board by searching the repository — the tools are",
+    "the source of truth, and the working directory is only there so you can look at the",
+    "code a plan refers to.",
+    "",
+    "Columns are derived from what the steps have run: a plan with no runs is a draft,",
+    "one whose every step finished is done, anything in between is in progress. There is",
+    "no way to move a card; running a step is what moves it.",
+    "",
+    "You steer, you do not implement. Dispatch work by running a plan's steps; talk to",
+    "other Orchestrators through the orchestrators chat room.",
+    "",
+    "Reply with a short summary of the board as it stands.",
+  ].join("\n");
+}
+
+/**
+ * Provisions an Orchestrator for a kanban: a `local` workspace on the project root
+ * and an agent in it wearing the kanban's labels. Those labels are what makes it an
+ * Orchestrator — nothing is stamped on the board, so a kanban can have as many as
+ * you start. If the agent fails to come up, the workspace is rolled back so no
+ * orphaned orchestrator workspace is left behind.
  */
 export async function provisionKanbanOrchestrator(
   deps: OrchestratorProvisioningDeps,
@@ -42,16 +69,16 @@ export async function provisionKanbanOrchestrator(
   if (kanban.archivedAt) {
     throw new Error(`Kanban is archived: ${kanbanId}`);
   }
-  if (kanban.orchestrator) {
-    throw new Error(`Kanban already has an orchestrator: ${kanbanId}`);
-  }
-
   const project = await deps.projectRegistry.get(kanban.projectId);
   if (!project) {
     throw new Error(`Project not found: ${kanban.projectId}`);
   }
 
-  const title = `${kanban.name} Orchestrator`;
+  const existing = await deps.kanbanService.listOrchestrators(kanbanId);
+  const title =
+    existing.length === 0
+      ? `${kanban.name} Orchestrator`
+      : `${kanban.name} Orchestrator ${existing.length + 1}`;
   const workspace = await deps.createDirectoryWorkspace(project.rootPath, title, kanban.projectId);
 
   let agentId: string | undefined;
@@ -66,13 +93,10 @@ export async function provisionKanbanOrchestrator(
       background: true,
       notifyOnFinish: false,
       labels: { [KANBAN_ORCHESTRATOR_LABEL]: "true", [KANBAN_ID_LABEL]: kanbanId },
+      initialPrompt: buildOrchestratorBriefing(kanban),
     });
     agentId = created.snapshot.id;
-
-    return await deps.kanbanService.provisionOrchestratorPointer(kanbanId, {
-      workspaceId: workspace.workspaceId,
-      agentId,
-    });
+    return kanban;
   } catch (error) {
     deps.logger.error(
       { err: error, kanbanId, workspaceId: workspace.workspaceId, agentId },

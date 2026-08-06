@@ -14,6 +14,7 @@ function peer(overrides: Partial<OrchestratorPeer> = {}): OrchestratorPeer {
     projectId: "project-1",
     workspaceId: "ws-1",
     agentId: "agent-1",
+    agentTitle: null,
     agentLastStatus: "idle",
     attention: false,
     ...overrides,

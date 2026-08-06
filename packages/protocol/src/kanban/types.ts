@@ -92,12 +92,6 @@ export const KanbanPlanSchema = PlanBaseSchema.extend({
 });
 export type KanbanPlan = z.infer<typeof KanbanPlanSchema>;
 
-export const KanbanOrchestratorSchema = z.object({
-  workspaceId: z.string(),
-  agentId: z.string(),
-});
-export type KanbanOrchestrator = z.infer<typeof KanbanOrchestratorSchema>;
-
 export const StoredKanbanSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -106,7 +100,6 @@ export const StoredKanbanSchema = z.object({
    * Columns are derived, so this hangs off the plan reaching that state rather
    * than off entering a column. */
   archiveWorkspacesOnDone: z.boolean(),
-  orchestrator: KanbanOrchestratorSchema.nullable(),
   plans: z.record(z.string(), KanbanPlanSchema),
   createdAt: z.string(),
   updatedAt: z.string(),

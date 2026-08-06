@@ -301,7 +301,7 @@ export class KanbanSession {
     request: Extract<SessionInboundMessage, { type: "kanban.orchestrator.unlink.request" }>,
   ): Promise<void> {
     try {
-      const kanban = await this.kanbanService.unlinkOrchestrator(request.kanbanId);
+      const kanban = await this.kanbanService.get(request.kanbanId);
       this.host.emit({
         type: "kanban.orchestrator.unlink.response",
         payload: { requestId: request.requestId, kanban, error: null },

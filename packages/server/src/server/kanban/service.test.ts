@@ -37,12 +37,12 @@ describe("KanbanService list", () => {
   });
 });
 
-describe("KanbanService orchestrator methods", () => {
+describe("KanbanService orchestrator listing", () => {
   let tempDir: string;
   let store: KanbanStore;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "kanban-service-test-"));
+    tempDir = await mkdtemp(join(tmpdir(), "kanban-orchestrator-test-"));
     store = new KanbanStore(tempDir);
   });
 
@@ -50,37 +50,26 @@ describe("KanbanService orchestrator methods", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("provisionOrchestratorPointer stamps the pointer and rejects a second one", async () => {
-    const service = new KanbanService({ store, logger: testLogger() });
-    const kanban = await service.getOrCreateForProject("proj-1");
+  function orchestratorAgent(overrides: {
+    id: string;
+    kanbanId: string;
+    workspaceId?: string;
+    title?: string | null;
+  }) {
+    return {
+      id: overrides.id,
+      workspaceId: overrides.workspaceId ?? "ws-1",
+      title: overrides.title ?? null,
+      labels: { "paseo.kanban-orchestrator": "true", "paseo.kanban-id": overrides.kanbanId },
+      lastStatus: "idle",
+    };
+  }
 
-    const updated = await service.provisionOrchestratorPointer(kanban.id, {
-      workspaceId: "ws-1",
-      agentId: "agent-1",
-    });
-    expect(updated.orchestrator).toEqual({ workspaceId: "ws-1", agentId: "agent-1" });
-
-    await expect(
-      service.provisionOrchestratorPointer(kanban.id, {
-        workspaceId: "ws-2",
-        agentId: "agent-2",
-      }),
-    ).rejects.toThrow(/already has an orchestrator/);
-  });
-
-  test("unlinkOrchestrator clears the pointer only", async () => {
-    const service = new KanbanService({ store, logger: testLogger() });
-    const kanban = await service.getOrCreateForProject("proj-1");
-    await service.provisionOrchestratorPointer(kanban.id, {
-      workspaceId: "ws-1",
-      agentId: "agent-1",
-    });
-
-    const updated = await service.unlinkOrchestrator(kanban.id);
-    expect(updated.orchestrator).toBeNull();
-  });
-
-  test("listOrchestratorPeers joins live agent state when the agent is loaded", async () => {
+  test("joins live agent state when the agent is loaded", async () => {
+    const kanban = await new KanbanService({ store, logger: testLogger() }).getOrCreateForProject(
+      "proj-1",
+      { name: "Board" },
+    );
     const service = new KanbanService({
       store,
       logger: testLogger(),
@@ -95,58 +84,101 @@ describe("KanbanService orchestrator methods", () => {
       },
       agentStorage: {
         get: async () => null,
+        list: async () =>
+          [
+            orchestratorAgent({ id: "agent-1", kanbanId: kanban.id, title: "Board Orchestrator" }),
+          ] as never,
       },
     });
-    const kanban = await service.getOrCreateForProject("proj-1", { name: "Board" });
-    await service.provisionOrchestratorPointer(kanban.id, {
-      workspaceId: "ws-1",
-      agentId: "agent-1",
-    });
 
-    const peers = await service.listOrchestratorPeers();
-    expect(peers).toEqual([
+    expect(await service.listOrchestratorPeers()).toEqual([
       {
         kanbanId: kanban.id,
         kanbanName: "Board",
         projectId: "proj-1",
         workspaceId: "ws-1",
         agentId: "agent-1",
+        agentTitle: "Board Orchestrator",
         agentLastStatus: "running",
         attention: true,
       },
     ]);
   });
 
-  test("listOrchestratorPeers falls back to persisted status when the agent isn't loaded", async () => {
+  test("falls back to persisted status when the agent isn't loaded", async () => {
+    const kanban = await new KanbanService({ store, logger: testLogger() }).getOrCreateForProject(
+      "proj-1",
+    );
     const service = new KanbanService({
       store,
       logger: testLogger(),
       agentManager: { getAgent: () => null },
       agentStorage: {
         get: async () => ({ lastStatus: "idle", attentionReason: null }) as never,
+        list: async () => [orchestratorAgent({ id: "agent-1", kanbanId: kanban.id })] as never,
       },
     });
-    const kanban = await service.getOrCreateForProject("proj-1");
-    await service.provisionOrchestratorPointer(kanban.id, {
-      workspaceId: "ws-1",
-      agentId: "agent-1",
-    });
 
-    const peers = await service.listOrchestratorPeers();
-    expect(peers).toEqual([expect.objectContaining({ agentLastStatus: "idle", attention: false })]);
+    expect(await service.listOrchestratorPeers()).toEqual([
+      expect.objectContaining({ agentLastStatus: "idle", attention: false }),
+    ]);
   });
 
-  test("listOrchestratorPeers skips archived kanbans and kanbans without an orchestrator", async () => {
-    const service = new KanbanService({ store, logger: testLogger() });
-    await service.getOrCreateForProject("proj-no-orchestrator");
-    const archived = await service.getOrCreateForProject("proj-archived");
-    await service.provisionOrchestratorPointer(archived.id, {
-      workspaceId: "ws-1",
-      agentId: "agent-1",
+  test("reports every orchestrator a kanban has, not just the first", async () => {
+    const kanban = await new KanbanService({ store, logger: testLogger() }).getOrCreateForProject(
+      "proj-1",
+    );
+    const service = new KanbanService({
+      store,
+      logger: testLogger(),
+      agentManager: { getAgent: () => null },
+      agentStorage: {
+        get: async () => null,
+        list: async () =>
+          [
+            orchestratorAgent({ id: "agent-1", kanbanId: kanban.id, workspaceId: "ws-1" }),
+            orchestratorAgent({ id: "agent-2", kanbanId: kanban.id, workspaceId: "ws-2" }),
+          ] as never,
+      },
     });
-    await service.archive(archived.id);
+
+    const peers = await service.listOrchestrators(kanban.id);
+    expect(peers.map((peer) => peer.agentId)).toEqual(["agent-1", "agent-2"]);
+  });
+
+  test("skips agents without the labels and agents whose kanban is archived", async () => {
+    const bootstrap = new KanbanService({ store, logger: testLogger() });
+    const archived = await bootstrap.getOrCreateForProject("proj-archived");
+    await bootstrap.archive(archived.id);
+    const service = new KanbanService({
+      store,
+      logger: testLogger(),
+      agentManager: { getAgent: () => null },
+      agentStorage: {
+        get: async () => null,
+        list: async () =>
+          [
+            orchestratorAgent({ id: "agent-archived", kanbanId: archived.id }),
+            { id: "agent-plain", workspaceId: "ws-9", title: null, labels: {}, lastStatus: "idle" },
+          ] as never,
+      },
+    });
 
     expect(await service.listOrchestratorPeers()).toEqual([]);
+  });
+});
+
+describe("KanbanService plans", () => {
+  let tempDir: string;
+  let store: KanbanStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "kanban-plans-test-"));
+    store = new KanbanStore(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
   });
 
   test("getPlan resolves top-level and nested plans", async () => {
