@@ -55,4 +55,32 @@ describe("canonical CLI surface", () => {
     expect(open?.helpInformation()).toContain("<agent-id>");
     expect(open?.helpInformation()).toContain("--server <server-id>");
   });
+
+  it("exposes kanban and plan command groups mirroring schedule CLI UX", () => {
+    const cli = createCli();
+    const kanban = cli.commands.find((command) => command.name() === "kanban");
+    const plan = cli.commands.find((command) => command.name() === "plan");
+
+    expect(kanban?.commands.map((command) => command.name())).toEqual([
+      "ls",
+      "inspect",
+      "create",
+      "archive",
+      "peers",
+    ]);
+    expect(plan?.commands.map((command) => command.name())).toEqual([
+      "ls",
+      "inspect",
+      "create",
+      "move",
+      "run",
+      "retry",
+      "skip",
+      "logs",
+    ]);
+
+    const planCreate = plan?.commands.find((command) => command.name() === "create");
+    expect(planCreate?.helpInformation()).toContain("--column <columnId>");
+    expect(planCreate?.helpInformation()).toContain("--step-prompt <text>");
+  });
 });

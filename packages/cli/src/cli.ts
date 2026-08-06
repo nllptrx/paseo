@@ -6,6 +6,8 @@ import { createLoopCommand } from "./commands/loop/index.js";
 import { createPermitCommand } from "./commands/permit/index.js";
 import { createProviderCommand } from "./commands/provider/index.js";
 import { createScheduleCommand } from "./commands/schedule/index.js";
+import { createKanbanCommand } from "./commands/kanban/index.js";
+import { createPlanCommand } from "./commands/kanban/plan/index.js";
 import { createSpeechCommand } from "./commands/speech/index.js";
 import { createScriptCommand } from "./commands/script/index.js";
 import { createTerminalCommand } from "./commands/terminal/index.js";
@@ -182,6 +184,10 @@ export function createCli(): Command {
   // Schedule commands
   program.addCommand(createScheduleCommand());
   program.addCommand(createHeartbeatCommand());
+
+  // Kanban commands
+  program.addCommand(createKanbanCommand());
+  program.addCommand(createPlanCommand());
 
   // Permission commands
   program.addCommand(createPermitCommand());

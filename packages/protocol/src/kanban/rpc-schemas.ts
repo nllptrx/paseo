@@ -7,17 +7,20 @@ import {
   StoredKanbanSchema,
 } from "./types.js";
 
-const ColumnInputSchema = ColumnSchema.omit({ id: true, planIds: true });
+export const ColumnInputSchema = ColumnSchema.omit({ id: true, planIds: true });
+export type ColumnInput = z.infer<typeof ColumnInputSchema>;
 
-const StepInputSchema = StepSchema.omit({ id: true, runs: true });
+export const StepInputSchema = StepSchema.omit({ id: true, runs: true });
+export type StepInput = z.infer<typeof StepInputSchema>;
 
-const KanbanPlanCreateBodySchema = z.discriminatedUnion("type", [
+export const KanbanPlanCreateBodySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("workflow"), steps: z.array(StepInputSchema) }),
   z.object({
     type: z.literal("nested_kanban"),
     columns: z.array(ColumnInputSchema).optional(),
   }),
 ]);
+export type KanbanPlanCreateBody = z.infer<typeof KanbanPlanCreateBodySchema>;
 
 export const KanbanListRequestSchema = z.object({
   type: z.literal("kanban.list.request"),

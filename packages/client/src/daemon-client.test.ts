@@ -2821,6 +2821,89 @@ test("creates and registers a project directory through the dotted RPC", async (
   });
 });
 
+test("lists and creates kanbans through the dotted RPCs", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const listPromise = client.kanbanList("req-kanban-list");
+  expect(parseSentFrame(mock.sent[0])).toEqual({
+    type: "kanban.list.request",
+    requestId: "req-kanban-list",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "kanban.list.response",
+      payload: { requestId: "req-kanban-list", kanbans: [], error: null },
+    }),
+  );
+  await expect(listPromise).resolves.toEqual({
+    requestId: "req-kanban-list",
+    kanbans: [],
+    error: null,
+  });
+
+  const createPromise = client.kanbanCreate({
+    requestId: "req-kanban-create",
+    projectId: "project-1",
+    name: "Board",
+  });
+  expect(parseSentFrame(mock.sent[1])).toEqual({
+    type: "kanban.create.request",
+    requestId: "req-kanban-create",
+    projectId: "project-1",
+    name: "Board",
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "kanban.create.response",
+      payload: {
+        requestId: "req-kanban-create",
+        kanban: {
+          id: "kanban-1",
+          projectId: "project-1",
+          name: "Board",
+          autoAdvance: false,
+          orchestrator: null,
+          columns: [],
+          plans: {},
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          archivedAt: null,
+        },
+        error: null,
+      },
+    }),
+  );
+  await expect(createPromise).resolves.toEqual({
+    requestId: "req-kanban-create",
+    kanban: {
+      id: "kanban-1",
+      projectId: "project-1",
+      name: "Board",
+      autoAdvance: false,
+      orchestrator: null,
+      columns: [],
+      plans: {},
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null,
+    },
+    error: null,
+  });
+});
+
 test("sends first-agent prompt context with workspace.create.request", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();
