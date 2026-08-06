@@ -51,6 +51,11 @@ agent. Messages are steering, not dispatch — "take this plan" still goes throu
 kanban tools. Cross-host peers are visible read-only in the app rail; daemon
 messaging stays host-local in v1.
 
+In the app, an Orchestrator workspace gains an **Orchestrator** tab (menu ⋯ →
+Open Orchestrator when that workspace is linked). The pane reuses
+`KanbanBoardSurface` (same board as `/kanbans`, including web cross-column DnD)
+plus an Orchestrators rail that opens the host's `orchestrators` chat thread.
+
 ## Client data
 
 TanStack Query + push-router domain `kanban` (subscribe / `kanban.update`), same
