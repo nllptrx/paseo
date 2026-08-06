@@ -58,7 +58,36 @@ import {
   toScheduleSummary,
   waitForAgentWithTimeout,
 } from "../mcp-shared.js";
-import { sendPromptToAgent, setupFinishNotification } from "../agent-prompt.js";
+import {
+  sendPromptToAgent,
+  setupFinishNotification,
+  formatSystemNotificationPrompt,
+} from "../agent-prompt.js";
+import { resolveAgentIdentifier } from "../resolve-agent-identifier.js";
+import type { KanbanService } from "../../kanban/service.js";
+import {
+  isKanbanOrchestratorAgent,
+  getKanbanIdFromLabels,
+  getPlanIdFromLabels,
+} from "../../kanban/labels.js";
+import {
+  ChatServiceError,
+  parseMentionAgentIds,
+  type FileBackedChatService,
+} from "../../chat/chat-service.js";
+import { notifyChatMentions, prepareChatMentionFanout } from "../../chat/chat-mentions.js";
+import { ChatMessageSchema } from "@getpaseo/protocol/chat/types";
+import {
+  KanbanSummarySchema,
+  StoredKanbanSchema,
+  KanbanPlanSchema,
+  StepRunSchema,
+} from "@getpaseo/protocol/kanban/types";
+import {
+  ColumnInputSchema,
+  KanbanPlanCreateBodySchema,
+  OrchestratorPeerSchema,
+} from "@getpaseo/protocol/kanban/rpc-schemas";
 import { respondToAgentPermission } from "../permission-response.js";
 import {
   archiveAgentCommand,
@@ -97,6 +126,21 @@ export interface PaseoToolHostDependencies {
   terminalManager?: TerminalManager | null;
   getDaemonTcpPort?: () => number | null;
   scheduleService?: ScheduleService | null;
+  kanbanService?: Pick<
+    KanbanService,
+    | "list"
+    | "get"
+    | "getPlan"
+    | "getOrCreateForProject"
+    | "createPlan"
+    | "updatePlan"
+    | "movePlan"
+    | "listOrchestratorPeers"
+  >;
+  chatService?: Pick<
+    FileBackedChatService,
+    "createRoom" | "inspectRoom" | "dispatchMessage" | "listRoomPosterAgentIds"
+  >;
   providerSnapshotManager: ProviderSnapshotManager;
   github?: ForgeService;
   workspaceGitService?: Pick<
@@ -542,6 +586,8 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     terminalManager,
     workspaceScripts,
     scheduleService,
+    kanbanService,
+    chatService,
     providerSnapshotManager,
     callerAgentId,
     resolveSpeakHandler,
@@ -806,6 +852,73 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       throw new Error(`Heartbeat ${id} does not belong to caller ${callerAgentId}`);
     }
     return schedule;
+  }
+
+  // Kanban permission scoping (docs/kanban-workflow-stacking-plan.md §5/§6): no
+  // callerAgentId means a top-level session (app/CLI), trusted like the user. An
+  // agent-scoped caller is only trusted for kanban writes when its labels mark it as
+  // the Orchestrator for the kanban in question.
+  const ORCHESTRATORS_CHAT_ROOM = "orchestrators";
+
+  function requireUserOrAnyOrchestrator(action: string): void {
+    if (!callerAgentId) {
+      return;
+    }
+    const callerAgent = resolveCallerAgent();
+    if (!callerAgent || !isKanbanOrchestratorAgent(callerAgent.labels)) {
+      throw new Error(`${action} is only permitted for the user or an Orchestrator agent`);
+    }
+  }
+
+  function requireUserOrOwnOrchestrator(kanbanId: string, action: string): void {
+    if (!callerAgentId) {
+      return;
+    }
+    const callerAgent = resolveCallerAgent();
+    if (
+      !callerAgent ||
+      !isKanbanOrchestratorAgent(callerAgent.labels) ||
+      getKanbanIdFromLabels(callerAgent.labels) !== kanbanId
+    ) {
+      throw new Error(`${action} is only permitted for the user or the kanban's Orchestrator`);
+    }
+  }
+
+  // move_plan additionally allows a step agent to move its own Plan.
+  function authorizeMovePlan(params: { kanbanId: string; planId: string }): "user" | "agent" {
+    if (!callerAgentId) {
+      return "user";
+    }
+    const callerAgent = resolveCallerAgent();
+    if (!callerAgent) {
+      throw new Error(`Caller agent ${callerAgentId} not found`);
+    }
+    if (isKanbanOrchestratorAgent(callerAgent.labels)) {
+      if (getKanbanIdFromLabels(callerAgent.labels) !== params.kanbanId) {
+        throw new Error("move_plan is only permitted for the Orchestrator's own kanban");
+      }
+      return "agent";
+    }
+    const ownPlanId = getPlanIdFromLabels(callerAgent.labels);
+    if (ownPlanId && ownPlanId === params.planId) {
+      return "agent";
+    }
+    throw new Error("move_plan is not permitted for this agent");
+  }
+
+  async function getOrCreateOrchestratorsRoom() {
+    if (!chatService) {
+      throw new Error("Chat service is not configured");
+    }
+    try {
+      const { room } = await chatService.inspectRoom({ room: ORCHESTRATORS_CHAT_ROOM });
+      return room;
+    } catch (error) {
+      if (error instanceof ChatServiceError && error.code === "chat_room_not_found") {
+        return chatService.createRoom({ name: ORCHESTRATORS_CHAT_ROOM });
+      }
+      throw error;
+    }
   }
   const ProviderModelInputSchema = AgentProviderEnum.trim()
     .refine((value) => value.includes("/"), {
@@ -2978,6 +3091,348 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
           features,
         }),
       };
+    },
+  );
+
+  registerTool(
+    "list_kanbans",
+    {
+      title: "List kanbans",
+      description: "List every kanban board on this daemon (summaries, no plan bodies).",
+      inputSchema: {},
+      outputSchema: { kanbans: z.array(KanbanSummarySchema) },
+    },
+    async () => {
+      if (!kanbanService) {
+        throw new Error("Kanban service is not configured");
+      }
+      const kanbans = await kanbanService.list();
+      return { content: [], structuredContent: ensureValidJson({ kanbans }) };
+    },
+  );
+
+  registerTool(
+    "inspect_kanban",
+    {
+      title: "Inspect kanban",
+      description: "Get one kanban board in full: columns, plans, and their steps.",
+      inputSchema: { kanbanId: z.string().trim().min(1) },
+      outputSchema: { kanban: StoredKanbanSchema.nullable() },
+    },
+    async ({ kanbanId }) => {
+      if (!kanbanService) {
+        throw new Error("Kanban service is not configured");
+      }
+      const kanban = await kanbanService.get(kanbanId);
+      return { content: [], structuredContent: ensureValidJson({ kanban }) };
+    },
+  );
+
+  registerTool(
+    "plan_logs",
+    {
+      title: "Plan step-run logs",
+      description: "Read the step run history for a workflow Plan.",
+      inputSchema: {
+        kanbanId: z.string().trim().min(1),
+        planId: z.string().trim().min(1),
+        parentPlanId: z.string().trim().min(1).optional(),
+      },
+      outputSchema: {
+        steps: z.array(
+          z.object({ id: z.string(), name: z.string(), runs: z.array(StepRunSchema) }),
+        ),
+      },
+    },
+    async ({ kanbanId, planId, parentPlanId }) => {
+      if (!kanbanService) {
+        throw new Error("Kanban service is not configured");
+      }
+      const plan = await kanbanService.getPlan(kanbanId, planId, parentPlanId);
+      if (plan.body.type !== "workflow") {
+        throw new Error(`Plan ${planId} is a nested kanban, not a workflow`);
+      }
+      const steps = plan.body.steps.map((step) => ({
+        id: step.id,
+        name: step.name,
+        runs: step.runs,
+      }));
+      return { content: [], structuredContent: ensureValidJson({ steps }) };
+    },
+  );
+
+  registerTool(
+    "move_plan",
+    {
+      title: "Move plan",
+      description:
+        "Move a Plan card to a column and position. Users may move any Plan; an Orchestrator may move any Plan on its own kanban; a step agent may move only its own Plan (resolved via its paseo.plan-id label).",
+      inputSchema: {
+        kanbanId: z.string().trim().min(1),
+        planId: z.string().trim().min(1),
+        parentPlanId: z.string().trim().min(1).optional(),
+        columnId: z.string().trim().min(1),
+        index: z.number().int().nonnegative(),
+      },
+      outputSchema: { plan: KanbanPlanSchema },
+    },
+    async ({ kanbanId, planId, parentPlanId, columnId, index }) => {
+      if (!kanbanService) {
+        throw new Error("Kanban service is not configured");
+      }
+      const movedBy = authorizeMovePlan({ kanbanId, planId });
+      const plan = await kanbanService.movePlan({
+        kanbanId,
+        parentPlanId,
+        planId,
+        columnId,
+        index,
+        movedBy,
+      });
+      return { content: [], structuredContent: ensureValidJson({ plan }) };
+    },
+  );
+
+  registerTool(
+    "create_kanban",
+    {
+      title: "Create kanban",
+      description: "Get-or-create the kanban board for a project (one active kanban per project).",
+      inputSchema: {
+        projectId: z.string().trim().min(1),
+        name: z.string().trim().min(1).optional(),
+        columns: z.array(ColumnInputSchema).optional(),
+      },
+      outputSchema: { kanban: StoredKanbanSchema },
+    },
+    async ({ projectId, name, columns }) => {
+      if (!kanbanService) {
+        throw new Error("Kanban service is not configured");
+      }
+      requireUserOrAnyOrchestrator("create_kanban");
+      const kanban = await kanbanService.getOrCreateForProject(projectId, { name, columns });
+      return { content: [], structuredContent: ensureValidJson({ kanban }) };
+    },
+  );
+
+  registerTool(
+    "create_plan",
+    {
+      title: "Create plan",
+      description: "Create a Plan card (workflow or nested kanban) on a kanban board.",
+      inputSchema: {
+        kanbanId: z.string().trim().min(1),
+        parentPlanId: z.string().trim().min(1).optional(),
+        columnId: z.string().trim().min(1),
+        title: z.string().trim().min(1),
+        description: z.string().trim().min(1).optional(),
+        body: KanbanPlanCreateBodySchema,
+      },
+      outputSchema: { plan: KanbanPlanSchema },
+    },
+    async ({ kanbanId, parentPlanId, columnId, title, description, body }) => {
+      if (!kanbanService) {
+        throw new Error("Kanban service is not configured");
+      }
+      requireUserOrOwnOrchestrator(kanbanId, "create_plan");
+      const plan = await kanbanService.createPlan({
+        kanbanId,
+        parentPlanId,
+        columnId,
+        title,
+        description: description ?? null,
+        body,
+      });
+      return { content: [], structuredContent: ensureValidJson({ plan }) };
+    },
+  );
+
+  registerTool(
+    "update_plan",
+    {
+      title: "Update plan",
+      description: "Update a Plan card's title or description.",
+      inputSchema: {
+        kanbanId: z.string().trim().min(1),
+        parentPlanId: z.string().trim().min(1).optional(),
+        planId: z.string().trim().min(1),
+        title: z.string().trim().min(1).optional(),
+        description: z.string().trim().min(1).optional(),
+      },
+      outputSchema: { plan: KanbanPlanSchema },
+    },
+    async ({ kanbanId, parentPlanId, planId, title, description }) => {
+      if (!kanbanService) {
+        throw new Error("Kanban service is not configured");
+      }
+      requireUserOrOwnOrchestrator(kanbanId, "update_plan");
+      const plan = await kanbanService.updatePlan({
+        kanbanId,
+        parentPlanId,
+        planId,
+        title,
+        description,
+      });
+      return { content: [], structuredContent: ensureValidJson({ plan }) };
+    },
+  );
+
+  const kanbanStepActionInputSchema = {
+    kanbanId: z.string().trim().min(1),
+    parentPlanId: z.string().trim().min(1).optional(),
+    planId: z.string().trim().min(1),
+    stepId: z.string().trim().min(1),
+  };
+
+  async function requireExistingWorkflowStep(
+    kanbanId: string,
+    planId: string,
+    parentPlanId: string | undefined,
+    stepId: string,
+  ): Promise<void> {
+    if (!kanbanService) {
+      throw new Error("Kanban service is not configured");
+    }
+    const plan = await kanbanService.getPlan(kanbanId, planId, parentPlanId);
+    if (plan.body.type !== "workflow") {
+      throw new Error(`Plan ${planId} is a nested kanban, not a workflow`);
+    }
+    if (!plan.body.steps.some((step) => step.id === stepId)) {
+      throw new Error(`Step not found: ${stepId}`);
+    }
+  }
+
+  registerTool(
+    "run_plan_step",
+    {
+      title: "Run plan step",
+      description: "Start the next ready step of a workflow Plan.",
+      inputSchema: kanbanStepActionInputSchema,
+    },
+    async ({ kanbanId, planId, parentPlanId, stepId }) => {
+      requireUserOrOwnOrchestrator(kanbanId, "run_plan_step");
+      await requireExistingWorkflowStep(kanbanId, planId, parentPlanId, stepId);
+      throw new Error(
+        "Running workflow steps is not implemented yet — the workflow engine ships in a later slice.",
+      );
+    },
+  );
+
+  registerTool(
+    "skip_plan_step",
+    {
+      title: "Skip plan step",
+      description: "Mark a workflow step as skipped so the next step becomes ready.",
+      inputSchema: kanbanStepActionInputSchema,
+    },
+    async ({ kanbanId, planId, parentPlanId, stepId }) => {
+      requireUserOrOwnOrchestrator(kanbanId, "skip_plan_step");
+      await requireExistingWorkflowStep(kanbanId, planId, parentPlanId, stepId);
+      throw new Error(
+        "Skipping workflow steps is not implemented yet — the workflow engine ships in a later slice.",
+      );
+    },
+  );
+
+  registerTool(
+    "retry_plan_step",
+    {
+      title: "Retry plan step",
+      description: "Start a new run of a failed workflow step, reusing its workspace(s).",
+      inputSchema: kanbanStepActionInputSchema,
+    },
+    async ({ kanbanId, planId, parentPlanId, stepId }) => {
+      requireUserOrOwnOrchestrator(kanbanId, "retry_plan_step");
+      await requireExistingWorkflowStep(kanbanId, planId, parentPlanId, stepId);
+      throw new Error(
+        "Retrying workflow steps is not implemented yet — the workflow engine ships in a later slice.",
+      );
+    },
+  );
+
+  registerTool(
+    "list_orchestrators",
+    {
+      title: "List orchestrators",
+      description: "List Orchestrator peers on this daemon with live status and attention.",
+      inputSchema: {},
+      outputSchema: { peers: z.array(OrchestratorPeerSchema) },
+    },
+    async () => {
+      if (!kanbanService) {
+        throw new Error("Kanban service is not configured");
+      }
+      const peers = await kanbanService.listOrchestratorPeers();
+      return { content: [], structuredContent: ensureValidJson({ peers }) };
+    },
+  );
+
+  registerTool(
+    "send_orchestrator_message",
+    {
+      title: "Send orchestrator message",
+      description:
+        'Post a message to the "orchestrators" chat room, visible to every Orchestrator on this daemon. Use @mention to notify a specific peer by agent id. Only callable by an Orchestrator agent.',
+      inputSchema: { body: z.string().trim().min(1) },
+      outputSchema: { message: ChatMessageSchema },
+    },
+    async ({ body }) => {
+      if (!chatService) {
+        throw new Error("Chat service is not configured");
+      }
+      if (!callerAgentId) {
+        throw new Error("send_orchestrator_message requires an agent-scoped session");
+      }
+      const callerAgent = resolveCallerAgent();
+      if (!callerAgent || !isKanbanOrchestratorAgent(callerAgent.labels)) {
+        throw new Error("send_orchestrator_message is only available to Orchestrator agents");
+      }
+
+      const room = await getOrCreateOrchestratorsRoom();
+      const mentionAgentIds = parseMentionAgentIds(body);
+      const storedAgents = await agentStorage.list();
+      const liveAgents = agentManager.listAgents();
+      const fanout = await prepareChatMentionFanout({
+        authorAgentId: callerAgentId,
+        mentionAgentIds,
+        storedAgents,
+        liveAgents,
+        listRoomPosterAgentIds: () => chatService!.listRoomPosterAgentIds({ room: room.name }),
+      });
+      if (!fanout.ok) {
+        throw new Error(fanout.error);
+      }
+
+      const message = await chatService.dispatchMessage({
+        room: room.name,
+        authorAgentId: callerAgentId,
+        body,
+      });
+
+      void notifyChatMentions({
+        room: room.name,
+        authorAgentId: callerAgentId,
+        body,
+        mentionAgentIds: message.mentionAgentIds,
+        logger: childLogger,
+        storedAgents,
+        liveAgents,
+        prepared: fanout.prepared,
+        resolveAgentIdentifier: (identifier) =>
+          resolveAgentIdentifier({ agentStorage, agentManager, identifier }),
+        sendAgentMessage: async (agentId, text) => {
+          await sendPromptToAgent({
+            agentManager,
+            agentStorage,
+            agentId,
+            prompt: formatSystemNotificationPrompt(text),
+            unarchive: false,
+            logger: childLogger,
+          });
+        },
+      });
+
+      return { content: [], structuredContent: ensureValidJson({ message }) };
     },
   );
 

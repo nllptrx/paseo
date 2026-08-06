@@ -1236,7 +1236,12 @@ export async function createPaseoDaemon(
   });
   logger.info({ elapsed: elapsed() }, "Schedule service initialized");
   const kanbanStore = new KanbanStore(path.join(config.paseoHome, "kanbans"));
-  const kanbanService = new KanbanService({ store: kanbanStore, logger });
+  const kanbanService = new KanbanService({
+    store: kanbanStore,
+    logger,
+    agentManager,
+    agentStorage,
+  });
   const kanbanEngine = new KanbanEngine({
     kanbanService,
     agentManager,
@@ -1275,6 +1280,8 @@ export async function createPaseoDaemon(
     terminalManager,
     getDaemonTcpPort: () => (boundListenTarget?.type === "tcp" ? boundListenTarget.port : null),
     scheduleService,
+    kanbanService,
+    chatService,
     providerSnapshotManager,
     github,
     workspaceGitService,

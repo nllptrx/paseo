@@ -2,30 +2,44 @@ import type pino from "pino";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../../messages.js";
 import type { KanbanEngine } from "../../kanban/engine.js";
 import type { KanbanService } from "../../kanban/service.js";
+import {
+  provisionKanbanOrchestrator,
+  type OrchestratorProvisioningDeps,
+} from "../../kanban/orchestrator-provisioning.js";
 
 export interface KanbanSessionHost {
   emit(msg: SessionOutboundMessage): void;
 }
+
+export type KanbanOrchestratorProvisioningDeps = Omit<
+  OrchestratorProvisioningDeps,
+  "kanbanService" | "logger"
+>;
 
 export interface KanbanSessionOptions {
   host: KanbanSessionHost;
   kanbanService: KanbanService;
   kanbanEngine: KanbanEngine;
   logger: pino.Logger;
+  // Optional: orchestrator provisioning needs a project registry, workspace
+  // provisioning, and agent-creation collaborators that most callers (tests that
+  // never provision an Orchestrator) don't need to construct.
+  orchestratorProvisioning?: KanbanOrchestratorProvisioningDeps;
 }
 
 /**
  * A client's kanban request surface: board/plan CRUD, plan moves, step
- * run/retry/skip/cancel, orchestrator pointer stubs, and the kanban.update
- * push subscription. Plan moves and step actions go through `kanbanEngine`
- * (not `kanbanService` directly) so column-entry automations and the
- * workflow gate machinery run on every move/action regardless of caller.
+ * run/retry/skip/cancel, orchestrator provision/unlink/peer-listing, and the
+ * kanban.update push subscription. Plan moves and step actions go through
+ * `kanbanEngine` (not `kanbanService` directly) so column-entry automations and
+ * the workflow gate machinery run on every move/action regardless of caller.
  */
 export class KanbanSession {
   private readonly host: KanbanSessionHost;
   private readonly kanbanService: KanbanService;
   private readonly kanbanEngine: KanbanEngine;
   private readonly logger: pino.Logger;
+  private readonly orchestratorProvisioning?: KanbanOrchestratorProvisioningDeps;
   private unsubscribeKanbanChanges: (() => void) | null = null;
 
   constructor(options: KanbanSessionOptions) {
@@ -33,6 +47,7 @@ export class KanbanSession {
     this.kanbanService = options.kanbanService;
     this.kanbanEngine = options.kanbanEngine;
     this.logger = options.logger;
+    this.orchestratorProvisioning = options.orchestratorProvisioning;
   }
 
   private emitKanbanRpcError(request: { requestId: string; type: string }, error: unknown): void {
@@ -285,15 +300,25 @@ export class KanbanSession {
   async handleOrchestratorProvisionRequest(
     request: Extract<SessionInboundMessage, { type: "kanban.orchestrator.provision.request" }>,
   ): Promise<void> {
-    // No workspaceId/agentId on the wire request to point at yet: real provisioning
-    // needs to create a workspace + agent first, which ships in a later slice.
-    this.emitKanbanRpcError(
-      request,
-      new Error(
-        "Orchestrator provisioning is not implemented yet — pointer-only stub, full provisioning ships in a later slice.",
-      ),
-    );
-    return Promise.resolve();
+    try {
+      if (!this.orchestratorProvisioning) {
+        throw new Error("Orchestrator provisioning is not configured on this daemon");
+      }
+      const kanban = await provisionKanbanOrchestrator(
+        {
+          ...this.orchestratorProvisioning,
+          kanbanService: this.kanbanService,
+          logger: this.logger,
+        },
+        request.kanbanId,
+      );
+      this.host.emit({
+        type: "kanban.orchestrator.provision.response",
+        payload: { requestId: request.requestId, kanban, error: null },
+      });
+    } catch (error) {
+      this.emitKanbanRpcError(request, error);
+    }
   }
 
   async handleOrchestratorUnlinkRequest(

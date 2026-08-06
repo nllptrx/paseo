@@ -9,6 +9,8 @@ import type {
   StoredKanban,
 } from "@getpaseo/protocol/kanban/types";
 import type { OrchestratorPeer } from "@getpaseo/protocol/kanban/rpc-schemas";
+import type { AgentManager } from "../agent/agent-manager.js";
+import type { AgentStorage } from "../agent/agent-storage.js";
 import { KanbanStore } from "./store.js";
 
 type ColumnInput = Omit<Column, "id" | "planIds">;
@@ -21,6 +23,11 @@ type KanbanPlanCreateBody =
 export interface KanbanServiceOptions {
   store: KanbanStore;
   logger: pino.Logger;
+  // Optional: only needed to resolve live status/attention for orchestrator peer
+  // listing. Kept optional so callers that never touch the orchestrator mesh (most
+  // unit tests) don't have to construct an AgentManager/AgentStorage.
+  agentManager?: Pick<AgentManager, "getAgent">;
+  agentStorage?: Pick<AgentStorage, "get">;
 }
 
 export type KanbanChangeEvent =
@@ -163,10 +170,14 @@ export class KanbanService {
   private readonly store: KanbanStore;
   private readonly logger: pino.Logger;
   private readonly listeners = new Set<KanbanChangeListener>();
+  private readonly agentManager?: Pick<AgentManager, "getAgent">;
+  private readonly agentStorage?: Pick<AgentStorage, "get">;
 
   constructor(options: KanbanServiceOptions) {
     this.store = options.store;
     this.logger = options.logger.child({ module: "kanban-service" });
+    this.agentManager = options.agentManager;
+    this.agentStorage = options.agentStorage;
   }
 
   onChange(listener: KanbanChangeListener): () => void {
@@ -190,6 +201,19 @@ export class KanbanService {
 
   async get(id: string): Promise<StoredKanban | null> {
     return this.store.get(id);
+  }
+
+  // Read-only plan lookup shared by callers that only need one plan (MCP plan_logs,
+  // move_plan authorization) without duplicating the top-level/nested resolution.
+  async getPlan(
+    kanbanId: string,
+    planId: string,
+    parentPlanId?: string | null,
+  ): Promise<KanbanPlan> {
+    const kanban = requireKanban(await this.store.get(kanbanId), kanbanId);
+    return parentPlanId
+      ? findNestedPlan(kanban, parentPlanId, planId)
+      : findTopLevelPlan(kanban, planId);
   }
 
   async getOrCreateForProject(
@@ -559,10 +583,43 @@ export class KanbanService {
     return result;
   }
 
-  // Stubbed at [] to avoid taking an agent-manager/workspace-registry dependency in this
-  // slice; live peer status wiring lands with orchestrator provisioning.
+  // Joins every non-archived kanban's orchestrator pointer against live agent state
+  // (falling back to the persisted record when the agent isn't currently loaded) —
+  // no peer status is stored on the kanban itself.
   async listOrchestratorPeers(): Promise<OrchestratorPeer[]> {
-    return [];
+    const kanbans = await this.store.list();
+    const peers: OrchestratorPeer[] = [];
+    for (const kanban of kanbans) {
+      if (kanban.archivedAt || !kanban.orchestrator) {
+        continue;
+      }
+      const { workspaceId, agentId } = kanban.orchestrator;
+      const status = await this.resolveOrchestratorAgentStatus(agentId);
+      peers.push({
+        kanbanId: kanban.id,
+        kanbanName: kanban.name,
+        projectId: kanban.projectId,
+        workspaceId,
+        agentId,
+        agentLastStatus: status.lastStatus,
+        attention: status.attention,
+      });
+    }
+    return peers;
+  }
+
+  private async resolveOrchestratorAgentStatus(
+    agentId: string,
+  ): Promise<{ lastStatus: string | null; attention: boolean }> {
+    const live = this.agentManager?.getAgent(agentId) ?? null;
+    if (live) {
+      return { lastStatus: live.lifecycle, attention: live.attention.requiresAttention };
+    }
+    const stored = (await this.agentStorage?.get(agentId)) ?? null;
+    return {
+      lastStatus: stored?.lastStatus ?? null,
+      attention: Boolean(stored?.attentionReason),
+    };
   }
 
   // Read-only lookup of a plan (top-level or nested) — used by the workflow engine

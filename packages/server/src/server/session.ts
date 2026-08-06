@@ -83,6 +83,7 @@ import type {
   ManagedAgent,
 } from "./agent/agent-manager.js";
 import { createAgentCommand } from "./agent/create-agent/create.js";
+import { resolveAgentIdentifier as resolveAgentIdentifierShared } from "./agent/resolve-agent-identifier.js";
 import { resolveCreateAgentIntent, type CreateAgentIntent } from "./agent/create-agent/intent.js";
 import {
   archiveAgentCommand,
@@ -870,6 +871,64 @@ export class Session {
       kanbanService,
       kanbanEngine,
       logger: this.sessionLogger,
+      orchestratorProvisioning: {
+        projectRegistry: this.projectRegistry,
+        createDirectoryWorkspace: async (cwd, title, projectId) => {
+          const workspace = await this.workspaceProvisioning.createWorkspaceForDirectory(
+            cwd,
+            title,
+            projectId,
+          );
+          await this.emitWorkspaceUpdatesForWorkspaceIds([workspace.workspaceId]);
+          return workspace;
+        },
+        createAgent: (input) =>
+          createAgentCommand(
+            {
+              agentManager: this.agentManager,
+              agentStorage: this.agentStorage,
+              logger: this.sessionLogger,
+              paseoHome: this.paseoHome,
+              worktreesRoot: this.worktreesRoot,
+              providerSnapshotManager: this.providerSnapshotManager,
+            },
+            input,
+          ),
+        resolveDefaultProvider: async () => {
+          const providers = await this.providerSnapshotManager.listProviders({ wait: true });
+          const enabled = providers.find((provider) => provider.enabled);
+          if (!enabled) {
+            throw new Error("No agent provider is available to provision an Orchestrator");
+          }
+          return enabled.provider;
+        },
+        archiveWorkspace: async (workspaceId) => {
+          await archiveByScope(
+            {
+              paseoHome: this.paseoHome,
+              paseoWorktreesBaseRoot: this.worktreesRoot,
+              github: this.github,
+              workspaceGitService: this.workspaceGitService,
+              agentManager: this.agentManager,
+              agentStorage: this.agentStorage,
+              findWorkspaceIdForCwd: (cwd) => this.findWorkspaceIdForCwd(cwd),
+              listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
+              archiveWorkspaceRecord: (id) => this.archiveWorkspaceRecord(id),
+              emitWorkspaceUpdatesForWorkspaceIds: (ids) =>
+                this.emitWorkspaceUpdatesForWorkspaceIds(ids),
+              markWorkspaceArchiving: (ids, at) => this.markWorkspaceArchiving(ids, at),
+              clearWorkspaceArchiving: (ids) => this.clearWorkspaceArchiving(ids),
+              killTerminalsForWorkspace: (id) =>
+                this.terminalController.killTerminalsForWorkspace(id),
+              sessionLogger: this.sessionLogger,
+            },
+            {
+              scope: { kind: "workspace", workspaceId },
+              requestId: "kanban-orchestrator-rollback",
+            },
+          );
+        },
+      },
     });
     this.providerCatalogSession = new ProviderCatalogSession({
       host: {
@@ -4143,54 +4202,11 @@ export class Session {
   private async resolveAgentIdentifier(
     identifier: string,
   ): Promise<{ ok: true; agentId: string } | { ok: false; error: string }> {
-    const trimmed = identifier.trim();
-    if (!trimmed) {
-      return { ok: false, error: "Agent identifier cannot be empty" };
-    }
-
-    const stored = await this.agentStorage.list();
-    const storedRecords = stored.filter((record) => !record.internal);
-    const knownIds = new Set<string>();
-    for (const record of storedRecords) {
-      knownIds.add(record.id);
-    }
-    for (const agent of this.agentManager.listAgents()) {
-      knownIds.add(agent.id);
-    }
-
-    if (knownIds.has(trimmed)) {
-      return { ok: true, agentId: trimmed };
-    }
-
-    const prefixMatches = Array.from(knownIds).filter((id) => id.startsWith(trimmed));
-    if (prefixMatches.length === 1) {
-      return { ok: true, agentId: prefixMatches[0] };
-    }
-    if (prefixMatches.length > 1) {
-      return {
-        ok: false,
-        error: `Agent identifier "${trimmed}" is ambiguous (${prefixMatches
-          .slice(0, 5)
-          .map((id) => id.slice(0, 8))
-          .join(", ")}${prefixMatches.length > 5 ? ", …" : ""})`,
-      };
-    }
-
-    const titleMatches = storedRecords.filter((record) => record.title === trimmed);
-    if (titleMatches.length === 1) {
-      return { ok: true, agentId: titleMatches[0].id };
-    }
-    if (titleMatches.length > 1) {
-      return {
-        ok: false,
-        error: `Agent title "${trimmed}" is ambiguous (${titleMatches
-          .slice(0, 5)
-          .map((r) => r.id.slice(0, 8))
-          .join(", ")}${titleMatches.length > 5 ? ", …" : ""})`,
-      };
-    }
-
-    return { ok: false, error: `Agent not found: ${trimmed}` };
+    return resolveAgentIdentifierShared({
+      agentStorage: this.agentStorage,
+      agentManager: this.agentManager,
+      identifier,
+    });
   }
 
   private async getAgentPayloadById(agentId: string): Promise<AgentSnapshotPayload | null> {

@@ -941,3 +941,259 @@ describe("Suite E: Worktree Tools", () => {
     }
   });
 });
+
+describe("Suite F: Kanban Tools", () => {
+  let kanbanProjectId: string;
+  let kanbanId: string;
+  let seedAgentId: string | null = null;
+
+  async function projectIdForCwd(cwd: string): Promise<string> {
+    const workspaces = await callToolStructured(topLevelClient, "list_workspaces", {});
+    const match = recordArr(workspaces.workspaces).find((workspace) => workspace.cwd === cwd);
+    if (!match) {
+      throw new Error(`No workspace found for cwd: ${cwd}`);
+    }
+    return str(match.projectId);
+  }
+
+  beforeAll(async () => {
+    const cwd = await makeCwd("kanban-project-cwd");
+    seedAgentId = await createTopLevelAgent({ cwd, title: "Kanban project seed agent" });
+    kanbanProjectId = await projectIdForCwd(cwd);
+
+    const kanban = await callToolStructured(topLevelClient, "create_kanban", {
+      projectId: kanbanProjectId,
+      name: "Parity board",
+    });
+    kanbanId = str((kanban.kanban as StructuredContent).id);
+  }, 30_000);
+
+  afterAll(async () => {
+    await archiveAgentIfPresent(seedAgentId);
+  });
+
+  test("list_kanbans and inspect_kanban round-trip", async () => {
+    const list = await callToolStructured(topLevelClient, "list_kanbans", {});
+    expect(recordArr(list.kanbans).some((kanban) => kanban.id === kanbanId)).toBe(true);
+
+    const inspected = await callToolStructured(topLevelClient, "inspect_kanban", { kanbanId });
+    expect((inspected.kanban as StructuredContent).id).toBe(kanbanId);
+  });
+
+  test("create_plan, update_plan, move_plan, and plan_logs as a user", async () => {
+    const inspected = await callToolStructured(topLevelClient, "inspect_kanban", { kanbanId });
+    const columns = recordArr((inspected.kanban as StructuredContent).columns);
+    const backlogColumnId = str(columns[0].id);
+    const activeColumnId = str(columns[1].id);
+
+    const created = await callToolStructured(topLevelClient, "create_plan", {
+      kanbanId,
+      columnId: backlogColumnId,
+      title: "Ship the thing",
+      body: {
+        type: "workflow",
+        steps: [
+          {
+            name: "Step 1",
+            prompt: "do it",
+            agents: [{ provider: "claude" }],
+            completion: "all",
+            workspace: { mode: "worktree" },
+            trigger: { type: "manual" },
+          },
+        ],
+      },
+    });
+    const planId = str((created.plan as StructuredContent).id);
+
+    const updated = await callToolStructured(topLevelClient, "update_plan", {
+      kanbanId,
+      planId,
+      title: "Ship the thing (v2)",
+    });
+    expect((updated.plan as StructuredContent).title).toBe("Ship the thing (v2)");
+
+    const moved = await callToolStructured(topLevelClient, "move_plan", {
+      kanbanId,
+      planId,
+      columnId: activeColumnId,
+      index: 0,
+    });
+    expect(moved.plan).toMatchObject({ lastMove: { by: "user" } });
+
+    const logs = await callToolStructured(topLevelClient, "plan_logs", { kanbanId, planId });
+    const steps = recordArr(logs.steps);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].runs).toEqual([]);
+    const stepId = str(steps[0].id);
+
+    for (const action of ["run_plan_step", "skip_plan_step", "retry_plan_step"]) {
+      await expectToolError(
+        topLevelClient,
+        action,
+        { kanbanId, planId, stepId },
+        /not implemented yet/i,
+      );
+    }
+  });
+
+  test("move_plan is scoped to the Orchestrator's own kanban", async () => {
+    const inspected = await callToolStructured(topLevelClient, "inspect_kanban", { kanbanId });
+    const columns = recordArr((inspected.kanban as StructuredContent).columns);
+    const created = await callToolStructured(topLevelClient, "create_plan", {
+      kanbanId,
+      columnId: str(columns[0].id),
+      title: "Orchestrator-scoped plan",
+      body: { type: "workflow", steps: [] },
+    });
+    const planId = str((created.plan as StructuredContent).id);
+
+    const otherCwd = await makeCwd("kanban-other-project-cwd");
+    let otherSeedAgentId: string | null = null;
+    let orchestratorAgentId: string | null = null;
+    let orchestratorClient: McpClient | null = null;
+    try {
+      otherSeedAgentId = await createTopLevelAgent({ cwd: otherCwd, title: "Other project seed" });
+      const otherProjectId = await projectIdForCwd(otherCwd);
+      const otherKanban = await callToolStructured(topLevelClient, "create_kanban", {
+        projectId: otherProjectId,
+      });
+      const otherKanbanId = str((otherKanban.kanban as StructuredContent).id);
+
+      orchestratorAgentId = await createTopLevelAgent({
+        title: "Orchestrator for other kanban",
+        labels: { "paseo.kanban-orchestrator": "true", "paseo.kanban-id": otherKanbanId },
+      });
+      orchestratorClient = await createMcpClient(
+        `http://127.0.0.1:${daemonHandle.port}/mcp/agents?callerAgentId=${encodeURIComponent(
+          orchestratorAgentId,
+        )}`,
+      );
+
+      await expectToolError(
+        orchestratorClient,
+        "move_plan",
+        { kanbanId, planId, columnId: str(columns[1].id), index: 0 },
+        /only permitted for the Orchestrator's own kanban|not permitted for this agent/i,
+      );
+    } finally {
+      await orchestratorClient?.close();
+      await archiveAgentIfPresent(orchestratorAgentId);
+      await archiveAgentIfPresent(otherSeedAgentId);
+    }
+  });
+
+  test("move_plan allows a step agent to move only its own Plan", async () => {
+    const inspected = await callToolStructured(topLevelClient, "inspect_kanban", { kanbanId });
+    const columns = recordArr((inspected.kanban as StructuredContent).columns);
+    const ownPlan = await callToolStructured(topLevelClient, "create_plan", {
+      kanbanId,
+      columnId: str(columns[0].id),
+      title: "Step agent's own plan",
+      body: { type: "workflow", steps: [] },
+    });
+    const ownPlanId = str((ownPlan.plan as StructuredContent).id);
+    const otherPlan = await callToolStructured(topLevelClient, "create_plan", {
+      kanbanId,
+      columnId: str(columns[0].id),
+      title: "A different plan",
+      body: { type: "workflow", steps: [] },
+    });
+    const otherPlanId = str((otherPlan.plan as StructuredContent).id);
+
+    let stepAgentId: string | null = null;
+    let stepAgentClient: McpClient | null = null;
+    try {
+      stepAgentId = await createTopLevelAgent({
+        title: "Step agent",
+        labels: { "paseo.plan-id": ownPlanId },
+      });
+      stepAgentClient = await createMcpClient(
+        `http://127.0.0.1:${daemonHandle.port}/mcp/agents?callerAgentId=${encodeURIComponent(
+          stepAgentId,
+        )}`,
+      );
+
+      const moved = await callToolStructured(stepAgentClient, "move_plan", {
+        kanbanId,
+        planId: ownPlanId,
+        columnId: str(columns[1].id),
+        index: 0,
+      });
+      expect(moved.plan).toMatchObject({ lastMove: { by: "agent" } });
+
+      await expectToolError(
+        stepAgentClient,
+        "move_plan",
+        { kanbanId, planId: otherPlanId, columnId: str(columns[1].id), index: 0 },
+        /not permitted for this agent/i,
+      );
+    } finally {
+      await stepAgentClient?.close();
+      await archiveAgentIfPresent(stepAgentId);
+    }
+  });
+
+  test("list_orchestrators is callable by any caller", async () => {
+    const payload = await callToolStructured(topLevelClient, "list_orchestrators", {});
+    expect(Array.isArray(payload.peers)).toBe(true);
+  });
+
+  test("send_orchestrator_message is gated to Orchestrator agents and delivers @mentions", async () => {
+    let orchestratorAId: string | null = null;
+    let orchestratorBId: string | null = null;
+    let orchestratorAClient: McpClient | null = null;
+    try {
+      orchestratorAId = await createTopLevelAgent({
+        title: "Orchestrator A",
+        labels: { "paseo.kanban-orchestrator": "true", "paseo.kanban-id": kanbanId },
+      });
+      orchestratorBId = await createTopLevelAgent({ title: "Orchestrator B (mention target)" });
+      orchestratorAClient = await createMcpClient(
+        `http://127.0.0.1:${daemonHandle.port}/mcp/agents?callerAgentId=${encodeURIComponent(
+          orchestratorAId,
+        )}`,
+      );
+
+      await expectToolError(
+        topLevelClient,
+        "send_orchestrator_message",
+        { body: "hello" },
+        /requires an agent-scoped session/i,
+      );
+      await expectToolError(
+        agentScopedClient,
+        "send_orchestrator_message",
+        { body: "hello" },
+        /only available to Orchestrator agents/i,
+      );
+
+      const timelineBefore = daemonHandle.daemon.agentManager.getTimeline(
+        orchestratorBId as string,
+      );
+
+      const message = await callToolStructured(orchestratorAClient, "send_orchestrator_message", {
+        body: `status update @${orchestratorBId}`,
+      });
+      expect(str(message.message && (message.message as StructuredContent).body)).toContain(
+        "status update",
+      );
+
+      // The fake test provider doesn't echo prompt text back into its own timeline, so
+      // delivery is verified by the mentioned agent starting a new turn (its assistant
+      // timeline growing) rather than by matching the injected prompt's literal text.
+      await waitFor({
+        timeoutMs: 5_000,
+        check: () => {
+          const timeline = daemonHandle.daemon.agentManager.getTimeline(orchestratorBId as string);
+          return timeline.length > timelineBefore.length ? timeline : null;
+        },
+        label: "the mentioned Orchestrator starting a new turn from the delivered mention",
+      });
+    } finally {
+      await orchestratorAClient?.close();
+      await archiveAgentIfPresent(orchestratorAId);
+      await archiveAgentIfPresent(orchestratorBId);
+    }
+  }, 15_000);
+});
