@@ -1,7 +1,13 @@
 import { useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { FolderKanban, GitBranch, MoreVertical, Workflow } from "lucide-react-native";
+import {
+  FolderKanban,
+  GitBranch,
+  GitBranchPlus,
+  MoreVertical,
+  Workflow,
+} from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { KanbanPlan, NestedPlan } from "@getpaseo/protocol/kanban/types";
 import {
@@ -11,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusBucketDot } from "@/components/status-bucket-dot";
+import { WorkspaceMetaRow } from "@/components/sidebar/workspace-meta-row";
 import { getProviderIcon } from "@/components/provider-icons";
 import { useCompactTimeAgo } from "@/hooks/use-compact-time-ago";
 import { useElapsedLabel } from "@/hooks/use-elapsed-label";
@@ -24,6 +31,7 @@ const ThemedFolderKanban = withUnistyles(FolderKanban);
 const ThemedWorkflow = withUnistyles(Workflow);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedGitBranch = withUnistyles(GitBranch);
+const ThemedGitBranchPlus = withUnistyles(GitBranchPlus);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 
@@ -58,7 +66,8 @@ export function KanbanCard({
   const [menuOpen, setMenuOpen] = useState(false);
 
   const workspaceIds = useMemo(() => deriveKanbanPlanWorkspaceIds(plan), [plan]);
-  const { statusByWorkspaceId, branch } = useKanbanPlanWorkspaceSignals(serverId, workspaceIds);
+  const { statusByWorkspaceId, branch, prHint, serviceSummary, isWorktree, diffStat } =
+    useKanbanPlanWorkspaceSignals(serverId, workspaceIds);
   const bucket = useMemo<SidebarStateBucket | null>(() => {
     if (statusByWorkspaceId.size === 0) {
       return null;
@@ -112,12 +121,21 @@ export function KanbanCard({
           ))}
         </View>
         <Text style={styles.metaText}>{progressLabel}</Text>
+        {isWorktree ? (
+          <ThemedGitBranchPlus size={ICON_SIZE.xs} uniProps={mutedIconMapping} />
+        ) : null}
         {branch ? (
           <View style={styles.branch}>
             <ThemedGitBranch size={ICON_SIZE.xs} uniProps={mutedIconMapping} />
             <Text style={styles.branchText} numberOfLines={1}>
               {branch}
             </Text>
+          </View>
+        ) : null}
+        {diffStat && (diffStat.additions > 0 || diffStat.deletions > 0) ? (
+          <View style={styles.diff}>
+            <Text style={styles.diffAdd}>+{diffStat.additions}</Text>
+            <Text style={styles.diffDel}>-{diffStat.deletions}</Text>
           </View>
         ) : null}
 
@@ -157,6 +175,12 @@ export function KanbanCard({
           )}
         </View>
       </View>
+
+      {/* The same change-request / checks / service line the workspace row uses:
+          a card and a row describe the same work, so they say the same things. */}
+      {prHint || serviceSummary ? (
+        <WorkspaceMetaRow hostBadge={null} prHint={prHint} serviceSummary={serviceSummary} />
+      ) : null}
     </Pressable>
   );
 }
@@ -230,6 +254,20 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
     flexShrink: 1,
+  },
+  diff: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    flexShrink: 0,
+  },
+  diffAdd: {
+    color: theme.colors.diffAddition,
+    fontSize: theme.fontSize.xs,
+  },
+  diffDel: {
+    color: theme.colors.diffDeletion,
+    fontSize: theme.fontSize.xs,
   },
   metaTrailing: {
     marginLeft: "auto",

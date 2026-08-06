@@ -120,11 +120,11 @@ describe("sidebar view store", () => {
   it("keeps a persisted kanban grouping mode", () => {
     expect(
       migrateSidebarViewState({
-        groupMode: "kanban",
+        groupMode: "status",
         hostFilters: [],
       }),
     ).toEqual({
-      groupMode: "kanban",
+      groupMode: "status",
       hostFilters: [],
     });
   });

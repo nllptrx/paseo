@@ -8,8 +8,10 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
 import { deriveBoard } from "@/kanban/derive-board";
+import { resolvePlanOpenTarget } from "@/kanban/plan-open-target";
 import { resolveNextRunnableStepId } from "@/kanban/run-plan";
 import { useKanbanDraftOrder, useKanbanDraftOrderStore } from "@/stores/kanban-draft-order-store";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { toErrorMessage } from "@/utils/error-messages";
 import { KanbanBoard } from "./kanban-board";
 import type { KanbanCardAction } from "./kanban-card";
@@ -96,6 +98,27 @@ export function KanbanBoardSurface({
     [archivePlan, handleRunPlan, kanbanId, t],
   );
 
+  /**
+   * Work that is under way is a conversation, so the card opens it. Only a plan
+   * with nothing running falls back to the step list.
+   */
+  const handleOpenPlan = useCallback(
+    (planId: string) => {
+      const plan = detail?.plans[planId];
+      const target = plan ? resolvePlanOpenTarget(plan) : { kind: "plan" as const };
+      if (target.kind === "agent") {
+        navigateToWorkspace({
+          serverId,
+          workspaceId: target.workspaceId,
+          target: { kind: "agent", agentId: target.agentId },
+        });
+        return;
+      }
+      setOpenPlanId(planId);
+    },
+    [detail, serverId],
+  );
+
   const handleClosePlan = useCallback(() => setOpenPlanId(null), []);
   const handleOpenCreatePlan = useCallback(() => setIsCreatingPlan(true), []);
   const handleCloseCreatePlan = useCallback(() => setIsCreatingPlan(false), []);
@@ -133,7 +156,7 @@ export function KanbanBoardSurface({
       <KanbanBoard
         serverId={serverId}
         board={board}
-        onOpenPlan={setOpenPlanId}
+        onOpenPlan={handleOpenPlan}
         onCreatePlan={handleOpenCreatePlan}
         planActions={planActions}
         onRunPlan={handleRunPlan}

@@ -1,8 +1,3 @@
-import {
-  splitWorkspacesByKanbanColumn,
-  type KanbanColumnGroup,
-  type KanbanColumnRef,
-} from "@/hooks/sidebar-kanban-view-model";
 import { buildStatusGroups, type StatusGroup } from "@/hooks/sidebar-status-view-model";
 import {
   splitPinnedSidebarGroups,
@@ -23,8 +18,6 @@ import {
 export interface SidebarProjection {
   pinnedGroups: PinnedSidebarGroups;
   statusGroups: StatusGroup[];
-  kanbanColumnGroups: KanbanColumnGroup[];
-  kanbanUnboundedGroups: StatusGroup[];
   shortcutModel: SidebarShortcutModel;
 }
 
@@ -37,7 +30,6 @@ export function buildSidebarProjection(input: {
   pinnedCollapsed: boolean;
   collapsedProjectKeys: ReadonlySet<string>;
   collapsedStatusGroupKeys: ReadonlySet<string>;
-  kanbanColumnRefByWorkspaceKey?: ReadonlyMap<string, KanbanColumnRef>;
 }): SidebarProjection {
   const pinnedGroups = splitPinnedSidebarGroups({
     projects: input.projects,
@@ -52,20 +44,6 @@ export function buildSidebarProjection(input: {
       ? buildStatusGroups(unpinnedWorkspaces, input.projectNamesByViewKey)
       : [];
 
-  // Kanban grouping follows the status-mode projection path (full workspace entries, not the
-  // project-mode skip) because column sections and the trailing Unbounded section both need
-  // per-workspace status, per docs/kanban-workflow-stacking-plan.md §8.
-  let kanbanColumnGroups: KanbanColumnGroup[] = [];
-  let kanbanUnboundedGroups: StatusGroup[] = [];
-  if (input.groupMode === "kanban") {
-    const { columnGroups, unboundedWorkspaces } = splitWorkspacesByKanbanColumn(
-      unpinnedWorkspaces,
-      input.kanbanColumnRefByWorkspaceKey ?? new Map(),
-    );
-    kanbanColumnGroups = columnGroups;
-    kanbanUnboundedGroups = buildStatusGroups(unboundedWorkspaces, input.projectNamesByViewKey);
-  }
-
   const sections: SidebarShortcutSection[] = [];
   if (!input.pinnedCollapsed) {
     sections.push({ workspaces: pinnedGroups.pinnedChats });
@@ -75,17 +53,6 @@ export function buildSidebarProjection(input: {
       ...statusGroups.map((group) => ({
         workspaces: group.rows,
         collapsed: input.collapsedStatusGroupKeys.has(group.bucket),
-      })),
-    );
-  } else if (input.groupMode === "kanban") {
-    sections.push(
-      ...kanbanColumnGroups.map((group) => ({
-        workspaces: group.rows,
-        collapsed: input.collapsedStatusGroupKeys.has(group.key),
-      })),
-      ...kanbanUnboundedGroups.map((group) => ({
-        workspaces: group.rows,
-        collapsed: input.collapsedStatusGroupKeys.has(`unbounded:${group.bucket}`),
       })),
     );
   } else {
@@ -100,8 +67,6 @@ export function buildSidebarProjection(input: {
   return {
     pinnedGroups,
     statusGroups,
-    kanbanColumnGroups,
-    kanbanUnboundedGroups,
     shortcutModel: buildSidebarShortcutSections({ sections }),
   };
 }

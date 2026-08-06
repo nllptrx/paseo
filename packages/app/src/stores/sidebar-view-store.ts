@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
-export type SidebarGroupMode = "project" | "status" | "kanban";
+export type SidebarGroupMode = "project" | "status";
 
 const SIDEBAR_VIEW_STORAGE_KEY = "sidebar-view";
 const LEGACY_SIDEBAR_GROUP_MODE_STORAGE_KEY = "sidebar-group-mode";
@@ -24,7 +24,7 @@ interface SidebarViewPersistedState {
 }
 
 function isSidebarGroupMode(value: unknown): value is SidebarGroupMode {
-  return value === "project" || value === "status" || value === "kanban";
+  return value === "project" || value === "status";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

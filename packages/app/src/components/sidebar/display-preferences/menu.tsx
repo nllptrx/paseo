@@ -7,7 +7,6 @@ import {
   CircleCheck,
   CircleDashed,
   Clock,
-  Columns3,
   Diff,
   EyeOff,
   Folder,
@@ -30,7 +29,6 @@ import {
 import { HostStatusDot } from "@/components/host-status-dot";
 import { isWeb } from "@/constants/platform";
 import { useHosts } from "@/runtime/host-runtime";
-import { useHostFeatureMap } from "@/runtime/host-features";
 import type { Theme } from "@/styles/theme";
 import type { SidebarGroupMode } from "@/stores/sidebar-view-store";
 import type { WorkspaceTitleSource } from "@/hooks/use-settings";
@@ -58,7 +56,6 @@ type OptionIcon = ComponentType<{
 const GROUPING_ICONS: Record<SidebarGroupMode, OptionIcon> = {
   project: withUnistyles(Folder),
   status: withUnistyles(CircleDashed),
-  kanban: withUnistyles(Columns3),
 };
 
 const TITLE_SOURCE_ICONS: Record<WorkspaceTitleSource, OptionIcon> = {
@@ -88,14 +85,12 @@ const TRAILING_ICONS: Record<SidebarTrailingChoice, OptionIcon> = {
 };
 
 const GROUPING_MODES: readonly SidebarGroupMode[] = ["project", "status"];
-const GROUPING_MODES_WITH_KANBAN: readonly SidebarGroupMode[] = ["project", "status", "kanban"];
 const TITLE_SOURCES: readonly WorkspaceTitleSource[] = ["title", "branch"];
 const TRAILING_CHOICES: readonly SidebarTrailingChoice[] = ["diff", "timestamp"];
 
 const GROUPING_LABEL_KEYS: Record<SidebarGroupMode, string> = {
   project: "sidebar.display.grouping.project",
   status: "sidebar.display.grouping.status",
-  kanban: "sidebar.display.grouping.kanban",
 };
 
 const TITLE_SOURCE_LABEL_KEYS: Record<WorkspaceTitleSource, string> = {
@@ -131,16 +126,6 @@ export function SidebarDisplayPreferencesMenu(): ReactElement {
   const { t } = useTranslation();
   const preferences = useSidebarDisplayPreferences();
   const hosts = useHosts();
-  const serverIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
-  const kanbanFeatureByServerId = useHostFeatureMap(serverIds, "kanban");
-  const showKanbanGrouping = useMemo(
-    () => Array.from(kanbanFeatureByServerId.values()).some(Boolean),
-    [kanbanFeatureByServerId],
-  );
-  const groupingModes = useMemo(
-    () => (showKanbanGrouping ? GROUPING_MODES_WITH_KANBAN : GROUPING_MODES),
-    [showKanbanGrouping],
-  );
 
   const triggerStyle = useCallback(
     ({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) => [
@@ -159,7 +144,7 @@ export function SidebarDisplayPreferencesMenu(): ReactElement {
         title: t("sidebar.display.grouping.label"),
         content: (
           <OptionList
-            values={groupingModes}
+            values={GROUPING_MODES}
             icons={GROUPING_ICONS}
             labelKeys={GROUPING_LABEL_KEYS}
             selectedValue={preferences.grouping}
@@ -211,7 +196,7 @@ export function SidebarDisplayPreferencesMenu(): ReactElement {
       });
     }
     return definitions;
-  }, [t, preferences, hosts, showHostFilter, groupingModes]);
+  }, [t, preferences, hosts, showHostFilter]);
 
   return (
     <MenuRoot compactMode="sheet">

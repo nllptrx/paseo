@@ -4,8 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { KanbanPlan, KanbanSummary } from "@getpaseo/protocol/kanban/types";
 import { useToast } from "@/contexts/toast-context";
 import { kanbanQueryKey, kanbansQueryBaseKey } from "@/kanban/aggregated-kanbans";
-import { sidebarKanbanIndexQueryBaseKey } from "@/hooks/sidebar-kanban-index";
-import { resolveKanbanWorkspaceColumns } from "@/hooks/sidebar-kanban-view-model";
+import { findPlanTrackingWorkspace } from "@/kanban/workspace-plan-lookup";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -31,7 +30,6 @@ function invalidateKanbanCaches(
 ): void {
   void queryClient.invalidateQueries({ queryKey: kanbansQueryBaseKey });
   void queryClient.invalidateQueries({ queryKey: kanbanQueryKey(input.serverId, input.kanbanId) });
-  void queryClient.invalidateQueries({ queryKey: sidebarKanbanIndexQueryBaseKey });
 }
 
 /**
@@ -41,7 +39,7 @@ function invalidateKanbanCaches(
  * reuses whichever one the project already has instead of creating a second.
  *
  * Before creating a plan, it scans every non-archived plan on that kanban for a step that
- * already references this workspace (`sidebar-kanban-view-model.ts`'s `resolveKanbanWorkspaceColumns`)
+ * already references this workspace (`kanban/workspace-plan-lookup.ts`)
  * — a second click on the same workspace reuses the existing plan instead of creating a duplicate.
  *
  * The step needs at least one agent spec up front; this picks the host's first available
@@ -77,14 +75,8 @@ export function useAddWorkspaceToKanban() {
       }
       const kanban = detail.kanban;
 
-      const existingRef = resolveKanbanWorkspaceColumns(input.serverId, kanban).get(
-        input.workspaceId,
-      );
-      if (existingRef) {
-        const existingPlan = kanban.plans[existingRef.planId];
-        if (!existingPlan) {
-          throw new Error(t("sidebar.kanban.addToKanban.createFailed"));
-        }
+      const existingPlan = findPlanTrackingWorkspace(kanban, input.workspaceId);
+      if (existingPlan) {
         return { plan: existingPlan, kanbanId: kanban.id, alreadyTracked: true };
       }
 

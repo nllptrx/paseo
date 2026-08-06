@@ -62,9 +62,7 @@ test.describe("Kanban Orchestrator", () => {
 
     // An Orchestrator is an agent wearing the kanban's labels, so it shows up as a
     // peer once the agent exists — nothing is stamped on the board.
-    await expect
-      .poll(() => countOrchestrators(client, kanbanId), { timeout: 60_000 })
-      .toBe(1);
+    await expect.poll(() => countOrchestrators(client, kanbanId), { timeout: 60_000 }).toBe(1);
 
     // Reached the way a user would: the provisioned workspace shows up in the
     // sidebar, and its header menu is where the pane opens from.

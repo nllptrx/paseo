@@ -94,9 +94,7 @@ import { hasVisibleOrderChanged, mergeWithRemainder } from "@/utils/sidebar-reor
 import { confirmDialog } from "@/utils/confirm-dialog";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { SidebarStatusWorkspaceList } from "@/components/sidebar/sidebar-status-list";
-import { SidebarKanbanWorkspaceList } from "@/components/sidebar/sidebar-kanban-list";
 import type { StatusGroup } from "@/hooks/sidebar-status-view-model";
-import type { KanbanColumnGroup } from "@/hooks/sidebar-kanban-view-model";
 import {
   SidebarWorkspaceContextMenu,
   SidebarWorkspaceMenu,
@@ -241,8 +239,6 @@ function selectionForSelectedWorkspace(
 
 interface SidebarWorkspaceListProps {
   statusGroups: StatusGroup[];
-  kanbanColumnGroups: KanbanColumnGroup[];
-  kanbanUnboundedGroups: StatusGroup[];
   pinnedGroups: PinnedSidebarGroups;
   projects: SidebarProjectEntry[];
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
@@ -1955,8 +1951,6 @@ const MemoProjectBlock = memo(ProjectBlock, areProjectBlockPropsEqual);
 
 export function SidebarWorkspaceList({
   statusGroups,
-  kanbanColumnGroups,
-  kanbanUnboundedGroups,
   pinnedGroups,
   projects,
   workspaceEntriesByKey,
@@ -1987,14 +1981,11 @@ export function SidebarWorkspaceList({
   const supportsMultiplicityByServerId = useHostFeatureMap(serverIds, "workspaceMultiplicity");
   const supportsPinningByServerId = useHostFeatureMap(serverIds, "workspacePinning");
   const onToggleWorkspacePin = useSidebarWorkspacePinController();
-  // Status and Kanban modes both drop the project grouping, so their rows carry their own
-  // project icon. Project mode fetches the same icons inside ProjectModeList for its
+  // Status mode drops the project grouping, so its rows carry their own project
+  // icon. Project mode fetches the same icons inside ProjectModeList for its
   // project headers, so only the active mode requests them.
   const statusProjectIconTargets = useMemo(
-    () =>
-      groupMode === "status" || groupMode === "kanban"
-        ? resolveSidebarProjectIconTargets(projects)
-        : [],
+    () => (groupMode === "status" ? resolveSidebarProjectIconTargets(projects) : []),
     [groupMode, projects],
   );
   const statusProjectIconByProjectViewKey = useProjectIcons({
@@ -2006,22 +1997,6 @@ export function SidebarWorkspaceList({
     content = (
       <SidebarStatusModeWrapper
         statusGroups={statusGroups}
-        pinnedGroups={pinnedGroups}
-        workspaceEntriesByKey={workspaceEntriesByKey}
-        projectIconByProjectViewKey={statusProjectIconByProjectViewKey}
-        shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-        onWorkspacePress={onWorkspacePress}
-        hostBadgeByServerId={hostBadgeByServerId}
-        supportsPinningByServerId={supportsPinningByServerId}
-        onToggleWorkspacePin={onToggleWorkspacePin}
-        listHeaderComponent={listHeaderComponent}
-      />
-    );
-  } else if (groupMode === "kanban") {
-    content = (
-      <SidebarKanbanModeWrapper
-        kanbanColumnGroups={kanbanColumnGroups}
-        kanbanUnboundedGroups={kanbanUnboundedGroups}
         pinnedGroups={pinnedGroups}
         workspaceEntriesByKey={workspaceEntriesByKey}
         projectIconByProjectViewKey={statusProjectIconByProjectViewKey}
@@ -2088,53 +2063,6 @@ function SidebarStatusModeWrapper({
   return (
     <SidebarStatusWorkspaceList
       groups={statusGroups}
-      pinnedWorkspaces={pinnedGroups.pinnedChats.flatMap((workspace) => {
-        const entry = workspaceEntriesByKey.get(workspace.workspaceKey);
-        return entry ? [entry] : [];
-      })}
-      projectIconByProjectViewKey={projectIconByProjectViewKey}
-      shortcutIndexByWorkspaceKey={_projectShortcutIndex}
-      showShortcutBadges={showShortcutBadges}
-      onWorkspacePress={onWorkspacePress}
-      hostBadgeByServerId={hostBadgeByServerId}
-      supportsPinningByServerId={supportsPinningByServerId}
-      onToggleWorkspacePin={onToggleWorkspacePin}
-      listHeaderComponent={listHeaderComponent}
-    />
-  );
-}
-
-function SidebarKanbanModeWrapper({
-  kanbanColumnGroups,
-  kanbanUnboundedGroups,
-  pinnedGroups,
-  workspaceEntriesByKey,
-  projectIconByProjectViewKey,
-  shortcutIndexByWorkspaceKey: _projectShortcutIndex,
-  onWorkspacePress,
-  hostBadgeByServerId,
-  supportsPinningByServerId,
-  onToggleWorkspacePin,
-  listHeaderComponent,
-}: {
-  kanbanColumnGroups: KanbanColumnGroup[];
-  kanbanUnboundedGroups: StatusGroup[];
-  pinnedGroups: PinnedSidebarGroups;
-  workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
-  projectIconByProjectViewKey: ReadonlyMap<string, string | null>;
-  shortcutIndexByWorkspaceKey: Map<string, number>;
-  onWorkspacePress?: () => void;
-  hostBadgeByServerId: ReadonlyMap<string, HostBadgeModel>;
-  supportsPinningByServerId: ReadonlyMap<string, boolean>;
-  onToggleWorkspacePin: ToggleSidebarWorkspacePin;
-  listHeaderComponent?: ReactElement | null;
-}) {
-  const showShortcutBadges = useShowShortcutBadges();
-
-  return (
-    <SidebarKanbanWorkspaceList
-      columnGroups={kanbanColumnGroups}
-      unboundedGroups={kanbanUnboundedGroups}
       pinnedWorkspaces={pinnedGroups.pinnedChats.flatMap((workspace) => {
         const entry = workspaceEntriesByKey.get(workspace.workspaceKey);
         return entry ? [entry] : [];
