@@ -4,7 +4,6 @@ import { addJsonAndDaemonHostOptions } from "../../../utils/command-options.js";
 import { runLsCommand } from "./ls.js";
 import { runInspectCommand } from "./inspect.js";
 import { runCreateCommand } from "./create.js";
-import { runMoveCommand } from "./move.js";
 import { runRunCommand } from "./run.js";
 import { runRetryCommand } from "./retry.js";
 import { runSkipCommand } from "./skip.js";
@@ -35,7 +34,6 @@ export function createPlanCommand(): Command {
         .command("create")
         .description("Create a plan on a kanban")
         .argument("<title>", "Plan title")
-        .requiredOption("--column <columnId>", "Column ID to place the plan in")
         .option("--description <text>", "Plan description")
         .option("--nested", "Create a nested kanban plan instead of a workflow")
         .option("--step-name <name>", "Name for the initial workflow step")
@@ -61,21 +59,10 @@ export function createPlanCommand(): Command {
   addJsonAndDaemonHostOptions(
     addKanbanScopeOptions(
       plan
-        .command("move")
-        .description("Move a plan to a column and position")
-        .argument("<id>", "Plan ID")
-        .requiredOption("--column <columnId>", "Destination column ID")
-        .requiredOption("--index <n>", "Position within the column"),
-    ),
-  ).action(withOutput(runMoveCommand));
-
-  addJsonAndDaemonHostOptions(
-    addKanbanScopeOptions(
-      plan
         .command("run")
-        .description("Run a workflow step")
+        .description("Run a workflow step, defaulting to the plan's next unfinished one")
         .argument("<id>", "Plan ID")
-        .requiredOption("--step <stepId>", "Step ID"),
+        .option("--step <stepId>", "Step ID"),
     ),
   ).action(withOutput(runRunCommand));
 

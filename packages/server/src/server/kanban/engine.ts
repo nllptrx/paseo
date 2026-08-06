@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Logger } from "pino";
 import type {
-  Column,
   KanbanPlan,
   NestedPlan,
   Step,
@@ -68,18 +67,6 @@ interface RunTracker {
   unsubscribes: Map<string, () => void>;
 }
 
-function findColumnsForPlanScope(kanban: StoredKanban, parentPlanId: string | null | undefined) {
-  if (!parentPlanId) {
-    return kanban.columns;
-  }
-  const parent = kanban.plans[parentPlanId];
-  return parent?.body.type === "nested_kanban" ? parent.body.columns : [];
-}
-
-function findColumnIdForPlan(columns: Column[], planId: string): string | null {
-  return columns.find((column) => column.planIds.includes(planId))?.id ?? null;
-}
-
 function latestRunOf(step: Step): StepRun | null {
   return step.runs.length > 0 ? step.runs[step.runs.length - 1] : null;
 }
@@ -116,11 +103,11 @@ function stepRunLabels(planId: string, stepId: string, runId: string): Record<st
 
 /**
  * Runs the kanban workflow engine: hard gates between steps, multi-agent
- * fan-out dispatch, timed-step schedule materialization, and the column
- * automations (onCardEnter, archiveWorkspacesOnEnter, lifecycle sync) that
- * depend on the same move/gate machinery. Every card move — explicit or
- * automatic — flows through `movePlan` here so automations only ever have
- * one path to reason about.
+ * fan-out dispatch, and timed-step schedule materialization.
+ *
+ * There is no card-move path. Columns are derived from what these runs record,
+ * so finishing a step is the whole story — nothing has to be pushed back to a
+ * board afterwards to keep it true.
  */
 export class KanbanEngine {
   private readonly kanbanService: KanbanService;
@@ -210,94 +197,31 @@ export class KanbanEngine {
     }
   }
 
-  // The single write-path for every card move — user-initiated (via
-  // kanban.plan.move.request), agent self-placement, or engine-driven
-  // lifecycle sync. Column-entry automations run here so they fire
-  // regardless of who moved the card.
-  async movePlan(input: {
+  /**
+   * Runs once a plan's last step settles: the only automation left, and it is
+   * opt-in per kanban because tearing down a worktree is not something a board
+   * should do to you unasked.
+   */
+  private async archiveWorkspacesIfConfigured(params: {
     kanbanId: string;
     parentPlanId?: string | null;
     planId: string;
-    columnId: string;
-    index: number;
-    movedBy: "user" | "agent" | "sync";
-  }): Promise<KanbanPlan | null> {
-    const before = await this.kanbanService.get(input.kanbanId);
-    if (!before) {
-      throw new Error(`Kanban not found: ${input.kanbanId}`);
-    }
-    const scopedColumns = findColumnsForPlanScope(before, input.parentPlanId);
-    const previousColumnId = findColumnIdForPlan(scopedColumns, input.planId);
-
-    if (input.movedBy === "sync") {
-      const { plan } = await this.kanbanService.getPlan(input);
-      // Sync never overrides an explicit placement — a user or agent move
-      // always wins, regardless of when it happened relative to this
-      // transition.
-      if (plan.lastMove && plan.lastMove.by !== "sync") {
-        return null;
-      }
-      if (previousColumnId === input.columnId) {
-        return null;
-      }
-    }
-
-    const moved = await this.kanbanService.movePlan(input);
-    await this.applyColumnEntryAutomations({
-      kanbanId: input.kanbanId,
-      parentPlanId: input.parentPlanId,
-      planId: input.planId,
-      columnId: input.columnId,
-      crossedIntoColumn: previousColumnId !== input.columnId,
-    });
-    return moved;
-  }
-
-  private async applyColumnEntryAutomations(params: {
-    kanbanId: string;
-    parentPlanId?: string | null;
-    planId: string;
-    columnId: string;
-    crossedIntoColumn: boolean;
   }): Promise<void> {
-    if (!params.crossedIntoColumn) {
-      return;
-    }
     const kanban = await this.kanbanService.get(params.kanbanId);
-    if (!kanban) {
-      return;
-    }
-    const columns = findColumnsForPlanScope(kanban, params.parentPlanId);
-    const column = columns.find((candidate) => candidate.id === params.columnId);
-    if (!column) {
+    if (!kanban?.archiveWorkspacesOnDone) {
       return;
     }
     const plan = this.findPlanForAutomations(kanban, params.parentPlanId, params.planId);
     if (!plan || plan.body.type !== "workflow") {
-      // Nested-kanban cards have no steps of their own to start/archive.
+      // Nested-kanban cards have no steps of their own to archive.
       return;
     }
-
-    if (column.onCardEnter === "start") {
-      await this.startWorkflowIfNeeded({
-        kanbanId: params.kanbanId,
-        parentPlanId: params.parentPlanId,
-        planId: params.planId,
-      }).catch((error) => {
-        this.logger.error(
-          { err: error, kanbanId: params.kanbanId, planId: params.planId },
-          "Column onCardEnter:start failed",
-        );
-      });
-    }
-    if (column.archiveWorkspacesOnEnter) {
-      await this.archivePaseoOwnedWorktrees(plan.body.steps).catch((error) => {
-        this.logger.error(
-          { err: error, kanbanId: params.kanbanId, planId: params.planId },
-          "Column archiveWorkspacesOnEnter failed",
-        );
-      });
-    }
+    await this.archivePaseoOwnedWorktrees(plan.body.steps).catch((error) => {
+      this.logger.error(
+        { err: error, kanbanId: params.kanbanId, planId: params.planId },
+        "Archiving plan worktrees on done failed",
+      );
+    });
   }
 
   private findPlanForAutomations(
@@ -310,21 +234,6 @@ export class KanbanEngine {
     }
     const parent = kanban.plans[parentPlanId];
     return parent?.body.type === "nested_kanban" ? parent.body.plans[planId] : undefined;
-  }
-
-  private async startWorkflowIfNeeded(identifier: {
-    kanbanId: string;
-    parentPlanId?: string | null;
-    planId: string;
-  }): Promise<void> {
-    const { plan } = await this.kanbanService.getPlan(identifier);
-    const steps = requireWorkflowSteps(plan, identifier.planId);
-    const firstStep = steps[0];
-    if (!firstStep || latestRunOf(firstStep)) {
-      // Already started (or has no steps) — idempotent no-op.
-      return;
-    }
-    await this.advanceStep(identifier, steps, 0);
   }
 
   private async archivePaseoOwnedWorktrees(steps: Step[]): Promise<void> {
@@ -538,7 +447,6 @@ export class KanbanEngine {
       }),
     });
     if (stepIndex === 0) {
-      await this.syncLifecycle(identifier, "started");
     }
     // The schedule fires on its own cadence; run/agent-id backfill and step
     // outcome for schedule-triggered steps land with the orchestrator mesh
@@ -718,7 +626,6 @@ export class KanbanEngine {
     });
 
     if (stepIndex === 0 && agentIds.length > 0) {
-      await this.syncLifecycle(identifier, "started");
     }
 
     if (agentIds.length === 0) {
@@ -865,7 +772,7 @@ export class KanbanEngine {
   ): Promise<void> {
     const isLastStep = stepIndex === steps.length - 1;
     if (isLastStep) {
-      await this.syncLifecycle(identifier, "completed");
+      await this.archiveWorkspacesIfConfigured(identifier);
       return;
     }
     const nextIndex = stepIndex + 1;
@@ -873,35 +780,6 @@ export class KanbanEngine {
       this.logger.error(
         { err: error, planId: identifier.planId, stepId: steps[nextIndex]?.id },
         "Failed to auto-advance to next step",
-      );
-    });
-  }
-
-  private async syncLifecycle(
-    identifier: { kanbanId: string; parentPlanId?: string | null; planId: string },
-    transition: "started" | "completed",
-  ): Promise<void> {
-    const kanban = await this.kanbanService.get(identifier.kanbanId);
-    if (!kanban || !kanban.autoAdvance) {
-      return;
-    }
-    const columns = findColumnsForPlanScope(kanban, identifier.parentPlanId);
-    const role = transition === "started" ? "active" : "done";
-    const target = columns.find((column) => column.role === role);
-    if (!target) {
-      return;
-    }
-    await this.movePlan({
-      kanbanId: identifier.kanbanId,
-      parentPlanId: identifier.parentPlanId,
-      planId: identifier.planId,
-      columnId: target.id,
-      index: 0,
-      movedBy: "sync",
-    }).catch((error) => {
-      this.logger.error(
-        { err: error, kanbanId: identifier.kanbanId, planId: identifier.planId },
-        "Lifecycle sync move failed",
       );
     });
   }

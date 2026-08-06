@@ -1,24 +1,12 @@
 import { z } from "zod";
-import {
-  ColumnSchema,
-  KanbanPlanSchema,
-  KanbanSummarySchema,
-  StepSchema,
-  StoredKanbanSchema,
-} from "./types.js";
-
-export const ColumnInputSchema = ColumnSchema.omit({ id: true, planIds: true });
-export type ColumnInput = z.infer<typeof ColumnInputSchema>;
+import { KanbanPlanSchema, KanbanSummarySchema, StepSchema, StoredKanbanSchema } from "./types.js";
 
 export const StepInputSchema = StepSchema.omit({ id: true, runs: true });
 export type StepInput = z.infer<typeof StepInputSchema>;
 
 export const KanbanPlanCreateBodySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("workflow"), steps: z.array(StepInputSchema) }),
-  z.object({
-    type: z.literal("nested_kanban"),
-    columns: z.array(ColumnInputSchema).optional(),
-  }),
+  z.object({ type: z.literal("nested_kanban") }),
 ]);
 export type KanbanPlanCreateBody = z.infer<typeof KanbanPlanCreateBodySchema>;
 
@@ -56,7 +44,6 @@ export const KanbanCreateRequestSchema = z.object({
   requestId: z.string(),
   projectId: z.string().trim().min(1),
   name: z.string().trim().min(1).optional(),
-  columns: z.array(ColumnInputSchema).optional(),
 });
 
 export const KanbanCreateResponseSchema = z.object({
@@ -73,8 +60,7 @@ export const KanbanUpdateRequestSchema = z.object({
   requestId: z.string(),
   kanbanId: z.string(),
   name: z.string().trim().min(1).optional(),
-  autoAdvance: z.boolean().optional(),
-  columns: z.array(ColumnSchema).optional(),
+  archiveWorkspacesOnDone: z.boolean().optional(),
 });
 
 export const KanbanUpdateResponseSchema = z.object({
@@ -106,7 +92,6 @@ export const KanbanPlanCreateRequestSchema = z.object({
   requestId: z.string(),
   kanbanId: z.string(),
   parentPlanId: z.string().nullable().optional(),
-  columnId: z.string(),
   title: z.string().trim().min(1),
   description: z.string().trim().min(1).nullable().optional(),
   body: KanbanPlanCreateBodySchema,
@@ -133,26 +118,6 @@ export const KanbanPlanUpdateRequestSchema = z.object({
 
 export const KanbanPlanUpdateResponseSchema = z.object({
   type: z.literal("kanban.plan.update.response"),
-  payload: z.object({
-    requestId: z.string(),
-    plan: KanbanPlanSchema.nullable(),
-    error: z.string().nullable(),
-  }),
-});
-
-export const KanbanPlanMoveRequestSchema = z.object({
-  type: z.literal("kanban.plan.move.request"),
-  requestId: z.string(),
-  kanbanId: z.string(),
-  parentPlanId: z.string().nullable().optional(),
-  planId: z.string(),
-  columnId: z.string(),
-  index: z.number().int().nonnegative(),
-  movedBy: z.enum(["user", "agent"]),
-});
-
-export const KanbanPlanMoveResponseSchema = z.object({
-  type: z.literal("kanban.plan.move.response"),
   payload: z.object({
     requestId: z.string(),
     plan: KanbanPlanSchema.nullable(),

@@ -64,25 +64,6 @@ export const StepSchema = z.object({
 });
 export type Step = z.infer<typeof StepSchema>;
 
-export const LastMoveSchema = z.object({
-  at: z.string(),
-  by: z.enum(["user", "agent", "sync"]),
-});
-export type LastMove = z.infer<typeof LastMoveSchema>;
-
-export const ColumnRoleSchema = z.enum(["backlog", "active", "review", "done"]);
-export type ColumnRole = z.infer<typeof ColumnRoleSchema>;
-
-export const ColumnSchema = z.object({
-  id: z.string(),
-  name: z.string().min(1),
-  role: ColumnRoleSchema.nullable(),
-  onCardEnter: z.enum(["none", "start"]),
-  archiveWorkspacesOnEnter: z.boolean(),
-  planIds: z.array(z.string()),
-});
-export type Column = z.infer<typeof ColumnSchema>;
-
 const PlanBaseSchema = z.object({
   id: z.string(),
   title: z.string().min(1),
@@ -90,7 +71,6 @@ const PlanBaseSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   archivedAt: z.string().nullable(),
-  lastMove: LastMoveSchema.nullable(),
 });
 
 export const NestedPlanSchema = PlanBaseSchema.extend({
@@ -106,7 +86,6 @@ export const KanbanPlanSchema = PlanBaseSchema.extend({
     z.object({ type: z.literal("workflow"), steps: z.array(StepSchema) }),
     z.object({
       type: z.literal("nested_kanban"),
-      columns: z.array(ColumnSchema),
       plans: z.record(z.string(), NestedPlanSchema),
     }),
   ]),
@@ -123,9 +102,11 @@ export const StoredKanbanSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   name: z.string(),
-  autoAdvance: z.boolean(),
+  /** Archive the worktrees a plan's steps created once every step has finished.
+   * Columns are derived, so this hangs off the plan reaching that state rather
+   * than off entering a column. */
+  archiveWorkspacesOnDone: z.boolean(),
   orchestrator: KanbanOrchestratorSchema.nullable(),
-  columns: z.array(ColumnSchema),
   plans: z.record(z.string(), KanbanPlanSchema),
   createdAt: z.string(),
   updatedAt: z.string(),

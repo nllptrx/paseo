@@ -148,7 +148,7 @@ export function KanbanPlanSheet({
   const toast = useToast();
   const [focusedChildId, setFocusedChildId] = useState<string | null>(null);
 
-  const [createColumnId, setCreateColumnId] = useState<string | null>(null);
+  const [isCreatingChild, setIsCreatingChild] = useState(false);
 
   const plan = resolveKanbanPlan(kanban, parentPlanId, planId);
 
@@ -161,7 +161,7 @@ export function KanbanPlanSheet({
 
   const handleOpenChild = useCallback((childId: string) => setFocusedChildId(childId), []);
   const handleBackToParent = useCallback(() => setFocusedChildId(null), []);
-  const handleCloseCreatePlan = useCallback(() => setCreateColumnId(null), []);
+  const handleCloseCreatePlan = useCallback(() => setIsCreatingChild(false), []);
 
   const handleRunChild = useCallback(
     (childId: string) => {
@@ -194,11 +194,7 @@ export function KanbanPlanSheet({
   );
 
   const handleOpenCreateChild = useCallback(() => {
-    if (plan?.body.type !== "nested_kanban") {
-      return;
-    }
-    const backlog = plan.body.columns.find((column) => column.role === "backlog");
-    setCreateColumnId(backlog?.id ?? plan.body.columns[0]?.id ?? null);
+    setIsCreatingChild(plan?.body.type === "nested_kanban");
   }, [plan]);
 
   const activePlan: KanbanPlan | NestedPlan | null = childPlan ?? plan;
@@ -279,12 +275,11 @@ export function KanbanPlanSheet({
           <Text style={styles.emptyText}>{t("kanban.planSheet.noSteps")}</Text>
         </View>
       ) : null}
-      {createColumnId ? (
+      {isCreatingChild ? (
         <KanbanPlanFormSheet
           serverId={serverId}
           kanbanId={kanbanId}
           parentPlanId={activePlan.id}
-          columnId={createColumnId}
           visible
           onClose={handleCloseCreatePlan}
         />

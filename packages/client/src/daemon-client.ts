@@ -144,8 +144,7 @@ import type {
   BrowserAutomationExecuteRequest,
   BrowserAutomationExecuteResponse,
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
-import type { ColumnInput, KanbanPlanCreateBody } from "@getpaseo/protocol/kanban/rpc-schemas";
-import type { Column } from "@getpaseo/protocol/kanban/types";
+import type { KanbanPlanCreateBody } from "@getpaseo/protocol/kanban/rpc-schemas";
 
 export interface Logger {
   debug(obj: object, msg?: string): void;
@@ -579,10 +578,6 @@ type KanbanPlanUpdatePayload = Extract<
   SessionOutboundMessage,
   { type: "kanban.plan.update.response" }
 >["payload"];
-type KanbanPlanMovePayload = Extract<
-  SessionOutboundMessage,
-  { type: "kanban.plan.move.response" }
->["payload"];
 type KanbanPlanArchivePayload = Extract<
   SessionOutboundMessage,
   { type: "kanban.plan.archive.response" }
@@ -900,20 +895,17 @@ export interface UpdateScheduleOptions {
 export interface CreateKanbanOptions {
   projectId: string;
   name?: string;
-  columns?: ColumnInput[];
   requestId?: string;
 }
 export interface UpdateKanbanOptions {
   kanbanId: string;
   name?: string;
-  autoAdvance?: boolean;
-  columns?: Column[];
+  archiveWorkspacesOnDone?: boolean;
   requestId?: string;
 }
 export interface CreateKanbanPlanOptions {
   kanbanId: string;
   parentPlanId?: string | null;
-  columnId: string;
   title: string;
   description?: string | null;
   body: KanbanPlanCreateBody;
@@ -925,15 +917,6 @@ export interface UpdateKanbanPlanOptions {
   planId: string;
   title?: string;
   description?: string | null;
-  requestId?: string;
-}
-export interface MoveKanbanPlanOptions {
-  kanbanId: string;
-  parentPlanId?: string | null;
-  planId: string;
-  columnId: string;
-  index: number;
-  movedBy: "user" | "agent";
   requestId?: string;
 }
 export interface KanbanPlanIdentifier {
@@ -5458,7 +5441,6 @@ export class DaemonClient {
         type: "kanban.create.request",
         projectId: options.projectId,
         ...(options.name !== undefined ? { name: options.name } : {}),
-        ...(options.columns !== undefined ? { columns: options.columns } : {}),
       },
     });
   }
@@ -5470,8 +5452,9 @@ export class DaemonClient {
         type: "kanban.update.request",
         kanbanId: options.kanbanId,
         ...(options.name !== undefined ? { name: options.name } : {}),
-        ...(options.autoAdvance !== undefined ? { autoAdvance: options.autoAdvance } : {}),
-        ...(options.columns !== undefined ? { columns: options.columns } : {}),
+        ...(options.archiveWorkspacesOnDone !== undefined
+          ? { archiveWorkspacesOnDone: options.archiveWorkspacesOnDone }
+          : {}),
       },
     });
   }
@@ -5489,7 +5472,6 @@ export class DaemonClient {
       message: {
         type: "kanban.plan.create.request",
         kanbanId: options.kanbanId,
-        columnId: options.columnId,
         title: options.title,
         body: options.body,
         ...(options.parentPlanId !== undefined ? { parentPlanId: options.parentPlanId } : {}),
@@ -5508,21 +5490,6 @@ export class DaemonClient {
         ...(options.parentPlanId !== undefined ? { parentPlanId: options.parentPlanId } : {}),
         ...(options.title !== undefined ? { title: options.title } : {}),
         ...(options.description !== undefined ? { description: options.description } : {}),
-      },
-    });
-  }
-
-  async kanbanPlanMove(options: MoveKanbanPlanOptions): Promise<KanbanPlanMovePayload> {
-    return this.sendNamespacedCorrelatedSessionRequest<"kanban.plan.move.response">({
-      requestId: options.requestId,
-      message: {
-        type: "kanban.plan.move.request",
-        kanbanId: options.kanbanId,
-        planId: options.planId,
-        columnId: options.columnId,
-        index: options.index,
-        movedBy: options.movedBy,
-        ...(options.parentPlanId !== undefined ? { parentPlanId: options.parentPlanId } : {}),
       },
     });
   }

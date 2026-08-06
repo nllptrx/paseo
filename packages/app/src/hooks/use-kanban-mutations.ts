@@ -7,13 +7,10 @@ import type {
   DaemonClient,
   KanbanPlanIdentifier,
   KanbanStepActionOptions,
-  MoveKanbanPlanOptions,
   UpdateKanbanOptions,
   UpdateKanbanPlanOptions,
 } from "@getpaseo/client/internal/daemon-client";
 import type { OrchestratorPeer } from "@getpaseo/protocol/kanban/rpc-schemas";
-import type { StoredKanban } from "@getpaseo/protocol/kanban/types";
-import { applyTopLevelPlanMove } from "@/kanban/apply-plan-move";
 import { kanbanQueryKey, kanbansQueryBaseKey } from "@/kanban/aggregated-kanbans";
 import { useSessionStore } from "@/stores/session-store";
 
@@ -21,7 +18,6 @@ export type CreateKanbanInput = Omit<CreateKanbanOptions, "requestId">;
 export type UpdateKanbanInput = Omit<UpdateKanbanOptions, "requestId">;
 export type CreateKanbanPlanInput = Omit<CreateKanbanPlanOptions, "requestId">;
 export type UpdateKanbanPlanInput = Omit<UpdateKanbanPlanOptions, "requestId">;
-export type MoveKanbanPlanInput = Omit<MoveKanbanPlanOptions, "requestId">;
 export type KanbanPlanInput = Omit<KanbanPlanIdentifier, "requestId">;
 export type KanbanStepInput = Omit<KanbanStepActionOptions, "requestId">;
 
@@ -31,7 +27,6 @@ export interface UseKanbanMutationsResult {
   archiveKanban: (kanbanId: string) => Promise<void>;
   createPlan: (input: CreateKanbanPlanInput) => Promise<void>;
   updatePlan: (input: UpdateKanbanPlanInput) => Promise<void>;
-  movePlan: (input: MoveKanbanPlanInput) => Promise<void>;
   archivePlan: (input: KanbanPlanInput) => Promise<void>;
   runStep: (input: KanbanStepInput) => Promise<void>;
   retryStep: (input: KanbanStepInput) => Promise<void>;
@@ -45,7 +40,6 @@ export interface UseKanbanMutationsResult {
   isArchivingKanban: boolean;
   isCreatingPlan: boolean;
   isUpdatingPlan: boolean;
-  isMovingPlan: boolean;
   isArchivingPlan: boolean;
   isRunningStep: boolean;
   isRetryingStep: boolean;
@@ -141,44 +135,6 @@ export function useKanbanMutations({ serverId }: { serverId: string }): UseKanba
     onSettled: (_data, _error, input) => invalidateKanban(input.kanbanId),
   });
 
-  const movePlanMutation = useMutation({
-    mutationFn: async (input: MoveKanbanPlanInput): Promise<void> => {
-      const client = requireClient(serverId, t("common.errors.daemonClientUnavailable"));
-      const payload = await client.kanbanPlanMove(input);
-      if (payload.error) {
-        throw new Error(payload.error);
-      }
-    },
-    onMutate: async (input) => {
-      // Top-level board DnD only — nested boards keep their own board instance
-      // and still go through the network round-trip without optimistic paint.
-      if (input.parentPlanId) {
-        return undefined;
-      }
-      const detailKey = kanbanQueryKey(serverId, input.kanbanId);
-      await queryClient.cancelQueries({ queryKey: detailKey });
-      const previous = queryClient.getQueryData<StoredKanban | null>(detailKey);
-      if (!previous) {
-        return { previous: undefined };
-      }
-      const next = applyTopLevelPlanMove(previous, {
-        planId: input.planId,
-        columnId: input.columnId,
-        index: input.index,
-      });
-      if (next) {
-        queryClient.setQueryData(detailKey, next);
-      }
-      return { previous };
-    },
-    onError: (_error, input, context) => {
-      if (context?.previous !== undefined) {
-        queryClient.setQueryData(kanbanQueryKey(serverId, input.kanbanId), context.previous);
-      }
-    },
-    onSettled: (_data, _error, input) => invalidateBoth(input.kanbanId),
-  });
-
   const archivePlanMutation = useMutation({
     mutationFn: async (input: KanbanPlanInput): Promise<void> => {
       const client = requireClient(serverId, t("common.errors.daemonClientUnavailable"));
@@ -271,7 +227,6 @@ export function useKanbanMutations({ serverId }: { serverId: string }): UseKanba
     archiveKanban: (kanbanId) => archiveKanbanMutation.mutateAsync(kanbanId),
     createPlan: (input) => createPlanMutation.mutateAsync(input),
     updatePlan: (input) => updatePlanMutation.mutateAsync(input),
-    movePlan: (input) => movePlanMutation.mutateAsync(input),
     archivePlan: (input) => archivePlanMutation.mutateAsync(input),
     runStep: (input) => runStepMutation.mutateAsync(input),
     retryStep: (input) => retryStepMutation.mutateAsync(input),
@@ -285,7 +240,6 @@ export function useKanbanMutations({ serverId }: { serverId: string }): UseKanba
     isArchivingKanban: archiveKanbanMutation.isPending,
     isCreatingPlan: createPlanMutation.isPending,
     isUpdatingPlan: updatePlanMutation.isPending,
-    isMovingPlan: movePlanMutation.isPending,
     isArchivingPlan: archivePlanMutation.isPending,
     isRunningStep: runStepMutation.isPending,
     isRetryingStep: retryStepMutation.isPending,

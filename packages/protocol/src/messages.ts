@@ -61,7 +61,6 @@ import {
   KanbanArchiveRequestSchema,
   KanbanPlanCreateRequestSchema,
   KanbanPlanUpdateRequestSchema,
-  KanbanPlanMoveRequestSchema,
   KanbanPlanArchiveRequestSchema,
   KanbanStepRunRequestSchema,
   KanbanStepRetryRequestSchema,
@@ -79,7 +78,6 @@ import {
   KanbanArchiveResponseSchema,
   KanbanPlanCreateResponseSchema,
   KanbanPlanUpdateResponseSchema,
-  KanbanPlanMoveResponseSchema,
   KanbanPlanArchiveResponseSchema,
   KanbanStepRunResponseSchema,
   KanbanStepRetryResponseSchema,
@@ -2834,7 +2832,6 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   KanbanArchiveRequestSchema,
   KanbanPlanCreateRequestSchema,
   KanbanPlanUpdateRequestSchema,
-  KanbanPlanMoveRequestSchema,
   KanbanPlanArchiveRequestSchema,
   KanbanStepRunRequestSchema,
   KanbanStepRetryRequestSchema,
@@ -5800,7 +5797,6 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   KanbanArchiveResponseSchema,
   KanbanPlanCreateResponseSchema,
   KanbanPlanUpdateResponseSchema,
-  KanbanPlanMoveResponseSchema,
   KanbanPlanArchiveResponseSchema,
   KanbanStepRunResponseSchema,
   KanbanStepRetryResponseSchema,
@@ -5990,7 +5986,6 @@ export type KanbanUpdateResponse = z.infer<typeof KanbanUpdateResponseSchema>;
 export type KanbanArchiveResponse = z.infer<typeof KanbanArchiveResponseSchema>;
 export type KanbanPlanCreateResponse = z.infer<typeof KanbanPlanCreateResponseSchema>;
 export type KanbanPlanUpdateResponse = z.infer<typeof KanbanPlanUpdateResponseSchema>;
-export type KanbanPlanMoveResponse = z.infer<typeof KanbanPlanMoveResponseSchema>;
 export type KanbanPlanArchiveResponse = z.infer<typeof KanbanPlanArchiveResponseSchema>;
 export type KanbanStepRunResponse = z.infer<typeof KanbanStepRunResponseSchema>;
 export type KanbanStepRetryResponse = z.infer<typeof KanbanStepRetryResponseSchema>;
@@ -6083,7 +6078,6 @@ export type KanbanUpdateRequest = z.infer<typeof KanbanUpdateRequestSchema>;
 export type KanbanArchiveRequest = z.infer<typeof KanbanArchiveRequestSchema>;
 export type KanbanPlanCreateRequest = z.infer<typeof KanbanPlanCreateRequestSchema>;
 export type KanbanPlanUpdateRequest = z.infer<typeof KanbanPlanUpdateRequestSchema>;
-export type KanbanPlanMoveRequest = z.infer<typeof KanbanPlanMoveRequestSchema>;
 export type KanbanPlanArchiveRequest = z.infer<typeof KanbanPlanArchiveRequestSchema>;
 export type KanbanStepRunRequest = z.infer<typeof KanbanStepRunRequestSchema>;
 export type KanbanStepRetryRequest = z.infer<typeof KanbanStepRetryRequestSchema>;

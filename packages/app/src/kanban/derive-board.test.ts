@@ -1,18 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type {
   KanbanPlan,
-  NestedPlan,
   Step,
   StepRun,
   StepRunStatus,
   StoredKanban,
 } from "@getpaseo/protocol/kanban/types";
-import {
-  deriveBoard,
-  derivePlanColumn,
-  derivePlanRunState,
-  resolveBoardDrop,
-} from "./derive-board";
+import { deriveBoard, resolveBoardDrop } from "./derive-board";
 
 function run(status: StepRunStatus): StepRun {
   return {
@@ -48,13 +42,8 @@ function plan(id: string, steps: Step[], updatedAt = "2026-01-01T00:00:00.000Z")
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt,
     archivedAt: null,
-    lastMove: null,
     body: { type: "workflow", steps },
   };
-}
-
-function childPlan(id: string, steps: Step[]): NestedPlan {
-  return { ...plan(id, steps), body: { type: "workflow", steps } };
 }
 
 function kanban(plans: KanbanPlan[]): StoredKanban {
@@ -62,9 +51,8 @@ function kanban(plans: KanbanPlan[]): StoredKanban {
     id: "kbn1",
     projectId: "prj1",
     name: "Board",
-    autoAdvance: false,
+    archiveWorkspacesOnDone: false,
     orchestrator: null,
-    columns: [],
     plans: Object.fromEntries(plans.map((entry) => [entry.id, entry])),
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -75,67 +63,6 @@ function kanban(plans: KanbanPlan[]): StoredKanban {
 function summarizeColumn(column: { key: string; plans: KanbanPlan[] }): [string, string[]] {
   return [column.key, column.plans.map((entry) => entry.id)];
 }
-
-describe("derivePlanRunState", () => {
-  it("is idle when no step has run", () => {
-    expect(derivePlanRunState(plan("p", [step("a", []), step("b", [])]))).toBe("idle");
-  });
-
-  it("is idle for a plan with no steps at all", () => {
-    expect(derivePlanRunState(plan("p", []))).toBe("idle");
-  });
-
-  it("is running while a step run is open", () => {
-    expect(derivePlanRunState(plan("p", [step("a", [run("running")])]))).toBe("running");
-  });
-
-  it("is running when an earlier step succeeded but later steps have not started", () => {
-    expect(derivePlanRunState(plan("p", [step("a", [run("succeeded")]), step("b", [])]))).toBe(
-      "running",
-    );
-  });
-
-  it("is done when every step settled successfully", () => {
-    expect(
-      derivePlanRunState(plan("p", [step("a", [run("succeeded")]), step("b", [run("skipped")])])),
-    ).toBe("done");
-  });
-
-  it("is failed when a settled step did not succeed", () => {
-    expect(
-      derivePlanRunState(plan("p", [step("a", [run("succeeded")]), step("b", [run("failed")])])),
-    ).toBe("failed");
-  });
-
-  it("reads only the latest run, so a retry supersedes an earlier failure", () => {
-    expect(derivePlanRunState(plan("p", [step("a", [run("failed"), run("succeeded")])]))).toBe(
-      "done",
-    );
-  });
-
-  it("aggregates a nested kanban's child steps", () => {
-    const nested: KanbanPlan = {
-      ...plan("nested", []),
-      body: {
-        type: "nested_kanban",
-        columns: [],
-        plans: { child: childPlan("child", [step("a", [run("running")])]) },
-      },
-    };
-    expect(derivePlanRunState(nested)).toBe("running");
-  });
-});
-
-describe("derivePlanColumn", () => {
-  it("keeps a failed plan in the running column rather than inventing one", () => {
-    expect(derivePlanColumn(plan("p", [step("a", [run("failed")])]))).toBe("inProgress");
-  });
-
-  it("maps idle to draft and settled to done", () => {
-    expect(derivePlanColumn(plan("p", [step("a", [])]))).toBe("draft");
-    expect(derivePlanColumn(plan("p", [step("a", [run("succeeded")])]))).toBe("done");
-  });
-});
 
 describe("deriveBoard", () => {
   it("splits plans across the three derived columns", () => {

@@ -1,3 +1,4 @@
+import { DERIVED_COLUMN_KEYS, derivePlanColumn } from "@getpaseo/protocol/kanban/derive";
 import type { KanbanPlan, NestedPlan, Step, StoredKanban } from "@getpaseo/protocol/kanban/types";
 import type { SidebarWorkspaceEntry } from "@/hooks/sidebar-workspaces-view-model";
 
@@ -55,8 +56,9 @@ function collectPlanWorkspaceIds(plan: KanbanPlan | NestedPlan): string[] {
 }
 
 /**
- * Maps every workspace referenced by a non-archived plan on this kanban to the column its
- * top-level card sits in. Skips archived plans and plans not placed in any column.
+ * Maps every workspace referenced by a non-archived plan on this kanban to the
+ * column that plan derives into, so the sidebar groups a workspace the same way
+ * the board shows it. Skips archived plans.
  */
 export function resolveKanbanWorkspaceColumns(
   serverId: string,
@@ -64,10 +66,9 @@ export function resolveKanbanWorkspaceColumns(
 ): Map<string, KanbanColumnRef> {
   const refByWorkspaceId = new Map<string, KanbanColumnRef>();
 
-  kanban.columns.forEach((column, columnOrder) => {
-    for (const planId of column.planIds) {
-      const plan = kanban.plans[planId];
-      if (!plan || plan.archivedAt) continue;
+  DERIVED_COLUMN_KEYS.forEach((columnKey, columnOrder) => {
+    for (const plan of Object.values(kanban.plans)) {
+      if (plan.archivedAt || derivePlanColumn(plan) !== columnKey) continue;
 
       const workspaceIds = collectPlanWorkspaceIds(plan);
       for (const workspaceId of workspaceIds) {
@@ -75,8 +76,8 @@ export function resolveKanbanWorkspaceColumns(
           serverId,
           kanbanId: kanban.id,
           kanbanName: kanban.name,
-          columnId: column.id,
-          columnName: column.name,
+          columnId: columnKey,
+          columnName: columnKey,
           columnOrder,
           planId: plan.id,
           planTitle: plan.title,

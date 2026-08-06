@@ -88,12 +88,6 @@ export function useAddWorkspaceToKanban() {
         return { plan: existingPlan, kanbanId: kanban.id, alreadyTracked: true };
       }
 
-      const targetColumn =
-        kanban.columns.find((column) => column.role === "backlog") ?? kanban.columns[0];
-      if (!targetColumn) {
-        throw new Error(t("sidebar.kanban.addToKanban.noColumns"));
-      }
-
       const availableProviders = await client.listAvailableProviders();
       const provider = availableProviders.providers.find((entry) => entry.available)?.provider;
       if (!provider) {
@@ -102,7 +96,6 @@ export function useAddWorkspaceToKanban() {
 
       const planResult = await client.kanbanPlanCreate({
         kanbanId: kanban.id,
-        columnId: targetColumn.id,
         title: input.title,
         body: {
           type: "workflow",

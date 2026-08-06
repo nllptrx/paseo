@@ -15,7 +15,6 @@ export interface KanbanPlanFormSnapshot {
   serverId: string;
   kanbanId: string;
   parentPlanId: string | null;
-  columnId: string;
   availableProviders?: readonly KanbanPlanFormProviderOption[];
 }
 
@@ -32,7 +31,6 @@ export interface KanbanPlanFormState {
   serverId: string;
   kanbanId: string;
   parentPlanId: string | null;
-  columnId: string;
   title: string;
   description: string;
   prompt: string;
@@ -116,7 +114,6 @@ export function openKanbanPlanForm(snapshot: KanbanPlanFormSnapshot): KanbanPlan
     serverId: snapshot.serverId,
     kanbanId: snapshot.kanbanId,
     parentPlanId: snapshot.parentPlanId,
-    columnId: snapshot.columnId,
     title: "",
     description: "",
     prompt: "",

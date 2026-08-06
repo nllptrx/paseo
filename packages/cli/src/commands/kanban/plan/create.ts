@@ -1,10 +1,9 @@
 import type { Command } from "commander";
 import type { SingleResult } from "../../../output/index.js";
 import { resolveProviderAndModel } from "../../../utils/provider-model.js";
-import { columnsFor, planSchema, toPlanRow, type PlanRow } from "./schema.js";
+import { planSchema, toPlanRow, type PlanRow } from "./schema.js";
 import {
   connectKanbanClient,
-  fetchKanban,
   requireString,
   toKanbanCommandError,
   type PlanCommandOptions,
@@ -98,12 +97,10 @@ export async function runCreateCommand(
   }
   const body = buildBody(options, trimmedTitle);
   const kanbanId = requireString(options.kanban, "--kanban");
-  const columnId = requireString(options.column, "--column");
   const { client } = await connectKanbanClient(options.host);
   try {
     const payload = await client.kanbanPlanCreate({
       kanbanId,
-      columnId,
       title: trimmedTitle,
       body,
       ...(options.parent !== undefined ? { parentPlanId: options.parent } : {}),
@@ -112,10 +109,9 @@ export async function runCreateCommand(
     if (payload.error || !payload.plan) {
       throw new Error(payload.error ?? "Plan creation failed");
     }
-    const kanban = await fetchKanban(client, kanbanId);
     return {
       type: "single",
-      data: toPlanRow(columnsFor(kanban, options.parent), payload.plan),
+      data: toPlanRow(payload.plan),
       schema: planSchema,
     };
   } catch (error) {

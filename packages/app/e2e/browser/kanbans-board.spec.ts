@@ -6,17 +6,12 @@ import { buildKanbansRoute } from "../../src/utils/host-routes";
 
 interface KanbanSeedClient {
   kanbanCreate(input: { projectId: string }): Promise<{
-    kanban: {
-      id: string;
-      name: string;
-      columns: Array<{ id: string; name: string; role: string | null; planIds: string[] }>;
-    } | null;
+    kanban: { id: string; name: string } | null;
     error: string | null;
   }>;
   kanbanGet(kanbanId: string): Promise<{
     kanban: {
       id: string;
-      columns: Array<{ id: string; name: string; planIds: string[] }>;
       plans: Record<
         string,
         { id: string; title: string; body: { type: string; steps?: Array<{ runs: unknown[] }> } }
@@ -26,7 +21,6 @@ interface KanbanSeedClient {
   }>;
   kanbanPlanCreate(input: {
     kanbanId: string;
-    columnId: string;
     title: string;
     body: {
       type: "workflow";
@@ -48,20 +42,14 @@ const DRAG_ACTIVATION_DISTANCE_PX = 6;
 async function seedKanbanWithPlan(
   workspace: SeededWorkspace,
   title: string,
-): Promise<{ kanbanId: string; planId: string; columns: Array<{ id: string; name: string }> }> {
+): Promise<{ kanbanId: string; planId: string }> {
   const client = workspace.client as unknown as KanbanSeedClient;
   const created = await client.kanbanCreate({ projectId: workspace.projectId });
   if (!created.kanban) {
     throw new Error(created.error ?? "Failed to create kanban");
   }
-  const backlog =
-    created.kanban.columns.find((column) => column.role === "backlog") ?? created.kanban.columns[0];
-  if (!backlog) {
-    throw new Error("Kanban has no columns");
-  }
   const plan = await client.kanbanPlanCreate({
     kanbanId: created.kanban.id,
-    columnId: backlog.id,
     title,
     body: {
       type: "workflow",
@@ -80,11 +68,7 @@ async function seedKanbanWithPlan(
   if (!plan.plan) {
     throw new Error(plan.error ?? "Failed to create plan");
   }
-  return {
-    kanbanId: created.kanban.id,
-    planId: plan.plan.id,
-    columns: created.kanban.columns.map((column) => ({ id: column.id, name: column.name })),
-  };
+  return { kanbanId: created.kanban.id, planId: plan.plan.id };
 }
 
 async function archiveKanban(workspace: SeededWorkspace, kanbanId: string): Promise<void> {

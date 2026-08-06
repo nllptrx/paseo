@@ -198,10 +198,8 @@ describe("KanbanEngine", () => {
 
   async function createWorkflowPlan(steps: StepInput[]) {
     const kanban = await service.getOrCreateForProject("proj-1");
-    const columnId = kanban.columns[0].id;
     const plan = await service.createPlan({
       kanbanId: kanban.id,
-      columnId,
       title: "Plan",
       body: { type: "workflow", steps },
     });
@@ -333,78 +331,11 @@ describe("KanbanEngine", () => {
     expect(step?.runs[0].status).toBe("interrupted");
   });
 
-  test("move precedence: sync never overrides a user move", async () => {
-    const kanban = await service.getOrCreateForProject("proj-2");
-    const backlog = kanban.columns[0].id;
-    const active = kanban.columns.find((c) => c.role === "active")!.id;
-    const done = kanban.columns.find((c) => c.role === "done")!.id;
-    const plan = await service.createPlan({
-      kanbanId: kanban.id,
-      columnId: backlog,
-      title: "Plan",
-      body: { type: "workflow", steps: [makeStepInput()] },
-    });
-
-    await engine.movePlan({
-      kanbanId: kanban.id,
-      planId: plan.id,
-      columnId: active,
-      index: 0,
-      movedBy: "user",
-    });
-    const syncResult = await engine.movePlan({
-      kanbanId: kanban.id,
-      planId: plan.id,
-      columnId: done,
-      index: 0,
-      movedBy: "sync",
-    });
-    expect(syncResult).toBeNull();
-
-    const stored = await service.get(kanban.id);
-    expect(stored!.columns.find((c) => c.id === active)?.planIds).toContain(plan.id);
-  });
-
-  test("column onCardEnter:start dispatches the first step on entry", async () => {
-    const kanban = await service.getOrCreateForProject("proj-3");
-    const backlog = kanban.columns[0].id;
-    const active = kanban.columns.find((c) => c.role === "active")!.id;
-    const plan = await service.createPlan({
-      kanbanId: kanban.id,
-      columnId: backlog,
-      title: "Plan",
-      body: { type: "workflow", steps: [makeStepInput({ trigger: { type: "immediate" } })] },
-    });
-
-    await engine.movePlan({
-      kanbanId: kanban.id,
-      planId: plan.id,
-      columnId: active,
-      index: 0,
-      movedBy: "user",
-    });
-
-    const stored = await service.get(kanban.id);
-    const step =
-      stored!.plans[plan.id].body.type === "workflow"
-        ? stored!.plans[plan.id].body.steps[0]
-        : undefined;
-    expect(step?.runs).toHaveLength(1);
-    expect(step?.runs[0].status).toBe("running");
-  });
-
-  test("column archiveWorkspacesOnEnter only archives Paseo-owned worktrees", async () => {
+  test("archiveWorkspacesOnDone only archives Paseo-owned worktrees, once the plan finishes", async () => {
     const kanban = await service.getOrCreateForProject("proj-4");
-    const backlog = kanban.columns[0].id;
-    const done = kanban.columns.find((c) => c.role === "done")!.id;
-    await service.update(kanban.id, {
-      columns: kanban.columns.map((c) =>
-        c.id === done ? { ...c, archiveWorkspacesOnEnter: true } : c,
-      ),
-    });
+    await service.update(kanban.id, { archiveWorkspacesOnDone: true });
     const plan = await service.createPlan({
       kanbanId: kanban.id,
-      columnId: backlog,
       title: "Plan",
       body: { type: "workflow", steps: [makeStepInput({ workspace: { mode: "worktree" } })] },
     });
@@ -413,14 +344,13 @@ describe("KanbanEngine", () => {
     const running = await engine.runStep({ kanbanId: kanban.id, planId: plan.id, stepId });
     const worktreeWorkspaceId = running.runs[0].workspaceIds[0];
     expect(worktreeWorkspaceId).not.toBe("ws_shared");
+    // Nothing is archived while the plan is still running.
+    expect(archivedWorkspaceIds).not.toContain(worktreeWorkspaceId);
 
-    await engine.movePlan({
-      kanbanId: kanban.id,
-      planId: plan.id,
-      columnId: done,
-      index: 0,
-      movedBy: "user",
-    });
+    const agentId = running.runs[0].agentIds[0];
+    agentManager.setLifecycle(agentId, "running");
+    agentManager.setLifecycle(agentId, "idle");
+    await waitFor(() => archivedWorkspaceIds.includes(worktreeWorkspaceId));
 
     expect(archivedWorkspaceIds).toContain(worktreeWorkspaceId);
     expect(archivedWorkspaceIds).not.toContain("ws_shared");

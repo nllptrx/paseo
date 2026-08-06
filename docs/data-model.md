@@ -364,10 +364,13 @@ One file per schedule. ID is 8 hex characters.
 
 **Path:** `$PASEO_HOME/kanbans/{kanbanId}.json`
 
-One file per project kanban. Plans, steps, step runs, columns, and the optional
+One file per project kanban. Plans, steps, step runs, and the optional
 orchestrator pointer live inline — modeled on ScheduleStore (load-once cache,
 atomic writes, per-id mutation serialization). Step runs are capped (most recent
 20 per step). No migrations: optional fields with defaults.
+
+Columns are not stored. A plan's column is derived from its step runs, so the
+file holds only what actually happened — see [kanban.md](kanban.md).
 
 Wire schemas: `packages/protocol/src/kanban/types.ts`. Store:
 `packages/server/src/server/kanban/store.ts`. Product layering and hard-outs:

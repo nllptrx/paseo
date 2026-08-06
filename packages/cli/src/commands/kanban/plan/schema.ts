@@ -1,17 +1,12 @@
 import type { OutputSchema } from "../../../output/index.js";
-import type {
-  Column,
-  KanbanPlan,
-  NestedPlan,
-  StepRun,
-  StoredKanban,
-} from "@getpaseo/protocol/kanban/types";
+import { derivePlanColumn } from "@getpaseo/protocol/kanban/derive";
+import type { KanbanPlan, NestedPlan, StepRun } from "@getpaseo/protocol/kanban/types";
 
 export interface PlanRow {
   id: string;
   title: string;
   kind: string;
-  columnId: string | null;
+  column: string;
   archivedAt: string | null;
 }
 
@@ -21,33 +16,18 @@ export const planSchema: OutputSchema<PlanRow> = {
     { header: "ID", field: "id", width: 10 },
     { header: "TITLE", field: "title", width: 30 },
     { header: "KIND", field: "kind", width: 14 },
-    { header: "COLUMN", field: "columnId", width: 14 },
+    { header: "COLUMN", field: "column", width: 14 },
   ],
 };
 
-export function toPlanRow(columns: Column[], plan: KanbanPlan | NestedPlan): PlanRow {
-  const column = columns.find((candidate) => candidate.planIds.includes(plan.id));
+export function toPlanRow(plan: KanbanPlan | NestedPlan): PlanRow {
   return {
     id: plan.id,
     title: plan.title,
     kind: plan.body.type,
-    columnId: column?.id ?? null,
+    column: derivePlanColumn(plan),
     archivedAt: plan.archivedAt,
   };
-}
-
-export function columnsFor(
-  kanban: StoredKanban,
-  parentPlanId: string | null | undefined,
-): Column[] {
-  if (!parentPlanId) {
-    return kanban.columns;
-  }
-  const parent = kanban.plans[parentPlanId];
-  if (!parent || parent.body.type !== "nested_kanban") {
-    throw new Error(`Nested kanban plan not found: ${parentPlanId}`);
-  }
-  return parent.body.columns;
 }
 
 export interface PlanInspectRow {
@@ -77,10 +57,7 @@ export function createPlanInspectRows(plan: KanbanPlan | NestedPlan): PlanInspec
     { key: "CreatedAt", value: plan.createdAt },
     { key: "UpdatedAt", value: plan.updatedAt },
     { key: "ArchivedAt", value: plan.archivedAt ?? "null" },
-    {
-      key: "LastMove",
-      value: plan.lastMove ? `${plan.lastMove.by} at ${plan.lastMove.at}` : "null",
-    },
+    { key: "Column", value: derivePlanColumn(plan) },
   ];
   if (plan.body.type === "workflow") {
     rows.push({
@@ -88,7 +65,6 @@ export function createPlanInspectRows(plan: KanbanPlan | NestedPlan): PlanInspec
       value: plan.body.steps.map((step) => `${step.id}:${step.name}`).join(", ") || "none",
     });
   } else {
-    rows.push({ key: "Columns", value: `${plan.body.columns.length}` });
     rows.push({ key: "NestedPlans", value: `${Object.keys(plan.body.plans).length}` });
   }
   return rows;

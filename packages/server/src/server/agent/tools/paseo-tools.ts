@@ -64,6 +64,7 @@ import {
   formatSystemNotificationPrompt,
 } from "../agent-prompt.js";
 import { resolveAgentIdentifier } from "../resolve-agent-identifier.js";
+import type { KanbanEngine } from "../../kanban/engine.js";
 import type { KanbanService } from "../../kanban/service.js";
 import {
   isKanbanOrchestratorAgent,
@@ -84,7 +85,6 @@ import {
   StepRunSchema,
 } from "@getpaseo/protocol/kanban/types";
 import {
-  ColumnInputSchema,
   KanbanPlanCreateBodySchema,
   OrchestratorPeerSchema,
 } from "@getpaseo/protocol/kanban/rpc-schemas";
@@ -134,9 +134,9 @@ export interface PaseoToolHostDependencies {
     | "getOrCreateForProject"
     | "createPlan"
     | "updatePlan"
-    | "movePlan"
     | "listOrchestratorPeers"
   >;
+  kanbanEngine?: Pick<KanbanEngine, "runStep" | "retryStep" | "skipStep" | "cancelStep">;
   chatService?: Pick<
     FileBackedChatService,
     "createRoom" | "inspectRoom" | "dispatchMessage" | "listRoomPosterAgentIds"
@@ -587,6 +587,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     workspaceScripts,
     scheduleService,
     kanbanService,
+    kanbanEngine,
     chatService,
     providerSnapshotManager,
     callerAgentId,
@@ -884,10 +885,10 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     }
   }
 
-  // move_plan additionally allows a step agent to move its own Plan.
-  function authorizeMovePlan(params: { kanbanId: string; planId: string }): "user" | "agent" {
+  // run_plan additionally allows a step agent to run its own Plan.
+  function authorizeRunPlan(params: { kanbanId: string; planId: string }): void {
     if (!callerAgentId) {
-      return "user";
+      return;
     }
     const callerAgent = resolveCallerAgent();
     if (!callerAgent) {
@@ -895,15 +896,15 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     }
     if (isKanbanOrchestratorAgent(callerAgent.labels)) {
       if (getKanbanIdFromLabels(callerAgent.labels) !== params.kanbanId) {
-        throw new Error("move_plan is only permitted for the Orchestrator's own kanban");
+        throw new Error("run_plan is only permitted for the Orchestrator's own kanban");
       }
-      return "agent";
+      return;
     }
     const ownPlanId = getPlanIdFromLabels(callerAgent.labels);
     if (ownPlanId && ownPlanId === params.planId) {
-      return "agent";
+      return;
     }
-    throw new Error("move_plan is not permitted for this agent");
+    throw new Error("run_plan is not permitted for this agent");
   }
 
   async function getOrCreateOrchestratorsRoom() {
@@ -3115,7 +3116,8 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     "inspect_kanban",
     {
       title: "Inspect kanban",
-      description: "Get one kanban board in full: columns, plans, and their steps.",
+      description:
+        "Get one kanban board in full: its plans and their steps. Columns are derived from step runs, so they are not stored.",
       inputSchema: { kanbanId: z.string().trim().min(1) },
       outputSchema: { kanban: StoredKanbanSchema.nullable() },
     },
@@ -3148,7 +3150,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       if (!kanbanService) {
         throw new Error("Kanban service is not configured");
       }
-      const plan = await kanbanService.getPlan(kanbanId, planId, parentPlanId);
+      const { plan } = await kanbanService.getPlan({ kanbanId, planId, parentPlanId });
       if (plan.body.type !== "workflow") {
         throw new Error(`Plan ${planId} is a nested kanban, not a workflow`);
       }
@@ -3162,34 +3164,39 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   );
 
   registerTool(
-    "move_plan",
+    "run_plan",
     {
-      title: "Move plan",
+      title: "Run plan",
       description:
-        "Move a Plan card to a column and position. Users may move any Plan; an Orchestrator may move any Plan on its own kanban; a step agent may move only its own Plan (resolved via its paseo.plan-id label).",
+        "Run a Plan's next unfinished step. Users may run any Plan; an Orchestrator may run any Plan on its own kanban; a step agent may run only its own Plan (resolved via its paseo.plan-id label). Columns are derived from what has run, so this is how a card reaches In progress or Done.",
       inputSchema: {
         kanbanId: z.string().trim().min(1),
         planId: z.string().trim().min(1),
         parentPlanId: z.string().trim().min(1).optional(),
-        columnId: z.string().trim().min(1),
-        index: z.number().int().nonnegative(),
       },
-      outputSchema: { plan: KanbanPlanSchema },
+      outputSchema: { stepId: z.string(), runId: z.string() },
     },
-    async ({ kanbanId, planId, parentPlanId, columnId, index }) => {
-      if (!kanbanService) {
-        throw new Error("Kanban service is not configured");
+    async ({ kanbanId, planId, parentPlanId }) => {
+      if (!kanbanEngine || !kanbanService) {
+        throw new Error("Kanban workflow engine is not configured");
       }
-      const movedBy = authorizeMovePlan({ kanbanId, planId });
-      const plan = await kanbanService.movePlan({
-        kanbanId,
-        parentPlanId,
-        planId,
-        columnId,
-        index,
-        movedBy,
+      authorizeRunPlan({ kanbanId, planId });
+      const { plan } = await kanbanService.getPlan({ kanbanId, parentPlanId, planId });
+      if (plan.body.type !== "workflow") {
+        throw new Error("Nested-kanban plans have no steps of their own to run");
+      }
+      const next = plan.body.steps.find((step) => {
+        const latestRun = step.runs.at(-1);
+        return latestRun?.status !== "succeeded" && latestRun?.status !== "skipped";
       });
-      return { content: [], structuredContent: ensureValidJson({ plan }) };
+      if (!next) {
+        throw new Error(`Plan ${planId} has no unfinished step to run`);
+      }
+      const run = await kanbanEngine.runStep({ kanbanId, parentPlanId, planId, stepId: next.id });
+      return {
+        content: [],
+        structuredContent: ensureValidJson({ stepId: next.id, runId: run.id }),
+      };
     },
   );
 
@@ -3201,16 +3208,15 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       inputSchema: {
         projectId: z.string().trim().min(1),
         name: z.string().trim().min(1).optional(),
-        columns: z.array(ColumnInputSchema).optional(),
       },
       outputSchema: { kanban: StoredKanbanSchema },
     },
-    async ({ projectId, name, columns }) => {
+    async ({ projectId, name }) => {
       if (!kanbanService) {
         throw new Error("Kanban service is not configured");
       }
       requireUserOrAnyOrchestrator("create_kanban");
-      const kanban = await kanbanService.getOrCreateForProject(projectId, { name, columns });
+      const kanban = await kanbanService.getOrCreateForProject(projectId, { name });
       return { content: [], structuredContent: ensureValidJson({ kanban }) };
     },
   );
@@ -3223,14 +3229,13 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       inputSchema: {
         kanbanId: z.string().trim().min(1),
         parentPlanId: z.string().trim().min(1).optional(),
-        columnId: z.string().trim().min(1),
         title: z.string().trim().min(1),
         description: z.string().trim().min(1).optional(),
         body: KanbanPlanCreateBodySchema,
       },
       outputSchema: { plan: KanbanPlanSchema },
     },
-    async ({ kanbanId, parentPlanId, columnId, title, description, body }) => {
+    async ({ kanbanId, parentPlanId, title, description, body }) => {
       if (!kanbanService) {
         throw new Error("Kanban service is not configured");
       }
@@ -3238,7 +3243,6 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       const plan = await kanbanService.createPlan({
         kanbanId,
         parentPlanId,
-        columnId,
         title,
         description: description ?? null,
         body,
@@ -3293,7 +3297,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     if (!kanbanService) {
       throw new Error("Kanban service is not configured");
     }
-    const plan = await kanbanService.getPlan(kanbanId, planId, parentPlanId);
+    const { plan } = await kanbanService.getPlan({ kanbanId, planId, parentPlanId });
     if (plan.body.type !== "workflow") {
       throw new Error(`Plan ${planId} is a nested kanban, not a workflow`);
     }
@@ -3312,9 +3316,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     async ({ kanbanId, planId, parentPlanId, stepId }) => {
       requireUserOrOwnOrchestrator(kanbanId, "run_plan_step");
       await requireExistingWorkflowStep(kanbanId, planId, parentPlanId, stepId);
-      throw new Error(
-        "Running workflow steps is not implemented yet — the workflow engine ships in a later slice.",
-      );
+      if (!kanbanEngine) {
+        throw new Error("Kanban workflow engine is not configured");
+      }
+      const step = await kanbanEngine.runStep({ kanbanId, planId, parentPlanId, stepId });
+      return { content: [], structuredContent: ensureValidJson({ step }) };
     },
   );
 
@@ -3328,9 +3334,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     async ({ kanbanId, planId, parentPlanId, stepId }) => {
       requireUserOrOwnOrchestrator(kanbanId, "skip_plan_step");
       await requireExistingWorkflowStep(kanbanId, planId, parentPlanId, stepId);
-      throw new Error(
-        "Skipping workflow steps is not implemented yet — the workflow engine ships in a later slice.",
-      );
+      if (!kanbanEngine) {
+        throw new Error("Kanban workflow engine is not configured");
+      }
+      const step = await kanbanEngine.skipStep({ kanbanId, planId, parentPlanId, stepId });
+      return { content: [], structuredContent: ensureValidJson({ step }) };
     },
   );
 
@@ -3344,9 +3352,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     async ({ kanbanId, planId, parentPlanId, stepId }) => {
       requireUserOrOwnOrchestrator(kanbanId, "retry_plan_step");
       await requireExistingWorkflowStep(kanbanId, planId, parentPlanId, stepId);
-      throw new Error(
-        "Retrying workflow steps is not implemented yet — the workflow engine ships in a later slice.",
-      );
+      if (!kanbanEngine) {
+        throw new Error("Kanban workflow engine is not configured");
+      }
+      const step = await kanbanEngine.retryStep({ kanbanId, planId, parentPlanId, stepId });
+      return { content: [], structuredContent: ensureValidJson({ step }) };
     },
   );
 

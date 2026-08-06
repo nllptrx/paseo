@@ -2411,8 +2411,6 @@ export class Session {
         return this.kanbanSession.handlePlanCreateRequest(msg);
       case "kanban.plan.update.request":
         return this.kanbanSession.handlePlanUpdateRequest(msg);
-      case "kanban.plan.move.request":
-        return this.kanbanSession.handlePlanMoveRequest(msg);
       case "kanban.plan.archive.request":
         return this.kanbanSession.handlePlanArchiveRequest(msg);
       case "kanban.step.run.request":

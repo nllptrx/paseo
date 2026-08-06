@@ -9,8 +9,9 @@ that file once nothing in it remains undocs'd here or in data-model.
 ## Layering
 
 - **Lower layer:** Workspace (cwd, agents, archive, FS). Unchanged ownership.
-- **Overlay:** one Kanban per project (v1), Plans in Columns, optional
-  Orchestrator workspace linked from the kanban record.
+- **Overlay:** one Kanban per project (v1), a set of Plans, optional
+  Orchestrator workspace linked from the kanban record. Columns are not stored —
+  see below.
 - **Unbounded:** workspaces not referenced by any active Plan. Default sidebar
   experience is exactly today's status/project grouping — a user who never opts
   in never sees a board.
@@ -27,20 +28,38 @@ materialize real Schedules (`maxRuns: 1`); there is no second cron engine.
    `existing` workspace strategy.
 3. Sidebar grouping "Kanban" — columns then Unbounded — gated on host feature
    `kanban`.
-4. `/kanbans` view — board per project kanban; host badge when multi-host.
+4. `/kanbans` — overview, one column per project, running work first. Opening a
+   project goes to `/kanbans/<kanbanId>`, its three-column board.
 5. "Create Orchestrator" — provisions a **local** workspace on the **project
    root** (not a worktree). The Orchestrator steers via tools and chat; it does
    not need checkout isolation for code edits.
 
-## Soft columns, hard steps
+## Derived columns, hard steps
 
-Moving a Plan between columns is soft (no execution effect except declared
-column automations). Step gates are hard: the next step cannot start until the
-previous succeeded or was skipped.
+A Plan's column is computed from its step runs, never stored: no runs is
+`draft`, every step settled successfully is `done`, anything else is
+`inProgress`. `derivePlanColumn` in `packages/protocol/src/kanban/derive.ts` is
+the single definition, shared by app, CLI and daemon.
 
-Three movers exist: user (DnD / move menu), agent (self-placement via tools),
-lifecycle sync (`autoAdvance`). **User gesture always wins** — recorded on
-`lastMove.by`. Never let an automatic move undo a recent user drag.
+This is why there is no move RPC, no `lastMove`, and no lifecycle sync. A stored
+column is a second copy of execution state that something has to push back after
+every finish, and it lies whenever that push is missed.
+
+Failure is not a column. A failed run still belongs to work in progress;
+splitting it out doubles the places a card can hide. Surfaces show it as status
+on the card instead.
+
+Step gates stay hard: the next step cannot start until the previous succeeded or
+was skipped.
+
+Dragging means one thing: a draft dropped on the running column runs its first
+unfinished step. Dropping on Done says so and does nothing. Draft order is the
+only hand-set ordering, and it is a client-side view preference
+(`kanban-draft-order-store`); the other columns order by recency.
+
+The one automation left is `archiveWorkspacesOnDone`, per kanban and off by
+default: once a plan's last step settles, the worktrees its steps created are
+archived. Shared and pre-existing workspaces are never touched.
 
 ## Orchestrator mesh
 
@@ -53,7 +72,7 @@ messaging stays host-local in v1.
 
 In the app, an Orchestrator workspace gains an **Orchestrator** tab (menu ⋯ →
 Open Orchestrator when that workspace is linked). The pane reuses
-`KanbanBoardSurface` (same board as `/kanbans`, including web cross-column DnD)
+`KanbanBoardSurface` (the same board as `/kanbans/<kanbanId>`, drag included)
 plus an Orchestrators rail that opens the host's `orchestrators` chat thread.
 
 ## Client data
@@ -63,9 +82,9 @@ shape as schedules — not a new `SessionState` map. Gate every entry point on
 `server_info.features.kanban`. Feature contract: gate once, then run or tell the
 user to update the host — no silent fallbacks.
 
-Sidebar kanban grouping derives column membership client-side from plan step
-workspace refs (`existing` + `runs[].workspaceIds`). Nested-kanban children map
-to the top-level card's column. Plans with no workspaces yet stay invisible in
+Sidebar kanban grouping resolves a workspace to a plan through its step
+workspace refs (`existing` + `runs[].workspaceIds`), then to that plan's derived
+column. Nested-kanban children map to the top-level card's column. Plans with no workspaces yet stay invisible in
 the sidebar (execution-centric); planning lives in `/kanbans`.
 
 ## Persistence
@@ -76,5 +95,5 @@ Protocol: `packages/protocol/src/kanban/`. Engine: `packages/server/src/server/k
 ## Hard-outs
 
 Things that break the layering (not scope trims): replacing Workspace as SoT of
-execution, a second cron engine, treating Columns as hard gates, a parallel IM
-system for Orchestrators, or nesting deeper than depth 2.
+execution, a second cron engine, storing a column so it can disagree with what
+ran, a parallel IM system for Orchestrators, or nesting deeper than depth 2.

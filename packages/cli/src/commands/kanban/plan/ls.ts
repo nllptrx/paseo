@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import type { ListResult } from "../../../output/index.js";
-import { columnsFor, planSchema, toPlanRow, type PlanRow } from "./schema.js";
+import { planSchema, toPlanRow, type PlanRow } from "./schema.js";
 import {
   connectKanbanClient,
   fetchKanban,
@@ -17,13 +17,12 @@ export async function runLsCommand(
   const { client } = await connectKanbanClient(options.host);
   try {
     const kanban = await fetchKanban(client, kanbanId);
-    const columns = columnsFor(kanban, options.parent);
     const plans = options.parent
       ? Object.values(resolveNestedPlans(kanban, options.parent))
       : Object.values(kanban.plans);
     return {
       type: "list",
-      data: plans.map((plan) => toPlanRow(columns, plan)),
+      data: plans.map((plan) => toPlanRow(plan)),
       schema: planSchema,
     };
   } catch (error) {

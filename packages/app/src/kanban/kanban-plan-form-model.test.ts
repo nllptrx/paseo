@@ -10,7 +10,6 @@ const SNAPSHOT: KanbanPlanFormSnapshot = {
   serverId: "host-a",
   kanbanId: "kanban-1",
   parentPlanId: null,
-  columnId: "column-1",
 };
 
 const PROVIDERS: KanbanPlanFormProviderOption[] = [

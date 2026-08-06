@@ -36,7 +36,6 @@ function plan(steps: Step[]): KanbanPlan {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt: null,
-    lastMove: null,
     body: { type: "workflow", steps },
   };
 }
@@ -59,7 +58,6 @@ describe("derivePlanProviders", () => {
       ...plan([]),
       body: {
         type: "nested_kanban",
-        columns: [],
         plans: { child: childPlan([step("a", ["pi"])]) },
       },
     };

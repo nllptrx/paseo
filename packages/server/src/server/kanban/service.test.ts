@@ -152,19 +152,15 @@ describe("KanbanService orchestrator methods", () => {
   test("getPlan resolves top-level and nested plans", async () => {
     const service = new KanbanService({ store, logger: testLogger() });
     const kanban = await service.getOrCreateForProject("proj-1");
-    const columnId = kanban.columns[0].id;
     const topPlan = await service.createPlan({
       kanbanId: kanban.id,
-      columnId,
       title: "Nested board",
       body: { type: "nested_kanban" },
     });
     if (topPlan.body.type !== "nested_kanban") throw new Error("expected nested_kanban");
-    const nestedColumnId = topPlan.body.columns[0].id;
     const nestedPlan = await service.createPlan({
       kanbanId: kanban.id,
       parentPlanId: topPlan.id,
-      columnId: nestedColumnId,
       title: "Nested workflow",
       body: { type: "workflow", steps: [] },
     });

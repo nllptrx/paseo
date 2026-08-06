@@ -53,17 +53,6 @@ export function KanbanBoardSurface({
     [detail, draftOrder],
   );
 
-  // Columns are derived from what ran, but the daemon still stores a column per
-  // plan. New plans are always drafts, so they land in the stored backlog column
-  // and nothing reads it back. Drops out when the store stops keeping columns.
-  const backlogColumnId = useMemo(() => {
-    if (!detail) {
-      return null;
-    }
-    const backlog = detail.columns.find((column) => column.role === "backlog");
-    return backlog?.id ?? detail.columns[0]?.id ?? null;
-  }, [detail]);
-
   const handleRunPlan = useCallback(
     (planId: string) => {
       const plan = detail?.plans[planId];
@@ -162,12 +151,11 @@ export function KanbanBoardSurface({
           onClose={handleClosePlan}
         />
       ) : null}
-      {isCreatingPlan && backlogColumnId ? (
+      {isCreatingPlan ? (
         <KanbanPlanFormSheet
           serverId={serverId}
           kanbanId={kanbanId}
           parentPlanId={null}
-          columnId={backlogColumnId}
           visible
           onClose={handleCloseCreatePlan}
         />

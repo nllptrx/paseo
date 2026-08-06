@@ -28,7 +28,7 @@ export interface KanbanSessionOptions {
 }
 
 /**
- * A client's kanban request surface: board/plan CRUD, plan moves, step
+ * A client's kanban request surface: board/plan CRUD, step
  * run/retry/skip/cancel, orchestrator provision/unlink/peer-listing, and the
  * kanban.update push subscription. Plan moves and step actions go through
  * `kanbanEngine` (not `kanbanService` directly) so column-entry automations and
@@ -98,7 +98,6 @@ export class KanbanSession {
     try {
       const kanban = await this.kanbanService.getOrCreateForProject(request.projectId, {
         name: request.name,
-        columns: request.columns,
       });
       this.host.emit({
         type: "kanban.create.response",
@@ -115,8 +114,7 @@ export class KanbanSession {
     try {
       const kanban = await this.kanbanService.update(request.kanbanId, {
         name: request.name,
-        autoAdvance: request.autoAdvance,
-        columns: request.columns,
+        archiveWorkspacesOnDone: request.archiveWorkspacesOnDone,
       });
       this.host.emit({
         type: "kanban.update.response",
@@ -148,7 +146,6 @@ export class KanbanSession {
       const plan = await this.kanbanService.createPlan({
         kanbanId: request.kanbanId,
         parentPlanId: request.parentPlanId,
-        columnId: request.columnId,
         title: request.title,
         description: request.description,
         body: request.body,
@@ -175,27 +172,6 @@ export class KanbanSession {
       });
       this.host.emit({
         type: "kanban.plan.update.response",
-        payload: { requestId: request.requestId, plan, error: null },
-      });
-    } catch (error) {
-      this.emitKanbanRpcError(request, error);
-    }
-  }
-
-  async handlePlanMoveRequest(
-    request: Extract<SessionInboundMessage, { type: "kanban.plan.move.request" }>,
-  ): Promise<void> {
-    try {
-      const plan = await this.kanbanEngine.movePlan({
-        kanbanId: request.kanbanId,
-        parentPlanId: request.parentPlanId,
-        planId: request.planId,
-        columnId: request.columnId,
-        index: request.index,
-        movedBy: request.movedBy,
-      });
-      this.host.emit({
-        type: "kanban.plan.move.response",
         payload: { requestId: request.requestId, plan, error: null },
       });
     } catch (error) {
@@ -339,7 +315,6 @@ export class KanbanSession {
     request: Extract<SessionInboundMessage, { type: "kanban.orchestrator.list_peers.request" }>,
   ): Promise<void> {
     try {
-      // Live agent status wiring for peers is a later slice; this is a pointer-only stub.
       const peers = await this.kanbanService.listOrchestratorPeers();
       this.host.emit({
         type: "kanban.orchestrator.list_peers.response",

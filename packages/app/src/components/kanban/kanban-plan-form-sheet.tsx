@@ -15,13 +15,12 @@ export interface KanbanPlanFormSheetProps {
   serverId: string;
   kanbanId: string;
   parentPlanId: string | null;
-  columnId: string;
   visible: boolean;
   onClose: () => void;
 }
 
 function openKey(props: KanbanPlanFormSheetProps): string {
-  return `${props.serverId}:${props.kanbanId}:${props.parentPlanId ?? ""}:${props.columnId}`;
+  return `${props.serverId}:${props.kanbanId}:${props.parentPlanId ?? ""}`;
 }
 
 export function KanbanPlanFormSheet(props: KanbanPlanFormSheetProps): ReactElement | null {
@@ -35,15 +34,14 @@ function OpenKanbanPlanFormSheet({
   serverId,
   kanbanId,
   parentPlanId,
-  columnId,
   visible,
   onClose,
 }: KanbanPlanFormSheetProps): ReactElement {
   const { t } = useTranslation();
   const { createPlan, isCreatingPlan } = useKanbanMutations({ serverId });
   const snapshot = useMemo(
-    () => ({ serverId, kanbanId, parentPlanId, columnId }),
-    [columnId, kanbanId, parentPlanId, serverId],
+    () => ({ serverId, kanbanId, parentPlanId }),
+    [kanbanId, parentPlanId, serverId],
   );
   const model = useKanbanPlanFormModel(snapshot);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
@@ -62,7 +60,6 @@ function OpenKanbanPlanFormSheet({
       await createPlan({
         kanbanId: state.kanbanId,
         parentPlanId: state.parentPlanId,
-        columnId: state.columnId,
         title: state.title.trim(),
         description: state.description.trim().length > 0 ? state.description.trim() : null,
         body,

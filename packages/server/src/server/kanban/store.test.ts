@@ -23,18 +23,8 @@ function makeKanban(overrides: Partial<Omit<StoredKanban, "id">> = {}): Omit<Sto
   return {
     projectId: "proj-1",
     name: "Project board",
-    autoAdvance: false,
+    archiveWorkspacesOnDone: false,
     orchestrator: null,
-    columns: [
-      {
-        id: "col_backlog",
-        name: "Backlog",
-        role: "backlog",
-        onCardEnter: "none",
-        archiveWorkspacesOnEnter: false,
-        planIds: [],
-      },
-    ],
     plans: {},
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -114,7 +104,6 @@ describe("KanbanStore", () => {
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
             archivedAt: null,
-            lastMove: null,
             body: {
               type: "workflow",
               steps: [makeStep({ runs })],
@@ -160,17 +149,17 @@ describe("KanbanStore", () => {
 
     const secondUpdate = store.update(created.id, (kanban) => {
       secondSawName = kanban.name;
-      return { ...kanban, autoAdvance: true };
+      return { ...kanban, archiveWorkspacesOnDone: true };
     });
 
     releaseFirstUpdate?.();
     const [, second] = await Promise.all([firstUpdate, secondUpdate]);
 
     expect(secondSawName).toBe("first");
-    expect(second).toMatchObject({ name: "first", autoAdvance: true });
+    expect(second).toMatchObject({ name: "first", archiveWorkspacesOnDone: true });
     await expect(new KanbanStore(tempDir).get(created.id)).resolves.toMatchObject({
       name: "first",
-      autoAdvance: true,
+      archiveWorkspacesOnDone: true,
     });
   });
 

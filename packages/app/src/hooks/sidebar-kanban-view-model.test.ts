@@ -1,20 +1,10 @@
-import type { Column, KanbanPlan, StoredKanban } from "@getpaseo/protocol/kanban/types";
+import type { KanbanPlan, StoredKanban } from "@getpaseo/protocol/kanban/types";
 import { describe, expect, it } from "vitest";
 import type { SidebarWorkspaceEntry } from "@/hooks/sidebar-workspaces-view-model";
 import {
   resolveKanbanWorkspaceColumns,
   splitWorkspacesByKanbanColumn,
 } from "./sidebar-kanban-view-model";
-
-function column(overrides: Partial<Column> & { id: string; name: string }): Column {
-  return {
-    role: null,
-    onCardEnter: "none",
-    archiveWorkspacesOnEnter: false,
-    planIds: [],
-    ...overrides,
-  };
-}
 
 function workflowPlan(overrides: Partial<KanbanPlan> & { id: string }): KanbanPlan {
   return {
@@ -23,7 +13,6 @@ function workflowPlan(overrides: Partial<KanbanPlan> & { id: string }): KanbanPl
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt: null,
-    lastMove: null,
     body: { type: "workflow", steps: [] },
     ...overrides,
   };
@@ -46,9 +35,8 @@ function kanban(overrides: Partial<StoredKanban> & { id: string }): StoredKanban
   return {
     projectId: "project-1",
     name: "Kanban",
-    autoAdvance: true,
+    archiveWorkspacesOnDone: false,
     orchestrator: null,
-    columns: [],
     plans: {},
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -84,13 +72,9 @@ function workspaceEntry(overrides: Partial<SidebarWorkspaceEntry> & { workspaceK
 }
 
 describe("resolveKanbanWorkspaceColumns", () => {
-  it("maps a workspace declared via the existing strategy to its plan's column", () => {
+  it("maps a workspace declared via the existing strategy to its plan's derived column", () => {
     const board = kanban({
       id: "kanban-1",
-      columns: [
-        column({ id: "backlog", name: "Backlog", planIds: ["plan-1"] }),
-        column({ id: "active", name: "In progress" }),
-      ],
       plans: {
         "plan-1": workflowPlan({
           id: "plan-1",
@@ -106,18 +90,17 @@ describe("resolveKanbanWorkspaceColumns", () => {
       serverId: "server-1",
       kanbanId: "kanban-1",
       kanbanName: "Kanban",
-      columnId: "backlog",
-      columnName: "Backlog",
+      columnId: "draft",
+      columnName: "draft",
       columnOrder: 0,
       planId: "plan-1",
       planTitle: "Ship the thing",
     });
   });
 
-  it("maps a workspace only referenced through a step run", () => {
+  it("maps a workspace only referenced through a step run, which is also what puts it in progress", () => {
     const board = kanban({
       id: "kanban-1",
-      columns: [column({ id: "active", name: "In progress", planIds: ["plan-1"] })],
       plans: {
         "plan-1": workflowPlan({
           id: "plan-1",
@@ -153,13 +136,12 @@ describe("resolveKanbanWorkspaceColumns", () => {
 
     const index = resolveKanbanWorkspaceColumns("server-1", board);
 
-    expect(index.get("workspace-2")?.columnId).toBe("active");
+    expect(index.get("workspace-2")?.columnId).toBe("inProgress");
   });
 
-  it("ignores archived plans and plans in no column", () => {
+  it("ignores archived plans", () => {
     const board = kanban({
       id: "kanban-1",
-      columns: [column({ id: "backlog", name: "Backlog", planIds: ["plan-1"] })],
       plans: {
         "plan-1": workflowPlan({
           id: "plan-1",
@@ -175,13 +157,14 @@ describe("resolveKanbanWorkspaceColumns", () => {
 
     const index = resolveKanbanWorkspaceColumns("server-1", board);
 
-    expect(index.size).toBe(0);
+    // plan-2 is not archived, so its workspace is still tracked; plan-1's is not.
+    expect(index.has("workspace-1")).toBe(false);
+    expect(index.get("workspace-3")?.planId).toBe("plan-2");
   });
 
   it("resolves a nested-kanban child workspace to the outer card's column", () => {
     const board = kanban({
       id: "kanban-1",
-      columns: [column({ id: "backlog", name: "Backlog", planIds: ["plan-1"] })],
       plans: {
         "plan-1": {
           id: "plan-1",
@@ -190,10 +173,8 @@ describe("resolveKanbanWorkspaceColumns", () => {
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:00:00.000Z",
           archivedAt: null,
-          lastMove: null,
           body: {
             type: "nested_kanban",
-            columns: [column({ id: "inner-backlog", name: "Backlog", planIds: ["nested-1"] })],
             plans: {
               "nested-1": {
                 id: "nested-1",
@@ -202,7 +183,6 @@ describe("resolveKanbanWorkspaceColumns", () => {
                 createdAt: "2026-01-01T00:00:00.000Z",
                 updatedAt: "2026-01-01T00:00:00.000Z",
                 archivedAt: null,
-                lastMove: null,
                 body: { type: "workflow", steps: [existingStep("workspace-4")] },
               },
             },
@@ -213,14 +193,13 @@ describe("resolveKanbanWorkspaceColumns", () => {
 
     const index = resolveKanbanWorkspaceColumns("server-1", board);
 
-    expect(index.get("workspace-4")?.columnId).toBe("backlog");
+    expect(index.get("workspace-4")?.columnId).toBe("draft");
     expect(index.get("workspace-4")?.planId).toBe("plan-1");
   });
 
   it("is the dedup check the Add to Kanban action reuses: undefined for a workspace no plan tracks", () => {
     const board = kanban({
       id: "kanban-1",
-      columns: [column({ id: "backlog", name: "Backlog", planIds: ["plan-1"] })],
       plans: {
         "plan-1": workflowPlan({
           id: "plan-1",
@@ -249,7 +228,7 @@ describe("splitWorkspacesByKanbanColumn", () => {
           serverId: "server-1",
           kanbanId: "kanban-1",
           kanbanName: "Kanban",
-          columnId: "active",
+          columnId: "inProgress",
           columnName: "In progress",
           columnOrder: 1,
           planId: "plan-1",
@@ -262,7 +241,7 @@ describe("splitWorkspacesByKanbanColumn", () => {
           serverId: "server-1",
           kanbanId: "kanban-1",
           kanbanName: "Kanban",
-          columnId: "backlog",
+          columnId: "draft",
           columnName: "Backlog",
           columnOrder: 0,
           planId: "plan-2",

@@ -1,75 +1,17 @@
-import type { KanbanPlan, NestedPlan, Step, StoredKanban } from "@getpaseo/protocol/kanban/types";
+import type { KanbanPlan, StoredKanban } from "@getpaseo/protocol/kanban/types";
+import {
+  DERIVED_COLUMN_KEYS,
+  derivePlanColumn,
+  type DerivedColumnKey,
+} from "@getpaseo/protocol/kanban/derive";
 
-/**
- * Columns are derived from what the plan's steps have actually run, not stored on
- * the plan. A stored column is a second copy of execution state that has to be
- * pushed back in sync every time an agent finishes, and it silently lies whenever
- * that sync is missed.
- *
- * Failure and blocked are deliberately not columns: a failed run still belongs to
- * work in progress, and splitting it out doubles the places a card can hide. The
- * card surfaces those as status instead.
- */
-export type DerivedColumnKey = "draft" | "inProgress" | "done";
-
-export const DERIVED_COLUMN_KEYS: readonly DerivedColumnKey[] = ["draft", "inProgress", "done"];
-
-export type PlanRunState = "idle" | "running" | "failed" | "done";
-
-function stepsOf(plan: KanbanPlan | NestedPlan): Step[] {
-  if (plan.body.type === "workflow") {
-    return plan.body.steps;
-  }
-  return Object.values(plan.body.plans).flatMap((child) => stepsOf(child));
-}
-
-/**
- * Coarse execution state behind both the derived column and the card's status.
- * The last run of a step is the authoritative one — earlier runs are retry history.
- */
-export function derivePlanRunState(plan: KanbanPlan | NestedPlan): PlanRunState {
-  const steps = stepsOf(plan);
-  if (steps.length === 0) {
-    return "idle";
-  }
-
-  let started = 0;
-  let settled = 0;
-  let failed = false;
-  for (const step of steps) {
-    const latestRun = step.runs.at(-1);
-    if (!latestRun) {
-      continue;
-    }
-    started += 1;
-    if (latestRun.status === "running") {
-      continue;
-    }
-    settled += 1;
-    if (latestRun.status !== "succeeded" && latestRun.status !== "skipped") {
-      failed = true;
-    }
-  }
-
-  if (started === 0) {
-    return "idle";
-  }
-  if (settled < started || settled < steps.length) {
-    return failed ? "failed" : "running";
-  }
-  return failed ? "failed" : "done";
-}
-
-export function derivePlanColumn(plan: KanbanPlan | NestedPlan): DerivedColumnKey {
-  const state = derivePlanRunState(plan);
-  if (state === "idle") {
-    return "draft";
-  }
-  if (state === "done") {
-    return "done";
-  }
-  return "inProgress";
-}
+export {
+  DERIVED_COLUMN_KEYS,
+  derivePlanColumn,
+  derivePlanRunState,
+  type DerivedColumnKey,
+  type PlanRunState,
+} from "@getpaseo/protocol/kanban/derive";
 
 export interface DerivedBoardColumn {
   key: DerivedColumnKey;

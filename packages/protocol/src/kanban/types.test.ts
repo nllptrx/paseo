@@ -22,7 +22,6 @@ function basePlanFields() {
     createdAt: "2026-08-06T00:00:00.000Z",
     updatedAt: "2026-08-06T00:00:00.000Z",
     archivedAt: null,
-    lastMove: null,
   };
 }
 
@@ -41,16 +40,6 @@ describe("KanbanPlanSchema", () => {
       ...basePlanFields(),
       body: {
         type: "nested_kanban" as const,
-        columns: [
-          {
-            id: "col_00000001",
-            name: "Backlog",
-            role: "backlog" as const,
-            onCardEnter: "none" as const,
-            archiveWorkspacesOnEnter: false,
-            planIds: ["pln_00000002"],
-          },
-        ],
         plans: {
           pln_00000002: {
             ...basePlanFields(),
@@ -69,14 +58,12 @@ describe("KanbanPlanSchema", () => {
       ...basePlanFields(),
       body: {
         type: "nested_kanban" as const,
-        columns: [],
         plans: {
           pln_00000002: {
             ...basePlanFields(),
             id: "pln_00000002",
             body: {
               type: "nested_kanban",
-              columns: [],
               plans: {},
             },
           },
@@ -89,27 +76,16 @@ describe("KanbanPlanSchema", () => {
 });
 
 describe("StoredKanbanSchema", () => {
-  it("parses a kanban with an orchestrator pointer and lastMove on a plan", () => {
+  it("parses a kanban with an orchestrator pointer", () => {
     const kanban = {
       id: "kbn_00000001",
       projectId: "prj_00000001",
       name: "Widgets",
-      autoAdvance: true,
+      archiveWorkspacesOnDone: false,
       orchestrator: { workspaceId: "ws_1", agentId: "agent_1" },
-      columns: [
-        {
-          id: "col_00000001",
-          name: "In progress",
-          role: "active" as const,
-          onCardEnter: "start" as const,
-          archiveWorkspacesOnEnter: false,
-          planIds: ["pln_00000001"],
-        },
-      ],
       plans: {
         pln_00000001: {
           ...basePlanFields(),
-          lastMove: { at: "2026-08-06T00:00:00.000Z", by: "agent" as const },
           body: { type: "workflow" as const, steps: [baseStep()] },
         },
       },

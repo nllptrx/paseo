@@ -3,7 +3,6 @@ import {
   KanbanListRequestSchema,
   KanbanListResponseSchema,
   KanbanPlanCreateRequestSchema,
-  KanbanPlanMoveRequestSchema,
   KanbanUpdatePushSchema,
 } from "./rpc-schemas.js";
 
@@ -24,7 +23,6 @@ describe("kanban RPC schemas", () => {
       type: "kanban.plan.create.request" as const,
       requestId: "req-2",
       kanbanId: "kbn_1",
-      columnId: "col_1",
       title: "Ship it",
       body: {
         type: "workflow" as const,
@@ -42,20 +40,6 @@ describe("kanban RPC schemas", () => {
     };
 
     expect(KanbanPlanCreateRequestSchema.parse(request)).toEqual(request);
-  });
-
-  it("round-trips kanban.plan.move.request", () => {
-    const request = {
-      type: "kanban.plan.move.request" as const,
-      requestId: "req-3",
-      kanbanId: "kbn_1",
-      planId: "pln_1",
-      columnId: "col_2",
-      index: 0,
-      movedBy: "user" as const,
-    };
-
-    expect(KanbanPlanMoveRequestSchema.parse(request)).toEqual(request);
   });
 
   it("round-trips the kanban.update push event", () => {
