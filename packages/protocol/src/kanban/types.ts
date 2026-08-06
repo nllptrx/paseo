@@ -1,0 +1,133 @@
+import { z } from "zod";
+import { AgentProviderSchema } from "../provider-manifest.js";
+import { ScheduleCadenceSchema } from "../schedule/types.js";
+
+export const StepAgentSpecSchema = z.object({
+  provider: AgentProviderSchema,
+  model: z.string().trim().min(1).optional(),
+  modeId: z.string().trim().min(1).optional(),
+  thinkingOptionId: z.string().trim().min(1).optional(),
+  featureValues: z.record(z.string(), z.unknown()).optional(),
+  promptOverride: z.string().trim().min(1).optional(),
+});
+export type StepAgentSpec = z.infer<typeof StepAgentSpecSchema>;
+
+export const StepWorkspaceStrategySchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("reuse_previous") }),
+  z.object({ mode: z.literal("existing"), workspaceId: z.string().trim().min(1) }),
+  z.object({ mode: z.literal("worktree") }),
+  z.object({ mode: z.literal("worktree_per_agent") }),
+]);
+export type StepWorkspaceStrategy = z.infer<typeof StepWorkspaceStrategySchema>;
+
+export const StepTriggerSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("immediate") }),
+  z.object({ type: z.literal("manual") }),
+  z.object({ type: z.literal("schedule"), cadence: ScheduleCadenceSchema }),
+]);
+export type StepTrigger = z.infer<typeof StepTriggerSchema>;
+
+export const StepRunStatusSchema = z.enum([
+  "running",
+  "succeeded",
+  "failed",
+  "interrupted",
+  "canceled",
+]);
+export type StepRunStatus = z.infer<typeof StepRunStatusSchema>;
+
+export const StepRunSchema = z.object({
+  id: z.string(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  status: StepRunStatusSchema,
+  agentIds: z.array(z.string()),
+  workspaceIds: z.array(z.string()),
+  scheduleId: z.string().nullable(),
+  error: z.string().nullable(),
+});
+export type StepRun = z.infer<typeof StepRunSchema>;
+
+export const StepSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  prompt: z.string().min(1),
+  agents: z.array(StepAgentSpecSchema).min(1),
+  completion: z.literal("all"),
+  workspace: StepWorkspaceStrategySchema,
+  trigger: StepTriggerSchema,
+  runs: z.array(StepRunSchema),
+});
+export type Step = z.infer<typeof StepSchema>;
+
+export const LastMoveSchema = z.object({
+  at: z.string(),
+  by: z.enum(["user", "agent", "sync"]),
+});
+export type LastMove = z.infer<typeof LastMoveSchema>;
+
+export const ColumnRoleSchema = z.enum(["backlog", "active", "review", "done"]);
+export type ColumnRole = z.infer<typeof ColumnRoleSchema>;
+
+export const ColumnSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  role: ColumnRoleSchema.nullable(),
+  onCardEnter: z.enum(["none", "start"]),
+  archiveWorkspacesOnEnter: z.boolean(),
+  planIds: z.array(z.string()),
+});
+export type Column = z.infer<typeof ColumnSchema>;
+
+const PlanBaseSchema = z.object({
+  id: z.string(),
+  title: z.string().min(1),
+  description: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archivedAt: z.string().nullable(),
+  lastMove: LastMoveSchema.nullable(),
+});
+
+export const NestedPlanSchema = PlanBaseSchema.extend({
+  body: z.object({
+    type: z.literal("workflow"),
+    steps: z.array(StepSchema),
+  }),
+});
+export type NestedPlan = z.infer<typeof NestedPlanSchema>;
+
+export const KanbanPlanSchema = PlanBaseSchema.extend({
+  body: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("workflow"), steps: z.array(StepSchema) }),
+    z.object({
+      type: z.literal("nested_kanban"),
+      columns: z.array(ColumnSchema),
+      plans: z.record(z.string(), NestedPlanSchema),
+    }),
+  ]),
+});
+export type KanbanPlan = z.infer<typeof KanbanPlanSchema>;
+
+export const KanbanOrchestratorSchema = z.object({
+  workspaceId: z.string(),
+  agentId: z.string(),
+});
+export type KanbanOrchestrator = z.infer<typeof KanbanOrchestratorSchema>;
+
+export const StoredKanbanSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  name: z.string(),
+  autoAdvance: z.boolean(),
+  orchestrator: KanbanOrchestratorSchema.nullable(),
+  columns: z.array(ColumnSchema),
+  plans: z.record(z.string(), KanbanPlanSchema),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archivedAt: z.string().nullable(),
+});
+export type StoredKanban = z.infer<typeof StoredKanbanSchema>;
+
+export const KanbanSummarySchema = StoredKanbanSchema.omit({ plans: true });
+export type KanbanSummary = z.infer<typeof KanbanSummarySchema>;

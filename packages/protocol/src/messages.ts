@@ -54,6 +54,45 @@ import {
   LoopStopResponseSchema,
 } from "./loop/rpc-schemas.js";
 import {
+  KanbanListRequestSchema,
+  KanbanGetRequestSchema,
+  KanbanCreateRequestSchema,
+  KanbanUpdateRequestSchema,
+  KanbanArchiveRequestSchema,
+  KanbanPlanCreateRequestSchema,
+  KanbanPlanUpdateRequestSchema,
+  KanbanPlanMoveRequestSchema,
+  KanbanPlanArchiveRequestSchema,
+  KanbanStepRunRequestSchema,
+  KanbanStepRetryRequestSchema,
+  KanbanStepSkipRequestSchema,
+  KanbanStepCancelRequestSchema,
+  KanbanOrchestratorProvisionRequestSchema,
+  KanbanOrchestratorUnlinkRequestSchema,
+  KanbanOrchestratorListPeersRequestSchema,
+  KanbanSubscribeRequestSchema,
+  KanbanUnsubscribeRequestSchema,
+  KanbanListResponseSchema,
+  KanbanGetResponseSchema,
+  KanbanCreateResponseSchema,
+  KanbanUpdateResponseSchema,
+  KanbanArchiveResponseSchema,
+  KanbanPlanCreateResponseSchema,
+  KanbanPlanUpdateResponseSchema,
+  KanbanPlanMoveResponseSchema,
+  KanbanPlanArchiveResponseSchema,
+  KanbanStepRunResponseSchema,
+  KanbanStepRetryResponseSchema,
+  KanbanStepSkipResponseSchema,
+  KanbanStepCancelResponseSchema,
+  KanbanOrchestratorProvisionResponseSchema,
+  KanbanOrchestratorUnlinkResponseSchema,
+  KanbanOrchestratorListPeersResponseSchema,
+  KanbanSubscribeResponseSchema,
+  KanbanUnsubscribeResponseSchema,
+  KanbanUpdatePushSchema,
+} from "./kanban/rpc-schemas.js";
+import {
   BrowserAutomationExecuteRequestSchema,
   BrowserAutomationExecuteResponseSchema,
 } from "./browser-automation/rpc-schemas.js";
@@ -2788,6 +2827,24 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   LoopInspectRequestSchema,
   LoopLogsRequestSchema,
   LoopStopRequestSchema,
+  KanbanListRequestSchema,
+  KanbanGetRequestSchema,
+  KanbanCreateRequestSchema,
+  KanbanUpdateRequestSchema,
+  KanbanArchiveRequestSchema,
+  KanbanPlanCreateRequestSchema,
+  KanbanPlanUpdateRequestSchema,
+  KanbanPlanMoveRequestSchema,
+  KanbanPlanArchiveRequestSchema,
+  KanbanStepRunRequestSchema,
+  KanbanStepRetryRequestSchema,
+  KanbanStepSkipRequestSchema,
+  KanbanStepCancelRequestSchema,
+  KanbanOrchestratorProvisionRequestSchema,
+  KanbanOrchestratorUnlinkRequestSchema,
+  KanbanOrchestratorListPeersRequestSchema,
+  KanbanSubscribeRequestSchema,
+  KanbanUnsubscribeRequestSchema,
 ]);
 
 export type SessionInboundMessage = z.infer<typeof SessionInboundMessageSchema>;
@@ -3055,6 +3112,8 @@ export const ServerInfoStatusPayloadSchema = z
         fsEntryDuplicate: z.boolean().optional(),
         // COMPAT(checkoutDiscardChanges): added in v0.3.0, remove gate after 2027-02-08.
         checkoutDiscardChanges: z.boolean().optional(),
+        // COMPAT(kanban): added in v0.3.0-beta.2, drop the gate when daemon floor >= v0.3.0-beta.2.
+        kanban: z.boolean().optional(),
       })
       .optional(),
   })
@@ -5734,6 +5793,25 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   LoopInspectResponseSchema,
   LoopLogsResponseSchema,
   LoopStopResponseSchema,
+  KanbanListResponseSchema,
+  KanbanGetResponseSchema,
+  KanbanCreateResponseSchema,
+  KanbanUpdateResponseSchema,
+  KanbanArchiveResponseSchema,
+  KanbanPlanCreateResponseSchema,
+  KanbanPlanUpdateResponseSchema,
+  KanbanPlanMoveResponseSchema,
+  KanbanPlanArchiveResponseSchema,
+  KanbanStepRunResponseSchema,
+  KanbanStepRetryResponseSchema,
+  KanbanStepSkipResponseSchema,
+  KanbanStepCancelResponseSchema,
+  KanbanOrchestratorProvisionResponseSchema,
+  KanbanOrchestratorUnlinkResponseSchema,
+  KanbanOrchestratorListPeersResponseSchema,
+  KanbanSubscribeResponseSchema,
+  KanbanUnsubscribeResponseSchema,
+  KanbanUpdatePushSchema,
   DaemonUpdateProgressMessageSchema,
   DaemonUpdateResponseSchema,
 ]);
@@ -5905,6 +5983,31 @@ export type LoopListResponse = z.infer<typeof LoopListResponseSchema>;
 export type LoopInspectResponse = z.infer<typeof LoopInspectResponseSchema>;
 export type LoopLogsResponse = z.infer<typeof LoopLogsResponseSchema>;
 export type LoopStopResponse = z.infer<typeof LoopStopResponseSchema>;
+export type KanbanListResponse = z.infer<typeof KanbanListResponseSchema>;
+export type KanbanGetResponse = z.infer<typeof KanbanGetResponseSchema>;
+export type KanbanCreateResponse = z.infer<typeof KanbanCreateResponseSchema>;
+export type KanbanUpdateResponse = z.infer<typeof KanbanUpdateResponseSchema>;
+export type KanbanArchiveResponse = z.infer<typeof KanbanArchiveResponseSchema>;
+export type KanbanPlanCreateResponse = z.infer<typeof KanbanPlanCreateResponseSchema>;
+export type KanbanPlanUpdateResponse = z.infer<typeof KanbanPlanUpdateResponseSchema>;
+export type KanbanPlanMoveResponse = z.infer<typeof KanbanPlanMoveResponseSchema>;
+export type KanbanPlanArchiveResponse = z.infer<typeof KanbanPlanArchiveResponseSchema>;
+export type KanbanStepRunResponse = z.infer<typeof KanbanStepRunResponseSchema>;
+export type KanbanStepRetryResponse = z.infer<typeof KanbanStepRetryResponseSchema>;
+export type KanbanStepSkipResponse = z.infer<typeof KanbanStepSkipResponseSchema>;
+export type KanbanStepCancelResponse = z.infer<typeof KanbanStepCancelResponseSchema>;
+export type KanbanOrchestratorProvisionResponse = z.infer<
+  typeof KanbanOrchestratorProvisionResponseSchema
+>;
+export type KanbanOrchestratorUnlinkResponse = z.infer<
+  typeof KanbanOrchestratorUnlinkResponseSchema
+>;
+export type KanbanOrchestratorListPeersResponse = z.infer<
+  typeof KanbanOrchestratorListPeersResponseSchema
+>;
+export type KanbanSubscribeResponse = z.infer<typeof KanbanSubscribeResponseSchema>;
+export type KanbanUnsubscribeResponse = z.infer<typeof KanbanUnsubscribeResponseSchema>;
+export type KanbanUpdatePush = z.infer<typeof KanbanUpdatePushSchema>;
 
 // Type exports for payload types
 export type ActivityLogPayload = z.infer<typeof ActivityLogPayloadSchema>;
@@ -5973,6 +6076,28 @@ export type LoopListRequest = z.infer<typeof LoopListRequestSchema>;
 export type LoopInspectRequest = z.infer<typeof LoopInspectRequestSchema>;
 export type LoopLogsRequest = z.infer<typeof LoopLogsRequestSchema>;
 export type LoopStopRequest = z.infer<typeof LoopStopRequestSchema>;
+export type KanbanListRequest = z.infer<typeof KanbanListRequestSchema>;
+export type KanbanGetRequest = z.infer<typeof KanbanGetRequestSchema>;
+export type KanbanCreateRequest = z.infer<typeof KanbanCreateRequestSchema>;
+export type KanbanUpdateRequest = z.infer<typeof KanbanUpdateRequestSchema>;
+export type KanbanArchiveRequest = z.infer<typeof KanbanArchiveRequestSchema>;
+export type KanbanPlanCreateRequest = z.infer<typeof KanbanPlanCreateRequestSchema>;
+export type KanbanPlanUpdateRequest = z.infer<typeof KanbanPlanUpdateRequestSchema>;
+export type KanbanPlanMoveRequest = z.infer<typeof KanbanPlanMoveRequestSchema>;
+export type KanbanPlanArchiveRequest = z.infer<typeof KanbanPlanArchiveRequestSchema>;
+export type KanbanStepRunRequest = z.infer<typeof KanbanStepRunRequestSchema>;
+export type KanbanStepRetryRequest = z.infer<typeof KanbanStepRetryRequestSchema>;
+export type KanbanStepSkipRequest = z.infer<typeof KanbanStepSkipRequestSchema>;
+export type KanbanStepCancelRequest = z.infer<typeof KanbanStepCancelRequestSchema>;
+export type KanbanOrchestratorProvisionRequest = z.infer<
+  typeof KanbanOrchestratorProvisionRequestSchema
+>;
+export type KanbanOrchestratorUnlinkRequest = z.infer<typeof KanbanOrchestratorUnlinkRequestSchema>;
+export type KanbanOrchestratorListPeersRequest = z.infer<
+  typeof KanbanOrchestratorListPeersRequestSchema
+>;
+export type KanbanSubscribeRequest = z.infer<typeof KanbanSubscribeRequestSchema>;
+export type KanbanUnsubscribeRequest = z.infer<typeof KanbanUnsubscribeRequestSchema>;
 export type ResumeAgentRequestMessage = z.infer<typeof ResumeAgentRequestMessageSchema>;
 export type DeleteAgentRequestMessage = z.infer<typeof DeleteAgentRequestMessageSchema>;
 export type UpdateAgentRequestMessage = z.infer<typeof UpdateAgentRequestMessageSchema>;

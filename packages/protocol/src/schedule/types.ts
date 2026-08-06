@@ -37,6 +37,9 @@ export const ScheduleTargetSchema = z.discriminatedUnion("type", [
       featureValues: z.record(z.string(), z.unknown()).optional(),
       systemPrompt: z.string().optional(),
       mcpServers: z.record(z.string(), z.unknown()).optional(),
+      // Forward feature field (kanban workflow engine), gated on the `kanban` host feature; not a COMPAT shim.
+      workspaceId: z.string().trim().min(1).optional(),
+      labels: z.array(z.string()).optional(),
     }),
   }),
 ]);
