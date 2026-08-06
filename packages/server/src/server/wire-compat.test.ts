@@ -220,6 +220,7 @@ function createSessionForWireCompatTest(options?: {
       new EmptyWorkspaceRegistry() as unknown as SessionOptions["workspaceRegistry"],
     chatService: {} as SessionOptions["chatService"],
     scheduleService: {} as SessionOptions["scheduleService"],
+    kanbanService: {} as SessionOptions["kanbanService"],
     loopService: {} as SessionOptions["loopService"],
     checkoutDiffManager: {
       scheduleRefreshForCwd() {},

@@ -14,6 +14,7 @@ import type { ProjectUpdate } from "./workspace-reconciliation-service.js";
 import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
+import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager, CheckoutDiffMetrics } from "./checkout-diff-manager.js";
 import type { DaemonConfigStore, MutableDaemonConfig } from "./daemon-config-store.js";
 import {
@@ -495,6 +496,7 @@ interface RequiredWebSocketServices {
   chatService: FileBackedChatService;
   loopService: LoopService;
   scheduleService: ScheduleService;
+  kanbanService: KanbanService;
   checkoutDiffManager: CheckoutDiffManager;
 }
 
@@ -502,9 +504,10 @@ function requireWebSocketServices(params: {
   chatService?: FileBackedChatService;
   loopService?: LoopService;
   scheduleService?: ScheduleService;
+  kanbanService?: KanbanService;
   checkoutDiffManager?: CheckoutDiffManager;
 }): RequiredWebSocketServices {
-  const { chatService, loopService, scheduleService, checkoutDiffManager } = params;
+  const { chatService, loopService, scheduleService, kanbanService, checkoutDiffManager } = params;
   if (!chatService) {
     throw new Error("VoiceAssistantWebSocketServer requires a chat service.");
   }
@@ -514,10 +517,13 @@ function requireWebSocketServices(params: {
   if (!scheduleService) {
     throw new Error("VoiceAssistantWebSocketServer requires a schedule service.");
   }
+  if (!kanbanService) {
+    throw new Error("VoiceAssistantWebSocketServer requires a kanban service.");
+  }
   if (!checkoutDiffManager) {
     throw new Error("VoiceAssistantWebSocketServer requires a checkout diff manager.");
   }
-  return { chatService, loopService, scheduleService, checkoutDiffManager };
+  return { chatService, loopService, scheduleService, kanbanService, checkoutDiffManager };
 }
 
 /**
@@ -540,6 +546,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly chatService: FileBackedChatService;
   private readonly loopService: LoopService;
   private readonly scheduleService: ScheduleService;
+  private readonly kanbanService: KanbanService;
   private readonly checkoutDiffManager: CheckoutDiffManager;
   private readonly github: ForgeService;
   private readonly workspaceGitService: WorkspaceGitService;
@@ -614,6 +621,7 @@ export class VoiceAssistantWebSocketServer {
     chatService?: FileBackedChatService,
     loopService?: LoopService,
     scheduleService?: ScheduleService,
+    kanbanService?: KanbanService,
     checkoutDiffManager?: CheckoutDiffManager,
     serviceProxy?: ServiceProxySubsystem | null,
     scriptRuntimeStore?: WorkspaceScriptRuntimeStore | null,
@@ -655,11 +663,13 @@ export class VoiceAssistantWebSocketServer {
       chatService,
       loopService,
       scheduleService,
+      kanbanService,
       checkoutDiffManager,
     });
     this.chatService = requiredServices.chatService;
     this.loopService = requiredServices.loopService;
     this.scheduleService = requiredServices.scheduleService;
+    this.kanbanService = requiredServices.kanbanService;
     this.checkoutDiffManager = requiredServices.checkoutDiffManager;
     this.github = github ?? createGitHubService();
     this.workspaceGitService = workspaceGitService ?? createFallbackWorkspaceGitService();
@@ -1362,6 +1372,7 @@ export class VoiceAssistantWebSocketServer {
       chatService: this.chatService,
       loopService: this.loopService,
       scheduleService: this.scheduleService,
+      kanbanService: this.kanbanService,
       checkoutDiffManager: this.checkoutDiffManager,
       github: this.github,
       workspaceGitService: this.workspaceGitService,
@@ -1644,6 +1655,8 @@ export class VoiceAssistantWebSocketServer {
         fsEntryDuplicate: true,
         // COMPAT(checkoutDiscardChanges): added in v0.3.0, remove gate after 2027-02-08.
         checkoutDiscardChanges: true,
+        // COMPAT(kanban): added in v0.3.0-beta.2, drop the gate when daemon floor >= v0.3.0-beta.2.
+        kanban: true,
       },
     };
   }

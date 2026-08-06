@@ -148,6 +148,8 @@ import { FileBackedChatService } from "./chat/chat-service.js";
 import { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
+import { KanbanStore } from "./kanban/store.js";
+import { KanbanService } from "./kanban/service.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
@@ -1231,6 +1233,8 @@ export async function createPaseoDaemon(
     }
   });
   logger.info({ elapsed: elapsed() }, "Schedule service initialized");
+  const kanbanStore = new KanbanStore(path.join(config.paseoHome, "kanbans"));
+  const kanbanService = new KanbanService({ store: kanbanStore, logger });
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");
   const persistedRecords = await agentStorage.list();
   logger.info(
@@ -1541,6 +1545,7 @@ export async function createPaseoDaemon(
               chatService,
               loopService,
               scheduleService,
+              kanbanService,
               checkoutDiffManager,
               serviceProxy,
               scriptRuntimeStore,

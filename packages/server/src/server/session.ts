@@ -207,6 +207,8 @@ import type pino from "pino";
 import { FileBackedChatService } from "./chat/chat-service.js";
 import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
+import type { KanbanService } from "./kanban/service.js";
+import { KanbanSession } from "./session/kanban/kanban-session.js";
 import {
   createGitHubService,
   GitHubAuthenticationError,
@@ -452,6 +454,7 @@ export interface SessionOptions {
   filesystem?: SessionFileSystem;
   chatService: FileBackedChatService;
   scheduleService: ScheduleService;
+  kanbanService: KanbanService;
   loopService: LoopService;
   checkoutDiffManager: CheckoutDiffManager;
   github?: ForgeService;
@@ -672,6 +675,7 @@ export class Session {
   private readonly voiceSession: VoiceSession;
   private readonly checkoutSession: CheckoutSession;
   private readonly chatScheduleLoopSession: ChatScheduleLoopSession;
+  private readonly kanbanSession: KanbanSession;
   private readonly providerCatalogSession: ProviderCatalogSession;
   private readonly workspaceFilesSession: WorkspaceFilesSession;
   private readonly agentConfigSession: AgentConfigSession;
@@ -706,6 +710,7 @@ export class Session {
       filesystem,
       chatService,
       scheduleService,
+      kanbanService,
       loopService,
       checkoutDiffManager,
       github,
@@ -853,6 +858,13 @@ export class Session {
       scheduleService,
       loopService,
       clientId: this.clientId,
+      logger: this.sessionLogger,
+    });
+    this.kanbanSession = new KanbanSession({
+      host: {
+        emit: (msg) => this.emit(msg),
+      },
+      kanbanService,
       logger: this.sessionLogger,
     });
     this.providerCatalogSession = new ProviderCatalogSession({
@@ -1857,6 +1869,7 @@ export class Session {
       this.dispatchProviderMessage(msg) ??
       this.dispatchTerminalMessage(msg) ??
       this.dispatchChatScheduleLoopMessage(msg) ??
+      this.dispatchKanbanMessage(msg) ??
       this.dispatchMiscMessage(msg);
     if (promise) await promise;
   }
@@ -2314,6 +2327,41 @@ export class Session {
         return this.chatScheduleLoopSession.handleScheduleRunOnceRequest(msg);
       case "schedule/update":
         return this.chatScheduleLoopSession.handleScheduleUpdateRequest(msg);
+      default:
+        return undefined;
+    }
+  }
+
+  private dispatchKanbanMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "kanban.list.request":
+        return this.kanbanSession.handleListRequest(msg);
+      case "kanban.get.request":
+        return this.kanbanSession.handleGetRequest(msg);
+      case "kanban.create.request":
+        return this.kanbanSession.handleCreateRequest(msg);
+      case "kanban.update.request":
+        return this.kanbanSession.handleUpdateRequest(msg);
+      case "kanban.archive.request":
+        return this.kanbanSession.handleArchiveRequest(msg);
+      case "kanban.plan.create.request":
+        return this.kanbanSession.handlePlanCreateRequest(msg);
+      case "kanban.plan.update.request":
+        return this.kanbanSession.handlePlanUpdateRequest(msg);
+      case "kanban.plan.move.request":
+        return this.kanbanSession.handlePlanMoveRequest(msg);
+      case "kanban.plan.archive.request":
+        return this.kanbanSession.handlePlanArchiveRequest(msg);
+      case "kanban.orchestrator.provision.request":
+        return this.kanbanSession.handleOrchestratorProvisionRequest(msg);
+      case "kanban.orchestrator.unlink.request":
+        return this.kanbanSession.handleOrchestratorUnlinkRequest(msg);
+      case "kanban.orchestrator.list_peers.request":
+        return this.kanbanSession.handleOrchestratorListPeersRequest(msg);
+      case "kanban.subscribe.request":
+        return this.kanbanSession.handleSubscribeRequest(msg);
+      case "kanban.unsubscribe.request":
+        return this.kanbanSession.handleUnsubscribeRequest(msg);
       default:
         return undefined;
     }
@@ -6989,6 +7037,7 @@ export class Session {
 
     this.workspaceGitObserver.dispose();
     this.workspaceFilesSession.dispose();
+    this.kanbanSession.dispose();
   }
 }
 
