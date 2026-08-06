@@ -12,6 +12,8 @@ import type {
   UpdateKanbanPlanOptions,
 } from "@getpaseo/client/internal/daemon-client";
 import type { OrchestratorPeer } from "@getpaseo/protocol/kanban/rpc-schemas";
+import type { StoredKanban } from "@getpaseo/protocol/kanban/types";
+import { applyTopLevelPlanMove } from "@/kanban/apply-plan-move";
 import { kanbanQueryKey, kanbansQueryBaseKey } from "@/kanban/aggregated-kanbans";
 import { useSessionStore } from "@/stores/session-store";
 
@@ -145,6 +147,33 @@ export function useKanbanMutations({ serverId }: { serverId: string }): UseKanba
       const payload = await client.kanbanPlanMove(input);
       if (payload.error) {
         throw new Error(payload.error);
+      }
+    },
+    onMutate: async (input) => {
+      // Top-level board DnD only — nested boards keep their own board instance
+      // and still go through the network round-trip without optimistic paint.
+      if (input.parentPlanId) {
+        return undefined;
+      }
+      const detailKey = kanbanQueryKey(serverId, input.kanbanId);
+      await queryClient.cancelQueries({ queryKey: detailKey });
+      const previous = queryClient.getQueryData<StoredKanban | null>(detailKey);
+      if (!previous) {
+        return { previous: undefined };
+      }
+      const next = applyTopLevelPlanMove(previous, {
+        planId: input.planId,
+        columnId: input.columnId,
+        index: input.index,
+      });
+      if (next) {
+        queryClient.setQueryData(detailKey, next);
+      }
+      return { previous };
+    },
+    onError: (_error, input, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(kanbanQueryKey(serverId, input.kanbanId), context.previous);
       }
     },
     onSettled: (_data, _error, input) => invalidateBoth(input.kanbanId),
