@@ -187,8 +187,9 @@ test.describe("Kanbans board", () => {
     const form = page.getByTestId("kanban-plan-form-sheet");
     await expect(form).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("kanban-plan-form-title-input").fill(createTitle);
-    await page.getByTestId("kanban-plan-form-prompt-input").fill(createTitle);
-    const providerTrigger = page.getByTestId("kanban-plan-form-provider-trigger");
+    await page.getByTestId("kanban-plan-form-step-name-input-0").fill("Build");
+    await page.getByTestId("kanban-plan-form-step-prompt-input-0").fill(createTitle);
+    const providerTrigger = page.getByTestId("kanban-plan-form-provider-trigger-0");
     await expect(providerTrigger).toBeVisible({ timeout: 30_000 });
     await expect.poll(async () => providerTrigger.isEnabled(), { timeout: 30_000 }).toBe(true);
     await page.getByTestId("kanban-plan-form-submit").click();

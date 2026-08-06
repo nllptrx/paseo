@@ -9,10 +9,18 @@ interface OrchestratorSeedClient {
     error: string | null;
   }>;
   kanbanArchive(input: { kanbanId: string }): Promise<{ error: string | null }>;
-  kanbanGet(kanbanId: string): Promise<{
-    kanban: { orchestrator: { workspaceId: string; agentId: string } | null } | null;
+  kanbanOrchestratorListPeers(): Promise<{
+    peers: Array<{ kanbanId: string; workspaceId: string; agentId: string }>;
     error: string | null;
   }>;
+}
+
+async function countOrchestrators(
+  client: OrchestratorSeedClient,
+  kanbanId: string,
+): Promise<number> {
+  const result = await client.kanbanOrchestratorListPeers();
+  return result.peers.filter((peer) => peer.kanbanId === kanbanId).length;
 }
 
 test.describe("Kanban Orchestrator", () => {
@@ -52,16 +60,11 @@ test.describe("Kanban Orchestrator", () => {
     await page.getByTestId(`kanban-board-menu-${kanbanId}`).click();
     await page.getByTestId(`kanban-create-orchestrator-${kanbanId}`).click();
 
-    // The daemon owns the pointer; the pane only exists once it is stamped.
+    // An Orchestrator is an agent wearing the kanban's labels, so it shows up as a
+    // peer once the agent exists — nothing is stamped on the board.
     await expect
-      .poll(
-        async () => {
-          const detail = await client.kanbanGet(kanbanId);
-          return detail.kanban?.orchestrator?.workspaceId ?? null;
-        },
-        { timeout: 60_000 },
-      )
-      .not.toBeNull();
+      .poll(() => countOrchestrators(client, kanbanId), { timeout: 60_000 })
+      .toBe(1);
 
     // Reached the way a user would: the provisioned workspace shows up in the
     // sidebar, and its header menu is where the pane opens from.

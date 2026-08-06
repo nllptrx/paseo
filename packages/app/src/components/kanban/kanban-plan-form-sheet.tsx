@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useSyncExternalStore, type ReactElement } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
+import { Plus } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
-import { SelectField } from "@/components/ui/select-field";
+import { KanbanPlanStepEditor } from "./kanban-plan-step-editor";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
 import { buildKanbanPlanCreateBody } from "@/kanban/kanban-plan-form-model";
 import { useKanbanPlanFormModel } from "@/kanban/use-kanban-plan-form-model";
@@ -116,32 +117,32 @@ function OpenKanbanPlanFormSheet({
             testID="kanban-plan-form-description-input"
           />
         </Field>
-        <Field
-          label={t("kanban.planForm.promptLabel")}
-          hint={t("kanban.planForm.promptHint")}
-          error={state.submitError}
-          testID="kanban-plan-form-prompt"
+        <View style={styles.steps}>
+          {state.steps.map((step, index) => (
+            <KanbanPlanStepEditor
+              key={step.key}
+              step={step}
+              index={index}
+              stepCount={state.steps.length}
+              state={state}
+              model={model}
+            />
+          ))}
+        </View>
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={Plus}
+          onPress={model.addStep}
+          testID="kanban-plan-form-add-step"
         >
-          <FormTextInput
-            value={state.prompt}
-            onChangeText={model.setPrompt}
-            placeholder={t("kanban.planForm.promptPlaceholder")}
-            multiline
-            testID="kanban-plan-form-prompt-input"
-          />
-        </Field>
-        <SelectField
-          label={t("kanban.planForm.providerLabel")}
-          value={state.selectedProvider}
-          selectedDisplay={state.selectedProviderDisplay}
-          options={state.providerOptions}
-          onChange={model.setProvider}
-          placeholder={t("kanban.planForm.providerPlaceholder")}
-          emptyText={t("kanban.planForm.providerEmptyText")}
-          loading={state.providerResolutionStatus === "pending"}
-          testID="kanban-plan-form-provider"
-          triggerTestID="kanban-plan-form-provider-trigger"
-        />
+          {t("kanban.planForm.addStep")}
+        </Button>
+        {state.submitError ? (
+          <Text style={styles.error} testID="kanban-plan-form-error">
+            {state.submitError}
+          </Text>
+        ) : null}
       </View>
     </AdaptiveModalSheet>
   );
@@ -152,5 +153,13 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[4],
     paddingHorizontal: theme.spacing[4],
     paddingTop: theme.spacing[2],
+    paddingBottom: theme.spacing[4],
+  },
+  steps: {
+    gap: theme.spacing[3],
+  },
+  error: {
+    color: theme.colors.statusDanger,
+    fontSize: theme.fontSize.sm,
   },
 }));
