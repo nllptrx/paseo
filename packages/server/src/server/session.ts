@@ -208,6 +208,7 @@ import { FileBackedChatService } from "./chat/chat-service.js";
 import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
 import type { KanbanService } from "./kanban/service.js";
+import type { KanbanEngine } from "./kanban/engine.js";
 import { KanbanSession } from "./session/kanban/kanban-session.js";
 import {
   createGitHubService,
@@ -455,6 +456,7 @@ export interface SessionOptions {
   chatService: FileBackedChatService;
   scheduleService: ScheduleService;
   kanbanService: KanbanService;
+  kanbanEngine: KanbanEngine;
   loopService: LoopService;
   checkoutDiffManager: CheckoutDiffManager;
   github?: ForgeService;
@@ -711,6 +713,7 @@ export class Session {
       chatService,
       scheduleService,
       kanbanService,
+      kanbanEngine,
       loopService,
       checkoutDiffManager,
       github,
@@ -865,6 +868,7 @@ export class Session {
         emit: (msg) => this.emit(msg),
       },
       kanbanService,
+      kanbanEngine,
       logger: this.sessionLogger,
     });
     this.providerCatalogSession = new ProviderCatalogSession({
@@ -2352,6 +2356,14 @@ export class Session {
         return this.kanbanSession.handlePlanMoveRequest(msg);
       case "kanban.plan.archive.request":
         return this.kanbanSession.handlePlanArchiveRequest(msg);
+      case "kanban.step.run.request":
+        return this.kanbanSession.handleStepRunRequest(msg);
+      case "kanban.step.retry.request":
+        return this.kanbanSession.handleStepRetryRequest(msg);
+      case "kanban.step.skip.request":
+        return this.kanbanSession.handleStepSkipRequest(msg);
+      case "kanban.step.cancel.request":
+        return this.kanbanSession.handleStepCancelRequest(msg);
       case "kanban.orchestrator.provision.request":
         return this.kanbanSession.handleOrchestratorProvisionRequest(msg);
       case "kanban.orchestrator.unlink.request":

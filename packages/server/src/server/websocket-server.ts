@@ -14,6 +14,7 @@ import type { ProjectUpdate } from "./workspace-reconciliation-service.js";
 import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
+import type { KanbanEngine } from "./kanban/engine.js";
 import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager, CheckoutDiffMetrics } from "./checkout-diff-manager.js";
 import type { DaemonConfigStore, MutableDaemonConfig } from "./daemon-config-store.js";
@@ -497,6 +498,7 @@ interface RequiredWebSocketServices {
   loopService: LoopService;
   scheduleService: ScheduleService;
   kanbanService: KanbanService;
+  kanbanEngine: KanbanEngine;
   checkoutDiffManager: CheckoutDiffManager;
 }
 
@@ -505,9 +507,17 @@ function requireWebSocketServices(params: {
   loopService?: LoopService;
   scheduleService?: ScheduleService;
   kanbanService?: KanbanService;
+  kanbanEngine?: KanbanEngine;
   checkoutDiffManager?: CheckoutDiffManager;
 }): RequiredWebSocketServices {
-  const { chatService, loopService, scheduleService, kanbanService, checkoutDiffManager } = params;
+  const {
+    chatService,
+    loopService,
+    scheduleService,
+    kanbanService,
+    kanbanEngine,
+    checkoutDiffManager,
+  } = params;
   if (!chatService) {
     throw new Error("VoiceAssistantWebSocketServer requires a chat service.");
   }
@@ -520,10 +530,20 @@ function requireWebSocketServices(params: {
   if (!kanbanService) {
     throw new Error("VoiceAssistantWebSocketServer requires a kanban service.");
   }
+  if (!kanbanEngine) {
+    throw new Error("VoiceAssistantWebSocketServer requires a kanban engine.");
+  }
   if (!checkoutDiffManager) {
     throw new Error("VoiceAssistantWebSocketServer requires a checkout diff manager.");
   }
-  return { chatService, loopService, scheduleService, kanbanService, checkoutDiffManager };
+  return {
+    chatService,
+    loopService,
+    scheduleService,
+    kanbanService,
+    kanbanEngine,
+    checkoutDiffManager,
+  };
 }
 
 /**
@@ -547,6 +567,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly loopService: LoopService;
   private readonly scheduleService: ScheduleService;
   private readonly kanbanService: KanbanService;
+  private readonly kanbanEngine: KanbanEngine;
   private readonly checkoutDiffManager: CheckoutDiffManager;
   private readonly github: ForgeService;
   private readonly workspaceGitService: WorkspaceGitService;
@@ -642,6 +663,7 @@ export class VoiceAssistantWebSocketServer {
     browserToolsBroker?: BrowserToolsBroker | null,
     hubRelationships?: HubRelationshipManagement | null,
     workspaceSetupRuntime: WorkspaceSetupRuntime = new WorkspaceSetupRuntime(),
+    kanbanEngine?: KanbanEngine,
   ) {
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
@@ -664,12 +686,14 @@ export class VoiceAssistantWebSocketServer {
       loopService,
       scheduleService,
       kanbanService,
+      kanbanEngine,
       checkoutDiffManager,
     });
     this.chatService = requiredServices.chatService;
     this.loopService = requiredServices.loopService;
     this.scheduleService = requiredServices.scheduleService;
     this.kanbanService = requiredServices.kanbanService;
+    this.kanbanEngine = requiredServices.kanbanEngine;
     this.checkoutDiffManager = requiredServices.checkoutDiffManager;
     this.github = github ?? createGitHubService();
     this.workspaceGitService = workspaceGitService ?? createFallbackWorkspaceGitService();
@@ -1373,6 +1397,7 @@ export class VoiceAssistantWebSocketServer {
       loopService: this.loopService,
       scheduleService: this.scheduleService,
       kanbanService: this.kanbanService,
+      kanbanEngine: this.kanbanEngine,
       checkoutDiffManager: this.checkoutDiffManager,
       github: this.github,
       workspaceGitService: this.workspaceGitService,

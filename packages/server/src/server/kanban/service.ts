@@ -206,7 +206,9 @@ export class KanbanService {
     const created = await this.store.create({
       projectId,
       name: opts?.name?.trim() || "Kanban",
-      autoAdvance: false,
+      // Lifecycle sync is the visible payoff of the overlay by default; explicit
+      // user/agent moves still win via the move-precedence rule.
+      autoAdvance: true,
       orchestrator: null,
       columns: opts?.columns ? buildColumnsFromInput(opts.columns) : buildDefaultColumns(),
       plans: {},
@@ -406,7 +408,9 @@ export class KanbanService {
     planId: string;
     columnId: string;
     index: number;
-    movedBy: "user" | "agent";
+    // "sync" is engine-internal (lifecycle sync automations) — the wire schema
+    // only ever carries "user" | "agent"; never accept "sync" from a request.
+    movedBy: "user" | "agent" | "sync";
   }): Promise<KanbanPlan> {
     const now = new Date().toISOString();
     let movedPlan: KanbanPlan | undefined;
@@ -560,4 +564,97 @@ export class KanbanService {
   async listOrchestratorPeers(): Promise<OrchestratorPeer[]> {
     return [];
   }
+
+  // Read-only lookup of a plan (top-level or nested) — used by the workflow engine
+  // for gate checks and column-automation decisions without taking a write lock.
+  async getPlan(input: {
+    kanbanId: string;
+    parentPlanId?: string | null;
+    planId: string;
+  }): Promise<{ kanban: StoredKanban; plan: KanbanPlan }> {
+    const kanban = requireKanban(await this.store.get(input.kanbanId), input.kanbanId);
+    const plan = input.parentPlanId
+      ? findNestedPlan(kanban, input.parentPlanId, input.planId)
+      : findTopLevelPlan(kanban, input.planId);
+    return { kanban, plan };
+  }
+
+  // The single write-path for step mutations (new runs, retries, skips, cancels):
+  // locates the step inside its plan (top-level or nested), replaces it via
+  // `mutate`, and persists. `mutate` receives the step's siblings so callers can
+  // make gate decisions (e.g. "is the previous step done?") atomically with the
+  // write instead of re-reading afterwards.
+  async mutateStep(input: {
+    kanbanId: string;
+    parentPlanId?: string | null;
+    planId: string;
+    stepId: string;
+    mutate: (step: Step, context: { steps: Step[]; stepIndex: number }) => Step;
+  }): Promise<{ kanban: StoredKanban; plan: KanbanPlan; step: Step }> {
+    const now = new Date().toISOString();
+    let resultStep: Step | undefined;
+    let resultPlan: KanbanPlan | undefined;
+
+    const updated = await this.store.update(input.kanbanId, (kanban) => {
+      requireActiveKanban(kanban, input.kanbanId);
+
+      if (!input.parentPlanId) {
+        const plan = findTopLevelPlan(kanban, input.planId);
+        if (plan.body.type !== "workflow") {
+          throw new Error(`Plan is not a workflow: ${input.planId}`);
+        }
+        const { steps, step, index } = replaceStep(plan.body.steps, input.stepId, input.mutate);
+        const nextPlan: KanbanPlan = { ...plan, updatedAt: now, body: { ...plan.body, steps } };
+        resultStep = step;
+        resultPlan = nextPlan;
+        void index;
+        return {
+          ...kanban,
+          plans: { ...kanban.plans, [input.planId]: nextPlan },
+          updatedAt: now,
+        };
+      }
+
+      const parent = findNestedParentPlan(kanban, input.parentPlanId);
+      if (parent.body.type !== "nested_kanban") {
+        throw new Error(`Plan is not a nested kanban: ${input.parentPlanId}`);
+      }
+      const nested = findNestedPlan(kanban, input.parentPlanId, input.planId);
+      const { steps, step } = replaceStep(nested.body.steps, input.stepId, input.mutate);
+      const nextNested: NestedPlan = { ...nested, updatedAt: now, body: { ...nested.body, steps } };
+      resultStep = step;
+      resultPlan = nextNested;
+      const updatedParent: KanbanPlan = {
+        ...parent,
+        updatedAt: now,
+        body: { ...parent.body, plans: { ...parent.body.plans, [input.planId]: nextNested } },
+      };
+      return {
+        ...kanban,
+        plans: { ...kanban.plans, [input.parentPlanId]: updatedParent },
+        updatedAt: now,
+      };
+    });
+
+    const result = requireKanban(updated, input.kanbanId);
+    this.notifyUpsert(result);
+    if (!resultStep || !resultPlan) {
+      throw new Error("Step mutation failed unexpectedly");
+    }
+    return { kanban: result, plan: resultPlan, step: resultStep };
+  }
+}
+
+function replaceStep(
+  steps: Step[],
+  stepId: string,
+  mutate: (step: Step, context: { steps: Step[]; stepIndex: number }) => Step,
+): { steps: Step[]; step: Step; index: number } {
+  const index = steps.findIndex((step) => step.id === stepId);
+  if (index === -1) {
+    throw new Error(`Step not found: ${stepId}`);
+  }
+  const nextStep = mutate(steps[index], { steps, stepIndex: index });
+  const nextSteps = steps.map((step, i) => (i === index ? nextStep : step));
+  return { steps: nextSteps, step: nextStep, index };
 }

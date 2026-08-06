@@ -8,6 +8,7 @@ import type { DaemonConfigStore } from "./daemon-config-store.js";
 import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
+import type { KanbanEngine } from "./kanban/engine.js";
 import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { asInternals, createStub } from "./test-utils/class-mocks.js";
@@ -151,6 +152,11 @@ function createServer(agentManagerOverrides?: Record<string, unknown>) {
     undefined,
     pushNotifications,
     createProviderSnapshotManagerStub().manager,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createStub<KanbanEngine>({}),
   );
 
   return { server, agentManager, pushNotifications };

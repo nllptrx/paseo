@@ -8,6 +8,7 @@ import type { DaemonConfigStore } from "./daemon-config-store.js";
 import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
+import type { KanbanEngine } from "./kanban/engine.js";
 import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import type {
@@ -182,6 +183,11 @@ function createServer(terminalManager: TerminalManager, workspaceRegistry?: Work
     undefined,
     pushNotifications,
     createProviderSnapshotManagerStub().manager,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createStub<KanbanEngine>({}),
   );
 
   return { server, pushNotifications };

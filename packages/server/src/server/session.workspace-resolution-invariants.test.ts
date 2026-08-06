@@ -162,6 +162,7 @@ function createHarness(input: {
     chatService: createStub<SessionOptions["chatService"]>({}),
     scheduleService: createStub<SessionOptions["scheduleService"]>({}),
     kanbanService: createStub<SessionOptions["kanbanService"]>({}),
+    kanbanEngine: createStub<SessionOptions["kanbanEngine"]>({}),
     loopService: createStub<SessionOptions["loopService"]>({}),
     checkoutDiffManager: createStub<SessionOptions["checkoutDiffManager"]>({
       subscribe: async () => ({

@@ -226,6 +226,11 @@ export interface ScheduleServiceOptions {
     input: ScheduleWorkspaceCreateInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   archiveWorkspace: (workspaceId: string) => Promise<void>;
+  // Resolves a pre-existing workspace for a new-agent target that carries a
+  // `workspaceId` (the kanban workflow engine's schedule-materialized steps
+  // land on the step's own workspace instead of minting one). Optional so
+  // callers that never set `config.workspaceId` don't need to wire it.
+  getWorkspace?: (workspaceId: string) => Promise<PersistedWorkspaceRecord | null>;
   now?: () => Date;
   runner?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
 }
@@ -243,6 +248,7 @@ export class ScheduleService {
     input: ScheduleWorkspaceCreateInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   private readonly archiveWorkspace: (workspaceId: string) => Promise<void>;
+  private readonly getWorkspace: (workspaceId: string) => Promise<PersistedWorkspaceRecord | null>;
   private readonly now: () => Date;
   private readonly runner: (
     schedule: StoredSchedule,
@@ -260,6 +266,7 @@ export class ScheduleService {
     this.createDirectoryWorkspace = options.createDirectoryWorkspace;
     this.createPaseoWorktreeWorkspace = options.createPaseoWorktreeWorkspace;
     this.archiveWorkspace = options.archiveWorkspace;
+    this.getWorkspace = options.getWorkspace ?? (async () => null);
     this.now = options.now ?? (() => new Date());
     this.runner = options.runner ?? ((schedule, runId) => this.executeSchedule(schedule, runId));
   }
@@ -881,6 +888,7 @@ export class ScheduleService {
         labels: {
           "paseo.schedule-id": schedule.id,
           "paseo.schedule-run": runId,
+          ...parseNewAgentLabels(config.labels),
         },
         mode: config.modeId,
         thinking: config.thinkingOptionId,
@@ -950,6 +958,17 @@ export class ScheduleService {
     config: Extract<ScheduleTarget, { type: "new-agent" }>["config"],
     prompt: string,
   ): Promise<PersistedWorkspaceRecord> {
+    // A caller that already resolved a workspace (the kanban workflow engine's
+    // schedule-materialized steps) lands the run there instead of minting a new
+    // one — this is the only case where `archiveOnFinish:false` is meaningful,
+    // since the workspace outlives this one schedule run.
+    if (config.workspaceId) {
+      const workspace = await this.getWorkspace(config.workspaceId);
+      if (!workspace || workspace.archivedAt) {
+        throw new ScheduleTargetGoneError(`Workspace ${config.workspaceId} no longer exists`);
+      }
+      return workspace;
+    }
     const firstAgentContext = { prompt };
     switch (config.isolation ?? "local") {
       case "local":
@@ -1008,4 +1027,26 @@ function formatScheduleProviderModel(
   config: Extract<ScheduleTarget, { type: "new-agent" }>["config"],
 ): string {
   return formatProviderModel(config.provider, config.model);
+}
+
+// The wire schema carries new-agent labels as `key=value` strings (a plain
+// array, not a record, to stay a pure additive wire field). Splits on the
+// first "=" so a value is free to contain more of them.
+function parseNewAgentLabels(labels: string[] | undefined): Record<string, string> {
+  if (!labels || labels.length === 0) {
+    return {};
+  }
+  const entries: Record<string, string> = {};
+  for (const entry of labels) {
+    const separatorIndex = entry.indexOf("=");
+    if (separatorIndex === -1) {
+      continue;
+    }
+    const key = entry.slice(0, separatorIndex).trim();
+    const value = entry.slice(separatorIndex + 1);
+    if (key) {
+      entries[key] = value;
+    }
+  }
+  return entries;
 }

@@ -1,5 +1,6 @@
 import type pino from "pino";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../../messages.js";
+import type { KanbanEngine } from "../../kanban/engine.js";
 import type { KanbanService } from "../../kanban/service.js";
 
 export interface KanbanSessionHost {
@@ -9,24 +10,28 @@ export interface KanbanSessionHost {
 export interface KanbanSessionOptions {
   host: KanbanSessionHost;
   kanbanService: KanbanService;
+  kanbanEngine: KanbanEngine;
   logger: pino.Logger;
 }
 
 /**
- * A client's kanban request surface: board/plan CRUD, plan moves, orchestrator
- * pointer stubs, and the kanban.update push subscription. Step run/retry/skip/cancel
- * are intentionally unhandled here — there is no workflow engine yet, that lands in
- * a later slice.
+ * A client's kanban request surface: board/plan CRUD, plan moves, step
+ * run/retry/skip/cancel, orchestrator pointer stubs, and the kanban.update
+ * push subscription. Plan moves and step actions go through `kanbanEngine`
+ * (not `kanbanService` directly) so column-entry automations and the
+ * workflow gate machinery run on every move/action regardless of caller.
  */
 export class KanbanSession {
   private readonly host: KanbanSessionHost;
   private readonly kanbanService: KanbanService;
+  private readonly kanbanEngine: KanbanEngine;
   private readonly logger: pino.Logger;
   private unsubscribeKanbanChanges: (() => void) | null = null;
 
   constructor(options: KanbanSessionOptions) {
     this.host = options.host;
     this.kanbanService = options.kanbanService;
+    this.kanbanEngine = options.kanbanEngine;
     this.logger = options.logger;
   }
 
@@ -166,7 +171,7 @@ export class KanbanSession {
     request: Extract<SessionInboundMessage, { type: "kanban.plan.move.request" }>,
   ): Promise<void> {
     try {
-      const plan = await this.kanbanService.movePlan({
+      const plan = await this.kanbanEngine.movePlan({
         kanbanId: request.kanbanId,
         parentPlanId: request.parentPlanId,
         planId: request.planId,
@@ -177,6 +182,82 @@ export class KanbanSession {
       this.host.emit({
         type: "kanban.plan.move.response",
         payload: { requestId: request.requestId, plan, error: null },
+      });
+    } catch (error) {
+      this.emitKanbanRpcError(request, error);
+    }
+  }
+
+  async handleStepRunRequest(
+    request: Extract<SessionInboundMessage, { type: "kanban.step.run.request" }>,
+  ): Promise<void> {
+    try {
+      const step = await this.kanbanEngine.runStep({
+        kanbanId: request.kanbanId,
+        parentPlanId: request.parentPlanId,
+        planId: request.planId,
+        stepId: request.stepId,
+      });
+      this.host.emit({
+        type: "kanban.step.run.response",
+        payload: { requestId: request.requestId, step, error: null },
+      });
+    } catch (error) {
+      this.emitKanbanRpcError(request, error);
+    }
+  }
+
+  async handleStepRetryRequest(
+    request: Extract<SessionInboundMessage, { type: "kanban.step.retry.request" }>,
+  ): Promise<void> {
+    try {
+      const step = await this.kanbanEngine.retryStep({
+        kanbanId: request.kanbanId,
+        parentPlanId: request.parentPlanId,
+        planId: request.planId,
+        stepId: request.stepId,
+      });
+      this.host.emit({
+        type: "kanban.step.retry.response",
+        payload: { requestId: request.requestId, step, error: null },
+      });
+    } catch (error) {
+      this.emitKanbanRpcError(request, error);
+    }
+  }
+
+  async handleStepSkipRequest(
+    request: Extract<SessionInboundMessage, { type: "kanban.step.skip.request" }>,
+  ): Promise<void> {
+    try {
+      const step = await this.kanbanEngine.skipStep({
+        kanbanId: request.kanbanId,
+        parentPlanId: request.parentPlanId,
+        planId: request.planId,
+        stepId: request.stepId,
+      });
+      this.host.emit({
+        type: "kanban.step.skip.response",
+        payload: { requestId: request.requestId, step, error: null },
+      });
+    } catch (error) {
+      this.emitKanbanRpcError(request, error);
+    }
+  }
+
+  async handleStepCancelRequest(
+    request: Extract<SessionInboundMessage, { type: "kanban.step.cancel.request" }>,
+  ): Promise<void> {
+    try {
+      const step = await this.kanbanEngine.cancelStep({
+        kanbanId: request.kanbanId,
+        parentPlanId: request.parentPlanId,
+        planId: request.planId,
+        stepId: request.stepId,
+      });
+      this.host.emit({
+        type: "kanban.step.cancel.response",
+        payload: { requestId: request.requestId, step, error: null },
       });
     } catch (error) {
       this.emitKanbanRpcError(request, error);

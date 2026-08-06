@@ -33,6 +33,10 @@ export const StepRunStatusSchema = z.enum([
   "failed",
   "interrupted",
   "canceled",
+  // Synthetic run recorded by `kanban.step.skip.request` — no agents/workspaces,
+  // exists purely so the hard-gate check (previous step succeeded|skipped) has
+  // something to read.
+  "skipped",
 ]);
 export type StepRunStatus = z.infer<typeof StepRunStatusSchema>;
 

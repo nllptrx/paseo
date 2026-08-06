@@ -56,6 +56,7 @@ import {
   asPushTokenStore,
   asChatService,
   asScheduleService,
+  asKanbanEngine,
   asKanbanService,
   asLoopService,
   asCheckoutDiffManager,
@@ -696,6 +697,7 @@ function createSessionForWorkspaceTests(
       chatService: asChatService(),
       scheduleService: asScheduleService(),
       kanbanService: asKanbanService(),
+      kanbanEngine: asKanbanEngine(),
       loopService: asLoopService(),
       checkoutDiffManager: asCheckoutDiffManager({
         subscribe: async () => ({
@@ -961,6 +963,7 @@ test("create_agent_request keeps requested child cwd when grouped under an exist
         chatService: asChatService(),
         scheduleService: asScheduleService(),
         kanbanService: asKanbanService(),
+        kanbanEngine: asKanbanEngine(),
         loopService: asLoopService(),
         checkoutDiffManager: asCheckoutDiffManager({
           subscribe: async () => ({
@@ -1116,6 +1119,7 @@ test("create_agent_request launches from an exact subdirectory in a created work
       chatService: asChatService(),
       scheduleService: asScheduleService(),
       kanbanService: asKanbanService(),
+      kanbanEngine: asKanbanEngine(),
       loopService: asLoopService(),
       checkoutDiffManager: asCheckoutDiffManager({
         subscribe: async () => ({
@@ -1256,6 +1260,7 @@ test("create_agent_request does not title an existing workspace from the agent p
         chatService: asChatService(),
         scheduleService: asScheduleService(),
         kanbanService: asKanbanService(),
+        kanbanEngine: asKanbanEngine(),
         loopService: asLoopService(),
         checkoutDiffManager: asCheckoutDiffManager({
           subscribe: async () => ({
@@ -1588,6 +1593,7 @@ test("archive emits an authoritative agent_update upsert for subscribed clients"
       chatService: asChatService(),
       scheduleService: asScheduleService(),
       kanbanService: asKanbanService(),
+      kanbanEngine: asKanbanEngine(),
       loopService: asLoopService(),
       checkoutDiffManager: asCheckoutDiffManager({
         subscribe: async () => ({
@@ -1951,6 +1957,7 @@ test("close_items_request archives agents and kills terminals in one batch", asy
       chatService: asChatService(),
       scheduleService: asScheduleService(),
       kanbanService: asKanbanService(),
+      kanbanEngine: asKanbanEngine(),
       loopService: asLoopService(),
       checkoutDiffManager: asCheckoutDiffManager({
         subscribe: async () => ({
@@ -2139,6 +2146,7 @@ test("close_items_request archives stored agents that are not currently loaded",
       chatService: asChatService(),
       scheduleService: asScheduleService(),
       kanbanService: asKanbanService(),
+      kanbanEngine: asKanbanEngine(),
       loopService: asLoopService(),
       checkoutDiffManager: asCheckoutDiffManager({
         subscribe: async () => ({
@@ -2289,6 +2297,7 @@ test("close_items_request continues after an archive failure", async () => {
       chatService: asChatService(),
       scheduleService: asScheduleService(),
       kanbanService: asKanbanService(),
+      kanbanEngine: asKanbanEngine(),
       loopService: asLoopService(),
       checkoutDiffManager: asCheckoutDiffManager({
         subscribe: async () => ({
@@ -3536,6 +3545,7 @@ test("workspace update stream keeps persisted workspace visible after agents sto
       chatService: asChatService(),
       scheduleService: asScheduleService(),
       kanbanService: asKanbanService(),
+      kanbanEngine: asKanbanEngine(),
       loopService: asLoopService(),
       checkoutDiffManager: asCheckoutDiffManager({
         subscribe: async () => ({

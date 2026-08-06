@@ -150,6 +150,7 @@ import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
 import { KanbanStore } from "./kanban/store.js";
 import { KanbanService } from "./kanban/service.js";
+import { KanbanEngine } from "./kanban/engine.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
@@ -1223,6 +1224,7 @@ export async function createPaseoDaemon(
     createDirectoryWorkspace: createScheduleLocalWorkspaceExternal,
     createPaseoWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
+    getWorkspace: (workspaceId) => workspaceRegistry.get(workspaceId),
   });
   await scheduleService.start();
   agentManager.setAgentArchivedCallback(async (agentId) => {
@@ -1235,6 +1237,25 @@ export async function createPaseoDaemon(
   logger.info({ elapsed: elapsed() }, "Schedule service initialized");
   const kanbanStore = new KanbanStore(path.join(config.paseoHome, "kanbans"));
   const kanbanService = new KanbanService({ store: kanbanStore, logger });
+  const kanbanEngine = new KanbanEngine({
+    kanbanService,
+    agentManager,
+    createAgent,
+    scheduleService,
+    getWorkspace: (workspaceId) => workspaceRegistry.get(workspaceId),
+    getProjectRootCwd: async (projectId) => {
+      const project = await projectRegistry.get(projectId);
+      if (!project) {
+        throw new Error(`Unknown project: ${projectId}`);
+      }
+      return project.rootPath;
+    },
+    createWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
+    archiveWorkspace: archiveScheduleWorkspaceExternal,
+    logger,
+  });
+  await kanbanEngine.recoverInterruptedRuns();
+  logger.info({ elapsed: elapsed() }, "Kanban workflow engine initialized");
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");
   const persistedRecords = await agentStorage.list();
   logger.info(
@@ -1575,6 +1596,7 @@ export async function createPaseoDaemon(
               browserToolsBroker,
               hubRelationships,
               workspaceSetupRuntime,
+              kanbanEngine,
             );
             relayRuntime = createRelayRuntime({
               config: {

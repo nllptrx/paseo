@@ -20,6 +20,7 @@ import type { DaemonConfigStore } from "./daemon-config-store.js";
 import type { DownloadTokenStore } from "./file-download/token-store.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
+import type { KanbanEngine } from "./kanban/engine.js";
 import type { KanbanService } from "./kanban/service.js";
 import { createStub } from "./test-utils/class-mocks.js";
 import { DaemonClient } from "./test-utils/daemon-client.js";
@@ -336,6 +337,8 @@ function createVoiceAssistantWebSocketServer(params: {
     undefined,
     undefined,
     broker,
+    undefined,
+    createStub<KanbanEngine>({}),
   );
 }
 

@@ -221,6 +221,7 @@ function createSessionForWireCompatTest(options?: {
     chatService: {} as SessionOptions["chatService"],
     scheduleService: {} as SessionOptions["scheduleService"],
     kanbanService: {} as SessionOptions["kanbanService"],
+    kanbanEngine: {} as SessionOptions["kanbanEngine"],
     loopService: {} as SessionOptions["loopService"],
     checkoutDiffManager: {
       scheduleRefreshForCwd() {},
