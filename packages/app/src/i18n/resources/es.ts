@@ -1016,6 +1016,7 @@ export const es: TranslationResources = {
       nestedPlanCount: "{{count}} planes",
       workedFor: "Trabajó {{duration}}",
       stepProgress: "{{done}}/{{total}} pasos",
+      archive: "Archivar",
     },
     step: {
       status: {

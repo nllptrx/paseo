@@ -86,7 +86,7 @@ export function KanbanBoardSurface({
       }
       actions.push({
         key: "archive",
-        label: t("common.actions.archive"),
+        label: t("kanban.card.archive"),
         onSelect: () => {
           void archivePlan({ kanbanId, parentPlanId: null, planId: plan.id });
         },

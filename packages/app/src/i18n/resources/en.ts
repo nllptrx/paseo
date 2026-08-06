@@ -995,6 +995,7 @@ export const en = {
       nestedPlanCount: "{{count}} plans",
       workedFor: "Worked for {{duration}}",
       stepProgress: "{{done}}/{{total}} steps",
+      archive: "Archive",
     },
     step: {
       status: {

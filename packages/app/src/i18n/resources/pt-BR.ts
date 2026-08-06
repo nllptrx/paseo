@@ -1007,6 +1007,7 @@ export const ptBR: TranslationResources = {
       nestedPlanCount: "{{count}} planos",
       workedFor: "Trabalhou {{duration}}",
       stepProgress: "{{done}}/{{total}} etapas",
+      archive: "Arquivar",
     },
     step: {
       status: {

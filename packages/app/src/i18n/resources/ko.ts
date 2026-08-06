@@ -992,6 +992,7 @@ export const ko: TranslationResources = {
       nestedPlanCount: "플랜 {{count}}개",
       workedFor: "{{duration}} 작업함",
       stepProgress: "{{done}}/{{total}}단계",
+      archive: "보관",
     },
     step: {
       status: {

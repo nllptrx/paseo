@@ -984,6 +984,7 @@ export const ar: TranslationResources = {
       nestedPlanCount: "{{count}} خطط",
       workedFor: "عمل لمدة {{duration}}",
       stepProgress: "{{done}}/{{total}} خطوات",
+      archive: "أرشفة",
     },
     step: {
       status: {

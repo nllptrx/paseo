@@ -976,6 +976,7 @@ export const zhCN: TranslationResources = {
       nestedPlanCount: "{{count}} 个计划",
       workedFor: "已运行 {{duration}}",
       stepProgress: "{{done}}/{{total}} 个步骤",
+      archive: "归档",
     },
     step: {
       status: {

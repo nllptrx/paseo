@@ -996,6 +996,7 @@ export const ja: TranslationResources = {
       nestedPlanCount: "{{count}}件のプラン",
       workedFor: "{{duration}}稼働",
       stepProgress: "{{done}}/{{total}}ステップ",
+      archive: "アーカイブ",
     },
     step: {
       status: {
