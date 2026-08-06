@@ -966,11 +966,20 @@ export const ar: TranslationResources = {
     column: {
       empty: "لا توجد خطط",
       addPlan: "خطة جديدة",
+      draft: "مسودة",
+      inProgress: "قيد التنفيذ",
+      done: "منجز",
+      dropToRun: "أفلت للتشغيل",
+      showMore: "عرض {{count}} إضافية",
+      doneIsDerivedTitle: "«منجز» يحدث تلقائيًا",
+      doneIsDerivedDescription: "تصل الخطة إلى هنا عند انتهاء كل خطواتها.",
     },
     card: {
       moveMenu: "نقل البطاقة",
       moveToColumn: "نقل إلى عمود",
       nestedPlanCount: "{{count}} خطط",
+      workedFor: "عمل لمدة {{duration}}",
+      stepProgress: "{{done}}/{{total}} خطوات",
     },
     step: {
       status: {

@@ -17,7 +17,10 @@ interface KanbanSeedClient {
     kanban: {
       id: string;
       columns: Array<{ id: string; name: string; planIds: string[] }>;
-      plans: Record<string, { id: string; title: string }>;
+      plans: Record<
+        string,
+        { id: string; title: string; body: { type: string; steps?: Array<{ runs: unknown[] }> } }
+      >;
     } | null;
     error: string | null;
   }>;
@@ -93,15 +96,17 @@ async function archiveKanban(workspace: SeededWorkspace, kanbanId: string): Prom
   }
 }
 
-async function planIsInColumn(
+async function planHasStepRun(
   workspace: SeededWorkspace,
   kanbanId: string,
-  columnId: string,
   planId: string,
 ): Promise<boolean> {
   const detail = await (workspace.client as unknown as KanbanSeedClient).kanbanGet(kanbanId);
-  const column = detail.kanban?.columns.find((entry) => entry.id === columnId);
-  return column?.planIds.includes(planId) ?? false;
+  const plan = detail.kanban?.plans[planId];
+  if (!plan || plan.body.type !== "workflow") {
+    return false;
+  }
+  return (plan.body.steps ?? []).some((step) => step.runs.length > 0);
 }
 
 async function kanbanHasPlanTitled(
@@ -168,16 +173,12 @@ test.describe("Kanbans board", () => {
     await expect(page.getByTestId("sidebar-kanbans")).toBeVisible();
   });
 
-  test("renders a seeded board, moves a plan via menu, and creates a plan", async ({ page }) => {
+  test("renders a seeded board and creates a plan", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-board-" });
     cleanupTasks.push(() => workspace.cleanup());
     const planTitle = `Seeded plan ${Date.now()}`;
     const seeded = await seedKanbanWithPlan(workspace, planTitle);
     cleanupTasks.push(() => archiveKanban(workspace, seeded.kanbanId));
-
-    const targetColumn =
-      seeded.columns.find((column) => column.id !== seeded.columns[0]?.id) ?? seeded.columns[0];
-    expect(targetColumn).toBeTruthy();
 
     await openKanbans(page);
     await expect(page.getByTestId(`kanban-board-${seeded.kanbanId}`)).toBeVisible({
@@ -187,24 +188,13 @@ test.describe("Kanbans board", () => {
     await expect(card).toBeVisible({ timeout: 30_000 });
     await expect(card).toContainText(planTitle);
 
-    await page.getByTestId(`kanban-card-menu-${seeded.planId}`).click();
-    await expect(page.getByTestId(`kanban-card-menu-content-${seeded.planId}`)).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByTestId(`kanban-card-move-${seeded.planId}-${targetColumn!.id}`).click();
-
-    await expect
-      .poll(() => planIsInColumn(workspace, seeded.kanbanId, targetColumn!.id, seeded.planId), {
-        timeout: 30_000,
-      })
-      .toBe(true);
-
-    await expect(page.getByTestId(`kanban-column-${targetColumn!.id}`)).toContainText(planTitle, {
-      timeout: 30_000,
-    });
+    // Several kanbans share the page, so every column locator is scoped to one board.
+    const board = page.getByTestId(`kanban-board-${seeded.kanbanId}`);
+    // A plan whose steps have never run reads as a draft, wherever it is stored.
+    await expect(board.getByTestId("kanban-column-draft")).toContainText(planTitle);
 
     const createTitle = `UI plan ${Date.now()}`;
-    await page.getByTestId(`kanban-column-add-${seeded.columns[0]!.id}`).click();
+    await board.getByTestId("kanban-column-add-draft").click();
     const form = page.getByTestId("kanban-plan-form-sheet");
     await expect(form).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("kanban-plan-form-title-input").fill(createTitle);
@@ -222,29 +212,26 @@ test.describe("Kanbans board", () => {
     await expect(page.getByText(createTitle).first()).toBeVisible({ timeout: 30_000 });
   });
 
-  test("drags a plan across columns on the web board", async ({ page }) => {
+  test("dragging a draft onto the running column runs its first step", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-dnd-" });
     cleanupTasks.push(() => workspace.cleanup());
     const planTitle = `Drag plan ${Date.now()}`;
     const seeded = await seedKanbanWithPlan(workspace, planTitle);
     cleanupTasks.push(() => archiveKanban(workspace, seeded.kanbanId));
 
-    const sourceColumn = seeded.columns[0]!;
-    const targetColumn = seeded.columns[1] ?? seeded.columns.find((c) => c.id !== sourceColumn.id);
-    expect(targetColumn).toBeTruthy();
-
     await openKanbans(page);
-    const card = page.getByTestId(`kanban-card-${seeded.planId}`);
+    const board = page.getByTestId(`kanban-board-${seeded.kanbanId}`);
+    const card = board.getByTestId(`kanban-card-${seeded.planId}`);
     await expect(card).toBeVisible({ timeout: 30_000 });
-    const target = page.getByTestId(`kanban-column-${targetColumn!.id}`);
+    const target = board.getByTestId("kanban-column-body-inProgress");
     await expect(target).toBeVisible();
 
     await dragCardOntoColumn(page, card, target);
 
+    // The drop is a run request, so the proof is a step run on the daemon: the
+    // card only leaves Draft because that run exists.
     await expect
-      .poll(() => planIsInColumn(workspace, seeded.kanbanId, targetColumn!.id, seeded.planId), {
-        timeout: 30_000,
-      })
+      .poll(() => planHasStepRun(workspace, seeded.kanbanId, seeded.planId), { timeout: 30_000 })
       .toBe(true);
   });
 });

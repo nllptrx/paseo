@@ -5,9 +5,13 @@ import { StyleSheet } from "react-native-unistyles";
 import type { KanbanPlan, NestedPlan, Step, StoredKanban } from "@getpaseo/protocol/kanban/types";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/contexts/toast-context";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
+import { deriveBoard } from "@/kanban/derive-board";
 import { resolveKanbanPlan } from "@/kanban/plan-lookup";
+import { resolveNextRunnableStepId } from "@/kanban/run-plan";
 import { KanbanBoard } from "./kanban-board";
+import type { KanbanCardAction } from "./kanban-card";
 import { KanbanPlanFormSheet } from "./kanban-plan-form-sheet";
 
 export interface KanbanPlanSheetProps {
@@ -19,6 +23,9 @@ export interface KanbanPlanSheetProps {
   visible: boolean;
   onClose: () => void;
 }
+
+const NO_DRAFT_ORDER: string[] = [];
+const noopReorder = () => undefined;
 
 function latestRun(step: Step) {
   return step.runs.at(-1) ?? null;
@@ -137,7 +144,8 @@ export function KanbanPlanSheet({
   onClose,
 }: KanbanPlanSheetProps): ReactElement | null {
   const { t } = useTranslation();
-  const { movePlan } = useKanbanMutations({ serverId });
+  const { runStep } = useKanbanMutations({ serverId });
+  const toast = useToast();
   const [focusedChildId, setFocusedChildId] = useState<string | null>(null);
 
   const [createColumnId, setCreateColumnId] = useState<string | null>(null);
@@ -155,19 +163,43 @@ export function KanbanPlanSheet({
   const handleBackToParent = useCallback(() => setFocusedChildId(null), []);
   const handleCloseCreatePlan = useCallback(() => setCreateColumnId(null), []);
 
-  const handleMoveChild = useCallback(
-    (childId: string, columnId: string, index: number) => {
-      void movePlan({
-        kanbanId,
-        parentPlanId: planId,
-        planId: childId,
-        columnId,
-        index,
-        movedBy: "user",
-      });
+  const handleRunChild = useCallback(
+    (childId: string) => {
+      const child = plan?.body.type === "nested_kanban" ? plan.body.plans[childId] : null;
+      const stepId = child ? resolveNextRunnableStepId(child) : null;
+      if (stepId === null) {
+        return;
+      }
+      void runStep({ kanbanId, parentPlanId: planId, planId: childId, stepId });
     },
-    [kanbanId, movePlan, planId],
+    [kanbanId, plan, planId, runStep],
   );
+
+  const handleRejectedDrop = useCallback(() => {
+    toast.show(t("kanban.column.doneIsDerivedDescription"));
+  }, [t, toast]);
+
+  const nestedPlanActions = useCallback(
+    (child: KanbanPlan): KanbanCardAction[] =>
+      resolveNextRunnableStepId(child) === null
+        ? []
+        : [
+            {
+              key: "run",
+              label: t("kanban.step.actions.run"),
+              onSelect: () => handleRunChild(child.id),
+            },
+          ],
+    [handleRunChild, t],
+  );
+
+  const handleOpenCreateChild = useCallback(() => {
+    if (plan?.body.type !== "nested_kanban") {
+      return;
+    }
+    const backlog = plan.body.columns.find((column) => column.role === "backlog");
+    setCreateColumnId(backlog?.id ?? plan.body.columns[0]?.id ?? null);
+  }, [plan]);
 
   const activePlan: KanbanPlan | NestedPlan | null = childPlan ?? plan;
 
@@ -186,8 +218,13 @@ export function KanbanPlanSheet({
     if (!activePlan || activePlan.body.type !== "nested_kanban") {
       return null;
     }
-    return { columns: activePlan.body.columns, plans: activePlan.body.plans };
-  }, [activePlan]);
+    // Children are workflow-only, so the same derivation the top-level board uses
+    // applies unchanged; a nested board has no draft order of its own.
+    return deriveBoard(
+      { ...kanban, id: activePlan.id, plans: activePlan.body.plans },
+      NO_DRAFT_ORDER,
+    );
+  }, [activePlan, kanban]);
 
   if (!plan || !activePlan) {
     return null;
@@ -215,8 +252,11 @@ export function KanbanPlanSheet({
         serverId={serverId}
         board={nestedBoard}
         onOpenPlan={handleOpenChild}
-        onMovePlan={handleMoveChild}
-        onCreatePlan={setCreateColumnId}
+        onCreatePlan={handleOpenCreateChild}
+        planActions={nestedPlanActions}
+        onRunPlan={handleRunChild}
+        onReorderDrafts={noopReorder}
+        onRejectedDrop={handleRejectedDrop}
       />
     );
   } else {

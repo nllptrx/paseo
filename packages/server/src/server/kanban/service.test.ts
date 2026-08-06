@@ -10,6 +10,33 @@ function testLogger() {
   return pino({ level: "silent" });
 }
 
+describe("KanbanService list", () => {
+  let tempDir: string;
+  let store: KanbanStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "kanban-service-list-test-"));
+    store = new KanbanStore(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  test("omits archived kanbans so archiving clears them from every board surface", async () => {
+    const service = new KanbanService({ store, logger: testLogger() });
+    const kept = await service.getOrCreateForProject("proj-kept");
+    const archived = await service.getOrCreateForProject("proj-archived");
+    await service.archive(archived.id);
+
+    const listed = await service.list();
+
+    expect(listed.map((kanban) => kanban.id)).toEqual([kept.id]);
+    // Still readable by id: archiving hides it, it does not delete it.
+    expect(await service.get(archived.id)).not.toBeNull();
+  });
+});
+
 describe("KanbanService orchestrator methods", () => {
   let tempDir: string;
   let store: KanbanStore;

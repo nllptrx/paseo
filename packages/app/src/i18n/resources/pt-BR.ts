@@ -989,11 +989,20 @@ export const ptBR: TranslationResources = {
     column: {
       empty: "Sem planos",
       addPlan: "Novo plano",
+      draft: "Rascunho",
+      inProgress: "Em andamento",
+      done: "Concluído",
+      dropToRun: "Solte para executar",
+      showMore: "Mostrar mais {{count}}",
+      doneIsDerivedTitle: "«Concluído» acontece sozinho",
+      doneIsDerivedDescription: "Um plano chega aqui quando todas as etapas terminam.",
     },
     card: {
       moveMenu: "Mover cartão",
       moveToColumn: "Mover para coluna",
       nestedPlanCount: "{{count}} planos",
+      workedFor: "Trabalhou {{duration}}",
+      stepProgress: "{{done}}/{{total}} etapas",
     },
     step: {
       status: {

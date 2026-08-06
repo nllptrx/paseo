@@ -978,11 +978,20 @@ export const ja: TranslationResources = {
     column: {
       empty: "プランはありません",
       addPlan: "新しいプラン",
+      draft: "下書き",
+      inProgress: "進行中",
+      done: "完了",
+      dropToRun: "ドロップして実行",
+      showMore: "他{{count}}件を表示",
+      doneIsDerivedTitle: "「完了」は自動で決まります",
+      doneIsDerivedDescription: "すべてのステップが終わるとプランがここに移ります。",
     },
     card: {
       moveMenu: "カードを移動",
       moveToColumn: "列に移動",
       nestedPlanCount: "{{count}}件のプラン",
+      workedFor: "{{duration}}稼働",
+      stepProgress: "{{done}}/{{total}}ステップ",
     },
     step: {
       status: {

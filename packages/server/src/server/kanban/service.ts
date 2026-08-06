@@ -196,7 +196,9 @@ export class KanbanService {
 
   async list(): Promise<KanbanSummary[]> {
     const kanbans = await this.store.list();
-    return kanbans.map(toKanbanSummary);
+    // Archiving a kanban is what removes it from every board surface; the record
+    // stays on disk so an archived kanban can still be read by id.
+    return kanbans.filter((kanban) => !kanban.archivedAt).map(toKanbanSummary);
   }
 
   async get(id: string): Promise<StoredKanban | null> {

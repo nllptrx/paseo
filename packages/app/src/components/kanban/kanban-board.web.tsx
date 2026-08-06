@@ -1,7 +1,14 @@
-import { useCallback, useMemo, useState, type CSSProperties, type ReactElement } from "react";
-import { ScrollView, Text, View } from "react-native";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import { View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import {
   DndContext,
@@ -9,7 +16,7 @@ import {
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
-  closestCenter,
+  closestCorners,
   pointerWithin,
   useDroppable,
   useSensor,
@@ -25,17 +32,21 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { Column, KanbanPlan, NestedPlan } from "@getpaseo/protocol/kanban/types";
+import type { KanbanPlan } from "@getpaseo/protocol/kanban/types";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { getDragActivationConstraints } from "@/components/drag-reorder";
-import { Button } from "@/components/ui/button";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { resolveBoardPlanDrop } from "@/kanban/apply-plan-move";
-import { KanbanCard } from "./kanban-card";
+import { getDragActivationConstraints } from "@/components/drag-reorder";
+import {
+  DERIVED_COLUMN_KEYS,
+  resolveBoardDrop,
+  type BoardDropAction,
+  type DerivedColumnKey,
+} from "@/kanban/derive-board";
 import { KanbanColumn } from "./kanban-column";
-import type { KanbanBoardProps, KanbanBoardView } from "./kanban-board";
+import { KanbanCard } from "./kanban-card";
+import type { KanbanBoardProps } from "./kanban-board";
 
-export type { KanbanBoardProps, KanbanBoardView };
+export type { KanbanBoardProps } from "./kanban-board";
 
 const COLUMN_DROP_PREFIX = "column:";
 const DRAG_ACTIVATION_CONFIG = {
@@ -44,200 +55,59 @@ const DRAG_ACTIVATION_CONFIG = {
   touchHoldTolerance: 8,
 };
 
-function columnDroppableId(columnId: string): string {
-  return `${COLUMN_DROP_PREFIX}${columnId}`;
+const COLUMN_LABEL_KEYS: Record<DerivedColumnKey, string> = {
+  draft: "kanban.column.draft",
+  inProgress: "kanban.column.inProgress",
+  done: "kanban.column.done",
+};
+
+function columnDropId(columnKey: DerivedColumnKey): string {
+  return `${COLUMN_DROP_PREFIX}${columnKey}`;
+}
+
+function parseColumnDropId(dropId: string): DerivedColumnKey | null {
+  if (!dropId.startsWith(COLUMN_DROP_PREFIX)) {
+    return null;
+  }
+  const key = dropId.slice(COLUMN_DROP_PREFIX.length);
+  return DERIVED_COLUMN_KEYS.includes(key as DerivedColumnKey) ? (key as DerivedColumnKey) : null;
 }
 
 /**
- * The column under the pointer decides first, then the cards inside it. Running
- * closestCenter over every card at once would let a card in a crowded column win
- * over the empty column the pointer is actually on, so a drop there never lands.
+ * The pointer decides, and only falls back to proximity when it is over nothing.
+ * Ranking every card and column together instead would let a card in a crowded
+ * column outscore the empty column the pointer is actually on.
  */
 const boardCollisionDetection: CollisionDetection = (args) => {
-  const columnRects = new Map(
-    [...args.droppableRects.entries()].filter(
-      ([id]) => typeof id === "string" && id.startsWith(COLUMN_DROP_PREFIX),
-    ),
-  );
-  const columnArgs = { ...args, droppableRects: columnRects };
-  const columnHits = pointerWithin(columnArgs);
-  const resolvedColumnHits = columnHits.length > 0 ? columnHits : closestCenter(columnArgs);
-  const targetColumnId = resolvedColumnHits[0]?.data?.droppableContainer?.data.current?.columnId;
-  if (typeof targetColumnId !== "string") {
-    return resolvedColumnHits;
-  }
-
-  const sortableRects = new Map(
-    args.droppableContainers
-      .filter(
-        (container) =>
-          container.id !== args.active.id &&
-          container.data.current?.kind === "plan" &&
-          container.data.current?.columnId === targetColumnId,
-      )
-      .flatMap((container) => {
-        const rect = args.droppableRects.get(container.id);
-        return rect ? [[container.id, rect] as const] : [];
-      }),
-  );
-  if (sortableRects.size === 0) {
-    return resolvedColumnHits;
-  }
-  return closestCenter({ ...args, droppableRects: sortableRects });
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCorners(args);
 };
 
-const COLUMN_BODY_STYLE: CSSProperties = {
-  minHeight: 40,
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-const OVERLAY_CARD_STYLE: CSSProperties = { width: 264, pointerEvents: "none" };
-const noop = () => undefined;
-
-function SortablePlanCard({
-  serverId,
-  plan,
-  columns,
-  columnId,
-  onOpenPlan,
-  onMovePlan,
-}: {
-  serverId: string;
-  plan: KanbanPlan | NestedPlan;
-  columns: Column[];
-  columnId: string;
-  onOpenPlan: (planId: string) => void;
-  onMovePlan: (planId: string, columnId: string, index: number) => void;
-}): ReactElement {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: plan.id,
-    data: { kind: "plan", columnId, planId: plan.id },
-  });
-
-  const style = useMemo<CSSProperties>(
-    () => ({
-      transform: CSS.Transform.toString(transform ? { ...transform, scaleX: 1, scaleY: 1 } : null),
-      transition,
-      opacity: isDragging ? 0.4 : 1,
-    }),
-    [isDragging, transform, transition],
-  );
-
-  const handlePress = useCallback(() => onOpenPlan(plan.id), [onOpenPlan, plan.id]);
-  const handleMoveToColumn = useCallback(
-    (targetColumnId: string) => onMovePlan(plan.id, targetColumnId, 0),
-    [onMovePlan, plan.id],
-  );
-
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <KanbanCard
-        serverId={serverId}
-        plan={plan}
-        columns={columns}
-        currentColumnId={columnId}
-        onPress={handlePress}
-        onMoveToColumn={handleMoveToColumn}
-      />
-    </div>
-  );
-}
-
-function BoardColumn({
-  serverId,
-  column,
-  columns,
-  plans,
-  onOpenPlan,
-  onMovePlan,
-  onCreatePlan,
-}: {
-  serverId: string;
-  column: Column;
-  columns: Column[];
-  plans: (KanbanPlan | NestedPlan)[];
-  onOpenPlan: (planId: string) => void;
-  onMovePlan: (planId: string, columnId: string, index: number) => void;
-  onCreatePlan: (columnId: string) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  const { setNodeRef, isOver } = useDroppable({
-    id: columnDroppableId(column.id),
-    data: { kind: "column", columnId: column.id },
-  });
-  const handleCreate = useCallback(() => onCreatePlan(column.id), [column.id, onCreatePlan]);
-
-  return (
-    <View
-      style={[styles.column, isOver ? styles.columnOver : null]}
-      testID={`kanban-column-${column.id}`}
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>{column.name}</Text>
-        <Text style={styles.count}>{plans.length}</Text>
-      </View>
-      <div ref={setNodeRef} style={COLUMN_BODY_STYLE}>
-        <SortableContext
-          items={plans.map((plan) => plan.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          {plans.map((plan) => (
-            <SortablePlanCard
-              key={plan.id}
-              serverId={serverId}
-              plan={plan}
-              columns={columns}
-              columnId={column.id}
-              onOpenPlan={onOpenPlan}
-              onMovePlan={onMovePlan}
-            />
-          ))}
-        </SortableContext>
-        {plans.length === 0 ? <Text style={styles.empty}>{t("kanban.column.empty")}</Text> : null}
-      </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        leftIcon={Plus}
-        onPress={handleCreate}
-        testID={`kanban-column-add-${column.id}`}
-      >
-        {t("kanban.column.addPlan")}
-      </Button>
-    </View>
-  );
-}
-
-/**
- * Web board: wide layout uses one board-level DndContext so Plans can move
- * across columns. Compact keeps the segmented single-column + move menu path.
- */
 export function KanbanBoard({
   serverId,
   board,
   onOpenPlan,
-  onMovePlan,
   onCreatePlan,
+  planActions,
+  onRunPlan,
+  onReorderDrafts,
+  onRejectedDrop,
 }: KanbanBoardProps): ReactElement {
+  const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
-  const [selectedColumnId, setSelectedColumnId] = useState<string | null>(
-    board.columns[0]?.id ?? null,
-  );
+  const [selectedColumn, setSelectedColumn] = useState<DerivedColumnKey>("draft");
+  const [showAllDone, setShowAllDone] = useState(false);
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
+  // A finished drag still emits a click on the source card; swallow exactly that
+  // one so dropping a card never also opens it.
+  const suppressClickRef = useRef(false);
 
-  const plansByColumn = useMemo(() => {
-    const map = new Map<string, (KanbanPlan | NestedPlan)[]>();
-    for (const column of board.columns) {
-      map.set(
-        column.id,
-        column.planIds
-          .map((planId) => board.plans[planId])
-          .filter((plan): plan is KanbanPlan | NestedPlan => Boolean(plan)),
-      );
+  const handleShowAllDone = useCallback(() => setShowAllDone(true), []);
+  const handleSelectColumn = useCallback((value: string) => {
+    if (DERIVED_COLUMN_KEYS.includes(value as DerivedColumnKey)) {
+      setSelectedColumn(value as DerivedColumnKey);
     }
-    return map;
-  }, [board.columns, board.plans]);
+  }, []);
 
   const activationConstraints = getDragActivationConstraints(false, DRAG_ACTIVATION_CONFIG);
   const sensors = useSensors(
@@ -246,67 +116,116 @@ export function KanbanBoard({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  const draftPlanIds = useMemo(
+    () => (board.columns.find((column) => column.key === "draft")?.plans ?? []).map((p) => p.id),
+    [board.columns],
+  );
+  const activePlan = useMemo(() => {
+    if (activePlanId === null) {
+      return null;
+    }
+    for (const column of board.columns) {
+      const found = column.plans.find((plan) => plan.id === activePlanId);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }, [activePlanId, board.columns]);
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActivePlanId(String(event.active.id));
+    suppressClickRef.current = true;
+  }, []);
+
+  const releaseClickSuppression = useCallback(() => {
+    // The trailing click fires synchronously after dragend; release on the next
+    // tick so a plain click on a card still opens it.
+    setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
   }, []);
 
   const handleDragCancel = useCallback(() => {
     setActivePlanId(null);
-  }, []);
+    releaseClickSuppression();
+  }, [releaseClickSuppression]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       setActivePlanId(null);
+      releaseClickSuppression();
       const { active, over } = event;
       if (!over) {
         return;
       }
-      const target = resolveBoardPlanDrop({
-        columns: board.columns,
-        planId: String(active.id),
-        overId: String(over.id),
-      });
-      if (!target) {
+      const overId = String(over.id);
+      const overColumn = parseColumnDropId(overId);
+      const targetColumn =
+        overColumn ??
+        board.columns.find((column) => column.plans.some((plan) => plan.id === overId))?.key ??
+        null;
+      if (targetColumn === null) {
         return;
       }
-      onMovePlan(target.planId, target.columnId, target.index);
+
+      const action: BoardDropAction = resolveBoardDrop({
+        board,
+        activePlanId: String(active.id),
+        targetColumn,
+        overPlanId: overColumn === null ? overId : null,
+      });
+      if (action.kind === "run") {
+        onRunPlan(action.planId);
+        return;
+      }
+      if (action.kind === "reorderDraft") {
+        onReorderDrafts(action.order);
+        return;
+      }
+      if (action.kind === "derived-column") {
+        onRejectedDrop();
+      }
     },
-    [board.columns, onMovePlan],
+    [board, onRejectedDrop, onReorderDrafts, onRunPlan, releaseClickSuppression],
   );
 
-  const activePlan = activePlanId ? (board.plans[activePlanId] ?? null) : null;
-  const activeColumnIdForOverlay = useMemo(() => {
-    if (!activePlan) {
-      return board.columns[0]?.id ?? "";
-    }
-    return (
-      board.columns.find((column) => column.planIds.includes(activePlan.id))?.id ??
-      board.columns[0]?.id ??
-      ""
-    );
-  }, [activePlan, board.columns]);
+  const handleOpenPlan = useCallback(
+    (planId: string) => {
+      if (suppressClickRef.current) {
+        return;
+      }
+      onOpenPlan(planId);
+    },
+    [onOpenPlan],
+  );
+
+  const isDraggingDraft = activePlanId !== null && draftPlanIds.includes(activePlanId);
 
   if (isCompact) {
-    const activeColumnId = selectedColumnId ?? board.columns[0]?.id ?? null;
-    const activeColumn = board.columns.find((column) => column.id === activeColumnId);
+    const activeColumn = board.columns.find((column) => column.key === selectedColumn);
     return (
       <View style={styles.compactContainer}>
         <SegmentedControl
           size="sm"
-          value={activeColumnId ?? ""}
-          onValueChange={setSelectedColumnId}
-          options={board.columns.map((column) => ({ value: column.id, label: column.name }))}
+          value={selectedColumn}
+          onValueChange={handleSelectColumn}
+          options={board.columns.map((column) => ({
+            value: column.key,
+            label: t(COLUMN_LABEL_KEYS[column.key]),
+          }))}
           testID="kanban-board-column-picker"
         />
         {activeColumn ? (
           <KanbanColumn
             serverId={serverId}
-            column={activeColumn}
-            columns={board.columns}
-            plans={plansByColumn.get(activeColumn.id) ?? []}
+            columnKey={activeColumn.key}
+            plans={activeColumn.plans}
             onOpenPlan={onOpenPlan}
-            onMovePlan={onMovePlan}
-            onCreatePlan={onCreatePlan}
+            planActions={planActions}
+            showAllDone={showAllDone}
+            onShowAllDone={handleShowAllDone}
+            {...(activeColumn.key === "draft" ? { onCreatePlan } : {})}
           />
         ) : null}
       </View>
@@ -321,82 +240,126 @@ export function KanbanBoard({
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.wideScroll}>
-        <View style={styles.wideRow}>
-          {board.columns.map((column) => (
-            <BoardColumn
-              key={column.id}
-              serverId={serverId}
-              column={column}
-              columns={board.columns}
-              plans={plansByColumn.get(column.id) ?? []}
-              onOpenPlan={onOpenPlan}
-              onMovePlan={onMovePlan}
-              onCreatePlan={onCreatePlan}
-            />
-          ))}
-        </View>
-      </ScrollView>
+      <View style={styles.wideRow}>
+        {board.columns.map((column) => (
+          <DroppableColumn
+            key={column.key}
+            serverId={serverId}
+            columnKey={column.key}
+            plans={column.plans}
+            onOpenPlan={handleOpenPlan}
+            planActions={planActions}
+            showAllDone={showAllDone}
+            onShowAllDone={handleShowAllDone}
+            isRunTarget={isDraggingDraft && column.key === "inProgress"}
+            sortable={column.key === "draft"}
+            {...(column.key === "draft" ? { onCreatePlan } : {})}
+          />
+        ))}
+      </View>
       <DragOverlay dropAnimation={null}>
         {activePlan ? (
-          <div style={OVERLAY_CARD_STYLE}>
-            <KanbanCard
-              serverId={serverId}
-              plan={activePlan}
-              columns={board.columns}
-              currentColumnId={activeColumnIdForOverlay}
-              onPress={noop}
-              onMoveToColumn={noop}
-            />
-          </div>
+          <KanbanCard serverId={serverId} plan={activePlan} onPress={noop} actions={[]} isOverlay />
         ) : null}
       </DragOverlay>
     </DndContext>
   );
 }
 
+const noop = () => undefined;
+
+function DroppableColumn({
+  serverId,
+  columnKey,
+  plans,
+  onOpenPlan,
+  planActions,
+  onCreatePlan,
+  showAllDone,
+  onShowAllDone,
+  isRunTarget,
+  sortable,
+}: {
+  serverId: string;
+  columnKey: DerivedColumnKey;
+  plans: KanbanPlan[];
+  onOpenPlan: (planId: string) => void;
+  planActions: KanbanBoardProps["planActions"];
+  onCreatePlan?: () => void;
+  showAllDone: boolean;
+  onShowAllDone: () => void;
+  isRunTarget: boolean;
+  sortable: boolean;
+}): ReactElement {
+  const { isOver, setNodeRef } = useDroppable({ id: columnDropId(columnKey) });
+  const sortableIds = useMemo(() => plans.map((plan) => plan.id), [plans]);
+
+  const renderCard = useCallback(
+    (plan: KanbanPlan, card: ReactNode) =>
+      sortable ? <SortablePlanCard planId={plan.id}>{card}</SortablePlanCard> : card,
+    [sortable],
+  );
+
+  const column = (
+    <KanbanColumn
+      serverId={serverId}
+      columnKey={columnKey}
+      plans={plans}
+      onOpenPlan={onOpenPlan}
+      planActions={planActions}
+      showAllDone={showAllDone}
+      onShowAllDone={onShowAllDone}
+      isRunTarget={isRunTarget}
+      isOver={isOver}
+      renderCard={renderCard}
+      bodyRef={setNodeRef}
+      {...(onCreatePlan ? { onCreatePlan } : {})}
+    />
+  );
+
+  return sortable ? (
+    <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+      {column}
+    </SortableContext>
+  ) : (
+    column
+  );
+}
+
+function SortablePlanCard({
+  planId,
+  children,
+}: {
+  planId: string;
+  children: ReactNode;
+}): ReactElement {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: planId,
+  });
+  const style = useMemo<CSSProperties>(
+    () => ({
+      transform: CSS.Translate.toString(transform),
+      transition,
+      opacity: isDragging ? 0.4 : 1,
+    }),
+    [isDragging, transform, transition],
+  );
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
 const styles = StyleSheet.create((theme) => ({
-  wideScroll: {},
   wideRow: {
     flexDirection: "row",
     gap: theme.spacing[3],
     padding: theme.spacing[3],
-    alignItems: "flex-start",
+    alignItems: "stretch",
   },
   compactContainer: {
     gap: theme.spacing[3],
     padding: theme.spacing[3],
-  },
-  column: {
-    width: 280,
-    backgroundColor: theme.colors.surface0,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing[2],
-    gap: theme.spacing[2],
-  },
-  columnOver: {
-    backgroundColor: theme.colors.surface1,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: theme.spacing[2],
-    paddingTop: theme.spacing[1],
-  },
-  title: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-  },
-  count: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-  },
-  empty: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-    textAlign: "center",
-    paddingVertical: theme.spacing[4],
   },
 }));

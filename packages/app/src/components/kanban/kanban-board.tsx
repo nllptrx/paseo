@@ -1,75 +1,92 @@
-import { useMemo, useState, type ReactElement } from "react";
-import { ScrollView, View } from "react-native";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { View } from "react-native";
+import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
-import type { Column, KanbanPlan, NestedPlan } from "@getpaseo/protocol/kanban/types";
+import type { KanbanPlan } from "@getpaseo/protocol/kanban/types";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import {
+  DERIVED_COLUMN_KEYS,
+  type DerivedBoard,
+  type DerivedColumnKey,
+} from "@/kanban/derive-board";
 import { KanbanColumn } from "./kanban-column";
+import type { KanbanCardAction } from "./kanban-card";
 
-export interface KanbanBoardView {
-  columns: Column[];
-  plans: Record<string, KanbanPlan | NestedPlan>;
-}
+const COLUMN_LABEL_KEYS: Record<DerivedColumnKey, string> = {
+  draft: "kanban.column.draft",
+  inProgress: "kanban.column.inProgress",
+  done: "kanban.column.done",
+};
 
 export interface KanbanBoardProps {
   serverId: string;
-  board: KanbanBoardView;
+  board: DerivedBoard;
   onOpenPlan: (planId: string) => void;
-  onMovePlan: (planId: string, columnId: string, index: number) => void;
-  onCreatePlan: (columnId: string) => void;
+  onCreatePlan: () => void;
+  planActions: (plan: KanbanPlan) => KanbanCardAction[];
+  /** Dragging a draft onto the running column asks for it to run. Web only —
+   * compact has no second column to drag onto, so it goes through the menu. */
+  onRunPlan: (planId: string) => void;
+  onReorderDrafts: (order: string[]) => void;
+  /** A drop asked the board to contradict what actually ran. */
+  onRejectedDrop: () => void;
 }
 
 /**
- * Renders the columns/cards for one kanban level. Reused as-is by the
- * Kanbans view, the Orchestrator board pane, and nested-kanban drill-ins —
- * all three only differ in what `board` and the callbacks resolve to.
+ * Columns and cards for one kanban, shared by the Kanbans view, the Orchestrator
+ * board pane, and nested drill-ins. Dragging lives in the web board — on compact
+ * there is no room for three columns side by side, so it segments instead.
  */
 export function KanbanBoard({
   serverId,
   board,
   onOpenPlan,
-  onMovePlan,
   onCreatePlan,
+  planActions,
 }: KanbanBoardProps): ReactElement {
+  const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
-  const [selectedColumnId, setSelectedColumnId] = useState<string | null>(
-    board.columns[0]?.id ?? null,
+  const [selectedColumn, setSelectedColumn] = useState<DerivedColumnKey>("draft");
+  const [showAllDone, setShowAllDone] = useState(false);
+  const handleShowAllDone = useCallback(() => setShowAllDone(true), []);
+
+  const columnOptions = useMemo(
+    () =>
+      board.columns.map((column) => ({
+        value: column.key,
+        label: t(COLUMN_LABEL_KEYS[column.key]),
+      })),
+    [board.columns, t],
   );
 
-  const plansByColumn = useMemo(() => {
-    const map = new Map<string, (KanbanPlan | NestedPlan)[]>();
-    for (const column of board.columns) {
-      map.set(
-        column.id,
-        column.planIds
-          .map((planId) => board.plans[planId])
-          .filter((plan): plan is KanbanPlan | NestedPlan => Boolean(plan)),
-      );
+  const handleSelectColumn = useCallback((value: string) => {
+    if (DERIVED_COLUMN_KEYS.includes(value as DerivedColumnKey)) {
+      setSelectedColumn(value as DerivedColumnKey);
     }
-    return map;
-  }, [board.columns, board.plans]);
+  }, []);
 
   if (isCompact) {
-    const activeColumnId = selectedColumnId ?? board.columns[0]?.id ?? null;
-    const activeColumn = board.columns.find((column) => column.id === activeColumnId);
+    const activeColumn = board.columns.find((column) => column.key === selectedColumn);
     return (
       <View style={styles.compactContainer}>
         <SegmentedControl
           size="sm"
-          value={activeColumnId ?? ""}
-          onValueChange={setSelectedColumnId}
-          options={board.columns.map((column) => ({ value: column.id, label: column.name }))}
+          value={selectedColumn}
+          onValueChange={handleSelectColumn}
+          options={columnOptions}
           testID="kanban-board-column-picker"
         />
         {activeColumn ? (
           <KanbanColumn
             serverId={serverId}
-            column={activeColumn}
-            columns={board.columns}
-            plans={plansByColumn.get(activeColumn.id) ?? []}
+            columnKey={activeColumn.key}
+            plans={activeColumn.plans}
             onOpenPlan={onOpenPlan}
-            onMovePlan={onMovePlan}
-            onCreatePlan={onCreatePlan}
+            planActions={planActions}
+            showAllDone={showAllDone}
+            onShowAllDone={handleShowAllDone}
+            {...(activeColumn.key === "draft" ? { onCreatePlan } : {})}
           />
         ) : null}
       </View>
@@ -77,22 +94,21 @@ export function KanbanBoard({
   }
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.wideScroll}>
-      <View style={styles.wideRow}>
-        {board.columns.map((column) => (
-          <KanbanColumn
-            key={column.id}
-            serverId={serverId}
-            column={column}
-            columns={board.columns}
-            plans={plansByColumn.get(column.id) ?? []}
-            onOpenPlan={onOpenPlan}
-            onMovePlan={onMovePlan}
-            onCreatePlan={onCreatePlan}
-          />
-        ))}
-      </View>
-    </ScrollView>
+    <View style={styles.wideRow}>
+      {board.columns.map((column) => (
+        <KanbanColumn
+          key={column.key}
+          serverId={serverId}
+          columnKey={column.key}
+          plans={column.plans}
+          onOpenPlan={onOpenPlan}
+          planActions={planActions}
+          showAllDone={showAllDone}
+          onShowAllDone={handleShowAllDone}
+          {...(column.key === "draft" ? { onCreatePlan } : {})}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -100,12 +116,11 @@ const styles = StyleSheet.create((theme) => ({
   // No `flex`/height here on purpose: the board sits inside the screen's own
   // vertical ScrollView, so it sizes to its tallest column and the page
   // scrolls, rather than nesting a second scroll viewport inside the first.
-  wideScroll: {},
   wideRow: {
     flexDirection: "row",
     gap: theme.spacing[3],
     padding: theme.spacing[3],
-    alignItems: "flex-start",
+    alignItems: "stretch",
   },
   compactContainer: {
     gap: theme.spacing[3],

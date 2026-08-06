@@ -989,11 +989,20 @@ export const ru: TranslationResources = {
     column: {
       empty: "Нет планов",
       addPlan: "Новый план",
+      draft: "Черновик",
+      inProgress: "В работе",
+      done: "Готово",
+      dropToRun: "Отпустите, чтобы запустить",
+      showMore: "Показать ещё {{count}}",
+      doneIsDerivedTitle: "«Готово» проставляется само",
+      doneIsDerivedDescription: "План попадает сюда, когда все его шаги завершены.",
     },
     card: {
       moveMenu: "Переместить карточку",
       moveToColumn: "Переместить в столбец",
       nestedPlanCount: "{{count}} планов",
+      workedFor: "В работе {{duration}}",
+      stepProgress: "{{done}}/{{total}} шагов",
     },
     step: {
       status: {

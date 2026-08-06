@@ -998,11 +998,20 @@ export const es: TranslationResources = {
     column: {
       empty: "Sin planes",
       addPlan: "Nuevo plan",
+      draft: "Borrador",
+      inProgress: "En curso",
+      done: "Hecho",
+      dropToRun: "Suelta para ejecutar",
+      showMore: "Mostrar {{count}} más",
+      doneIsDerivedTitle: "«Hecho» ocurre solo",
+      doneIsDerivedDescription: "Un plan llega aquí cuando todos sus pasos han terminado.",
     },
     card: {
       moveMenu: "Mover tarjeta",
       moveToColumn: "Mover a columna",
       nestedPlanCount: "{{count}} planes",
+      workedFor: "Trabajó {{duration}}",
+      stepProgress: "{{done}}/{{total}} pasos",
     },
     step: {
       status: {

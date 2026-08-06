@@ -958,11 +958,20 @@ export const zhCN: TranslationResources = {
     column: {
       empty: "暂无计划",
       addPlan: "新建计划",
+      draft: "草稿",
+      inProgress: "进行中",
+      done: "已完成",
+      dropToRun: "拖放以运行",
+      showMore: "再显示 {{count}} 个",
+      doneIsDerivedTitle: "“已完成”会自动判定",
+      doneIsDerivedDescription: "当计划的所有步骤结束后，它会移到这里。",
     },
     card: {
       moveMenu: "移动卡片",
       moveToColumn: "移动到列",
       nestedPlanCount: "{{count}} 个计划",
+      workedFor: "已运行 {{duration}}",
+      stepProgress: "{{done}}/{{total}} 个步骤",
     },
     step: {
       status: {

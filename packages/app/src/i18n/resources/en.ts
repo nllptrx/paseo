@@ -977,11 +977,20 @@ export const en = {
     column: {
       empty: "No plans",
       addPlan: "New plan",
+      draft: "Draft",
+      inProgress: "In progress",
+      done: "Done",
+      dropToRun: "Drop to run",
+      showMore: "Show {{count}} more",
+      doneIsDerivedTitle: "Done happens on its own",
+      doneIsDerivedDescription: "A plan lands here when every step has finished.",
     },
     card: {
       moveMenu: "Move card",
       moveToColumn: "Move to column",
       nestedPlanCount: "{{count}} plans",
+      workedFor: "Worked for {{duration}}",
+      stepProgress: "{{done}}/{{total}} steps",
     },
     step: {
       status: {

@@ -974,11 +974,20 @@ export const ko: TranslationResources = {
     column: {
       empty: "플랜 없음",
       addPlan: "새 플랜",
+      draft: "초안",
+      inProgress: "진행 중",
+      done: "완료",
+      dropToRun: "놓아서 실행",
+      showMore: "{{count}}개 더 보기",
+      doneIsDerivedTitle: "완료는 자동으로 정해집니다",
+      doneIsDerivedDescription: "모든 단계가 끝나면 플랜이 여기로 옵니다.",
     },
     card: {
       moveMenu: "카드 이동",
       moveToColumn: "열로 이동",
       nestedPlanCount: "플랜 {{count}}개",
+      workedFor: "{{duration}} 작업함",
+      stepProgress: "{{done}}/{{total}}단계",
     },
     step: {
       status: {
