@@ -1,8 +1,11 @@
 import { useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { KanbanPlan, KanbanSummary } from "@getpaseo/protocol/kanban/types";
 import { useToast } from "@/contexts/toast-context";
+import { kanbanQueryKey, kanbansQueryBaseKey } from "@/kanban/aggregated-kanbans";
+import { sidebarKanbanIndexQueryBaseKey } from "@/hooks/sidebar-kanban-index";
+import { resolveKanbanWorkspaceColumns } from "@/hooks/sidebar-kanban-view-model";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -15,11 +18,31 @@ export interface AddWorkspaceToKanbanInput {
   title: string;
 }
 
+interface AddWorkspaceToKanbanResult {
+  plan: KanbanPlan;
+  kanbanId: string;
+  /** True when the workspace was already tracked by a plan — no new plan was created. */
+  alreadyTracked: boolean;
+}
+
+function invalidateKanbanCaches(
+  queryClient: QueryClient,
+  input: { serverId: string; kanbanId: string },
+): void {
+  void queryClient.invalidateQueries({ queryKey: kanbansQueryBaseKey });
+  void queryClient.invalidateQueries({ queryKey: kanbanQueryKey(input.serverId, input.kanbanId) });
+  void queryClient.invalidateQueries({ queryKey: sidebarKanbanIndexQueryBaseKey });
+}
+
 /**
  * Get-or-create a project's kanban and drop a single-step workflow Plan wrapping this
  * workspace into its first column — the "Add to Kanban" discovery seam
  * (`docs/kanban-workflow-stacking-plan.md` §4). A kanban is one-per-project in v1, so this
  * reuses whichever one the project already has instead of creating a second.
+ *
+ * Before creating a plan, it scans every non-archived plan on that kanban for a step that
+ * already references this workspace (`sidebar-kanban-view-model.ts`'s `resolveKanbanWorkspaceColumns`)
+ * — a second click on the same workspace reuses the existing plan instead of creating a duplicate.
  *
  * The step needs at least one agent spec up front; this picks the host's first available
  * provider as a placeholder — the trigger is `manual`, so nothing runs until the user configures
@@ -28,9 +51,10 @@ export interface AddWorkspaceToKanbanInput {
 export function useAddWorkspaceToKanban() {
   const { t } = useTranslation();
   const toast = useToast();
+  const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (input: AddWorkspaceToKanbanInput): Promise<KanbanPlan> => {
+    mutationFn: async (input: AddWorkspaceToKanbanInput): Promise<AddWorkspaceToKanbanResult> => {
       const client = getHostRuntimeStore().getClient(input.serverId);
       if (!client) {
         throw new Error(t("sidebar.workspace.toasts.hostDisconnected"));
@@ -38,13 +62,30 @@ export function useAddWorkspaceToKanban() {
 
       const list = await client.kanbanList();
       if (list.error) throw new Error(list.error);
-      let kanban = list.kanbans.find((candidate) => candidate.projectId === input.projectId);
-      if (!kanban) {
+      let kanbanSummary = list.kanbans.find((candidate) => candidate.projectId === input.projectId);
+      if (!kanbanSummary) {
         const created = await client.kanbanCreate({ projectId: input.projectId });
         if (created.error || !created.kanban) {
           throw new Error(created.error ?? t("sidebar.kanban.addToKanban.createFailed"));
         }
-        kanban = created.kanban;
+        kanbanSummary = created.kanban;
+      }
+
+      const detail = await client.kanbanGet(kanbanSummary.id);
+      if (detail.error || !detail.kanban) {
+        throw new Error(detail.error ?? t("sidebar.kanban.addToKanban.createFailed"));
+      }
+      const kanban = detail.kanban;
+
+      const existingRef = resolveKanbanWorkspaceColumns(input.serverId, kanban).get(
+        input.workspaceId,
+      );
+      if (existingRef) {
+        const existingPlan = kanban.plans[existingRef.planId];
+        if (!existingPlan) {
+          throw new Error(t("sidebar.kanban.addToKanban.createFailed"));
+        }
+        return { plan: existingPlan, kanbanId: kanban.id, alreadyTracked: true };
       }
 
       const targetColumn =
@@ -80,10 +121,15 @@ export function useAddWorkspaceToKanban() {
       if (planResult.error || !planResult.plan) {
         throw new Error(planResult.error ?? t("sidebar.kanban.addToKanban.createFailed"));
       }
-      return planResult.plan;
+      return { plan: planResult.plan, kanbanId: kanban.id, alreadyTracked: false };
     },
-    onSuccess: () => {
-      toast.show(t("sidebar.kanban.addToKanban.success"));
+    onSuccess: (result, input) => {
+      invalidateKanbanCaches(queryClient, { serverId: input.serverId, kanbanId: result.kanbanId });
+      toast.show(
+        result.alreadyTracked
+          ? t("sidebar.kanban.addToKanban.alreadyTracked")
+          : t("sidebar.kanban.addToKanban.success"),
+      );
     },
     onError: (error) => {
       toast.error(toErrorMessage(error));
@@ -123,6 +169,7 @@ export function useSidebarAddToKanbanAction(workspace: {
 export function useGetOrCreateProjectKanban() {
   const { t } = useTranslation();
   const toast = useToast();
+  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (input: { serverId: string; projectId: string }): Promise<KanbanSummary> => {
@@ -139,6 +186,10 @@ export function useGetOrCreateProjectKanban() {
       if (created.error || !created.kanban) {
         throw new Error(created.error ?? t("sidebar.kanban.addToKanban.createFailed"));
       }
+      invalidateKanbanCaches(queryClient, {
+        serverId: input.serverId,
+        kanbanId: created.kanban.id,
+      });
       return created.kanban;
     },
     onSuccess: () => {

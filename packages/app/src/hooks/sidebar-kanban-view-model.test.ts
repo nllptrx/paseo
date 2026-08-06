@@ -216,6 +216,23 @@ describe("resolveKanbanWorkspaceColumns", () => {
     expect(index.get("workspace-4")?.columnId).toBe("backlog");
     expect(index.get("workspace-4")?.planId).toBe("plan-1");
   });
+
+  it("is the dedup check the Add to Kanban action reuses: undefined for a workspace no plan tracks", () => {
+    const board = kanban({
+      id: "kanban-1",
+      columns: [column({ id: "backlog", name: "Backlog", planIds: ["plan-1"] })],
+      plans: {
+        "plan-1": workflowPlan({
+          id: "plan-1",
+          body: { type: "workflow", steps: [existingStep("workspace-1")] },
+        }),
+      },
+    });
+
+    const index = resolveKanbanWorkspaceColumns("server-1", board);
+
+    expect(index.get("workspace-not-tracked")).toBeUndefined();
+  });
 });
 
 describe("splitWorkspacesByKanbanColumn", () => {

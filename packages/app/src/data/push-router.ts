@@ -6,6 +6,7 @@ import type {
 } from "@getpaseo/protocol/messages";
 import type { KanbanSummary, StoredKanban } from "@getpaseo/protocol/kanban/types";
 import { agentCommandsQueryRoot } from "@/hooks/agent-commands-query";
+import { sidebarKanbanIndexQueryBaseKey } from "@/hooks/sidebar-kanban-index";
 import { orderCheckoutDiffFiles } from "@/git/diff-order";
 import { daemonConfigQueryKey } from "@/data/daemon-config";
 import { daemonPairingOfferQueryKey } from "@/data/daemon-pairing";
@@ -159,6 +160,7 @@ const RECONNECT_REPAIR_POLICIES: ReconnectRepairPolicy[] = [
       void queryClient.invalidateQueries({
         predicate: (query) => isQueryForServer(query.queryKey, "kanban", serverId),
       });
+      void queryClient.invalidateQueries({ queryKey: sidebarKanbanIndexQueryBaseKey });
     },
   },
 ];
@@ -646,7 +648,8 @@ function applyKanbanUpdate(input: {
       !route ||
       route.domain !== "kanban" ||
       !route.enabled ||
-      !route.serverIds.includes(input.serverId)
+      !route.serverIds.includes(input.serverId) ||
+      query.queryKey[0] !== kanbansQueryBaseKey[0]
     ) {
       continue;
     }
@@ -665,6 +668,10 @@ function applyKanbanUpdate(input: {
       payload.kind === "upsert" ? payload.kanban : null,
     );
   }
+
+  void input.queryClient.invalidateQueries({
+    predicate: (query) => query.queryKey[0] === sidebarKanbanIndexQueryBaseKey[0],
+  });
 }
 
 function applyKanbanUpdateToList(

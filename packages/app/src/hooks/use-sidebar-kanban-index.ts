@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useFetchQuery } from "@/data/query";
+import { kanbanPushRoute } from "@/data/push-router";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 import { useHostFeatureMap } from "@/runtime/host-features";
 import {
@@ -36,6 +37,7 @@ export function useSidebarKanbanIndex(options?: { enabled?: boolean }): {
     dataShape: "value",
     staleTimeMs: 10_000,
     enabled,
+    meta: kanbanPushRoute({ enabled, serverIds: kanbanServerIds }),
   });
 
   const data: SidebarKanbanIndex | undefined = query.data;

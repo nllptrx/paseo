@@ -1037,6 +1037,7 @@ export const ja: TranslationResources = {
       unbounded: "Unbounded",
       addToKanban: {
         success: "Added to Kanban",
+        alreadyTracked: "This workspace is already tracked on the Kanban",
         createFailed: "Couldn't create the kanban",
         noColumns: "Kanban has no columns to add the plan to",
         noProvider: "No available agent provider on this host",

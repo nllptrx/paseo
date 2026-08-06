@@ -8,6 +8,7 @@ import { daemonConfigQueryKey } from "@/data/daemon-config";
 import { daemonPairingOfferQueryKey } from "@/data/daemon-pairing";
 import { providersSnapshotQueryKey } from "@/data/providers-snapshot";
 import { kanbanQueryKey, kanbansQueryBaseKey } from "@/kanban/aggregated-kanbans";
+import { sidebarKanbanIndexQueryKey } from "@/hooks/sidebar-kanban-index";
 import {
   checkoutDiffPushRoute,
   invalidateServerDataQueriesAfterReconnect,
@@ -614,6 +615,33 @@ describe("server data push router", () => {
     unmount();
   });
 
+  it("invalidates the sidebar kanban index on a kanban.update push", () => {
+    const queryClient = new QueryClient();
+    const fake = createFakeClient();
+    const serverId = "server-1";
+    const sidebarIndexKey = sidebarKanbanIndexQueryKey([serverId]);
+    queryClient.setQueryData(sidebarIndexKey, {
+      columnRefByWorkspaceKey: new Map(),
+    });
+    const observer = new QueryObserver(queryClient, {
+      queryKey: sidebarIndexKey,
+      queryFn: skipToken,
+      enabled: true,
+      gcTime: Infinity,
+      staleTime: Infinity,
+      meta: kanbanPushRoute({ enabled: true, serverIds: [serverId] }),
+    });
+    const unsubscribeObserver = observer.subscribe(() => undefined);
+    const unmount = mountServerDataPushRouter({ client: fake.client, queryClient, serverId });
+
+    fake.emit({ type: "kanban.update", payload: { kind: "upsert", kanban: kanban() } });
+
+    expect(queryClient.getQueryState(sidebarIndexKey)?.isInvalidated).toBe(true);
+
+    unsubscribeObserver();
+    unmount();
+  });
+
   it("invalidates only the reconnect-repair scopes for one server", () => {
     const queryClient = new QueryClient();
     const serverId = "server-1";
@@ -626,6 +654,7 @@ describe("server data push router", () => {
     const otherProviderKey = providersSnapshotQueryKey(otherServerId);
     const kanbanListKey = [...kanbansQueryBaseKey, serverId] as const;
     const kanbanDetailKey = kanbanQueryKey(serverId, "kanban-1");
+    const sidebarIndexKey = sidebarKanbanIndexQueryKey([serverId]);
 
     queryClient.setQueryData(providerKey, { entries: [], generatedAt: "now", requestId: "p" });
     queryClient.setQueryData(daemonConfigKey, daemonConfig);
@@ -639,6 +668,7 @@ describe("server data push router", () => {
     });
     queryClient.setQueryData(kanbanListKey, { status: "loaded", data: [], hostErrors: [] });
     queryClient.setQueryData(kanbanDetailKey, kanban());
+    queryClient.setQueryData(sidebarIndexKey, { columnRefByWorkspaceKey: new Map() });
 
     invalidateServerDataQueriesAfterReconnect({ queryClient, serverId });
 
@@ -650,5 +680,6 @@ describe("server data push router", () => {
     expect(queryClient.getQueryState(otherProviderKey)?.isInvalidated).toBe(false);
     expect(queryClient.getQueryState(kanbanListKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(kanbanDetailKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(sidebarIndexKey)?.isInvalidated).toBe(true);
   });
 });
