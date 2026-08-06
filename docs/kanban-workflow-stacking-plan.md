@@ -12,7 +12,7 @@ Everything persists daemon-side under `$PASEO_HOME/kanbans/`, speaks dotted-name
 
 ## 2. Glossary
 
-New terms, following `docs/glossary.md` rules (UI label wins, no synonyms). These entries move into the glossary when the feature ships.
+Canonical entries now live in `docs/glossary.md` and the durable layering notes in `docs/kanban.md`. The definitions below stay as the plan's working copy until this file is deleted.
 
 - **Kanban** — Per-project board organizing Plans in ordered columns. One kanban per project in v1, created lazily on first use. Daemon-local: it lives on one daemon and can only reference that daemon's workspaces. UI: "Kanban" / "Kanbans" (the view). Forbidden: "Board" as UI label.
 - **Plan** — A card on a kanban. Exactly one of two kinds: `workflow` or `nested_kanban`. Has a column position and an order within the column, and shows live execution status (workspace status buckets + step progress) beside its declared column. UI: "Plan". Forbidden: "Card", "Ticket", "Task" as UI labels ("card" may appear in docs describing the draggable visual, never as the entity name).
