@@ -117,6 +117,30 @@ describe("sidebar view store", () => {
     });
   });
 
+  it("keeps a persisted kanban grouping mode", () => {
+    expect(
+      migrateSidebarViewState({
+        groupMode: "kanban",
+        hostFilters: [],
+      }),
+    ).toEqual({
+      groupMode: "kanban",
+      hostFilters: [],
+    });
+  });
+
+  it("falls back to project for an unknown persisted grouping mode", () => {
+    expect(
+      migrateSidebarViewState({
+        groupMode: "not-a-real-mode",
+        hostFilters: [],
+      }),
+    ).toEqual({
+      groupMode: "project",
+      hostFilters: [],
+    });
+  });
+
   it("falls back to the legacy storage key when the new key is empty", async () => {
     const storage = createMemoryStorage({
       "sidebar-view": null,

@@ -28,6 +28,9 @@ export interface SidebarWorkspacePlacement {
   projectKind: WorkspaceStructureProject["projectKind"];
   workspaceKind: WorkspaceDescriptor["workspaceKind"];
   name: string;
+  // Host-local project id, distinct from `projectViewKey` (which aggregates a project across
+  // hosts). "Add to Kanban" needs this — a kanban is scoped to one daemon's project.
+  projectId?: string;
 }
 
 export interface SidebarStatusWorkspacePlacement extends SidebarWorkspacePlacement {
@@ -155,6 +158,7 @@ export function createSidebarWorkspaceEntry(input: {
     workspaceKey: `${input.serverId}:${input.workspace.id}`,
     serverId: input.serverId,
     workspaceId: input.workspace.id,
+    projectId: input.workspace.projectId,
     projectViewKey,
     projectName: projectNameForWorkspace(input.workspace),
     projectRootPath: input.workspace.projectRootPath,
@@ -302,11 +306,13 @@ function createStructuralWorkspaceEntry(input: {
     project: input.project,
     workspaceKey: input.workspaceKey,
   });
+  const hostPlacement = input.project.hosts.find((host) => host.serverId === identity.serverId);
 
   return {
     workspaceKey: identity.workspaceKey,
     serverId: identity.serverId,
     workspaceId: identity.workspaceId,
+    projectId: hostPlacement?.projectId,
     projectViewKey: input.project.viewKey,
     projectName: input.project.projectName,
     projectRootPath: input.project.iconWorkingDir,

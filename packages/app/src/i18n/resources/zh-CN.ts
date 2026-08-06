@@ -984,6 +984,7 @@ export const zhCN: TranslationResources = {
         label: "分组",
         project: "项目",
         status: "状态",
+        kanban: "Kanban",
       },
       titleSource: {
         label: "标题",
@@ -1011,6 +1012,15 @@ export const zhCN: TranslationResources = {
     },
     pinned: {
       title: "已置顶",
+    },
+    kanban: {
+      unbounded: "Unbounded",
+      addToKanban: {
+        success: "Added to Kanban",
+        createFailed: "Couldn't create the kanban",
+        noColumns: "Kanban has no columns to add the plan to",
+        noProvider: "No available agent provider on this host",
+      },
     },
     host: {
       noHost: "没有 Host",
@@ -1054,6 +1064,7 @@ export const zhCN: TranslationResources = {
         openNewWindowFailed: "无法打开新窗口",
         openFolder: "Open in file manager",
         openFolderFailed: "Couldn't open folder",
+        addToKanban: "Add to Kanban",
         remove: "移除 project",
         removing: "正在移除...",
       },
@@ -1088,6 +1099,7 @@ export const zhCN: TranslationResources = {
         copyPath: "复制路径",
         copyBranchName: "复制分支名称",
         rename: "重命名 workspace",
+        addToKanban: "Add to Kanban",
         pin: "置顶",
         unpin: "取消置顶",
         archive: "归档",

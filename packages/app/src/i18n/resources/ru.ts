@@ -1015,6 +1015,7 @@ export const ru: TranslationResources = {
         label: "Группировка",
         project: "Проект",
         status: "Статус",
+        kanban: "Kanban",
       },
       titleSource: {
         label: "Заголовок",
@@ -1042,6 +1043,15 @@ export const ru: TranslationResources = {
     },
     pinned: {
       title: "Закреплённые",
+    },
+    kanban: {
+      unbounded: "Unbounded",
+      addToKanban: {
+        success: "Added to Kanban",
+        createFailed: "Couldn't create the kanban",
+        noColumns: "Kanban has no columns to add the plan to",
+        noProvider: "No available agent provider on this host",
+      },
     },
     host: {
       noHost: "Нет хоста",
@@ -1086,6 +1096,7 @@ export const ru: TranslationResources = {
         openNewWindowFailed: "Couldn't open a new window",
         openFolder: "Open in file manager",
         openFolderFailed: "Couldn't open folder",
+        addToKanban: "Add to Kanban",
         remove: "Удалить проект",
         removing: "Удаление...",
       },
@@ -1121,6 +1132,7 @@ export const ru: TranslationResources = {
         copyPath: "Копировать путь",
         copyBranchName: "Скопировать название ветки",
         rename: "Переименовать рабочую область",
+        addToKanban: "Add to Kanban",
         pin: "Закрепить вверху",
         unpin: "Открепить",
         archive: "Архив",

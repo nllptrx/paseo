@@ -1024,6 +1024,7 @@ export const es: TranslationResources = {
         label: "Agrupación",
         project: "Proyecto",
         status: "Estado",
+        kanban: "Kanban",
       },
       titleSource: {
         label: "Título",
@@ -1051,6 +1052,15 @@ export const es: TranslationResources = {
     },
     pinned: {
       title: "Anclados",
+    },
+    kanban: {
+      unbounded: "Unbounded",
+      addToKanban: {
+        success: "Added to Kanban",
+        createFailed: "Couldn't create the kanban",
+        noColumns: "Kanban has no columns to add the plan to",
+        noProvider: "No available agent provider on this host",
+      },
     },
     host: {
       noHost: "Sin anfitrión",
@@ -1095,6 +1105,7 @@ export const es: TranslationResources = {
         openNewWindowFailed: "Couldn't open a new window",
         openFolder: "Open in file manager",
         openFolderFailed: "Couldn't open folder",
+        addToKanban: "Add to Kanban",
         remove: "Eliminar proyecto",
         removing: "Eliminando...",
       },
@@ -1130,6 +1141,7 @@ export const es: TranslationResources = {
         copyPath: "Copiar ruta",
         copyBranchName: "Copiar nombre de sucursal",
         rename: "Cambiar nombre del espacio de trabajo",
+        addToKanban: "Add to Kanban",
         pin: "Anclar arriba",
         unpin: "Desanclar",
         archive: "Archivo",

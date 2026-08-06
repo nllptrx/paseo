@@ -1000,6 +1000,7 @@ export const ko: TranslationResources = {
         label: "그룹화",
         project: "프로젝트",
         status: "상태",
+        kanban: "Kanban",
       },
       titleSource: {
         label: "제목",
@@ -1027,6 +1028,15 @@ export const ko: TranslationResources = {
     },
     pinned: {
       title: "고정됨",
+    },
+    kanban: {
+      unbounded: "Unbounded",
+      addToKanban: {
+        success: "Added to Kanban",
+        createFailed: "Couldn't create the kanban",
+        noColumns: "Kanban has no columns to add the plan to",
+        noProvider: "No available agent provider on this host",
+      },
     },
     host: {
       noHost: "호스트 없음",
@@ -1071,6 +1081,7 @@ export const ko: TranslationResources = {
         openNewWindowFailed: "새 창을 열 수 없습니다",
         openFolder: "파일 관리자에서 열기",
         openFolderFailed: "폴더를 열 수 없습니다.",
+        addToKanban: "Add to Kanban",
         remove: "프로젝트 제거",
         removing: "제거하는 중...",
       },
@@ -1106,6 +1117,7 @@ export const ko: TranslationResources = {
         copyPath: "경로 복사",
         copyBranchName: "브랜치 이름 복사",
         rename: "워크스페이스 이름 변경",
+        addToKanban: "Add to Kanban",
         pin: "상단에 고정",
         unpin: "고정 해제",
         archive: "보관",

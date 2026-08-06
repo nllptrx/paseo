@@ -1004,6 +1004,7 @@ export const ja: TranslationResources = {
         label: "グループ化",
         project: "プロジェクト",
         status: "ステータス",
+        kanban: "Kanban",
       },
       titleSource: {
         label: "タイトル",
@@ -1031,6 +1032,15 @@ export const ja: TranslationResources = {
     },
     pinned: {
       title: "固定済み",
+    },
+    kanban: {
+      unbounded: "Unbounded",
+      addToKanban: {
+        success: "Added to Kanban",
+        createFailed: "Couldn't create the kanban",
+        noColumns: "Kanban has no columns to add the plan to",
+        noProvider: "No available agent provider on this host",
+      },
     },
     host: {
       noHost: "ホストなし",
@@ -1075,6 +1085,7 @@ export const ja: TranslationResources = {
         openNewWindowFailed: "新しいウィンドウを開けませんでした",
         openFolder: "Open in file manager",
         openFolderFailed: "Couldn't open folder",
+        addToKanban: "Add to Kanban",
         remove: "プロジェクトを削除",
         removing: "削除中...",
       },
@@ -1110,6 +1121,7 @@ export const ja: TranslationResources = {
         copyPath: "パスをコピー",
         copyBranchName: "ブランチ名をコピー",
         rename: "ワークスペースの名前を変更",
+        addToKanban: "Add to Kanban",
         pin: "上部に固定",
         unpin: "固定解除",
         archive: "アーカイブ",

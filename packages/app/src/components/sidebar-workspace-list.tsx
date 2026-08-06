@@ -37,6 +37,7 @@ import { getSidebarRowBackdrop } from "@/components/sidebar/sidebar-row-backdrop
 import { type GestureType } from "react-native-gesture-handler";
 import * as Clipboard from "expo-clipboard";
 import {
+  Columns3,
   ExternalLink,
   GitPullRequest,
   Settings,
@@ -54,7 +55,7 @@ import {
   type ToggleSidebarWorkspacePin,
 } from "@/hooks/use-sidebar-workspace-pin";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
-import { useHostFeatureMap } from "@/runtime/host-features";
+import { useHostFeature, useHostFeatureMap } from "@/runtime/host-features";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useProjectIcons } from "@/projects/icons";
 import {
@@ -70,7 +71,7 @@ import {
   type SidebarWorkspacePlacement,
 } from "@/hooks/use-sidebar-workspaces-list";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
-import { useSidebarViewStore } from "@/stores/sidebar-view-store";
+import { useSidebarViewStore, type SidebarGroupMode } from "@/stores/sidebar-view-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
 import {
   ContextMenu,
@@ -93,7 +94,9 @@ import { hasVisibleOrderChanged, mergeWithRemainder } from "@/utils/sidebar-reor
 import { confirmDialog } from "@/utils/confirm-dialog";
 import type { SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { SidebarStatusWorkspaceList } from "@/components/sidebar/sidebar-status-list";
+import { SidebarKanbanWorkspaceList } from "@/components/sidebar/sidebar-kanban-list";
 import type { StatusGroup } from "@/hooks/sidebar-status-view-model";
+import type { KanbanColumnGroup } from "@/hooks/sidebar-kanban-view-model";
 import {
   SidebarWorkspaceContextMenu,
   SidebarWorkspaceMenu,
@@ -125,6 +128,10 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useClearWorkspaceAttention } from "@/hooks/use-clear-workspace-attention";
+import {
+  useGetOrCreateProjectKanban,
+  useSidebarAddToKanbanAction,
+} from "@/hooks/use-add-to-kanban";
 import type { PrHint } from "@/git/use-pr-status-query";
 import {
   buildSidebarProjectRowModel,
@@ -164,6 +171,7 @@ const ThemedPlus = withUnistyles(Plus);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
+const ThemedColumns3 = withUnistyles(Columns3);
 
 const foregroundColorMapping = (theme: Theme) => ({
   color: theme.colors.foreground,
@@ -233,13 +241,15 @@ function selectionForSelectedWorkspace(
 
 interface SidebarWorkspaceListProps {
   statusGroups: StatusGroup[];
+  kanbanColumnGroups: KanbanColumnGroup[];
+  kanbanUnboundedGroups: StatusGroup[];
   pinnedGroups: PinnedSidebarGroups;
   projects: SidebarProjectEntry[];
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
   collapsedProjectKeys: ReadonlySet<string>;
   onToggleProjectCollapsed: (projectViewKey: string) => void;
   shortcutIndexByWorkspaceKey: Map<string, number>;
-  groupMode: "project" | "status";
+  groupMode: SidebarGroupMode;
   isRefreshing?: boolean;
   onRefresh?: () => void;
   onWorkspacePress?: () => void;
@@ -299,6 +309,7 @@ interface WorkspaceRowInnerProps {
   onCopyPath?: () => void;
   onRename?: () => void;
   onMarkAsRead?: () => void;
+  onAddToKanban?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   isPinned?: boolean;
   onTogglePin?: () => void;
@@ -476,6 +487,7 @@ const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedC
 const openInNewWindowLeadingIcon = (
   <ThemedExternalLink size={14} uniProps={foregroundMutedColorMapping} />
 );
+const addToKanbanLeadingIcon = <ThemedColumns3 size={14} uniProps={foregroundMutedColorMapping} />;
 
 function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
   return (
@@ -572,9 +584,28 @@ function ProjectMenuItems({
         toast.error(t("sidebar.project.actions.openNewWindowFailed"));
       });
   }, [projectPath, t, toast]);
+  const hasKanbanFeature = useHostFeature(settingsTarget?.serverId, "kanban");
+  const getOrCreateProjectKanban = useGetOrCreateProjectKanban();
+  const handleAddToKanban = useCallback(() => {
+    if (!settingsTarget) return;
+    getOrCreateProjectKanban.mutate({
+      serverId: settingsTarget.serverId,
+      projectId: settingsTarget.projectId,
+    });
+  }, [getOrCreateProjectKanban, settingsTarget]);
 
   return (
     <>
+      {settingsTarget && hasKanbanFeature ? (
+        <ProjectMenuItem
+          surface={surface}
+          testID={`sidebar-project-menu-add-to-kanban-${projectViewKey}`}
+          leading={addToKanbanLeadingIcon}
+          onSelect={handleAddToKanban}
+        >
+          {t("sidebar.project.actions.addToKanban")}
+        </ProjectMenuItem>
+      ) : null}
       {settingsTarget ? (
         <ProjectMenuItem
           surface={surface}
@@ -627,6 +658,7 @@ function WorkspaceRowRightGroup({
   archiveShortcutKeys,
   onArchive,
   onMarkAsRead,
+  onAddToKanban,
   onCopyBranchName,
   onCopyPath,
   onRename,
@@ -645,6 +677,7 @@ function WorkspaceRowRightGroup({
   archiveShortcutKeys?: ShortcutKey[][] | null;
   onArchive?: () => void;
   onMarkAsRead?: () => void;
+  onAddToKanban?: () => void;
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
   onRename?: () => void;
@@ -690,6 +723,7 @@ function WorkspaceRowRightGroup({
                 onCopyBranchName={onCopyBranchName}
                 onRename={onRename}
                 onMarkAsRead={onMarkAsRead}
+                onAddToKanban={onAddToKanban}
                 onArchive={onArchive}
                 archiveLabel={archiveLabel}
                 archiveStatus={archiveStatus}
@@ -1073,6 +1107,7 @@ function WorkspaceRowInner({
   onCopyBranchName,
   onCopyPath,
   onRename,
+  onAddToKanban,
   archiveShortcutKeys,
   isPinned,
   onTogglePin,
@@ -1142,6 +1177,7 @@ function WorkspaceRowInner({
               onCopyPath={onCopyPath}
               onCopyBranchName={onCopyBranchName}
               onRename={onRename}
+              onAddToKanban={onAddToKanban}
               onArchive={onArchive}
               archiveLabel={archiveLabel}
               archiveStatus={archiveStatus}
@@ -1191,6 +1227,7 @@ function WorkspaceRowInner({
                   onCopyBranchName={onCopyBranchName}
                   onCopyPath={onCopyPath}
                   onRename={onRename}
+                  onAddToKanban={onAddToKanban}
                   isPinned={isPinned}
                   onTogglePin={onTogglePin}
                 />
@@ -1325,6 +1362,12 @@ function WorkspaceRowWithMenu({
     onToggleWorkspacePin(workspace);
   }, [onToggleWorkspacePin, workspace]);
   const onTogglePin = canPin ? handleTogglePin : undefined;
+  const handleAddToKanban = useSidebarAddToKanbanAction({
+    serverId: workspace.serverId,
+    projectId: workspace.projectId,
+    workspaceId: workspace.workspaceId,
+    title: workspace.title ?? workspace.name,
+  });
 
   const archiveShortcutKeys = useShortcutKeys("archive-workspace");
   const { hasClearableAttention, clearAttention } = useClearWorkspaceAttention({
@@ -1372,6 +1415,7 @@ function WorkspaceRowWithMenu({
         onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
         onCopyPath={handleCopyPath}
         onRename={handleOpenRename}
+        onAddToKanban={handleAddToKanban}
         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
         isPinned={isPinned}
@@ -1911,6 +1955,8 @@ const MemoProjectBlock = memo(ProjectBlock, areProjectBlockPropsEqual);
 
 export function SidebarWorkspaceList({
   statusGroups,
+  kanbanColumnGroups,
+  kanbanUnboundedGroups,
   pinnedGroups,
   projects,
   workspaceEntriesByKey,
@@ -1941,19 +1987,23 @@ export function SidebarWorkspaceList({
   const supportsMultiplicityByServerId = useHostFeatureMap(serverIds, "workspaceMultiplicity");
   const supportsPinningByServerId = useHostFeatureMap(serverIds, "workspacePinning");
   const onToggleWorkspacePin = useSidebarWorkspacePinController();
-  // Status mode drops the project grouping, so its rows carry their own project
-  // icon. Project mode fetches the same icons inside ProjectModeList for its
+  // Status and Kanban modes both drop the project grouping, so their rows carry their own
+  // project icon. Project mode fetches the same icons inside ProjectModeList for its
   // project headers, so only the active mode requests them.
   const statusProjectIconTargets = useMemo(
-    () => (groupMode === "status" ? resolveSidebarProjectIconTargets(projects) : []),
+    () =>
+      groupMode === "status" || groupMode === "kanban"
+        ? resolveSidebarProjectIconTargets(projects)
+        : [],
     [groupMode, projects],
   );
   const statusProjectIconByProjectViewKey = useProjectIcons({
     projects: statusProjectIconTargets,
   });
 
-  const content =
-    groupMode === "status" ? (
+  let content: ReactElement;
+  if (groupMode === "status") {
+    content = (
       <SidebarStatusModeWrapper
         statusGroups={statusGroups}
         pinnedGroups={pinnedGroups}
@@ -1966,7 +2016,25 @@ export function SidebarWorkspaceList({
         onToggleWorkspacePin={onToggleWorkspacePin}
         listHeaderComponent={listHeaderComponent}
       />
-    ) : (
+    );
+  } else if (groupMode === "kanban") {
+    content = (
+      <SidebarKanbanModeWrapper
+        kanbanColumnGroups={kanbanColumnGroups}
+        kanbanUnboundedGroups={kanbanUnboundedGroups}
+        pinnedGroups={pinnedGroups}
+        workspaceEntriesByKey={workspaceEntriesByKey}
+        projectIconByProjectViewKey={statusProjectIconByProjectViewKey}
+        shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+        onWorkspacePress={onWorkspacePress}
+        hostBadgeByServerId={hostBadgeByServerId}
+        supportsPinningByServerId={supportsPinningByServerId}
+        onToggleWorkspacePin={onToggleWorkspacePin}
+        listHeaderComponent={listHeaderComponent}
+      />
+    );
+  } else {
+    content = (
       <ProjectModeList
         projects={projects}
         pinnedGroups={pinnedGroups}
@@ -1987,6 +2055,7 @@ export function SidebarWorkspaceList({
         onToggleWorkspacePin={onToggleWorkspacePin}
       />
     );
+  }
 
   return content;
 }
@@ -2035,6 +2104,53 @@ function SidebarStatusModeWrapper({
   );
 }
 
+function SidebarKanbanModeWrapper({
+  kanbanColumnGroups,
+  kanbanUnboundedGroups,
+  pinnedGroups,
+  workspaceEntriesByKey,
+  projectIconByProjectViewKey,
+  shortcutIndexByWorkspaceKey: _projectShortcutIndex,
+  onWorkspacePress,
+  hostBadgeByServerId,
+  supportsPinningByServerId,
+  onToggleWorkspacePin,
+  listHeaderComponent,
+}: {
+  kanbanColumnGroups: KanbanColumnGroup[];
+  kanbanUnboundedGroups: StatusGroup[];
+  pinnedGroups: PinnedSidebarGroups;
+  workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
+  projectIconByProjectViewKey: ReadonlyMap<string, string | null>;
+  shortcutIndexByWorkspaceKey: Map<string, number>;
+  onWorkspacePress?: () => void;
+  hostBadgeByServerId: ReadonlyMap<string, HostBadgeModel>;
+  supportsPinningByServerId: ReadonlyMap<string, boolean>;
+  onToggleWorkspacePin: ToggleSidebarWorkspacePin;
+  listHeaderComponent?: ReactElement | null;
+}) {
+  const showShortcutBadges = useShowShortcutBadges();
+
+  return (
+    <SidebarKanbanWorkspaceList
+      columnGroups={kanbanColumnGroups}
+      unboundedGroups={kanbanUnboundedGroups}
+      pinnedWorkspaces={pinnedGroups.pinnedChats.flatMap((workspace) => {
+        const entry = workspaceEntriesByKey.get(workspace.workspaceKey);
+        return entry ? [entry] : [];
+      })}
+      projectIconByProjectViewKey={projectIconByProjectViewKey}
+      shortcutIndexByWorkspaceKey={_projectShortcutIndex}
+      showShortcutBadges={showShortcutBadges}
+      onWorkspacePress={onWorkspacePress}
+      hostBadgeByServerId={hostBadgeByServerId}
+      supportsPinningByServerId={supportsPinningByServerId}
+      onToggleWorkspacePin={onToggleWorkspacePin}
+      listHeaderComponent={listHeaderComponent}
+    />
+  );
+}
+
 function ProjectModeList({
   projects,
   pinnedGroups,
@@ -2053,7 +2169,15 @@ function ProjectModeList({
   supportsMultiplicityByServerId,
   supportsPinningByServerId,
   onToggleWorkspacePin,
-}: Omit<SidebarWorkspaceListProps, "statusGroups" | "groupMode" | "isRefreshing" | "onRefresh"> & {
+}: Omit<
+  SidebarWorkspaceListProps,
+  | "statusGroups"
+  | "kanbanColumnGroups"
+  | "kanbanUnboundedGroups"
+  | "groupMode"
+  | "isRefreshing"
+  | "onRefresh"
+> & {
   pathname: string;
   hostBadgeByServerId: ReadonlyMap<string, HostBadgeModel>;
   supportsMultiplicityByServerId: ReadonlyMap<string, boolean>;

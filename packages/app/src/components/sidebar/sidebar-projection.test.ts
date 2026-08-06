@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { KanbanColumnRef } from "@/hooks/sidebar-kanban-view-model";
 import type {
   SidebarProjectEntry,
   SidebarWorkspaceEntry,
@@ -55,8 +56,9 @@ function makeProject(workspaces: SidebarWorkspacePlacement[]): SidebarProjectEnt
 }
 
 function projectionInput(options?: {
-  groupMode?: "project" | "status";
+  groupMode?: "project" | "status" | "kanban";
   pinnedCollapsed?: boolean;
+  kanbanColumnRefByWorkspaceKey?: Map<string, KanbanColumnRef>;
 }) {
   const pinned = makeWorkspace("pinned", "running");
   const unpinned = makeWorkspace("unpinned", "needs_input");
@@ -75,6 +77,7 @@ function projectionInput(options?: {
     pinnedCollapsed: options?.pinnedCollapsed ?? false,
     collapsedProjectKeys: new Set<string>(),
     collapsedStatusGroupKeys: new Set<string>(),
+    kanbanColumnRefByWorkspaceKey: options?.kanbanColumnRefByWorkspaceKey,
   };
 }
 
@@ -114,5 +117,39 @@ describe("buildSidebarProjection", () => {
     expect(projection.shortcutModel.shortcutTargets).toEqual([
       { serverId: "srv", workspaceId: "unpinned" },
     ]);
+  });
+
+  it("groups kanban-tracked workspaces by column and the rest into Unbounded", () => {
+    const kanbanColumnRefByWorkspaceKey = new Map<string, KanbanColumnRef>([
+      [
+        "srv:unpinned",
+        {
+          serverId: "srv",
+          kanbanId: "kanban-1",
+          kanbanName: "Kanban",
+          columnId: "backlog",
+          columnName: "Backlog",
+          columnOrder: 0,
+          planId: "plan-1",
+          planTitle: "Plan",
+        },
+      ],
+    ]);
+    const projection = buildSidebarProjection(
+      projectionInput({ groupMode: "kanban", kanbanColumnRefByWorkspaceKey }),
+    );
+
+    expect(projection.kanbanColumnGroups.map((group) => group.columnName)).toEqual(["Backlog"]);
+    expect(projection.kanbanColumnGroups[0]?.rows.map((entry) => entry.workspaceId)).toEqual([
+      "unpinned",
+    ]);
+    expect(projection.kanbanUnboundedGroups).toEqual([]);
+  });
+
+  it("puts every unpinned workspace in Unbounded when the kanban index is empty", () => {
+    const projection = buildSidebarProjection(projectionInput({ groupMode: "kanban" }));
+
+    expect(projection.kanbanColumnGroups).toEqual([]);
+    expect(projection.kanbanUnboundedGroups.map((group) => group.bucket)).toEqual(["needs_input"]);
   });
 });

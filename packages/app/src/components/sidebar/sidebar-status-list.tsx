@@ -32,6 +32,7 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useClearWorkspaceAttention } from "@/hooks/use-clear-workspace-attention";
+import { useSidebarAddToKanbanAction } from "@/hooks/use-add-to-kanban";
 import {
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
@@ -96,6 +97,11 @@ interface StatusWorkspaceListProps {
   supportsPinningByServerId: ReadonlyMap<string, boolean>;
   onToggleWorkspacePin: ToggleSidebarWorkspacePin;
   listHeaderComponent?: ReactNode;
+  /**
+   * The Kanban grouping mode's trailing Unbounded section embeds this list inside its own
+   * outer scroll container, so it renders its groups bare instead of nesting a second one.
+   */
+  disableOwnScroll?: boolean;
 }
 
 export function SidebarStatusWorkspaceList({
@@ -109,6 +115,7 @@ export function SidebarStatusWorkspaceList({
   supportsPinningByServerId,
   onToggleWorkspacePin,
   listHeaderComponent,
+  disableOwnScroll = false,
 }: StatusWorkspaceListProps) {
   const collapsedStatusGroupKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedStatusGroupKeys,
@@ -174,6 +181,10 @@ export function SidebarStatusWorkspaceList({
       />
     </>
   );
+
+  if (disableOwnScroll) {
+    return <View style={styles.listContent}>{content}</View>;
+  }
 
   return (
     <View style={styles.container}>
@@ -411,7 +422,7 @@ function StatusGroupIcon({ bucket }: { bucket: StatusGroup["bucket"] }) {
   }
 }
 
-const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
+export const StatusWorkspaceRow = memo(function StatusWorkspaceRow({
   workspace,
   hostBadge,
   projectName,
@@ -572,6 +583,12 @@ function StatusWorkspaceRowWithMenu({
     onToggleWorkspacePin(workspace);
   }, [onToggleWorkspacePin, workspace]);
   const onTogglePin = canPin ? handleTogglePin : undefined;
+  const handleAddToKanban = useSidebarAddToKanbanAction({
+    serverId: workspace.serverId,
+    projectId: workspace.projectId,
+    workspaceId: workspace.workspaceId,
+    title: workspace.title ?? workspace.name,
+  });
 
   const archiveShortcutKeys = useShortcutKeys("archive-workspace");
   const { hasClearableAttention, clearAttention } = useClearWorkspaceAttention({
@@ -615,6 +632,7 @@ function StatusWorkspaceRowWithMenu({
         onCopyPath={handleCopyPath}
         onRename={handleOpenRename}
         onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+        onAddToKanban={handleAddToKanban}
         archiveShortcutKeys={selected ? archiveShortcutKeys : null}
         isPinned={isPinned}
         onTogglePin={onTogglePin}
@@ -653,6 +671,7 @@ function StatusWorkspaceRowInner({
   onCopyPath,
   onRename,
   onMarkAsRead,
+  onAddToKanban,
   archiveShortcutKeys,
   isPinned,
   onTogglePin,
@@ -676,6 +695,7 @@ function StatusWorkspaceRowInner({
   onCopyPath?: () => void;
   onRename?: () => void;
   onMarkAsRead?: () => void;
+  onAddToKanban?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   isPinned?: boolean;
   onTogglePin?: () => void;
@@ -735,6 +755,7 @@ function StatusWorkspaceRowInner({
               onCopyBranchName={onCopyBranchName}
               onRename={onRename}
               onMarkAsRead={onMarkAsRead}
+              onAddToKanban={onAddToKanban}
               onArchive={onArchive}
               archiveLabel={archiveLabel}
               archiveStatus={archiveStatus}
@@ -780,6 +801,7 @@ function StatusWorkspaceRowInner({
                     onCopyBranchName={onCopyBranchName}
                     onRename={onRename}
                     onMarkAsRead={onMarkAsRead}
+                    onAddToKanban={onAddToKanban}
                     onArchive={onArchive}
                     archiveLabel={archiveLabel}
                     archiveStatus={archiveStatus}
@@ -809,6 +831,7 @@ function StatusWorkspaceActionSlot({
   onCopyBranchName,
   onRename,
   onMarkAsRead,
+  onAddToKanban,
   onArchive,
   archiveLabel,
   archiveStatus,
@@ -827,6 +850,7 @@ function StatusWorkspaceActionSlot({
   onCopyBranchName?: () => void;
   onRename?: () => void;
   onMarkAsRead?: () => void;
+  onAddToKanban?: () => void;
   onArchive?: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
@@ -848,6 +872,7 @@ function StatusWorkspaceActionSlot({
             onCopyBranchName={onCopyBranchName}
             onRename={onRename}
             onMarkAsRead={onMarkAsRead}
+            onAddToKanban={onAddToKanban}
             onArchive={onArchive}
             archiveLabel={archiveLabel}
             archiveStatus={archiveStatus}

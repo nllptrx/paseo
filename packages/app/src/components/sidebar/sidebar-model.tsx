@@ -5,8 +5,10 @@ import {
   type SidebarWorkspacesListResult,
 } from "@/hooks/use-sidebar-workspaces-list";
 import { useSidebarWorkspaceEntries } from "@/hooks/use-sidebar-workspace-entries";
+import type { KanbanColumnGroup } from "@/hooks/sidebar-kanban-view-model";
 import type { StatusGroup } from "@/hooks/sidebar-status-view-model";
 import { usePinnedSidebarKeys, type PinnedSidebarGroups } from "@/hooks/use-sidebar-pins";
+import { useSidebarKanbanIndex } from "@/hooks/use-sidebar-kanban-index";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
 import { useSidebarViewStore, type SidebarGroupMode } from "@/stores/sidebar-view-store";
 import type { SidebarShortcutModel } from "@/utils/sidebar-shortcuts";
@@ -16,6 +18,8 @@ interface SidebarModel extends SidebarWorkspacesListResult {
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
   groupMode: SidebarGroupMode;
   statusGroups: StatusGroup[];
+  kanbanColumnGroups: KanbanColumnGroup[];
+  kanbanUnboundedGroups: StatusGroup[];
   pinnedGroups: PinnedSidebarGroups;
   collapsedProjectKeys: ReadonlySet<string>;
   toggleProjectCollapsed: (projectViewKey: string) => void;
@@ -45,14 +49,15 @@ export function SidebarModelProvider({
     (state) => state.toggleProjectCollapsed,
   );
   const isStatusMode = groupMode === "status";
+  const isKanbanMode = groupMode === "kanban";
   const workspaceEntriesByKey = useSidebarWorkspaceEntries(
     list.workspacePlacements,
-    active !== false || isStatusMode,
+    active !== false || isStatusMode || isKanbanMode,
   );
-  const projectionWorkspaceEntriesByKey = isStatusMode
-    ? workspaceEntriesByKey
-    : EMPTY_WORKSPACE_ENTRIES;
+  const projectionWorkspaceEntriesByKey =
+    isStatusMode || isKanbanMode ? workspaceEntriesByKey : EMPTY_WORKSPACE_ENTRIES;
   const pinnedKeys = usePinnedSidebarKeys(list.projects);
+  const { columnRefByWorkspaceKey } = useSidebarKanbanIndex({ enabled: isKanbanMode });
   const projection = useMemo(
     () =>
       buildSidebarProjection({
@@ -64,10 +69,12 @@ export function SidebarModelProvider({
         pinnedCollapsed,
         collapsedProjectKeys,
         collapsedStatusGroupKeys,
+        kanbanColumnRefByWorkspaceKey: columnRefByWorkspaceKey,
       }),
     [
       collapsedProjectKeys,
       collapsedStatusGroupKeys,
+      columnRefByWorkspaceKey,
       groupMode,
       list.projectNamesByViewKey,
       list.projects,
@@ -82,6 +89,8 @@ export function SidebarModelProvider({
       workspaceEntriesByKey,
       groupMode,
       statusGroups: projection.statusGroups,
+      kanbanColumnGroups: projection.kanbanColumnGroups,
+      kanbanUnboundedGroups: projection.kanbanUnboundedGroups,
       pinnedGroups: projection.pinnedGroups,
       collapsedProjectKeys,
       toggleProjectCollapsed,

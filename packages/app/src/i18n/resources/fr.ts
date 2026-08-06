@@ -1023,6 +1023,7 @@ export const fr: TranslationResources = {
         label: "Regroupement",
         project: "Projet",
         status: "Statut",
+        kanban: "Kanban",
       },
       titleSource: {
         label: "Titre",
@@ -1050,6 +1051,15 @@ export const fr: TranslationResources = {
     },
     pinned: {
       title: "Épinglés",
+    },
+    kanban: {
+      unbounded: "Unbounded",
+      addToKanban: {
+        success: "Added to Kanban",
+        createFailed: "Couldn't create the kanban",
+        noColumns: "Kanban has no columns to add the plan to",
+        noProvider: "No available agent provider on this host",
+      },
     },
     host: {
       noHost: "Aucun hôte",
@@ -1094,6 +1104,7 @@ export const fr: TranslationResources = {
         openNewWindowFailed: "Couldn't open a new window",
         openFolder: "Open in file manager",
         openFolderFailed: "Couldn't open folder",
+        addToKanban: "Add to Kanban",
         remove: "Supprimer le projet",
         removing: "Suppression...",
       },
@@ -1129,6 +1140,7 @@ export const fr: TranslationResources = {
         copyPath: "Copier le chemin",
         copyBranchName: "Copier le nom de la branche",
         rename: "Renommer l'espace de travail",
+        addToKanban: "Add to Kanban",
         pin: "Épingler en haut",
         unpin: "Désépingler",
         archive: "Archive",

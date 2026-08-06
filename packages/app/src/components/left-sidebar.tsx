@@ -52,6 +52,7 @@ import { useSidebarModel } from "@/components/sidebar/sidebar-model";
 import type { PinnedSidebarGroups } from "@/hooks/use-sidebar-pins";
 import { RetainedPanelActivity } from "@/components/retained-panel";
 import type { StatusGroup } from "@/hooks/sidebar-status-view-model";
+import type { KanbanColumnGroup } from "@/hooks/sidebar-kanban-view-model";
 import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useHosts } from "@/runtime/host-runtime";
@@ -82,6 +83,8 @@ type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
 interface SidebarSharedProps {
   theme: SidebarTheme;
   statusGroups: StatusGroup[];
+  kanbanColumnGroups: KanbanColumnGroup[];
+  kanbanUnboundedGroups: StatusGroup[];
   pinnedGroups: PinnedSidebarGroups;
   projects: SidebarProjectEntry[];
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
@@ -148,6 +151,8 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
     isRevalidating,
     refreshAll,
     statusGroups,
+    kanbanColumnGroups,
+    kanbanUnboundedGroups,
     pinnedGroups,
     collapsedProjectKeys,
     toggleProjectCollapsed,
@@ -259,6 +264,8 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
   const sharedProps = {
     theme,
     statusGroups,
+    kanbanColumnGroups,
+    kanbanUnboundedGroups,
     pinnedGroups,
     projects,
     workspaceEntriesByKey,
@@ -615,6 +622,8 @@ function SidebarFooter({
 function MobileSidebar({
   theme,
   statusGroups,
+  kanbanColumnGroups,
+  kanbanUnboundedGroups,
   pinnedGroups,
   projects,
   workspaceEntriesByKey,
@@ -749,6 +758,8 @@ function MobileSidebar({
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
             groupMode={groupMode}
             statusGroups={statusGroups}
+            kanbanColumnGroups={kanbanColumnGroups}
+            kanbanUnboundedGroups={kanbanUnboundedGroups}
             pinnedGroups={pinnedGroups}
             projects={projects}
             workspaceEntriesByKey={workspaceEntriesByKey}
@@ -779,6 +790,8 @@ function MobileSidebar({
 function DesktopSidebar({
   theme,
   statusGroups,
+  kanbanColumnGroups,
+  kanbanUnboundedGroups,
   pinnedGroups,
   projects,
   workspaceEntriesByKey,
@@ -949,6 +962,8 @@ function DesktopSidebar({
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
             groupMode={groupMode}
             statusGroups={statusGroups}
+            kanbanColumnGroups={kanbanColumnGroups}
+            kanbanUnboundedGroups={kanbanUnboundedGroups}
             pinnedGroups={pinnedGroups}
             projects={projects}
             workspaceEntriesByKey={workspaceEntriesByKey}

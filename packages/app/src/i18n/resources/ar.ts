@@ -992,6 +992,7 @@ export const ar: TranslationResources = {
         label: "التجميع",
         project: "المشروع",
         status: "الحالة",
+        kanban: "Kanban",
       },
       titleSource: {
         label: "العنوان",
@@ -1019,6 +1020,15 @@ export const ar: TranslationResources = {
     },
     pinned: {
       title: "المثبتة",
+    },
+    kanban: {
+      unbounded: "Unbounded",
+      addToKanban: {
+        success: "Added to Kanban",
+        createFailed: "Couldn't create the kanban",
+        noColumns: "Kanban has no columns to add the plan to",
+        noProvider: "No available agent provider on this host",
+      },
     },
     host: {
       noHost: "لا مضيف",
@@ -1063,6 +1073,7 @@ export const ar: TranslationResources = {
         openNewWindowFailed: "Couldn't open a new window",
         openFolder: "Open in file manager",
         openFolderFailed: "Couldn't open folder",
+        addToKanban: "Add to Kanban",
         remove: "إزالة المشروع",
         removing: "جارٍ الإزالة...",
       },
@@ -1098,6 +1109,7 @@ export const ar: TranslationResources = {
         copyPath: "نسخ المسار",
         copyBranchName: "انسخ اسم الفرع",
         rename: "إعادة تسمية مساحة العمل",
+        addToKanban: "Add to Kanban",
         pin: "تثبيت في الأعلى",
         unpin: "إلغاء التثبيت",
         archive: "أرشيف",

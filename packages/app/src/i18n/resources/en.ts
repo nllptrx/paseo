@@ -1003,6 +1003,7 @@ export const en = {
         label: "Grouping",
         project: "Project",
         status: "Status",
+        kanban: "Kanban",
       },
       titleSource: {
         label: "Title",
@@ -1030,6 +1031,15 @@ export const en = {
     },
     pinned: {
       title: "Pinned",
+    },
+    kanban: {
+      unbounded: "Unbounded",
+      addToKanban: {
+        success: "Added to Kanban",
+        createFailed: "Couldn't create the kanban",
+        noColumns: "Kanban has no columns to add the plan to",
+        noProvider: "No available agent provider on this host",
+      },
     },
     host: {
       noHost: "No host",
@@ -1074,6 +1084,7 @@ export const en = {
         openNewWindowFailed: "Couldn't open a new window",
         openFolder: "Open in file manager",
         openFolderFailed: "Couldn't open folder",
+        addToKanban: "Add to Kanban",
         remove: "Remove project",
         removing: "Removing...",
       },
@@ -1109,6 +1120,7 @@ export const en = {
         copyPath: "Copy path",
         copyBranchName: "Copy branch name",
         rename: "Rename workspace",
+        addToKanban: "Add to Kanban",
         pin: "Pin to top",
         unpin: "Unpin",
         archive: "Archive",
