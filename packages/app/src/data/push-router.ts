@@ -4,6 +4,7 @@ import type {
   MutableDaemonConfig,
   SessionOutboundMessage,
 } from "@getpaseo/protocol/messages";
+import type { KanbanSummary, StoredKanban } from "@getpaseo/protocol/kanban/types";
 import { agentCommandsQueryRoot } from "@/hooks/agent-commands-query";
 import { orderCheckoutDiffFiles } from "@/git/diff-order";
 import { daemonConfigQueryKey } from "@/data/daemon-config";
@@ -14,6 +15,13 @@ import {
   providersSnapshotQueryKey,
   providersSnapshotQueryRoot,
 } from "@/data/providers-snapshot";
+import {
+  kanbanQueryKey,
+  kanbansQueryBaseKey,
+  updateAggregatedKanbansData,
+  type AggregatedKanban,
+  type FetchAggregatedKanbansState,
+} from "@/kanban/aggregated-kanbans";
 
 type ProvidersSnapshotUpdateMessage = Extract<
   SessionOutboundMessage,
@@ -26,12 +34,14 @@ type SubscribeCheckoutDiffResponseMessage = Extract<
 >;
 type StatusMessage = Extract<SessionOutboundMessage, { type: "status" }>;
 type TerminalsChangedMessage = Extract<SessionOutboundMessage, { type: "terminals_changed" }>;
+type KanbanUpdateMessage = Extract<SessionOutboundMessage, { type: "kanban.update" }>;
 type ServerDataEventType =
   | "providers_snapshot_update"
   | "checkout_diff_update"
   | "subscribe_checkout_diff_response"
   | "status"
-  | "terminals_changed";
+  | "terminals_changed"
+  | "kanban.update";
 type CheckoutDiffResponsePayload = SubscribeCheckoutDiffResponseMessage["payload"];
 type CheckoutDiffCachePayload = Omit<CheckoutDiffResponsePayload, "subscriptionId">;
 type ListTerminalsPayload = ListTerminalsResponse["payload"];
@@ -59,7 +69,13 @@ interface WorkspaceTerminalsRoute {
   workspaceId?: string;
 }
 
-type ServerDataRoute = CheckoutDiffRoute | WorkspaceTerminalsRoute;
+interface KanbanRoute {
+  domain: "kanban";
+  enabled: boolean;
+  serverIds: readonly string[];
+}
+
+type ServerDataRoute = CheckoutDiffRoute | WorkspaceTerminalsRoute | KanbanRoute;
 
 export interface ServerDataQueryMeta extends Record<string, unknown> {
   serverData: ServerDataRoute;
@@ -80,6 +96,8 @@ interface ServerDataPushClient {
   unsubscribeCheckoutDiff(subscriptionId: string): void;
   subscribeTerminals(input: { cwd: string; workspaceId?: string }): void;
   unsubscribeTerminals(input: { cwd: string; workspaceId?: string }): void;
+  kanbanSubscribe(requestId?: string): Promise<{ error: string | null }>;
+  kanbanUnsubscribe(requestId?: string): Promise<{ error: string | null }>;
 }
 
 interface PushRouterInput {
@@ -91,6 +109,7 @@ interface PushRouterInput {
 interface ActiveServerDataSubscriptions {
   checkoutDiff: Map<string, CheckoutDiffRoute>;
   workspaceTerminals: Map<string, WorkspaceTerminalsRoute>;
+  kanban: Map<string, KanbanRoute>;
 }
 
 interface ReconnectRepairPolicy {
@@ -133,8 +152,18 @@ const RECONNECT_REPAIR_POLICIES: ReconnectRepairPolicy[] = [
       });
     },
   },
+  {
+    domain: "kanban",
+    invalidate: ({ queryClient, serverId }) => {
+      void queryClient.invalidateQueries({ queryKey: kanbansQueryBaseKey });
+      void queryClient.invalidateQueries({
+        predicate: (query) => isQueryForServer(query.queryKey, "kanban", serverId),
+      });
+    },
+  },
 ];
 const reconnectSubscriptionRepairsByServerId = new Map<string, Set<() => void>>();
+const EMPTY_KANBAN_SUBSCRIPTIONS: Map<string, KanbanRoute> = new Map();
 
 export function checkoutDiffPushRoute(input: {
   enabled: boolean;
@@ -168,6 +197,19 @@ export function workspaceTerminalsPushRoute(input: {
       serverId: input.serverId,
       cwd: input.cwd,
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+    },
+  };
+}
+
+export function kanbanPushRoute(input: {
+  enabled: boolean;
+  serverIds: readonly string[];
+}): ServerDataQueryMeta {
+  return {
+    serverData: {
+      domain: "kanban",
+      enabled: input.enabled,
+      serverIds: [...input.serverIds],
     },
   };
 }
@@ -219,12 +261,14 @@ export function applyProvidersSnapshotUpdate(input: {
 export function mountServerDataPushRouter(input: PushRouterInput): () => void {
   const activeCheckoutDiffSubscriptions = new Map<string, CheckoutDiffRoute>();
   const activeTerminalSubscriptions = new Map<string, WorkspaceTerminalsRoute>();
+  const activeKanbanSubscriptions = new Map<string, KanbanRoute>();
   let disposed = false;
 
   function reconcileSubscriptions(
     fallbackActive: ActiveServerDataSubscriptions = {
       checkoutDiff: activeCheckoutDiffSubscriptions,
       workspaceTerminals: activeTerminalSubscriptions,
+      kanban: activeKanbanSubscriptions,
     },
   ): void {
     if (disposed) {
@@ -233,16 +277,22 @@ export function mountServerDataPushRouter(input: PushRouterInput): () => void {
 
     const desiredCheckoutDiffSubscriptions = new Map<string, CheckoutDiffRoute>();
     const desiredTerminalSubscriptions = new Map<string, WorkspaceTerminalsRoute>();
+    const desiredKanbanSubscriptions = new Map<string, KanbanRoute>();
     for (const query of input.queryClient.getQueryCache().getAll()) {
       const route = getActiveServerDataRoute(query, input.serverId, {
         checkoutDiff: fallbackActive.checkoutDiff,
         workspaceTerminals: fallbackActive.workspaceTerminals,
+        kanban: fallbackActive.kanban,
       });
       if (!route) {
         continue;
       }
       if (route.domain === "checkoutDiff") {
         desiredCheckoutDiffSubscriptions.set(route.subscriptionId, route);
+        continue;
+      }
+      if (route.domain === "kanban") {
+        desiredKanbanSubscriptions.set("kanban", route);
         continue;
       }
       desiredTerminalSubscriptions.set(workspaceTerminalSubscriptionKey(route), route);
@@ -259,15 +309,23 @@ export function mountServerDataPushRouter(input: PushRouterInput): () => void {
       client: input.client,
       desired: desiredTerminalSubscriptions,
     });
+    reconcileKanbanSubscriptions({
+      active: activeKanbanSubscriptions,
+      client: input.client,
+      desired: desiredKanbanSubscriptions,
+      serverId: input.serverId,
+    });
   }
 
   function resetSubscriptionsAfterReconnect(): void {
     const fallbackActive = {
       checkoutDiff: new Map(activeCheckoutDiffSubscriptions),
       workspaceTerminals: new Map(activeTerminalSubscriptions),
+      kanban: new Map(activeKanbanSubscriptions),
     };
     activeCheckoutDiffSubscriptions.clear();
     activeTerminalSubscriptions.clear();
+    activeKanbanSubscriptions.clear();
     reconcileSubscriptions(fallbackActive);
   }
 
@@ -276,6 +334,7 @@ export function mountServerDataPushRouter(input: PushRouterInput): () => void {
       !shouldReconcileSubscriptionsForCacheEvent(event, input.serverId, {
         checkoutDiff: activeCheckoutDiffSubscriptions,
         workspaceTerminals: activeTerminalSubscriptions,
+        kanban: activeKanbanSubscriptions,
       })
     ) {
       return;
@@ -320,6 +379,13 @@ export function mountServerDataPushRouter(input: PushRouterInput): () => void {
       message,
     });
   });
+  const unsubscribeKanbanUpdate = input.client.on("kanban.update", (message) => {
+    applyKanbanUpdate({
+      queryClient: input.queryClient,
+      serverId: input.serverId,
+      message,
+    });
+  });
   let reconnectSubscriptionRepairs = reconnectSubscriptionRepairsByServerId.get(input.serverId);
   if (!reconnectSubscriptionRepairs) {
     reconnectSubscriptionRepairs = new Set();
@@ -341,6 +407,7 @@ export function mountServerDataPushRouter(input: PushRouterInput): () => void {
     unsubscribeCheckoutDiffUpdate();
     unsubscribeCheckoutDiffResponse();
     unsubscribeTerminalsChanged();
+    unsubscribeKanbanUpdate();
     for (const subscriptionId of activeCheckoutDiffSubscriptions.keys()) {
       unsubscribeCheckoutDiff(input.client, subscriptionId);
     }
@@ -349,6 +416,10 @@ export function mountServerDataPushRouter(input: PushRouterInput): () => void {
       input.client.unsubscribeTerminals(workspaceTerminalSubscriptionInput(route));
     }
     activeTerminalSubscriptions.clear();
+    if (activeKanbanSubscriptions.has("kanban")) {
+      unsubscribeKanban(input.client, input.serverId);
+    }
+    activeKanbanSubscriptions.clear();
   };
 }
 
@@ -410,6 +481,31 @@ function reconcileTerminalSubscriptions(input: {
     }
     input.active.set(key, desired);
     input.client.subscribeTerminals(workspaceTerminalSubscriptionInput(desired));
+  }
+}
+
+function reconcileKanbanSubscriptions(input: {
+  active: Map<string, KanbanRoute>;
+  client: ServerDataPushClient;
+  desired: Map<string, KanbanRoute>;
+  serverId: string;
+}): void {
+  const current = input.active.get("kanban");
+  const desired = input.desired.get("kanban");
+
+  if (current && !desired) {
+    unsubscribeKanban(input.client, input.serverId);
+    input.active.delete("kanban");
+  }
+
+  if (desired && !input.active.has("kanban")) {
+    input.active.set("kanban", desired);
+    void input.client.kanbanSubscribe(`push-router:${input.serverId}:kanban`).catch((error) => {
+      if (input.active.get("kanban") === desired) {
+        input.active.delete("kanban");
+      }
+      console.error("[server-data] kanbanSubscribe failed", { serverId: input.serverId, error });
+    });
   }
 }
 
@@ -515,6 +611,7 @@ function applyTerminalsChanged(input: {
     const route = getActiveServerDataRoute(query, input.serverId, {
       checkoutDiff: input.activeCheckoutDiffSubscriptions,
       workspaceTerminals: input.activeTerminalSubscriptions,
+      kanban: EMPTY_KANBAN_SUBSCRIPTIONS,
     });
     if (
       !route ||
@@ -536,6 +633,70 @@ function applyTerminalsChanged(input: {
   }
 }
 
+function applyKanbanUpdate(input: {
+  queryClient: QueryClient;
+  serverId: string;
+  message: KanbanUpdateMessage;
+}): void {
+  const payload = input.message.payload;
+
+  for (const query of input.queryClient.getQueryCache().getAll()) {
+    const route = getServerDataRoute(query);
+    if (
+      !route ||
+      route.domain !== "kanban" ||
+      !route.enabled ||
+      !route.serverIds.includes(input.serverId)
+    ) {
+      continue;
+    }
+    input.queryClient.setQueryData<FetchAggregatedKanbansState>(query.queryKey, (current) =>
+      updateAggregatedKanbansData(current, (kanbans) =>
+        applyKanbanUpdateToList(kanbans, input.serverId, payload),
+      ),
+    );
+  }
+
+  const kanbanId = payload.kind === "upsert" ? payload.kanban.id : payload.kanbanId;
+  const detailKey = kanbanQueryKey(input.serverId, kanbanId);
+  if (input.queryClient.getQueryCache().find({ queryKey: detailKey })) {
+    input.queryClient.setQueryData<StoredKanban | null>(
+      detailKey,
+      payload.kind === "upsert" ? payload.kanban : null,
+    );
+  }
+}
+
+function applyKanbanUpdateToList(
+  kanbans: AggregatedKanban[],
+  serverId: string,
+  payload: KanbanUpdateMessage["payload"],
+): AggregatedKanban[] {
+  if (payload.kind === "remove") {
+    return kanbans.filter(
+      (kanban) => !(kanban.serverId === serverId && kanban.id === payload.kanbanId),
+    );
+  }
+
+  const summary = toKanbanSummary(payload.kanban);
+  const serverName = kanbans.find((kanban) => kanban.serverId === serverId)?.serverName ?? serverId;
+  const next: AggregatedKanban = { ...summary, serverId, serverName };
+  const index = kanbans.findIndex(
+    (kanban) => kanban.serverId === serverId && kanban.id === summary.id,
+  );
+  if (index === -1) {
+    return [...kanbans, next];
+  }
+  const updated = [...kanbans];
+  updated[index] = next;
+  return updated;
+}
+
+function toKanbanSummary(kanban: StoredKanban): KanbanSummary {
+  const { plans: _plans, ...summary } = kanban;
+  return summary;
+}
+
 function getActiveServerDataRoute(
   query: Query,
   serverId: string,
@@ -546,6 +707,9 @@ function getActiveServerDataRoute(
   }
   const route = getServerDataRoute(query);
   if (route) {
+    if (route.domain === "kanban") {
+      return route.enabled && route.serverIds.includes(serverId) ? route : null;
+    }
     return route.enabled && route.serverId === serverId ? route : null;
   }
   return getActiveRouteForQueryKey({
@@ -618,6 +782,9 @@ function shouldReconcileSubscriptionsForCacheEvent(
     return false;
   }
   const route = getServerDataRoute(event.query);
+  if (route?.domain === "kanban") {
+    return route.enabled && route.serverIds.includes(serverId);
+  }
   if (route?.serverId === serverId) {
     return true;
   }
@@ -651,9 +818,21 @@ function getServerDataRoute(query: Query): ServerDataRoute | null {
 function readServerDataRoute(value: Record<string, unknown>): ServerDataRoute | null {
   const domain = value.domain;
   const enabled = value.enabled;
+  if (typeof enabled !== "boolean") {
+    return null;
+  }
+
+  if (domain === "kanban") {
+    const serverIds = value.serverIds;
+    if (!Array.isArray(serverIds) || !serverIds.every((id) => typeof id === "string")) {
+      return null;
+    }
+    return { domain, enabled, serverIds };
+  }
+
   const serverId = value.serverId;
   const cwd = value.cwd;
-  if (typeof enabled !== "boolean" || typeof serverId !== "string" || typeof cwd !== "string") {
+  if (typeof serverId !== "string" || typeof cwd !== "string") {
     return null;
   }
 
@@ -769,6 +948,12 @@ function unsubscribeCheckoutDiff(client: ServerDataPushClient, subscriptionId: s
   } catch {
     // Disconnect cleanup can race with explicit subscription teardown.
   }
+}
+
+function unsubscribeKanban(client: ServerDataPushClient, serverId: string): void {
+  void client.kanbanUnsubscribe(`push-router:${serverId}:kanban:unsubscribe`).catch((error) => {
+    console.error("[server-data] kanbanUnsubscribe failed", { serverId, error });
+  });
 }
 
 function isQueryForServer(queryKey: QueryKey, kind: string, serverId: string): boolean {

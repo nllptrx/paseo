@@ -1,14 +1,17 @@
 import { QueryClient, QueryObserver, skipToken } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import type { MutableDaemonConfig, SessionOutboundMessage } from "@getpaseo/protocol/messages";
+import type { StoredKanban } from "@getpaseo/protocol/kanban/types";
 import { checkoutDiffQueryKey } from "@/git/query-keys";
 import { buildTerminalsQueryKey } from "@/screens/workspace/terminals/state";
 import { daemonConfigQueryKey } from "@/data/daemon-config";
 import { daemonPairingOfferQueryKey } from "@/data/daemon-pairing";
 import { providersSnapshotQueryKey } from "@/data/providers-snapshot";
+import { kanbanQueryKey, kanbansQueryBaseKey } from "@/kanban/aggregated-kanbans";
 import {
   checkoutDiffPushRoute,
   invalidateServerDataQueriesAfterReconnect,
+  kanbanPushRoute,
   mountServerDataPushRouter,
   workspaceTerminalsPushRoute,
 } from "@/data/push-router";
@@ -24,12 +27,14 @@ type SubscribeCheckoutDiffResponseMessage = Extract<
 >;
 type StatusMessage = Extract<SessionOutboundMessage, { type: "status" }>;
 type TerminalsChangedMessage = Extract<SessionOutboundMessage, { type: "terminals_changed" }>;
+type KanbanUpdateMessage = Extract<SessionOutboundMessage, { type: "kanban.update" }>;
 type RouterMessage =
   | ProvidersSnapshotUpdateMessage
   | CheckoutDiffUpdateMessage
   | SubscribeCheckoutDiffResponseMessage
   | StatusMessage
-  | TerminalsChangedMessage;
+  | TerminalsChangedMessage
+  | KanbanUpdateMessage;
 type RouterMessageType = RouterMessage["type"];
 type RouterHandler = (message: RouterMessage) => void;
 type RouterClient = Parameters<typeof mountServerDataPushRouter>[0]["client"];
@@ -45,7 +50,9 @@ const daemonConfig: MutableDaemonConfig = {
   appendSystemPrompt: "",
 };
 
-function createFakeClient(config: { rejectCheckoutDiffSubscribe?: boolean } = {}): {
+function createFakeClient(
+  config: { rejectCheckoutDiffSubscribe?: boolean; rejectKanbanSubscribe?: boolean } = {},
+): {
   client: RouterClient;
   emit: <K extends RouterMessageType>(message: Extract<RouterMessage, { type: K }>) => void;
   subscribeCheckoutDiffCalls: Array<{
@@ -56,6 +63,8 @@ function createFakeClient(config: { rejectCheckoutDiffSubscribe?: boolean } = {}
   unsubscribeCheckoutDiffCalls: string[];
   subscribeTerminalCalls: Array<{ cwd: string; workspaceId?: string }>;
   unsubscribeTerminalCalls: Array<{ cwd: string; workspaceId?: string }>;
+  kanbanSubscribeCalls: number;
+  kanbanUnsubscribeCalls: number;
 } {
   const handlers: Record<RouterMessageType, RouterHandler[]> = {
     providers_snapshot_update: [],
@@ -63,6 +72,7 @@ function createFakeClient(config: { rejectCheckoutDiffSubscribe?: boolean } = {}
     subscribe_checkout_diff_response: [],
     status: [],
     terminals_changed: [],
+    "kanban.update": [],
   };
   const subscribeCheckoutDiffCalls: Array<{
     cwd: string;
@@ -72,6 +82,8 @@ function createFakeClient(config: { rejectCheckoutDiffSubscribe?: boolean } = {}
   const unsubscribeCheckoutDiffCalls: string[] = [];
   const subscribeTerminalCalls: Array<{ cwd: string; workspaceId?: string }> = [];
   const unsubscribeTerminalCalls: Array<{ cwd: string; workspaceId?: string }> = [];
+  let kanbanSubscribeCalls = 0;
+  let kanbanUnsubscribeCalls = 0;
 
   function on<K extends RouterMessageType>(
     type: K,
@@ -123,13 +135,46 @@ function createFakeClient(config: { rejectCheckoutDiffSubscribe?: boolean } = {}
       unsubscribeTerminals(subscription) {
         unsubscribeTerminalCalls.push(subscription);
       },
+      async kanbanSubscribe(requestId) {
+        kanbanSubscribeCalls += 1;
+        if (config.rejectKanbanSubscribe) {
+          throw new Error("subscribe failed");
+        }
+        return { error: null, requestId: requestId ?? "kanban-subscribe" };
+      },
+      async kanbanUnsubscribe(requestId) {
+        kanbanUnsubscribeCalls += 1;
+        return { error: null, requestId: requestId ?? "kanban-unsubscribe" };
+      },
     },
     emit,
     subscribeCheckoutDiffCalls,
     unsubscribeCheckoutDiffCalls,
     subscribeTerminalCalls,
     unsubscribeTerminalCalls,
+    get kanbanSubscribeCalls() {
+      return kanbanSubscribeCalls;
+    },
+    get kanbanUnsubscribeCalls() {
+      return kanbanUnsubscribeCalls;
+    },
   };
+}
+
+function kanban(overrides: Partial<StoredKanban> = {}): StoredKanban {
+  const base: StoredKanban = {
+    id: "kanban-1",
+    projectId: "project-1",
+    name: "Board",
+    autoAdvance: false,
+    orchestrator: null,
+    columns: [],
+    plans: {},
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+  };
+  return { ...base, ...overrides };
 }
 
 function providerUpdate(generatedAt: string): ProvidersSnapshotUpdateMessage {
@@ -501,6 +546,74 @@ describe("server data push router", () => {
     unmount();
   });
 
+  it("subscribes active kanban list queries and unsubscribes once observers drop", () => {
+    const queryClient = new QueryClient();
+    const fake = createFakeClient();
+    const serverId = "server-1";
+    const queryKey = [...kanbansQueryBaseKey, serverId] as const;
+    const observer = new QueryObserver(queryClient, {
+      queryKey,
+      queryFn: skipToken,
+      enabled: true,
+      gcTime: Infinity,
+      staleTime: Infinity,
+      meta: kanbanPushRoute({ enabled: true, serverIds: [serverId] }),
+    });
+    const unsubscribeObserver = observer.subscribe(() => undefined);
+    const unmount = mountServerDataPushRouter({ client: fake.client, queryClient, serverId });
+
+    expect(fake.kanbanSubscribeCalls).toBe(1);
+
+    unsubscribeObserver();
+
+    expect(fake.kanbanUnsubscribeCalls).toBe(1);
+
+    unmount();
+  });
+
+  it("applies kanban.update pushes to matching list and detail caches", () => {
+    const queryClient = new QueryClient();
+    const fake = createFakeClient();
+    const serverId = "server-1";
+    const listKey = [...kanbansQueryBaseKey, serverId] as const;
+    const detailKey = kanbanQueryKey(serverId, "kanban-1");
+    queryClient.setQueryData(listKey, { status: "loaded", data: [], hostErrors: [] });
+    queryClient.setQueryData(detailKey, null);
+    const observer = new QueryObserver(queryClient, {
+      queryKey: listKey,
+      queryFn: skipToken,
+      enabled: true,
+      gcTime: Infinity,
+      staleTime: Infinity,
+      meta: kanbanPushRoute({ enabled: true, serverIds: [serverId] }),
+    });
+    const unsubscribeObserver = observer.subscribe(() => undefined);
+    const unmount = mountServerDataPushRouter({ client: fake.client, queryClient, serverId });
+
+    const upserted = kanban({ name: "Renamed" });
+    const { plans: _plans, ...summary } = upserted;
+    fake.emit({ type: "kanban.update", payload: { kind: "upsert", kanban: upserted } });
+
+    expect(queryClient.getQueryData(listKey)).toEqual({
+      status: "loaded",
+      data: [{ ...summary, serverId, serverName: serverId }],
+      hostErrors: [],
+    });
+    expect(queryClient.getQueryData(detailKey)).toEqual(upserted);
+
+    fake.emit({ type: "kanban.update", payload: { kind: "remove", kanbanId: upserted.id } });
+
+    expect(queryClient.getQueryData(listKey)).toEqual({
+      status: "loaded",
+      data: [],
+      hostErrors: [],
+    });
+    expect(queryClient.getQueryData(detailKey)).toBeNull();
+
+    unsubscribeObserver();
+    unmount();
+  });
+
   it("invalidates only the reconnect-repair scopes for one server", () => {
     const queryClient = new QueryClient();
     const serverId = "server-1";
@@ -511,6 +624,8 @@ describe("server data push router", () => {
     const diffKey = checkoutDiffQueryKey(serverId, "/repo", "uncommitted", undefined, false);
     const terminalKey = buildTerminalsQueryKey(serverId, "/repo", "workspace-a");
     const otherProviderKey = providersSnapshotQueryKey(otherServerId);
+    const kanbanListKey = [...kanbansQueryBaseKey, serverId] as const;
+    const kanbanDetailKey = kanbanQueryKey(serverId, "kanban-1");
 
     queryClient.setQueryData(providerKey, { entries: [], generatedAt: "now", requestId: "p" });
     queryClient.setQueryData(daemonConfigKey, daemonConfig);
@@ -522,6 +637,8 @@ describe("server data push router", () => {
       generatedAt: "now",
       requestId: "other",
     });
+    queryClient.setQueryData(kanbanListKey, { status: "loaded", data: [], hostErrors: [] });
+    queryClient.setQueryData(kanbanDetailKey, kanban());
 
     invalidateServerDataQueriesAfterReconnect({ queryClient, serverId });
 
@@ -531,5 +648,7 @@ describe("server data push router", () => {
     expect(queryClient.getQueryState(diffKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(terminalKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherProviderKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(kanbanListKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(kanbanDetailKey)?.isInvalidated).toBe(true);
   });
 });
