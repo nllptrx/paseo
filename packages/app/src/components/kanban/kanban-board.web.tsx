@@ -10,6 +10,7 @@ import {
   MouseSensor,
   TouchSensor,
   closestCenter,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
@@ -47,22 +48,42 @@ function columnDroppableId(columnId: string): string {
   return `${COLUMN_DROP_PREFIX}${columnId}`;
 }
 
+/**
+ * The column under the pointer decides first, then the cards inside it. Running
+ * closestCenter over every card at once would let a card in a crowded column win
+ * over the empty column the pointer is actually on, so a drop there never lands.
+ */
 const boardCollisionDetection: CollisionDetection = (args) => {
-  const sortableRects = new Map(
-    [...args.droppableRects.entries()].filter(
-      ([id]) => typeof id === "string" && !id.startsWith(COLUMN_DROP_PREFIX),
-    ),
-  );
-  const sortableHits = closestCenter({ ...args, droppableRects: sortableRects });
-  if (sortableHits.length > 0) {
-    return sortableHits;
-  }
   const columnRects = new Map(
     [...args.droppableRects.entries()].filter(
       ([id]) => typeof id === "string" && id.startsWith(COLUMN_DROP_PREFIX),
     ),
   );
-  return closestCenter({ ...args, droppableRects: columnRects });
+  const columnArgs = { ...args, droppableRects: columnRects };
+  const columnHits = pointerWithin(columnArgs);
+  const resolvedColumnHits = columnHits.length > 0 ? columnHits : closestCenter(columnArgs);
+  const targetColumnId = resolvedColumnHits[0]?.data?.droppableContainer?.data.current?.columnId;
+  if (typeof targetColumnId !== "string") {
+    return resolvedColumnHits;
+  }
+
+  const sortableRects = new Map(
+    args.droppableContainers
+      .filter(
+        (container) =>
+          container.id !== args.active.id &&
+          container.data.current?.kind === "plan" &&
+          container.data.current?.columnId === targetColumnId,
+      )
+      .flatMap((container) => {
+        const rect = args.droppableRects.get(container.id);
+        return rect ? [[container.id, rect] as const] : [];
+      }),
+  );
+  if (sortableRects.size === 0) {
+    return resolvedColumnHits;
+  }
+  return closestCenter({ ...args, droppableRects: sortableRects });
 };
 
 const COLUMN_BODY_STYLE: CSSProperties = {
