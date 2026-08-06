@@ -4,6 +4,7 @@ import type { AgentPromptInput, AgentRunOptions } from "./agent-sdk-types.js";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import type { AgentStorage } from "./agent-storage.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
+import { observeAgentCompletion } from "./agent-completion.js";
 import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 
 export type AgentUnarchiveController = Pick<AgentManager, "notifyAgentState" | "unarchiveSnapshot">;
@@ -274,9 +275,9 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
     requireParentOwnership = false,
     logger,
   } = params;
-  let hasSeenRunning = false;
   let fired = false;
   let unsubscribe: (() => void) | null = null;
+  const completionObserver = observeAgentCompletion();
 
   async function notify(reason: "finished" | "errored" | "needs permission"): Promise<void> {
     if (fired) {
@@ -329,22 +330,12 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
       }
 
       if (event.type === "agent_state") {
-        if (event.agent.lifecycle === "running") {
-          hasSeenRunning = true;
-          return;
-        }
-        if (event.agent.lifecycle === "error") {
-          notifySafely("errored");
-          return;
-        }
-        if (event.agent.lifecycle === "idle" && hasSeenRunning) {
-          notifySafely("finished");
-          return;
-        }
-        if (event.agent.lifecycle === "closed") {
+        const outcome = completionObserver.observeLifecycle(event.agent.lifecycle);
+        if (outcome === "finished" || outcome === "errored") {
+          notifySafely(outcome);
+        } else if (outcome === "closed") {
           fired = true;
           unsubscribe?.();
-          return;
         }
         return;
       }
@@ -356,19 +347,15 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
     { agentId: childAgentId, replayState: false },
   );
 
-  // Check if the child is already running (catches the case where
-  // the lifecycle flipped before our subscribe call was processed).
-  // Do NOT treat an immediate "idle" as "finished" — the agent may
-  // not have started yet (streamAgent sets a pending run before
-  // transitioning to "running").
+  // Check if the child is already running/error/closed (catches the case
+  // where the lifecycle flipped before our subscribe call was processed).
   const childSnapshot = agentManager.getAgent(childAgentId);
-  if (!childSnapshot || childSnapshot.lifecycle === "closed") {
+  const initialOutcome = completionObserver.observeLifecycle(childSnapshot?.lifecycle ?? "closed");
+  if (initialOutcome === "closed") {
     unsubscribe();
     return;
   }
-  if (childSnapshot.lifecycle === "running") {
-    hasSeenRunning = true;
-  } else if (childSnapshot.lifecycle === "error") {
+  if (initialOutcome === "errored") {
     notifySafely("errored");
   }
 }
