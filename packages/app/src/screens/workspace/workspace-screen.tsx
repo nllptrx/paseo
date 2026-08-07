@@ -381,6 +381,7 @@ function getFallbackTabOptionDescription(
     browser: string;
     changes: string;
     orchestrator: string;
+    kanban: string;
   },
 ): string {
   if (tab.target.kind === "draft") {
@@ -409,6 +410,9 @@ function getFallbackTabOptionDescription(
   }
   if (tab.target.kind === "orchestrator") {
     return labels.orchestrator;
+  }
+  if (tab.target.kind === "kanban") {
+    return labels.kanban;
   }
   return tab.target.path;
 }
@@ -2544,6 +2548,7 @@ function WorkspaceScreenContent({
       agent: t("workspace.tabs.fallback.agent"),
       changes: t("panels.diff.changesLabel"),
       orchestrator: t("kanban.orchestrator.panel.label"),
+      kanban: t("kanban.panel.label"),
     }),
     [t],
   );
@@ -2927,6 +2932,13 @@ function WorkspaceScreenContent({
       return;
     }
     openWorkspaceTabFocused(persistenceKey, { kind: "orchestrator" });
+  }, [openWorkspaceTabFocused, persistenceKey]);
+
+  const handleOpenKanbanTab = useCallback(() => {
+    if (!persistenceKey) {
+      return;
+    }
+    openWorkspaceTabFocused(persistenceKey, { kind: "kanban" });
   }, [openWorkspaceTabFocused, persistenceKey]);
 
   const handleBulkCloseTabs = useCallback(
@@ -3697,6 +3709,7 @@ function WorkspaceScreenContent({
         onCreateDraftTab={handleCreateDraftTab}
         onCreateTerminalTab={handleCreateTerminal}
         onCreateBrowserTab={handleCreateBrowserTab}
+        onOpenKanbanTab={handleOpenKanbanTab}
         showCreateBrowserTab={showCreateBrowserTab}
         buildPaneContentModel={buildDesktopPaneContentModel}
         onFocusPane={handleFocusPane}
@@ -3734,6 +3747,7 @@ function WorkspaceScreenContent({
     handleCreateDraftTab,
     handleCreateTerminal,
     handleCreateBrowserTab,
+    handleOpenKanbanTab,
     showCreateBrowserTab,
     buildDesktopPaneContentModel,
     handleFocusPane,
@@ -3840,6 +3854,7 @@ function WorkspaceScreenContent({
           onCreateDraftTab={handleCreateDraftTab}
           onCreateTerminalTab={handleCreateTerminal}
           onCreateBrowserTab={handleCreateBrowserTab}
+          onOpenKanbanTab={handleOpenKanbanTab}
           showCreateBrowserTab={showCreateBrowserTab}
           disableCreateTerminal={createTerminalMutation.isPending}
           isWaitingOnTerminalReadiness={pendingTerminalCreateInput !== null}

@@ -8,7 +8,7 @@ const PROFILES: readonly TerminalProfile[] = [
 ];
 
 interface RecordedLaunch {
-  action: "draft" | "terminal" | "browser" | "profile";
+  action: "draft" | "terminal" | "browser" | "profile" | "kanban";
   profile?: TerminalProfileInput;
 }
 
@@ -19,6 +19,7 @@ function recordingHandlers() {
     createTerminal: () => launches.push({ action: "terminal" }),
     createBrowser: () => launches.push({ action: "browser" }),
     createTerminalWithProfile: (profile) => launches.push({ action: "profile", profile }),
+    openKanban: () => launches.push({ action: "kanban" }),
   };
   return { launches, handlers };
 }

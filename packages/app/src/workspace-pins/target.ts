@@ -1,5 +1,6 @@
 export type PinnedTabTarget =
   | { kind: "draft" }
+  | { kind: "kanban" }
   | { kind: "terminal" }
   | { kind: "browser" }
   | { kind: "profile"; profileId: string };

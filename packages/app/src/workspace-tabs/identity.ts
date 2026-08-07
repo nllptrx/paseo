@@ -59,6 +59,8 @@ function normalizeSimpleWorkspaceTabTarget(value: WorkspaceTabTarget): Workspace
     }
     case "orchestrator":
       return { kind: "orchestrator" };
+    case "kanban":
+      return { kind: "kanban" };
     default:
       return null;
   }
@@ -132,6 +134,9 @@ function secondaryWorkspaceTabTargetsEqual(
   if (left.kind === "orchestrator" && right.kind === "orchestrator") {
     return true;
   }
+  if (left.kind === "kanban" && right.kind === "kanban") {
+    return true;
+  }
   return false;
 }
 
@@ -195,6 +200,9 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   }
   if (target.kind === "orchestrator") {
     return "orchestrator";
+  }
+  if (target.kind === "kanban") {
+    return "kanban";
   }
   return `file_${target.path}`;
 }

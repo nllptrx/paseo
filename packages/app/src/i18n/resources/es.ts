@@ -577,6 +577,7 @@ export const es: TranslationResources = {
         exitFocusMode: "Salir del modo de concentración",
         splitRight: "Panel dividido a la derecha",
         splitDown: "Dividir panel hacia abajo",
+        openKanban: "Kanban",
         terminalProfilesMenu: "Terminal profiles",
         editTerminalProfiles: "Edit profiles…",
         pinTarget: "Fijar",
@@ -1010,6 +1011,9 @@ export const es: TranslationResources = {
     },
   },
   kanban: {
+    panel: {
+      label: "Kanban",
+    },
     screen: {
       title: "Kanbans",
       loadError: "No se pudieron cargar los kanbans",

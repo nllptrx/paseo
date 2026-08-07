@@ -576,6 +576,7 @@ export const ru: TranslationResources = {
         exitFocusMode: "Выйти из режима фокусировки",
         splitRight: "Разделить панель справа",
         splitDown: "Разделить панель вниз",
+        openKanban: "Канбан",
         terminalProfilesMenu: "Terminal profiles",
         editTerminalProfiles: "Edit profiles…",
         pinTarget: "Закрепить",
@@ -1001,6 +1002,9 @@ export const ru: TranslationResources = {
     },
   },
   kanban: {
+    panel: {
+      label: "Канбан",
+    },
     screen: {
       title: "Канбаны",
       loadError: "Не удалось загрузить канбаны",

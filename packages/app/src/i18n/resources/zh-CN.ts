@@ -572,6 +572,7 @@ export const zhCN: TranslationResources = {
         exitFocusMode: "退出专注模式",
         splitRight: "向右拆分窗格",
         splitDown: "向下拆分窗格",
+        openKanban: "看板",
         terminalProfilesMenu: "Terminal profiles",
         editTerminalProfiles: "Edit profiles…",
         pinTarget: "固定",
@@ -971,6 +972,9 @@ export const zhCN: TranslationResources = {
     },
   },
   kanban: {
+    panel: {
+      label: "看板",
+    },
     screen: {
       title: "看板",
       loadError: "无法加载看板",

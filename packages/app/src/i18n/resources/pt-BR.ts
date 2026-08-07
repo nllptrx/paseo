@@ -576,6 +576,7 @@ export const ptBR: TranslationResources = {
         exitFocusMode: "Sair do modo de foco",
         splitRight: "Dividir painel à direita",
         splitDown: "Dividir painel abaixo",
+        openKanban: "Kanban",
         terminalProfilesMenu: "Perfis de terminal",
         editTerminalProfiles: "Editar perfis…",
         pinTarget: "Fixar",
@@ -1001,6 +1002,9 @@ export const ptBR: TranslationResources = {
     },
   },
   kanban: {
+    panel: {
+      label: "Kanban",
+    },
     screen: {
       title: "Kanbans",
       loadError: "Não foi possível carregar os kanbans",

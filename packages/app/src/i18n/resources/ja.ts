@@ -577,6 +577,7 @@ export const ja: TranslationResources = {
         exitFocusMode: "フォーカスモードを終了",
         splitRight: "右にペインを分割",
         splitDown: "下にペインを分割",
+        openKanban: "カンバン",
         terminalProfilesMenu: "ターミナルプロファイル",
         editTerminalProfiles: "プロファイルを編集…",
         pinTarget: "ピン留め",
@@ -990,6 +991,9 @@ export const ja: TranslationResources = {
     },
   },
   kanban: {
+    panel: {
+      label: "カンバン",
+    },
     screen: {
       title: "カンバン",
       loadError: "カンバンを読み込めませんでした",

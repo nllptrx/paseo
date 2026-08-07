@@ -27,6 +27,7 @@ import {
   RotateCw,
   Rows2,
   Globe,
+  Kanban,
   Plus,
   SquarePen,
   SquareTerminal,
@@ -104,6 +105,7 @@ const ThemedCopyX = withUnistyles(CopyX);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
+const ThemedKanban = withUnistyles(Kanban);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedColumns2 = withUnistyles(Columns2);
@@ -115,8 +117,10 @@ const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMut
 const AGENT_ICON = <ThemedSquarePen size={14} uniProps={mutedColorMapping} />;
 const TERMINAL_ICON = <ThemedSquareTerminal size={14} uniProps={mutedColorMapping} />;
 const BROWSER_ICON = <ThemedGlobe size={14} uniProps={mutedColorMapping} />;
+const KANBAN_ICON = <ThemedKanban size={14} uniProps={mutedColorMapping} />;
 
 const DRAFT_TARGET: PinnedTabTarget = { kind: "draft" };
+const KANBAN_TARGET: PinnedTabTarget = { kind: "kanban" };
 const TERMINAL_TARGET: PinnedTabTarget = { kind: "terminal" };
 const BROWSER_TARGET: PinnedTabTarget = { kind: "browser" };
 
@@ -213,6 +217,7 @@ interface WorkspaceTabRowExtrasProps {
   onCreateTerminal: () => void;
   onCreateBrowser: () => void;
   onCreateTerminalWithProfile: (profile: TerminalProfileInput) => void;
+  onOpenKanban: () => void;
   onEditProfiles: () => void;
   normalizedServerId: string;
   showCreateBrowserTab: boolean;
@@ -224,6 +229,7 @@ function WorkspaceTabRowExtras({
   onCreateTerminal,
   onCreateBrowser,
   onCreateTerminalWithProfile,
+  onOpenKanban,
   onEditProfiles,
   normalizedServerId,
   showCreateBrowserTab,
@@ -242,8 +248,15 @@ function WorkspaceTabRowExtras({
       createTerminal: onCreateTerminal,
       createBrowser: onCreateBrowser,
       createTerminalWithProfile: onCreateTerminalWithProfile,
+      openKanban: onOpenKanban,
     }),
-    [onCreateAgentTab, onCreateBrowser, onCreateTerminal, onCreateTerminalWithProfile],
+    [
+      onCreateAgentTab,
+      onCreateBrowser,
+      onCreateTerminal,
+      onCreateTerminalWithProfile,
+      onOpenKanban,
+    ],
   );
 
   const onLaunch = useCallback(
@@ -298,6 +311,13 @@ function WorkspaceTabRowExtras({
               onSelect={onCreateBrowser}
             />
           ) : null}
+          <PinnableMenuItem
+            testID="workspace-new-tab-menu-kanban"
+            target={KANBAN_TARGET}
+            label={t("workspace.tabs.actions.openKanban")}
+            leading={KANBAN_ICON}
+            onSelect={onOpenKanban}
+          />
           <DropdownMenuSeparator />
           <DropdownMenuLabel>{t("workspace.tabs.actions.terminalProfilesMenu")}</DropdownMenuLabel>
           {profiles.map((profile) => (
@@ -429,6 +449,7 @@ interface WorkspaceDesktopTabsRowProps {
   onCreateDraftTab: (input: { paneId?: string }) => void;
   onCreateTerminalTab: (input: { paneId?: string; profile?: TerminalProfileInput }) => void;
   onCreateBrowserTab: (input: { paneId?: string }) => void;
+  onOpenKanbanTab: () => void;
   showCreateBrowserTab?: boolean;
   disableCreateTerminal?: boolean;
   isWaitingOnTerminalReadiness?: boolean;
@@ -775,6 +796,7 @@ export function WorkspaceDesktopTabsRow({
   onCreateDraftTab,
   onCreateTerminalTab,
   onCreateBrowserTab,
+  onOpenKanbanTab,
   showCreateBrowserTab = false,
   disableCreateTerminal = false,
   isWaitingOnTerminalReadiness = false,
@@ -1065,6 +1087,7 @@ export function WorkspaceDesktopTabsRow({
           onCreateTerminal={handleCreateTerminal}
           onCreateBrowser={handleCreateBrowser}
           onCreateTerminalWithProfile={handleCreateTerminalWithProfile}
+          onOpenKanban={onOpenKanbanTab}
           onEditProfiles={handleEditProfiles}
           normalizedServerId={normalizedServerId}
           showCreateBrowserTab={showCreateBrowserTab}

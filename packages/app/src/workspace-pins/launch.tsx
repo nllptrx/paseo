@@ -1,6 +1,6 @@
 import { useMemo, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import { Globe, SquarePen, SquareTerminal } from "lucide-react-native";
+import { Globe, Kanban, SquarePen, SquareTerminal } from "lucide-react-native";
 import { withUnistyles } from "react-native-unistyles";
 import {
   getTerminalProfileIcon,
@@ -31,6 +31,7 @@ interface UsePinnedLaunchersInput {
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
+const ThemedKanban = withUnistyles(Kanban);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedGlobe = withUnistyles(Globe);
@@ -77,6 +78,15 @@ export function usePinnedLaunchers({ serverId, onLaunch }: UsePinnedLaunchersInp
           key: pinnedTargetKey(target),
           label: t("workspace.tabs.actions.newAgent"),
           icon: <ThemedSquarePen size={14} uniProps={mutedColorMapping} />,
+          onPress: () => onLaunch(target),
+        });
+        continue;
+      }
+      if (target.kind === "kanban") {
+        resolved.push({
+          key: pinnedTargetKey(target),
+          label: t("workspace.tabs.actions.openKanban"),
+          icon: <ThemedKanban size={14} uniProps={mutedColorMapping} />,
           onPress: () => onLaunch(target),
         });
         continue;

@@ -105,6 +105,7 @@ interface SplitContainerProps {
   onCreateDraftTab: (input: { paneId?: string }) => void;
   onCreateTerminalTab: (input: { paneId?: string; profile?: TerminalProfileInput }) => void;
   onCreateBrowserTab: (input: { paneId?: string }) => void;
+  onOpenKanbanTab: () => void;
   showCreateBrowserTab?: boolean;
   buildPaneContentModel: (input: {
     paneId: string;
@@ -384,6 +385,7 @@ export function SplitContainer({
   onCreateDraftTab,
   onCreateTerminalTab,
   onCreateBrowserTab,
+  onOpenKanbanTab,
   showCreateBrowserTab,
   buildPaneContentModel,
   onFocusPane,
@@ -604,6 +606,7 @@ export function SplitContainer({
           onCreateDraftTab={onCreateDraftTab}
           onCreateTerminalTab={onCreateTerminalTab}
           onCreateBrowserTab={onCreateBrowserTab}
+          onOpenKanbanTab={onOpenKanbanTab}
           showCreateBrowserTab={showCreateBrowserTab}
           buildPaneContentModel={buildPaneContentModel}
           onFocusPane={onFocusPane}
@@ -751,6 +754,7 @@ function SplitNodeView({
   onCreateDraftTab,
   onCreateTerminalTab,
   onCreateBrowserTab,
+  onOpenKanbanTab,
   showCreateBrowserTab,
   buildPaneContentModel,
   onFocusPane,
@@ -809,6 +813,7 @@ function SplitNodeView({
           onCreateDraftTab={onCreateDraftTab}
           onCreateTerminalTab={onCreateTerminalTab}
           onCreateBrowserTab={onCreateBrowserTab}
+          onOpenKanbanTab={onOpenKanbanTab}
           showCreateBrowserTab={showCreateBrowserTab}
           buildPaneContentModel={buildPaneContentModel}
           onFocusPane={onFocusPane}
@@ -859,6 +864,7 @@ function SplitNodeView({
               onCreateDraftTab={onCreateDraftTab}
               onCreateTerminalTab={onCreateTerminalTab}
               onCreateBrowserTab={onCreateBrowserTab}
+              onOpenKanbanTab={onOpenKanbanTab}
               showCreateBrowserTab={showCreateBrowserTab}
               buildPaneContentModel={buildPaneContentModel}
               onFocusPane={onFocusPane}
@@ -915,6 +921,7 @@ function SplitPaneView({
   onCreateDraftTab,
   onCreateTerminalTab,
   onCreateBrowserTab,
+  onOpenKanbanTab,
   showCreateBrowserTab,
   buildPaneContentModel,
   onFocusPane,
@@ -1061,6 +1068,7 @@ function SplitPaneView({
             onCreateDraftTab={onCreateDraftTab}
             onCreateTerminalTab={onCreateTerminalTab}
             onCreateBrowserTab={onCreateBrowserTab}
+            onOpenKanbanTab={onOpenKanbanTab}
             showCreateBrowserTab={showCreateBrowserTab}
             onReorderTabs={handleReorderTabs}
             onSplitRight={handleSplitRight}

@@ -572,6 +572,7 @@ export const ar: TranslationResources = {
         exitFocusMode: "إنهاء وضع التركيز",
         splitRight: "تقسيم الجزء الأيمن",
         splitDown: "تقسيم الجزء لأسفل",
+        openKanban: "كانبان",
         terminalProfilesMenu: "Terminal profiles",
         editTerminalProfiles: "Edit profiles…",
         pinTarget: "تثبيت",
@@ -979,6 +980,9 @@ export const ar: TranslationResources = {
     },
   },
   kanban: {
+    panel: {
+      label: "كانبان",
+    },
     screen: {
       title: "لوحات كانبان",
       loadError: "تعذّر تحميل لوحات كانبان",

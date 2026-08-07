@@ -577,6 +577,7 @@ export const fr: TranslationResources = {
         exitFocusMode: "Quitter le mode concentration",
         splitRight: "Volet divisé à droite",
         splitDown: "Diviser le volet vers le bas",
+        openKanban: "Kanban",
         terminalProfilesMenu: "Terminal profiles",
         editTerminalProfiles: "Edit profiles…",
         pinTarget: "Épingler",
@@ -1010,6 +1011,9 @@ export const fr: TranslationResources = {
     },
   },
   kanban: {
+    panel: {
+      label: "Kanban",
+    },
     screen: {
       title: "Kanbans",
       loadError: "Impossible de charger les kanbans",

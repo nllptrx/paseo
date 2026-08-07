@@ -154,6 +154,9 @@ function getCloseButtonTestId(tab: WorkspaceTabDescriptor): string {
   if (tab.target.kind === "orchestrator") {
     return "workspace-orchestrator-close";
   }
+  if (tab.target.kind === "kanban") {
+    return "workspace-kanban-close";
+  }
   return `workspace-file-close-${encodeFilePathForPathSegment(tab.target.path)}`;
 }
 

@@ -23,7 +23,7 @@ export type KanbanPlanInput = Omit<KanbanPlanIdentifier, "requestId">;
 export type KanbanStepInput = Omit<KanbanStepActionOptions, "requestId">;
 
 export interface UseKanbanMutationsResult {
-  createKanban: (input: CreateKanbanInput) => Promise<void>;
+  createKanban: (input: CreateKanbanInput) => Promise<string>;
   updateKanban: (input: UpdateKanbanInput) => Promise<void>;
   archiveKanban: (kanbanId: string) => Promise<void>;
   createPlan: (input: CreateKanbanPlanInput) => Promise<void>;
@@ -92,12 +92,13 @@ export function useKanbanMutations({ serverId }: { serverId: string }): UseKanba
   );
 
   const createKanbanMutation = useMutation({
-    mutationFn: async (input: CreateKanbanInput): Promise<void> => {
+    mutationFn: async (input: CreateKanbanInput): Promise<string> => {
       const client = requireClient(serverId, t("common.errors.daemonClientUnavailable"));
       const payload = await client.kanbanCreate(input);
-      if (payload.error) {
-        throw new Error(payload.error);
+      if (payload.error || !payload.kanban) {
+        throw new Error(payload.error ?? "The host created no kanban");
       }
+      return payload.kanban.id;
     },
     onSettled: invalidateList,
   });

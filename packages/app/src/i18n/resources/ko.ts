@@ -574,6 +574,7 @@ export const ko: TranslationResources = {
         exitFocusMode: "집중 모드 종료",
         splitRight: "창을 오른쪽으로 분할",
         splitDown: "창을 아래로 분할",
+        openKanban: "칸반",
         terminalProfilesMenu: "터미널 프로필",
         editTerminalProfiles: "프로필 편집…",
         pinTarget: "고정",
@@ -986,6 +987,9 @@ export const ko: TranslationResources = {
     },
   },
   kanban: {
+    panel: {
+      label: "칸반",
+    },
     screen: {
       title: "칸반",
       loadError: "칸반을 불러올 수 없습니다",

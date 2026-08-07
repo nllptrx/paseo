@@ -8,6 +8,7 @@ export interface TabTargetHandlers {
   createTerminal: () => void;
   createBrowser: () => void;
   createTerminalWithProfile: (profile: TerminalProfileInput) => void;
+  openKanban: () => void;
 }
 
 export function runPinnedTabTarget(
@@ -17,6 +18,10 @@ export function runPinnedTabTarget(
 ): void {
   if (target.kind === "draft") {
     handlers.createDraft();
+    return;
+  }
+  if (target.kind === "kanban") {
+    handlers.openKanban();
     return;
   }
   if (target.kind === "terminal") {

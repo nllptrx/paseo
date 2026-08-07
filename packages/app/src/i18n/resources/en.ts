@@ -571,6 +571,7 @@ export const en = {
         exitFocusMode: "Exit focus mode",
         splitRight: "Split pane right",
         splitDown: "Split pane down",
+        openKanban: "Kanban",
         terminalProfilesMenu: "Terminal profiles",
         editTerminalProfiles: "Edit profiles…",
         pinTarget: "Pin",
@@ -989,6 +990,9 @@ export const en = {
     },
   },
   kanban: {
+    panel: {
+      label: "Kanban",
+    },
     screen: {
       title: "Kanbans",
       loadError: "Unable to load kanbans",
