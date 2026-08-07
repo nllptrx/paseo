@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import type {
   Task,
   TaskAgentLink,
@@ -144,6 +144,29 @@ function toPreset(row: TaskPresetRow): TaskPreset {
 }
 
 /**
+ * `node:sqlite` is imported here and nowhere else, and dynamically.
+ *
+ * A static import runs when the module is loaded, which is daemon start: on a
+ * runtime without the built-in driver — Node 22 before 22.13 — that would stop
+ * the whole daemon from booting, for every user, over one optional feature.
+ * Reaching for it only when the tracker is opened turns that into a tracker that
+ * is unavailable and a daemon that runs.
+ */
+export async function openTaskStore(input: {
+  databasePath: string;
+  now?: () => Date;
+}): Promise<TaskStore> {
+  const { DatabaseSync } = await import("node:sqlite");
+  if (input.databasePath !== ":memory:") {
+    mkdirSync(dirname(input.databasePath), { recursive: true });
+  }
+  return new TaskStore({
+    database: new DatabaseSync(input.databasePath),
+    ...(input.now ? { now: input.now } : {}),
+  });
+}
+
+/**
  * The tracker's persistence. Every method is one statement or one transaction —
  * callers never read, merge and write back, so two writers cannot lose each
  * other's work.
@@ -152,11 +175,8 @@ export class TaskStore {
   private readonly db: DatabaseSync;
   private readonly now: () => Date;
 
-  constructor(input: { databasePath: string; now?: () => Date }) {
-    if (input.databasePath !== ":memory:") {
-      mkdirSync(dirname(input.databasePath), { recursive: true });
-    }
-    this.db = new DatabaseSync(input.databasePath);
+  constructor(input: { database: DatabaseSync; now?: () => Date }) {
+    this.db = input.database;
     this.now = input.now ?? (() => new Date());
     migrateTasksDatabase(this.db);
   }

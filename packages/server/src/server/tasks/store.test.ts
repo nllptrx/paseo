@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TaskRowShapeError } from "./rows.js";
-import { TaskStore } from "./store.js";
+import { openTaskStore, type TaskStore } from "./store.js";
 
-function createStore(): TaskStore {
+async function createStore(): Promise<TaskStore> {
   let tick = 0;
-  return new TaskStore({
+  return openTaskStore({
     databasePath: ":memory:",
     now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)),
   });
@@ -18,8 +18,8 @@ describe("TaskStore", () => {
   let store: TaskStore;
   let projectId: string;
 
-  beforeEach(() => {
-    store = createStore();
+  beforeEach(async () => {
+    store = await createStore();
     projectId = store.createProject({ name: "Paseo", prefix: "pse", color: "#fff" }).id;
   });
 
@@ -262,9 +262,9 @@ describe("TaskStore row shape", () => {
    * written by a different build is a real state, and it has to be reported as
    * one rather than turning into undefined halfway up the call stack.
    */
-  it("names the table when the database on disk has a different shape", () => {
+  it("names the table when the database on disk has a different shape", async () => {
     const databasePath = join(directory, "tasks.db");
-    const first = new TaskStore({ databasePath });
+    const first = await openTaskStore({ databasePath });
     const projectId = first.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
     first.createTask({ projectId, title: "Before the change" });
     first.close();
@@ -273,7 +273,7 @@ describe("TaskStore row shape", () => {
     raw.exec("ALTER TABLE tasks RENAME COLUMN priority TO importance");
     raw.close();
 
-    const second = new TaskStore({ databasePath });
+    const second = await openTaskStore({ databasePath });
     try {
       let thrown: unknown;
       try {
