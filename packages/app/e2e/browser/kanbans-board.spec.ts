@@ -319,7 +319,7 @@ test.describe("Kanbans overview", () => {
       await expect(board.getByTestId("task-column-in_progress")).toBeVisible();
       await expect(board.getByTestId("task-column-backlog")).toContainText(title);
 
-      await page.getByTestId("kanban-board-back").click();
+      await page.getByTestId("sidebar-kanbans").click();
       await expect(page).toHaveURL(/\/kanbans$/);
       await expect(page.getByTestId(`kanban-overview-${kanbanId}`)).toBeVisible();
     } finally {

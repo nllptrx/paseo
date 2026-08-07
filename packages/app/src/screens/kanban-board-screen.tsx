@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
 import { Gesture } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
-import { ArrowLeft, MessagesSquare, MoreVertical } from "lucide-react-native";
+import { Ellipsis, MessagesSquare } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { ScreenHeader } from "@/components/headers/screen-header";
@@ -35,8 +36,7 @@ import { useProjectDisplayName } from "@/stores/session-store-hooks";
 import { buildKanbansRoute } from "@/utils/host-routes";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 
-const ThemedArrowLeft = withUnistyles(ArrowLeft);
-const ThemedMoreVertical = withUnistyles(MoreVertical);
+const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedMessagesSquare = withUnistyles(MessagesSquare);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
@@ -106,17 +106,15 @@ export function KanbanBoardScreen({ kanbanId }: { kanbanId: string }): ReactElem
     );
   }
 
-  return <LoadedKanbanBoardScreen kanbanId={kanbanId} summary={summary} onBack={handleBack} />;
+  return <LoadedKanbanBoardScreen kanbanId={kanbanId} summary={summary} />;
 }
 
 function LoadedKanbanBoardScreen({
   kanbanId,
   summary,
-  onBack,
 }: {
   kanbanId: string;
   summary: { serverId: string; projectId: string; name: string };
-  onBack: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const { serverId } = summary;
@@ -191,55 +189,26 @@ function LoadedKanbanBoardScreen({
     () => (
       <>
         <SidebarMenuToggle />
-        <Button
-          variant="ghost"
-          size="xs"
-          onPress={onBack}
-          accessibilityLabel={t("kanban.screen.backToOverview")}
-          testID="kanban-board-back"
-        >
-          <ThemedArrowLeft size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
-        </Button>
         <ScreenTitle>{projectName ?? summary.name}</ScreenTitle>
-      </>
-    ),
-    [onBack, projectName, summary.name, t],
-  );
-
-  const headerRight = useMemo(
-    () => (
-      <View style={styles.headerTrailing}>
-        <Text style={styles.count}>{t("tasks.screen.taskCount", { count: totalCount })}</Text>
-        <Button
-          variant="ghost"
-          size="xs"
-          onPress={handleToggleOrchestrator}
-          accessibilityLabel={t("kanban.orchestrator.pane.toggle")}
-          testID="kanban-orchestrator-pane-toggle"
-        >
-          <ThemedMessagesSquare
-            size={ICON_SIZE.sm}
-            uniProps={isOrchestratorOpen ? foregroundIconMapping : mutedIconMapping}
-          />
-        </Button>
-        <DropdownMenu>
+        <DropdownMenu compactMode="sheet">
           <DropdownMenuTrigger
             style={styles.menuTrigger}
             testID={`kanban-board-menu-${kanbanId}`}
             accessibilityRole="button"
             accessibilityLabel={t("kanban.board.menu")}
           >
-            {({ hovered }) => (
-              <ThemedMoreVertical
-                size={ICON_SIZE.sm}
-                uniProps={hovered ? foregroundIconMapping : mutedIconMapping}
+            {({ hovered, open }) => (
+              <ThemedEllipsis
+                size={16}
+                uniProps={hovered || open ? foregroundIconMapping : mutedIconMapping}
               />
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            side="bottom"
-            align="end"
+            align="start"
+            width={220}
             testID={`kanban-board-menu-content-${kanbanId}`}
+            sheetTitle={t("kanban.board.menu")}
           >
             <DropdownMenuItem
               testID={`kanban-new-plan-${kanbanId}`}
@@ -262,38 +231,60 @@ function LoadedKanbanBoardScreen({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </View>
+      </>
     ),
     [
       handleOpenCreatePlan,
       handleProvisionOrchestrator,
-      handleToggleOrchestrator,
       handleToggleReview,
-      isOrchestratorOpen,
       isProvisioning,
       kanbanId,
+      projectName,
       reviewEnabled,
+      summary.name,
       t,
-      totalCount,
     ],
+  );
+
+  const headerRight = useMemo(
+    () => (
+      <View style={styles.headerTrailing}>
+        <Text style={styles.count}>{t("tasks.screen.taskCount", { count: totalCount })}</Text>
+        <Button
+          variant="ghost"
+          size="xs"
+          onPress={handleToggleOrchestrator}
+          accessibilityLabel={t("kanban.orchestrator.pane.toggle")}
+          testID="kanban-orchestrator-pane-toggle"
+        >
+          <ThemedMessagesSquare
+            size={ICON_SIZE.sm}
+            uniProps={isOrchestratorOpen ? foregroundIconMapping : mutedIconMapping}
+          />
+        </Button>
+      </View>
+    ),
+    [handleToggleOrchestrator, isOrchestratorOpen, t, totalCount],
   );
 
   return (
     <View style={styles.container}>
-      <ScreenHeader left={headerLeft} right={headerRight} leftStyle={styles.headerLeft} />
-      <View style={styles.body}>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          testID={`kanban-board-${kanbanId}`}
-        >
-          <TaskBoardSurface
-            serverId={serverId}
-            paseoProjectId={summary.projectId}
-            projectDisplayName={projectName ?? summary.name}
-            onCreatePlanForTask={handleCreatePlanForTask}
-          />
-        </ScrollView>
+      <View style={styles.row}>
+        <View style={styles.centerColumn}>
+          <ScreenHeader left={headerLeft} right={headerRight} leftStyle={styles.headerLeft} />
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            testID={`kanban-board-${kanbanId}`}
+          >
+            <TaskBoardSurface
+              serverId={serverId}
+              paseoProjectId={summary.projectId}
+              projectDisplayName={projectName ?? summary.name}
+              onCreatePlanForTask={handleCreatePlanForTask}
+            />
+          </ScrollView>
+        </View>
         {!isCompact && orchestratorOpenDesktop ? (
           <OrchestratorSidebar serverId={serverId} kanbanId={kanbanId} />
         ) : null}
@@ -334,6 +325,7 @@ function OrchestratorSidebar({
   serverId: string;
   kanbanId: string;
 }): ReactElement {
+  const insets = useSafeAreaInsets();
   const orchestratorWidth = usePanelStore((state) => state.orchestratorWidth);
   const setOrchestratorWidth = usePanelStore((state) => state.setOrchestratorWidth);
   const { width: viewportWidth } = useWindowDimensions();
@@ -375,7 +367,9 @@ function OrchestratorSidebar({
   }));
 
   return (
-    <Animated.View style={[styles.orchestratorPane, resizeAnimatedStyle]}>
+    <Animated.View
+      style={[styles.orchestratorPane, resizeAnimatedStyle, { paddingTop: insets.top }]}
+    >
       <SidebarResizeHandle
         edge="left"
         gesture={resizeGesture}
@@ -409,10 +403,14 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  body: {
+  row: {
     flex: 1,
     minHeight: 0,
     flexDirection: "row",
+  },
+  centerColumn: {
+    flex: 1,
+    minWidth: 0,
   },
   scroll: {
     flex: 1,
