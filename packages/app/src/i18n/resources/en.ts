@@ -943,6 +943,12 @@ export const en = {
     },
   },
   tasks: {
+    start: {
+      title: "Start work",
+      runWorkflow: "Run the workflow",
+      justMove: "Just move it",
+      nothingToRun: "No workflow and no presets on this board yet.",
+    },
     feed: {
       empty: "Nothing on this board yet",
       loadError: "Unable to load the feed",
@@ -963,8 +969,8 @@ export const en = {
     status: {
       backlog: "Backlog",
       todo: "Todo",
-      inProgress: "In Progress",
-      inReview: "In Review",
+      inProgress: "Working",
+      inReview: "Review",
       done: "Done",
       canceled: "Canceled",
     },

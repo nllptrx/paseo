@@ -16,6 +16,7 @@ import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks
 import { toErrorMessage } from "@/utils/error-messages";
 import type { TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { NewTaskSheet } from "./new-task-sheet";
+import { StartWorkSheet } from "./start-work-sheet";
 import { TaskBoard, type TaskBoardMove } from "./task-board";
 import { TaskDetailSheet } from "./task-detail-sheet";
 
@@ -54,6 +55,7 @@ export function TaskBoardSurface({
   const { moveTask, reviewTask, deleteTask } = useTaskMutations(serverId);
   const [selectedColumn, setSelectedColumn] = useState<TaskStatus>("backlog");
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
+  const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const board = useMemo(
@@ -68,14 +70,25 @@ export function TaskBoardSurface({
     [board.projects],
   );
 
+  // The move lands first and stays landed: someone who drags a card to In
+  // Progress has said where the work is, and that statement must not depend on
+  // what they answer next. The chooser only decides whether anything starts.
   const handleMoveTask = useCallback(
     (move: TaskBoardMove) => {
       void moveTask(move).catch((moveError) => {
         toast.show(toErrorMessage(moveError));
       });
+      if (move.status !== "in_progress") {
+        return;
+      }
+      const moved = board.tasks.find((task) => task.id === move.taskId);
+      if (moved && moved.agents.length === 0) {
+        setStartingTaskId(move.taskId);
+      }
     },
-    [moveTask, toast],
+    [board.tasks, moveTask, toast],
   );
+  const handleCloseStartWork = useCallback(() => setStartingTaskId(null), []);
 
   const handleCreateTask = useCallback((status: TaskStatus) => {
     setCapturingStatus(status);
@@ -177,6 +190,16 @@ export function TaskBoardSurface({
           onClose={handleCloseCapture}
         />
       ) : null}
+      <StartWorkSheet
+        serverId={serverId}
+        task={board.tasks.find((task) => task.id === startingTaskId) ?? null}
+        workflow={
+          (snapshot?.workflows ?? EMPTY_WORKFLOWS).find(
+            (entry) => entry.taskId === startingTaskId,
+          ) ?? null
+        }
+        onClose={handleCloseStartWork}
+      />
       <TaskDetailSheet
         serverId={serverId}
         taskId={openTaskId}
