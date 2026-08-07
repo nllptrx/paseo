@@ -39,20 +39,21 @@ keys, capture) and `Emanuele-web04/synara` (board behaviour).
 - Sync: push `tasks.update { revision }`; a client at the same revision does
   nothing, a client behind refetches. Push-router domain `tasks` app-side.
 
-### 2.1 The board is the task project [DECIDED]
+### 2.1 The board is the task project [SHIPPED]
 
-`StoredKanban` retires. One board-shaped object: the task project.
+`StoredKanban` is gone. One board-shaped object: the task project.
 
-- `review`, `archiveWorkspacesOnDone` and the board's agent associations move
-  onto `task_projects` in SQLite. The kanban JSON record goes, and with it the
-  get-or-create dance the workspace tab needs today just to obtain an id.
-- `/kanbans/<id>` resolves to the project's board. Feed room and board events
-  key on the task project.
-- No migration. The `tasks` feature gate has never been in a release, so no
-  released peer can hold the old shape: pre-branch plan boards break, and no
-  COMPAT shim is warranted.
+- `review` and `archiveWorkspacesOnDone` live on `task_projects` in SQLite.
+  The kanban JSON record, its store, service, engine, RPCs, protocol module,
+  CLI group and plan UI are deleted, and with them the get-or-create dance the
+  workspace tab needed just to obtain an id.
+- `/kanbans/<taskProjectId>` resolves the board. `features.kanban` is gone
+  from `server_info`; everything gates on `features.tasks`.
+- No migration. The `tasks` gate had never been in a release, so no released
+  peer could hold the old shape: pre-branch plan boards break, and no COMPAT
+  shim was warranted.
 
-### 2.2 Workflow on task [DECIDED]
+### 2.2 Workflow on task [SHIPPED]
 
 Plans stop being objects. The step machine — agent specs, workspace strategy,
 triggers, hard gates, schedules — survives unchanged and re-homes: **steps
@@ -104,12 +105,13 @@ one-move undo is what prevents it.
 - MCP tools: `create_task_project`, `list_tasks`, `create_task`, `update_task`,
   `comment_task` (agent identity on the comment), `attach_task_agent`
   (defaults to the calling agent — "I'm taking PSE-3"), `review_task`.
-  `create_plan` accepts `taskId`. Parity Suite G covers capture→review and
-  self-attach.
+  Parity Suite G covers capture→review, self-attach, and workflow replace.
 - CLI: `paseo task ls|create|move`, by key (`PSE-42`) or id.
-- **[DECIDED]** `create_plan` becomes `add_task_workflow` (§2.2); new tools
-  for subtasks and dependencies follow the same shape. Board events reach
-  agents through the feed room, not through per-agent prompts (§6.1).
+- **[SHIPPED]** `create_plan` is replaced by `add_task_workflow`,
+  `get_task_workflow` and `run_task_step`. The kanban and orchestrator-mesh
+  tools are gone. **[PROPOSED]** tools for subtasks and dependencies follow the
+  same shape, and board events reach agents through the feed room rather than
+  per-agent prompts (§6.1).
 
 ## 5. Surfaces
 
@@ -117,8 +119,8 @@ one-move undo is what prevents it.
 
 - **Header**, in workspace grammar: one `ScreenHeader` row — sidebar toggle,
   project title, `···` menu right beside the title (Ellipsis, hover colour,
-  sheet on compact). Right side: task count and the sidebar toggle. No back
-  arrow; back is the sidebar's Kanbans entry.
+  sheet on compact). Right side: the task count. No back arrow; back is the
+  sidebar's Kanbans entry. The feed toggle returns with §6.
 - **Columns** are the statuses. Canceled appears only when populated. Columns
   flex 264–360 wide with horizontal scroll; compact shows one column behind a
   scrollable segmented picker.
@@ -132,9 +134,10 @@ one-move undo is what prevents it.
 - **Drag** writes `tasks.move`; the optimistic paint uses the daemon's own
   position arithmetic. Menu move covers platforms without drag. Every column
   is hand-sortable, because order is stored.
-- **Sidebar**: full-height right sidebar in the explorer shape — panel-store
-  width, viewport clamp, `SidebarResizeHandle`, open state persisted on
-  desktop, sheet on compact. Content is the feed (§6).
+- **Sidebar** [PROPOSED]: full-height right sidebar in the explorer shape —
+  panel-store width, viewport clamp, `SidebarResizeHandle`, open state
+  persisted on desktop, sheet on compact. Its content is the feed, so it
+  lands with §6; the panel-store keys survived the mesh retirement for it.
 
 **[DECIDED] menu changes**: "Add plan" → "Add workflow"; "Require review"
 becomes a checkmark toggle per [docs/menus.md](menus.md) rather than a menu
@@ -146,9 +149,9 @@ item with a swapping label; "Create Orchestrator" goes (§6.1).
   same `TaskBoardSurface` for the workspace's project. Entry points: "Kanban"
   in the tab row's ⌄ menu (pinnable) and a default pinned launcher before the
   terminal. Splittable and draggable like any tab.
-- **Explorer sidebar** gains a tab beside Changes/Files/PR when the project
-  has a board; the unavailable-tab fallback follows the PR-tab rule.
-  **[DECIDED]** the tab is named **Feed** and renders the board channel.
+- **Explorer sidebar** [PROPOSED]: gains a **Feed** tab beside Changes/Files/PR
+  when the project has a board, following the PR-tab fallback rule. The
+  orchestrator tab that stood there is gone (§6.1); the Feed replaces it.
 
 ### 5.3 Overview `/kanbans` [SHIPPED]
 
@@ -210,9 +213,10 @@ overwritten outputs, ~75x the tokens).
   agent specs — opt-in per board. Even then it authors no code and issues no
   review verdicts. Review is human, or a verification agent with no
   implementation context.
-- Retired in full: the per-daemon `orchestrators` room, the peer rail,
-  `orchestrator-thread-view`, `send_orchestrator_message`, the orchestrator
-  sidebar pane, and Create Orchestrator.
+- **[SHIPPED]** Retired in full: the per-daemon `orchestrators` room, the peer
+  rail, `orchestrator-thread-view`, `send_orchestrator_message`, provisioning,
+  the orchestrator sidebar pane, the workspace tab kind, the explorer tab, and
+  Create Orchestrator.
 
 ### 6.2 Subtask isolation — stacked branches, sibling worktrees [DECIDED]
 
@@ -234,10 +238,8 @@ and the board e2e.
    before the record does. New tracker storage, `TaskWorkflowEngine`, the
    `tasks.workflow.*` and `tasks.step.*` RPCs, the agent tools, and the
    workflow form.
-2. **Board is the task project** (§2.1). With the record down to config, fold
-   it into `task_projects`, delete the kanban store, service, engine, RPCs and
-   plan UI, and resolve routes and the overview on the project.
-3. **Event bus and feed** (§2.4, §6). Single emission point, room per board,
+2. **Board is the task project** (§2.1). **Done.**
+3. **Event bus and feed** (§2.4, §6) — _next_. Single emission point, room per board,
    `comment_task` mirroring, composer with mention fanout, mesh retirement,
    Feed tab.
 4. **Hierarchy and rules** (§2.3, §6.1, §6.2). `parentId` and dependencies,
