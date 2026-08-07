@@ -15,6 +15,7 @@ import {
   type CreateTaskCommentInput,
   type CreateTaskInput,
   type CreateTaskPresetInput,
+  type TaskAgentRole,
   type CreateTaskProjectInput,
   type TaskStore,
   type UpdateTaskInput,
@@ -139,6 +140,7 @@ export class TaskService {
     reviewEnabled?: boolean;
     reviewOnReject?: TaskBoardConfig["reviewOnReject"];
     archiveWorkspacesOnDone?: boolean;
+    reviewerPresetId?: string | null;
   }): Promise<TaskProject> {
     const store = await this.require();
     const project = store.configureBoard(input);
@@ -276,6 +278,7 @@ export class TaskService {
     agentId: string;
     workspaceId: string;
     presetId?: string | null;
+    role?: TaskAgentRole;
   }): Promise<void> {
     const store = await this.require();
     this.assertClaimable(store, input.taskId);
@@ -362,9 +365,14 @@ export class TaskService {
     this.announce(store);
   }
 
-  /** The agents working one card — who a comment on it can be sent to. */
+  /** The agents on one card — who a comment on it can be sent to. */
   async listTaskAgentIds(taskId: string): Promise<string[]> {
-    return (await this.require()).listTaskAgents(taskId).map((link) => link.agentId);
+    return (await this.require()).listTaskAgentIdsByRole(taskId);
+  }
+
+  /** The hands that did the work. A review must not come from one of them. */
+  async listTaskWorkerIds(taskId: string): Promise<string[]> {
+    return (await this.require()).listTaskAgentIdsByRole(taskId, "worker");
   }
 
   async listBoardAgentIds(projectId: string): Promise<string[]> {

@@ -67,6 +67,8 @@ export const TASK_WORKFLOW_TRIGGER_LABEL_KEYS: Record<TaskWorkflowFormTriggerTyp
 };
 
 export interface TaskWorkflowFormStep {
+  /** Refuse to call the step done when its workspace is untouched. */
+  requireChanges: boolean;
   /** Stable across edits and reorders so list keys and test ids don't shift. */
   key: string;
   name: string;
@@ -155,6 +157,10 @@ function createStep(input: {
     provider: input.provider,
     model: null,
     workspaceMode: "worktree",
+    // On by default: a step whose agent stopped without touching the checkout
+    // has not done the thing, and treating that as success is how a board ends
+    // up full of work nobody did.
+    requireChanges: true,
     // A step the author just added should not start the moment the workflow exists.
     trigger: "manual",
   };
@@ -181,6 +187,7 @@ function toFormStep(input: {
     prompt: input.step.prompt,
     provider: spec?.provider ?? input.fallbackProvider,
     model: spec?.model ?? null,
+    requireChanges: input.step.requireChanges === true,
     workspaceMode,
     trigger,
   };
@@ -344,6 +351,7 @@ export function buildTaskWorkflowSteps(state: TaskWorkflowFormState): StepInput[
       completion: "all",
       workspace: { mode: step.workspaceMode } as StepWorkspaceStrategy,
       trigger: { type: step.trigger } as StepTrigger,
+      requireChanges: step.requireChanges,
     });
   }
   return steps;

@@ -1263,6 +1263,7 @@ export async function createPaseoDaemon(
     archiveWorkspace: archiveScheduleWorkspaceExternal,
     logger,
   });
+  taskTransitions.setRequestReview((taskId) => taskWorkflowEngine.requestReview(taskId));
   taskWorkflowEngine.setOnWorkflowSettled((taskId) => {
     void taskTransitions.onWorkSettled(taskId).catch((error) => {
       logger.error({ err: error, taskId }, "Failed to move a task after its workflow settled");

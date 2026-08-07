@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { StepSchema, type Step, type TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
+
+export type TaskAgentRole = "worker" | "reviewer";
 import type {
   Task,
   TaskAgentLink,
@@ -129,6 +131,7 @@ function toProject(row: TaskProjectRow): TaskProject {
       reviewEnabled: row.review_enabled === 1,
       reviewOnReject: row.review_on_reject,
       archiveWorkspacesOnDone: row.archive_workspaces_on_done === 1,
+      reviewerPresetId: row.reviewer_preset_id,
     },
     createdAt: row.created_at,
   };
@@ -259,6 +262,7 @@ export class TaskStore {
         reviewEnabled: false,
         reviewOnReject: "in_progress",
         archiveWorkspacesOnDone: false,
+        reviewerPresetId: null,
       },
       createdAt,
     };
@@ -297,6 +301,7 @@ export class TaskStore {
     reviewEnabled?: boolean;
     reviewOnReject?: TaskBoardConfig["reviewOnReject"];
     archiveWorkspacesOnDone?: boolean;
+    reviewerPresetId?: string | null;
   }): TaskProject {
     const current = this.getProject(input.projectId);
     if (!current) {
@@ -306,22 +311,29 @@ export class TaskStore {
       reviewEnabled: false,
       reviewOnReject: "in_progress" as const,
       archiveWorkspacesOnDone: false,
+      reviewerPresetId: null,
     };
     const next: TaskBoardConfig = {
       reviewEnabled: input.reviewEnabled ?? board.reviewEnabled,
       reviewOnReject: input.reviewOnReject ?? board.reviewOnReject,
       archiveWorkspacesOnDone: input.archiveWorkspacesOnDone ?? board.archiveWorkspacesOnDone,
+      reviewerPresetId:
+        input.reviewerPresetId !== undefined
+          ? input.reviewerPresetId
+          : (board.reviewerPresetId ?? null),
     };
     this.db
       .prepare(
         `UPDATE task_projects
-         SET review_enabled = ?, review_on_reject = ?, archive_workspaces_on_done = ?
+         SET review_enabled = ?, review_on_reject = ?, archive_workspaces_on_done = ?,
+             reviewer_preset_id = ?
          WHERE id = ?`,
       )
       .run(
         next.reviewEnabled ? 1 : 0,
         next.reviewOnReject,
         next.archiveWorkspacesOnDone ? 1 : 0,
+        next.reviewerPresetId ?? null,
         input.projectId,
       );
     return { ...current, board: next };
@@ -653,11 +665,12 @@ export class TaskStore {
     agentId: string;
     workspaceId: string;
     presetId?: string | null;
+    role?: TaskAgentRole;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO task_agents (task_id, agent_id, workspace_id, preset_id, attached_at)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO task_agents (task_id, agent_id, workspace_id, preset_id, role, attached_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (task_id, agent_id) DO UPDATE SET workspace_id = excluded.workspace_id`,
       )
       .run(
@@ -665,6 +678,7 @@ export class TaskStore {
         input.agentId,
         input.workspaceId,
         input.presetId ?? null,
+        input.role ?? "worker",
         this.timestamp(),
       );
   }
@@ -685,11 +699,19 @@ export class TaskStore {
       agentId: row.agent_id,
       workspaceId: row.workspace_id,
       presetId: row.preset_id,
+      role: row.role,
       attachedAt: row.attached_at,
     }));
   }
 
   /** Every attachment on the host, for re-arming completion observers at boot. */
+  /** Agent ids on a card, narrowed to a role when one is asked for. */
+  listTaskAgentIdsByRole(taskId: string, role?: TaskAgentRole): string[] {
+    return this.listTaskAgents(taskId)
+      .filter((link) => (role ? (link.role ?? "worker") === role : true))
+      .map((link) => link.agentId);
+  }
+
   /** Every agent working a card on this board — who a feed mention can reach. */
   listBoardAgentIds(projectId: string): string[] {
     const rows = selectAll(

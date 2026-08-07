@@ -237,6 +237,15 @@ const MIGRATIONS: readonly string[] = [
       UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
     END;
   `,
+  `
+    -- A reviewer is attached like any other agent but must not count as one of
+    -- the hands that did the work: review exists to be a second judgement, and
+    -- an agent reviewing its own change is the first one asked twice.
+    ALTER TABLE task_agents ADD COLUMN role TEXT NOT NULL DEFAULT 'worker'
+      CHECK (role IN ('worker', 'reviewer'));
+
+    ALTER TABLE task_projects ADD COLUMN reviewer_preset_id TEXT;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

@@ -23,6 +23,7 @@ export const TaskProjectRowSchema = z.object({
   next_task_number: z.number(),
   color: z.string(),
   paseo_project_id: z.string().nullable(),
+  reviewer_preset_id: z.string().nullable(),
   review_enabled: BooleanColumn,
   review_on_reject: z.enum(["in_progress", "todo", "backlog"]),
   archive_workspaces_on_done: BooleanColumn,
@@ -99,6 +100,7 @@ export const TaskAgentRowSchema = z.object({
   agent_id: z.string(),
   workspace_id: z.string(),
   preset_id: z.string().nullable(),
+  role: z.enum(["worker", "reviewer"]),
   attached_at: z.string(),
 });
 export type TaskAgentRow = z.infer<typeof TaskAgentRowSchema>;

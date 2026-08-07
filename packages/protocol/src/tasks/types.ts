@@ -39,6 +39,10 @@ export const TASK_PRIORITIES: readonly TaskPriority[] = ["urgent", "high", "medi
  */
 export const TaskBoardConfigSchema = z.object({
   reviewEnabled: z.boolean(),
+  /** The preset a review runs as. A board that names one gets its work read by
+   * a fresh agent that did not write it; a board that names none waits for a
+   * human. */
+  reviewerPresetId: z.string().nullable().optional(),
   reviewOnReject: z.enum(["in_progress", "todo", "backlog"]),
   archiveWorkspacesOnDone: z.boolean(),
 });
@@ -74,6 +78,9 @@ export const TaskAgentLinkSchema = z.object({
   agentId: z.string(),
   workspaceId: z.string(),
   presetId: z.string().nullable(),
+  /** A reviewer is on the card to judge it, not to have done it. Only workers
+   * are barred from reviewing. */
+  role: z.enum(["worker", "reviewer"]).optional(),
   attachedAt: z.string(),
 });
 export type TaskAgentLink = z.infer<typeof TaskAgentLinkSchema>;

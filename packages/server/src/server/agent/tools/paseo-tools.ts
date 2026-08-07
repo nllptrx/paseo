@@ -125,6 +125,8 @@ export interface PaseoToolHostDependencies {
     | "createComment"
     | "attachAgent"
     | "listBoardFeed"
+    | "listTaskAgentIds"
+    | "listTaskWorkerIds"
     | "addDependency"
     | "removeDependency"
     | "listBlockers"
@@ -3191,6 +3193,26 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     },
   );
 
+  /**
+   * An agent may not sign off work it did. A verdict from the agent that wrote
+   * the change is not a review — it is the same judgement that produced the
+   * change, asked a second time, and it is the one thing a review state exists
+   * to prevent. Review comes from a human or from an agent that was not on the
+   * card.
+   */
+  async function assertNotReviewingOwnWork(taskId: string): Promise<void> {
+    const caller = resolveCallerAgent();
+    if (!caller || !taskService) {
+      return;
+    }
+    const workers = await taskService.listTaskWorkerIds(taskId);
+    if (workers.includes(caller.id)) {
+      throw new Error(
+        `Agent ${caller.id} worked on this task and cannot review it; a review has to come from somewhere else`,
+      );
+    }
+  }
+
   registerTool(
     "review_task",
     {
@@ -3207,6 +3229,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       if (!taskTransitions) {
         throw new Error("Task tracker is not configured on this host");
       }
+      await assertNotReviewingOwnWork(taskId);
       const task = await taskTransitions.applyReviewVerdict({ taskId, verdict });
       return { content: [], structuredContent: ensureValidJson({ task }) };
     },

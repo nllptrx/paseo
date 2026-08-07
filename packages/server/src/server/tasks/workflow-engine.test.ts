@@ -516,4 +516,96 @@ describe("TaskWorkflowEngine", () => {
       capped.runStep({ taskId: second.taskId, stepId: second.stepIds[0] }),
     ).rejects.toThrow(/already has a run in progress/);
   });
+  /** One checkout with several writers is a race the engine would be handing
+   * out. worktree_per_agent exists for this, so it says so. */
+  test("refuses to fan out several agents into one shared worktree", async () => {
+    const { taskId, stepIds } = await seedWorkflow([
+      makeStepInput({
+        workspace: { mode: "worktree" },
+        agents: [{ provider: "claude" }, { provider: "codex" }],
+      }),
+    ]);
+
+    await expect(engine.runStep({ taskId, stepId: stepIds[0] })).rejects.toThrow(
+      /worktree_per_agent/,
+    );
+  });
+
+  /** Every agent stopping is the earliest a step could be done, not proof that
+   * it is: a step that asks for evidence and has none did not succeed. */
+  test("fails a settled step whose workspace it cannot inspect for evidence", async () => {
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    const workflow = await service.setWorkflow({
+      taskId,
+      steps: stamp([makeStepInput({ requireChanges: true })]),
+    });
+    const stepId = workflow.steps[0].id;
+
+    const running = await engine.runStep({ taskId, stepId });
+    workspaces.delete(running.runs[0].workspaceIds[0]);
+    const agentId = running.runs[0].agentIds[0];
+    agentManager.setLifecycle(agentId, "running");
+    agentManager.setLifecycle(agentId, "idle");
+
+    await waitFor(async () => {
+      const step = (await service.getWorkflow(taskId))?.steps[0];
+      return step?.runs[0]?.status === "failed";
+    });
+
+    const step = (await service.getWorkflow(taskId))?.steps[0];
+    expect(step?.runs[0].error).toMatch(/no workspace to check/);
+    expect(settledTaskIds).toEqual([]);
+  });
+
+  /** An agent that loops is not an agent that errors: nothing else would ever
+   * stop it, and the card would wait on it forever. */
+  test("stops a run that outlives its step's timeout", async () => {
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    const workflow = await service.setWorkflow({
+      taskId,
+      steps: stamp([makeStepInput({ timeoutMs: 30 })]),
+    });
+    const stepId = workflow.steps[0].id;
+
+    const running = await engine.runStep({ taskId, stepId });
+    agentManager.setLifecycle(running.runs[0].agentIds[0], "running");
+
+    await waitFor(async () => {
+      const step = (await service.getWorkflow(taskId))?.steps[0];
+      return step?.runs[0]?.status === "failed";
+    });
+
+    const step = (await service.getWorkflow(taskId))?.steps[0];
+    expect(step?.runs[0].error).toMatch(/longer than its 30ms limit/);
+  });
+
+  /** A review is a second judgement or it is nothing: the reviewer is a new
+   * agent, and it is on the card as a reviewer so the tracker can tell it from
+   * the hands that did the work. */
+  test("puts a fresh reviewer on a card, attached as a reviewer", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const preset = await service.createPreset({
+      name: "Reviewer",
+      provider: "claude",
+      environmentKind: "project_default",
+      instructions: "Be strict.",
+    });
+    await service.configureBoard({ projectId, reviewerPresetId: preset.id });
+    await service.attachAgent({ taskId, agentId: "agt_worker", workspaceId: "ws_shared" });
+
+    const requested = await engine.requestReview(taskId);
+
+    expect(requested).not.toBeNull();
+    const task = await service.getTask(taskId);
+    const reviewer = task?.agents.find((agent) => agent.agentId === requested?.agentId);
+    expect(reviewer?.role).toBe("reviewer");
+    expect(await service.listTaskWorkerIds(taskId)).toEqual(["agt_worker"]);
+  });
+
+  test("does not review a board that names no reviewer", async () => {
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    await service.attachAgent({ taskId, agentId: "agt_worker", workspaceId: "ws_shared" });
+
+    expect(await engine.requestReview(taskId)).toBeNull();
+  });
 });

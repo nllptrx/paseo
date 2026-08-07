@@ -304,6 +304,7 @@ describe("TaskStore row shape", () => {
         reviewEnabled: false,
         reviewOnReject: "in_progress",
         archiveWorkspacesOnDone: false,
+        reviewerPresetId: null,
       });
       expect(store.getProject(project.id)?.board).toEqual(project.board);
     } finally {
@@ -321,6 +322,7 @@ describe("TaskStore row shape", () => {
         reviewEnabled: true,
         reviewOnReject: "backlog",
         archiveWorkspacesOnDone: false,
+        reviewerPresetId: null,
       });
     } finally {
       store.close();

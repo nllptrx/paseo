@@ -274,6 +274,9 @@ export class TasksSession {
         ...(request.archiveWorkspacesOnDone !== undefined
           ? { archiveWorkspacesOnDone: request.archiveWorkspacesOnDone }
           : {}),
+        ...(request.reviewerPresetId !== undefined
+          ? { reviewerPresetId: request.reviewerPresetId }
+          : {}),
       });
       this.host.emit({
         type: "tasks.board.configure.response",

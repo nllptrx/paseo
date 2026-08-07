@@ -167,6 +167,7 @@ describe("task workflow form model", () => {
         completion: "all",
         workspace: { mode: "worktree_per_agent" },
         trigger: { type: "manual" },
+        requireChanges: true,
       },
       {
         name: "Review",
@@ -176,6 +177,7 @@ describe("task workflow form model", () => {
         completion: "all",
         workspace: { mode: "reuse_previous" },
         trigger: { type: "immediate" },
+        requireChanges: true,
       },
     ]);
   });

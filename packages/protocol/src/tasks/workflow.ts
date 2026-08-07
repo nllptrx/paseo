@@ -51,9 +51,24 @@ export const StepRunSchema = z.object({
   agentIds: z.array(z.string()),
   workspaceIds: z.array(z.string()),
   scheduleId: z.string().nullable(),
+  /** Where the checkout stood when this run began, so "did it change anything"
+   * can be answered without an upstream to compare against — a fresh worktree
+   * has none until it is pushed. */
+  startCommit: z.string().nullable().optional(),
   error: z.string().nullable(),
 });
 export type StepRun = z.infer<typeof StepRunSchema>;
+
+/**
+ * A command that has to pass before a step counts as done. An argv, never a
+ * shell string: what runs is what the author listed, with nothing interpolated
+ * into a command line on the way.
+ */
+export const StepVerificationSchema = z.object({
+  command: z.array(z.string().trim().min(1)).min(1),
+  timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+});
+export type StepVerification = z.infer<typeof StepVerificationSchema>;
 
 export const StepSchema = z.object({
   id: z.string(),
@@ -63,6 +78,13 @@ export const StepSchema = z.object({
   completion: z.literal("all"),
   workspace: StepWorkspaceStrategySchema,
   trigger: StepTriggerSchema,
+  /** Refuse to call the step done when its workspace is untouched. An agent
+   * that stopped is not an agent that did something. */
+  requireChanges: z.boolean().optional(),
+  verify: StepVerificationSchema.optional(),
+  /** Wall-clock ceiling for one run of this step. An agent looping forever
+   * reads as running forever, and nothing else would ever stop it. */
+  timeoutMs: z.number().int().positive().max(86_400_000).optional(),
   runs: z.array(StepRunSchema),
 });
 export type Step = z.infer<typeof StepSchema>;

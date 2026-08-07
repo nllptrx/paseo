@@ -5587,6 +5587,7 @@ export class DaemonClient {
       reviewEnabled?: boolean;
       reviewOnReject?: "in_progress" | "todo" | "backlog";
       archiveWorkspacesOnDone?: boolean;
+      reviewerPresetId?: string | null;
     },
     requestId?: string,
   ): Promise<TasksBoardConfigurePayload> {

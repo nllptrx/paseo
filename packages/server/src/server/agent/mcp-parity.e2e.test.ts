@@ -1244,6 +1244,50 @@ describe("Suite G: Task Tools", () => {
     expect((approved.task as StructuredContent).status).toBe("done");
   }, 20_000);
 
+  /** A verdict from the agent that wrote the change is the same judgement that
+   * produced it, asked twice — which is the one thing a review state exists to
+   * prevent. */
+  test("refuses a review from the agent that worked the task", async () => {
+    const project = await callToolStructured(topLevelClient, "create_task_project", {
+      name: "Review guard",
+      prefix: "rvg",
+    });
+    const created = await callToolStructured(topLevelClient, "create_task", {
+      projectId: str(project.projectId),
+      title: "Self-review attempt",
+    });
+    const taskId = str((created.task as StructuredContent).id);
+
+    let agentId: string | null = null;
+    let agentClient: McpClient | null = null;
+    try {
+      agentId = await createTopLevelAgent({ title: "Task worker" });
+      agentClient = await createMcpClient(
+        `http://127.0.0.1:${daemonHandle.port}/mcp/agents?callerAgentId=${encodeURIComponent(agentId)}`,
+      );
+      await callToolStructured(agentClient, "attach_task_agent", { taskId });
+      await callToolStructured(topLevelClient, "update_task", { taskId, status: "in_review" });
+
+      await expectToolError(
+        agentClient,
+        "review_task",
+        { taskId, verdict: "approve" },
+        /cannot review it/i,
+      );
+
+      // A verdict from somewhere else still lands: the guard is about who, not
+      // about refusing review.
+      const approved = await callToolStructured(topLevelClient, "review_task", {
+        taskId,
+        verdict: "approve",
+      });
+      expect((approved.task as StructuredContent).status).toBe("done");
+    } finally {
+      await agentClient?.close();
+      await archiveAgentIfPresent(agentId);
+    }
+  }, 20_000);
+
   /** A workflow belongs to the card. Adding one twice must leave one workflow,
    * not two competing answers to what this task is doing. */
   test("attaches a workflow to a task and replaces it on the next write", async () => {

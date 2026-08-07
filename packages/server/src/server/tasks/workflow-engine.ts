@@ -14,6 +14,7 @@ import type { ScheduleService } from "../schedule/service.js";
 import type { PersistedWorkspaceRecord } from "../workspace-registry.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../worktree-session.js";
 import type { TaskService } from "./service.js";
+import { checkStepEvidence, readHeadCommit, type StepEvidenceResult } from "./step-verification.js";
 
 const RETRYABLE_RUN_STATUSES: ReadonlySet<StepRunStatus> = new Set([
   "failed",
@@ -84,6 +85,8 @@ interface RunTracker {
   pending: Set<string>;
   failedReason: string | null;
   unsubscribes: Map<string, () => void>;
+  /** Cleared whichever way the run ends, so a settled run never fires it. */
+  timeout: ReturnType<typeof setTimeout> | null;
 }
 
 function latestRunOf(step: Step): StepRun | null {
@@ -103,6 +106,35 @@ function stepAgentTitle(step: Step, spec: StepAgentSpec, agentIndex: number): st
   return step.agents.length > 1
     ? `${step.name} (${agentIndex + 1}/${step.agents.length}) — ${suffix}`
     : step.name;
+}
+
+/**
+ * What a reviewer is told. Deliberately spare: the card's own words and the
+ * instruction to read the change. Handing it the worker's reasoning would give
+ * it the conclusion it is supposed to reach independently.
+ */
+function buildReviewPrompt(input: {
+  task: { title: string; description: string };
+  instructions: string;
+}): string {
+  const lines = [
+    "You are reviewing a change someone else made. You did not write it and you have not seen how it was written.",
+    "",
+    `Task: ${input.task.title}`,
+  ];
+  if (input.task.description.trim().length > 0) {
+    lines.push("", input.task.description.trim());
+  }
+  if (input.instructions.trim().length > 0) {
+    lines.push("", input.instructions.trim());
+  }
+  lines.push(
+    "",
+    "Read the diff in this workspace and decide whether it does what the task asks, correctly.",
+    "Record what you found with comment_task, then call review_task with approve or reject.",
+    "Reject when you cannot tell: an unverifiable change is not an approved one.",
+  );
+  return lines.join("\n");
 }
 
 function stepRunLabels(taskId: string, stepId: string, runId: string): Record<string, string> {
@@ -491,6 +523,70 @@ export class TaskWorkflowEngine {
     return { cwd: created.workspace.cwd, workspaceId: created.workspace.workspaceId };
   }
 
+  /**
+   * Puts a fresh agent on a card that has reached review.
+   *
+   * It is a new agent on purpose. The one reliable multi-agent pattern is a
+   * verifier with no implementation context: an agent asked to check its own
+   * work gives the same judgement that produced the work, asked twice. This one
+   * inherits nothing but the card and the checkout, and it attaches as a
+   * reviewer so the tracker will accept its verdict and refuse the workers'.
+   *
+   * It runs in the workspace the work happened in — reviewing a change means
+   * reading it, and a clean worktree elsewhere has nothing to read.
+   */
+  async requestReview(taskId: string): Promise<{ agentId: string } | null> {
+    const task = await this.taskService.getTask(taskId);
+    if (!task) {
+      return null;
+    }
+    const project = await this.taskService.getProject(task.projectId);
+    const presetId = project?.board?.reviewerPresetId;
+    if (!presetId) {
+      return null;
+    }
+    const preset = await this.taskService.getPreset(presetId);
+    if (!preset) {
+      this.logger.warn(
+        { taskId, presetId },
+        "The board names a reviewer preset that no longer exists",
+      );
+      return null;
+    }
+    const workspace = await this.resolveExistingTaskWorkspace(taskId);
+    if (!workspace) {
+      this.logger.warn({ taskId }, "Cannot review a task whose work left no workspace to read");
+      return null;
+    }
+
+    const created = await this.createAgent({
+      kind: "mcp",
+      provider: formatProviderModel(
+        preset.provider as StepAgentSpec["provider"],
+        preset.model ?? undefined,
+      ),
+      title: `Review ${task.title}`,
+      initialPrompt: buildReviewPrompt({ task, instructions: preset.instructions }),
+      cwd: workspace.cwd,
+      workspaceId: workspace.workspaceId,
+      mode: preset.modeId ?? undefined,
+      thinking: preset.thinkingOptionId ?? undefined,
+      unattended: true,
+      promptFailure: "return-error",
+      background: true,
+      notifyOnFinish: false,
+    });
+
+    await this.taskService.attachAgent({
+      taskId,
+      agentId: created.snapshot.id,
+      workspaceId: workspace.workspaceId,
+      presetId: preset.id,
+      role: "reviewer",
+    });
+    return { agentId: created.snapshot.id };
+  }
+
   private async resolveExistingTaskWorkspace(taskId: string): Promise<AgentTarget | null> {
     for (const link of await this.taskService.listTaskAgents(taskId)) {
       const workspace = await this.getWorkspace(link.workspaceId);
@@ -535,6 +631,14 @@ export class TaskWorkflowEngine {
         }));
       }
       case "worktree": {
+        // One checkout, several writers, is a race the engine would be handing
+        // out rather than a configuration. `worktree_per_agent` exists for
+        // exactly this, so say so instead of letting them collide.
+        if (agentCount > 1) {
+          throw new Error(
+            `Step ${step.id} fans out to ${agentCount} agents but shares one worktree; use worktree_per_agent`,
+          );
+        }
         const sourceCwd = await this.resolveProjectRootCwd(identifier.taskId);
         const baseBranch = await this.resolveParentBranch(identifier.taskId);
         const created = await this.createWorktreeWorkspace({
@@ -789,6 +893,7 @@ export class TaskWorkflowEngine {
     }
 
     const workspaceIds = Array.from(new Set(targets.map((target) => target.workspaceId)));
+    const startCommit = step.requireChanges === true ? await readHeadCommit(targets[0].cwd) : null;
     const startedAt = this.now().toISOString();
     const initialStatus: StepRunStatus = agentIds.length === 0 ? "failed" : "running";
     const { step: updatedStep } = await this.taskService.mutateStep({
@@ -805,6 +910,7 @@ export class TaskWorkflowEngine {
             agentIds,
             workspaceIds,
             scheduleId: null,
+            startCommit,
             error:
               initialStatus === "failed" ? (creationError ?? "No agent could be created") : null,
           },
@@ -817,7 +923,7 @@ export class TaskWorkflowEngine {
     }
 
     await this.attachRunAgentsToTask(identifier.taskId, agentIds, targets);
-    this.trackRun(identifier, runId, agentIds, creationError);
+    this.trackRun(identifier, runId, agentIds, creationError, step.timeoutMs);
     return updatedStep;
   }
 
@@ -845,11 +951,49 @@ export class TaskWorkflowEngine {
     }
   }
 
+  /**
+   * Stops a run that has outlived its step's ceiling. Without this an agent
+   * that loops reads as running forever: nothing it does is an error, so no
+   * observer fires, and the card waits on it indefinitely. The agents are
+   * cancelled so the tokens stop too, not merely disowned.
+   */
+  private armRunTimeout(tracker: RunTracker, timeoutMs: number | undefined): void {
+    if (!timeoutMs) {
+      return;
+    }
+    tracker.timeout = setTimeout(() => {
+      if (!this.runTrackers.has(tracker.runId)) {
+        return;
+      }
+      void this.cancelRunAgents(tracker).finally(() => {
+        void this.finishRun(
+          tracker,
+          "failed",
+          `The step ran longer than its ${timeoutMs}ms limit and was stopped`,
+        );
+      });
+    }, timeoutMs);
+  }
+
+  private async cancelRunAgents(tracker: RunTracker): Promise<void> {
+    for (const agentId of tracker.pending) {
+      try {
+        await cancelAgentRunCommand(
+          { agentManager: this.agentManager, logger: this.logger },
+          agentId,
+        );
+      } catch (error) {
+        this.logger.warn({ err: error, agentId }, "Failed to cancel a timed-out step-run agent");
+      }
+    }
+  }
+
   private trackRun(
     identifier: TaskStepIdentifier,
     runId: string,
     agentIds: string[],
     initialError: string | null,
+    timeoutMs?: number,
   ): void {
     const tracker: RunTracker = {
       identifier,
@@ -857,8 +1001,10 @@ export class TaskWorkflowEngine {
       pending: new Set(agentIds),
       failedReason: initialError,
       unsubscribes: new Map(),
+      timeout: null,
     };
     this.runTrackers.set(runId, tracker);
+    this.armRunTimeout(tracker, timeoutMs);
 
     for (const agentId of agentIds) {
       const observer = observeAgentCompletion();
@@ -908,7 +1054,7 @@ export class TaskWorkflowEngine {
 
     if (tracker.pending.size === 0) {
       if (tracker.failedReason) {
-        this.runTrackers.delete(runId);
+        this.clearTracker(runId);
         return;
       }
       void this.finishRun(tracker, "succeeded", null);
@@ -925,6 +1071,25 @@ export class TaskWorkflowEngine {
     if (!this.runTrackers.has(tracker.runId)) {
       return;
     }
+
+    // Every agent stopping is the earliest a step could be done, not proof that
+    // it is. The step's own evidence decides, and a step that names none keeps
+    // the old meaning.
+    let settledStatus = status;
+    let settledError = error;
+    if (status === "succeeded") {
+      const evidence = await this.collectEvidence(tracker).catch((evidenceError) => ({
+        ok: false,
+        error: `Could not check this step's evidence: ${
+          evidenceError instanceof Error ? evidenceError.message : String(evidenceError)
+        }`,
+      }));
+      if (!evidence.ok) {
+        settledStatus = "failed";
+        settledError = evidence.error;
+      }
+    }
+
     const now = this.now().toISOString();
     let steps: Step[] = [];
     let stepIndex = -1;
@@ -938,7 +1103,9 @@ export class TaskWorkflowEngine {
           return {
             ...current,
             runs: current.runs.map((run) =>
-              run.id === tracker.runId ? { ...run, status, endedAt: now, error } : run,
+              run.id === tracker.runId
+                ? { ...run, status: settledStatus, endedAt: now, error: settledError }
+                : run,
             ),
           };
         },
@@ -946,16 +1113,14 @@ export class TaskWorkflowEngine {
       steps = result.steps;
       stepIndex = result.stepIndex;
     } finally {
-      if (status === "succeeded") {
-        this.runTrackers.delete(tracker.runId);
-      }
+      this.clearTracker(tracker.runId);
     }
 
     void this.drainQueue().catch((drainError) => {
       this.logger.error({ err: drainError }, "Failed to drain the step-run queue");
     });
 
-    if (status !== "succeeded" || stepIndex === -1) {
+    if (settledStatus !== "succeeded" || stepIndex === -1) {
       return;
     }
     await this.afterStepSettled(tracker.identifier.taskId, steps, stepIndex).catch(
@@ -972,6 +1137,39 @@ export class TaskWorkflowEngine {
     );
   }
 
+  /**
+   * Runs the step's own checks in the workspace its agents used. A run with no
+   * workspace (a skip, a schedule placeholder) has nothing to inspect and is
+   * taken at its word.
+   */
+  private async collectEvidence(tracker: RunTracker): Promise<StepEvidenceResult> {
+    const workflow = await this.taskService.getWorkflow(tracker.identifier.taskId);
+    const step = workflow?.steps.find((entry) => entry.id === tracker.identifier.stepId);
+    if (!step) {
+      return { ok: true, error: null };
+    }
+    const requireChanges = step.requireChanges === true;
+    const verify = step.verify ?? null;
+    if (!requireChanges && !verify) {
+      return { ok: true, error: null };
+    }
+    const run = step.runs.find((entry) => entry.id === tracker.runId);
+    const workspaceId = run?.workspaceIds[0];
+    const workspace = workspaceId ? await this.getWorkspace(workspaceId) : null;
+    if (!workspace) {
+      return {
+        ok: false,
+        error: "This step asks for evidence but its run recorded no workspace to check",
+      };
+    }
+    return checkStepEvidence({
+      cwd: workspace.cwd,
+      requireChanges,
+      verify,
+      startCommit: run?.startCommit ?? null,
+    });
+  }
+
   private discardTracker(runId: string): void {
     const tracker = this.runTrackers.get(runId);
     if (!tracker) {
@@ -979,6 +1177,14 @@ export class TaskWorkflowEngine {
     }
     for (const unsubscribe of tracker.unsubscribes.values()) {
       unsubscribe();
+    }
+    this.clearTracker(runId);
+  }
+
+  private clearTracker(runId: string): void {
+    const tracker = this.runTrackers.get(runId);
+    if (tracker?.timeout) {
+      clearTimeout(tracker.timeout);
     }
     this.runTrackers.delete(runId);
   }

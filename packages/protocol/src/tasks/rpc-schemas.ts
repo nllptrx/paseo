@@ -248,6 +248,7 @@ export const TasksBoardConfigureRequestSchema = z.object({
   reviewEnabled: z.boolean().optional(),
   reviewOnReject: z.enum(["in_progress", "todo", "backlog"]).optional(),
   archiveWorkspacesOnDone: z.boolean().optional(),
+  reviewerPresetId: z.string().nullable().optional(),
 });
 
 export const TasksBoardConfigureResponseSchema = z.object({
