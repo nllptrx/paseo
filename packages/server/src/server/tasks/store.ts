@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
   Task,
+  TaskAgentLink,
   TaskAttachment,
   TaskComment,
   TaskLabel,
@@ -13,6 +14,29 @@ import type {
   TaskSnapshot,
   TaskStatus,
 } from "@getpaseo/protocol/tasks/types";
+import {
+  BlobPathRowSchema,
+  CountRowSchema,
+  LabelIdRowSchema,
+  MaxPositionRowSchema,
+  NextNumberRowSchema,
+  RevisionRowSchema,
+  TaskAgentRowSchema,
+  TaskAttachmentRowSchema,
+  TaskCommentRowSchema,
+  TaskIdRowSchema,
+  TaskLabelRowSchema,
+  TaskPresetRowSchema,
+  TaskProjectRowSchema,
+  TaskRowSchema,
+  selectAll,
+  selectOne,
+  type TaskAttachmentRow,
+  type TaskCommentRow,
+  type TaskPresetRow,
+  type TaskProjectRow,
+  type TaskRow,
+} from "./rows.js";
 import { migrateTasksDatabase } from "./schema.js";
 
 /** Gap between neighbours, so an insert between two of them halves the gap
@@ -21,14 +45,6 @@ const POSITION_STEP = 1024;
 
 function generateId(prefix: string): string {
   return `${prefix}_${randomBytes(8).toString("hex")}`;
-}
-
-function toBool(value: unknown): boolean {
-  return value === 1 || value === true;
-}
-
-function toNullableString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 export interface CreateTaskProjectInput {
@@ -90,6 +106,43 @@ export interface CreateTaskPresetInput {
   baseBranch?: string | null;
 }
 
+function toProject(row: TaskProjectRow): TaskProject {
+  return {
+    id: row.id,
+    name: row.name,
+    prefix: row.prefix,
+    color: row.color,
+    paseoProjectId: row.paseo_project_id,
+    createdAt: row.created_at,
+  };
+}
+
+function toAttachment(row: TaskAttachmentRow): TaskAttachment {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    mime: row.mime,
+    sizeBytes: row.size_bytes,
+    isImage: row.is_image === 1,
+    createdAt: row.created_at,
+  };
+}
+
+function toPreset(row: TaskPresetRow): TaskPreset {
+  return {
+    id: row.id,
+    name: row.name,
+    provider: row.provider,
+    model: row.model,
+    modeId: row.mode_id,
+    thinkingOptionId: row.thinking_option_id,
+    instructions: row.instructions,
+    environmentKind: row.environment_kind,
+    baseBranch: row.base_branch,
+    createdAt: row.created_at,
+  };
+}
+
 /**
  * The tracker's persistence. Every method is one statement or one transaction —
  * callers never read, merge and write back, so two writers cannot lose each
@@ -129,10 +182,12 @@ export class TaskStore {
   }
 
   getRevision(): number {
-    const row = this.db.prepare("SELECT revision FROM task_revision WHERE id = 1").get() as
-      | { revision: number }
-      | undefined;
-    return Number(row?.revision ?? 0);
+    const row = selectOne(
+      this.db.prepare("SELECT revision FROM task_revision WHERE id = 1"),
+      RevisionRowSchema,
+      "task_revision",
+    );
+    return row?.revision ?? 0;
   }
 
   // --- Projects ---
@@ -140,16 +195,17 @@ export class TaskStore {
   createProject(input: CreateTaskProjectInput): TaskProject {
     const id = generateId("tprj");
     const prefix = input.prefix.trim().toUpperCase();
+    const name = input.name.trim();
     const createdAt = this.timestamp();
     this.db
       .prepare(
         `INSERT INTO task_projects (id, name, prefix, color, paseo_project_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, input.name.trim(), prefix, input.color, input.paseoProjectId ?? null, createdAt);
+      .run(id, name, prefix, input.color, input.paseoProjectId ?? null, createdAt);
     return {
       id,
-      name: input.name.trim(),
+      name,
       prefix,
       color: input.color,
       paseoProjectId: input.paseoProjectId ?? null,
@@ -158,46 +214,35 @@ export class TaskStore {
   }
 
   listProjects(): TaskProject[] {
-    return this.db
-      .prepare("SELECT * FROM task_projects ORDER BY name COLLATE NOCASE, id")
-      .all()
-      .map((row) => this.rowToProject(row as Record<string, unknown>));
-  }
-
-  private rowToProject(row: Record<string, unknown>): TaskProject {
-    return {
-      id: String(row.id),
-      name: String(row.name),
-      prefix: String(row.prefix),
-      color: String(row.color),
-      paseoProjectId: toNullableString(row.paseo_project_id),
-      createdAt: String(row.created_at),
-    };
+    return selectAll(
+      this.db.prepare("SELECT * FROM task_projects ORDER BY name COLLATE NOCASE, id"),
+      TaskProjectRowSchema,
+      "task_projects",
+    ).map(toProject);
   }
 
   // --- Labels ---
 
   createLabel(input: { projectId: string; name: string; color: string }): TaskLabel {
     const id = generateId("tlbl");
+    const name = input.name.trim();
     this.db
       .prepare("INSERT INTO task_labels (id, project_id, name, color) VALUES (?, ?, ?, ?)")
-      .run(id, input.projectId, input.name.trim(), input.color);
-    return { id, projectId: input.projectId, name: input.name.trim(), color: input.color };
+      .run(id, input.projectId, name, input.color);
+    return { id, projectId: input.projectId, name, color: input.color };
   }
 
   listLabels(): TaskLabel[] {
-    return this.db
-      .prepare("SELECT * FROM task_labels ORDER BY name COLLATE NOCASE, id")
-      .all()
-      .map((row) => {
-        const record = row as Record<string, unknown>;
-        return {
-          id: String(record.id),
-          projectId: String(record.project_id),
-          name: String(record.name),
-          color: String(record.color),
-        };
-      });
+    return selectAll(
+      this.db.prepare("SELECT * FROM task_labels ORDER BY name COLLATE NOCASE, id"),
+      TaskLabelRowSchema,
+      "task_labels",
+    ).map((row) => ({
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      color: row.color,
+    }));
   }
 
   deleteLabel(labelId: string): void {
@@ -208,13 +253,16 @@ export class TaskStore {
 
   createTask(input: CreateTaskInput): Task {
     return this.transaction(() => {
-      const projectRow = this.db
-        .prepare("SELECT next_task_number FROM task_projects WHERE id = ?")
-        .get(input.projectId) as { next_task_number: number } | undefined;
+      const projectRow = selectOne(
+        this.db.prepare("SELECT next_task_number FROM task_projects WHERE id = ?"),
+        NextNumberRowSchema,
+        "task_projects",
+        [input.projectId],
+      );
       if (!projectRow) {
         throw new Error(`Unknown task project ${input.projectId}`);
       }
-      const number = Number(projectRow.next_task_number);
+      const number = projectRow.next_task_number;
       this.db
         .prepare("UPDATE task_projects SET next_task_number = ? WHERE id = ?")
         .run(number + 1, input.projectId);
@@ -222,7 +270,6 @@ export class TaskStore {
       const status = input.status ?? "backlog";
       const id = generateId("task");
       const timestamp = this.timestamp();
-      const position = this.nextPosition(input.projectId, status);
 
       this.db
         .prepare(
@@ -241,7 +288,7 @@ export class TaskStore {
           input.priority ?? "none",
           input.dueDate ?? null,
           input.parentTaskId ?? null,
-          position,
+          this.nextPosition(input.projectId, status),
           timestamp,
           timestamp,
         );
@@ -252,11 +299,13 @@ export class TaskStore {
   }
 
   private nextPosition(projectId: string, status: TaskStatus): number {
-    const row = this.db
-      .prepare("SELECT MAX(position) AS top FROM tasks WHERE project_id = ? AND status = ?")
-      .get(projectId, status) as { top: number | null } | undefined;
-    const top = row?.top;
-    return typeof top === "number" ? top + POSITION_STEP : POSITION_STEP;
+    const row = selectOne(
+      this.db.prepare("SELECT MAX(position) AS top FROM tasks WHERE project_id = ? AND status = ?"),
+      MaxPositionRowSchema,
+      "tasks",
+      [projectId, status],
+    );
+    return row?.top === null || row?.top === undefined ? POSITION_STEP : row.top + POSITION_STEP;
   }
 
   private replaceLabels(taskId: string, labelIds: readonly string[]): void {
@@ -274,11 +323,11 @@ export class TaskStore {
       const current = this.requireTaskRow(input.taskId);
       // Moving between statuses lands the task at the end of its new column;
       // an explicit drop uses moveTask instead.
-      const status = input.status ?? (current.status as TaskStatus);
+      const status = input.status ?? current.status;
       const position =
-        input.status && input.status !== current.status
-          ? this.nextPosition(String(current.project_id), status)
-          : Number(current.position);
+        status === current.status
+          ? current.position
+          : this.nextPosition(current.project_id, status);
 
       this.db
         .prepare(
@@ -288,14 +337,12 @@ export class TaskStore {
            WHERE id = ?`,
         )
         .run(
-          input.title?.trim() ?? String(current.title),
-          input.description ?? String(current.description),
+          input.title?.trim() ?? current.title,
+          input.description ?? current.description,
           status,
-          input.priority ?? (current.priority as TaskPriority),
-          input.dueDate === undefined ? toNullableString(current.due_date) : input.dueDate,
-          input.parentTaskId === undefined
-            ? toNullableString(current.parent_task_id)
-            : input.parentTaskId,
+          input.priority ?? current.priority,
+          input.dueDate === undefined ? current.due_date : input.dueDate,
+          input.parentTaskId === undefined ? current.parent_task_id : input.parentTaskId,
           position,
           this.timestamp(),
           input.taskId,
@@ -337,67 +384,70 @@ export class TaskStore {
   }
 
   getTask(taskId: string): Task | null {
-    const row = this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as
-      | Record<string, unknown>
-      | undefined;
-    return row ? this.rowToTask(row) : null;
+    const row = this.findTaskRow(taskId);
+    return row ? this.toTask(row) : null;
   }
 
-  private requireTask(taskId: string): Task {
-    const task = this.getTask(taskId);
-    if (!task) {
-      throw new Error(`Unknown task ${taskId}`);
-    }
-    return task;
+  private findTaskRow(taskId: string): TaskRow | null {
+    return selectOne(this.db.prepare("SELECT * FROM tasks WHERE id = ?"), TaskRowSchema, "tasks", [
+      taskId,
+    ]);
   }
 
-  private requireTaskRow(taskId: string): Record<string, unknown> {
-    const row = this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as
-      | Record<string, unknown>
-      | undefined;
+  private requireTaskRow(taskId: string): TaskRow {
+    const row = this.findTaskRow(taskId);
     if (!row) {
       throw new Error(`Unknown task ${taskId}`);
     }
     return row;
   }
 
-  private rowToTask(row: Record<string, unknown>): Task {
-    const id = String(row.id);
+  private requireTask(taskId: string): Task {
+    return this.toTask(this.requireTaskRow(taskId));
+  }
+
+  private toTask(row: TaskRow): Task {
+    const labelIds = selectAll(
+      this.db.prepare("SELECT label_id FROM task_label_links WHERE task_id = ?"),
+      LabelIdRowSchema,
+      "task_label_links",
+      [row.id],
+    ).map((entry) => entry.label_id);
+    const commentCount =
+      selectOne(
+        this.db.prepare("SELECT COUNT(*) AS total FROM task_comments WHERE task_id = ?"),
+        CountRowSchema,
+        "task_comments",
+        [row.id],
+      )?.total ?? 0;
+
     return {
-      id,
-      projectId: String(row.project_id),
-      number: Number(row.number),
-      title: String(row.title),
-      description: String(row.description),
-      status: row.status as TaskStatus,
-      priority: row.priority as TaskPriority,
-      dueDate: toNullableString(row.due_date),
-      parentTaskId: toNullableString(row.parent_task_id),
-      position: Number(row.position),
-      labelIds: this.db
-        .prepare("SELECT label_id FROM task_label_links WHERE task_id = ?")
-        .all(id)
-        .map((entry) => String((entry as { label_id: string }).label_id)),
-      agents: this.listTaskAgents(id),
-      attachments: this.listAttachments({ taskId: id }),
-      commentCount: Number(
-        (
-          this.db
-            .prepare("SELECT COUNT(*) AS total FROM task_comments WHERE task_id = ?")
-            .get(id) as { total: number }
-        ).total,
-      ),
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      id: row.id,
+      projectId: row.project_id,
+      number: row.number,
+      title: row.title,
+      description: row.description,
+      status: row.status,
+      priority: row.priority,
+      dueDate: row.due_date,
+      parentTaskId: row.parent_task_id,
+      position: row.position,
+      labelIds,
+      agents: this.listTaskAgents(row.id),
+      attachments: this.listAttachments({ taskId: row.id }),
+      commentCount,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 
   /** One read for a whole view, stamped with the revision it saw. */
   snapshot(): TaskSnapshot {
-    const tasks = this.db
-      .prepare("SELECT * FROM tasks ORDER BY project_id, status, position, id")
-      .all()
-      .map((row) => this.rowToTask(row as Record<string, unknown>));
+    const tasks = selectAll(
+      this.db.prepare("SELECT * FROM tasks ORDER BY project_id, status, position, id"),
+      TaskRowSchema,
+      "tasks",
+    ).map((row) => this.toTask(row));
     return {
       revision: this.getRevision(),
       projects: this.listProjects(),
@@ -435,26 +485,27 @@ export class TaskStore {
       .run(input.taskId, input.agentId);
   }
 
-  listTaskAgents(taskId: string): Task["agents"] {
-    return this.db
-      .prepare("SELECT * FROM task_agents WHERE task_id = ? ORDER BY attached_at, agent_id")
-      .all(taskId)
-      .map((row) => {
-        const record = row as Record<string, unknown>;
-        return {
-          agentId: String(record.agent_id),
-          workspaceId: String(record.workspace_id),
-          presetId: toNullableString(record.preset_id),
-          attachedAt: String(record.attached_at),
-        };
-      });
+  listTaskAgents(taskId: string): TaskAgentLink[] {
+    return selectAll(
+      this.db.prepare("SELECT * FROM task_agents WHERE task_id = ? ORDER BY attached_at, agent_id"),
+      TaskAgentRowSchema,
+      "task_agents",
+      [taskId],
+    ).map((row) => ({
+      agentId: row.agent_id,
+      workspaceId: row.workspace_id,
+      presetId: row.preset_id,
+      attachedAt: row.attached_at,
+    }));
   }
 
   findTasksByAgent(agentId: string): string[] {
-    return this.db
-      .prepare("SELECT task_id FROM task_agents WHERE agent_id = ?")
-      .all(agentId)
-      .map((row) => String((row as { task_id: string }).task_id));
+    return selectAll(
+      this.db.prepare("SELECT task_id FROM task_agents WHERE agent_id = ?"),
+      TaskIdRowSchema,
+      "task_agents",
+      [agentId],
+    ).map((row) => row.task_id);
   }
 
   // --- Comments ---
@@ -492,24 +543,26 @@ export class TaskStore {
   }
 
   listComments(taskId: string): TaskComment[] {
-    return this.db
-      .prepare("SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at, id")
-      .all(taskId)
-      .map((row) => {
-        const record = row as Record<string, unknown>;
-        const id = String(record.id);
-        return {
-          id,
-          taskId: String(record.task_id),
-          kind: record.kind as TaskComment["kind"],
-          authorName: String(record.author_name),
-          agentId: toNullableString(record.agent_id),
-          workspaceId: toNullableString(record.workspace_id),
-          body: String(record.body),
-          attachments: this.listAttachments({ commentId: id }),
-          createdAt: String(record.created_at),
-        };
-      });
+    return selectAll(
+      this.db.prepare("SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at, id"),
+      TaskCommentRowSchema,
+      "task_comments",
+      [taskId],
+    ).map((row) => this.toComment(row));
+  }
+
+  private toComment(row: TaskCommentRow): TaskComment {
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      kind: row.kind,
+      authorName: row.author_name,
+      agentId: row.agent_id,
+      workspaceId: row.workspace_id,
+      body: row.body,
+      attachments: this.listAttachments({ commentId: row.id }),
+      createdAt: row.created_at,
+    };
   }
 
   deleteComment(commentId: string): void {
@@ -549,37 +602,31 @@ export class TaskStore {
   }
 
   listAttachments(scope: { taskId?: string; commentId?: string }): TaskAttachment[] {
-    const [column, value] = scope.taskId
-      ? ["task_id", scope.taskId]
-      : ["comment_id", scope.commentId ?? ""];
-    return this.db
-      .prepare(`SELECT * FROM task_attachments WHERE ${column} = ? ORDER BY created_at, id`)
-      .all(value)
-      .map((row) => {
-        const record = row as Record<string, unknown>;
-        return {
-          id: String(record.id),
-          fileName: String(record.file_name),
-          mime: String(record.mime),
-          sizeBytes: Number(record.size_bytes),
-          isImage: toBool(record.is_image),
-          createdAt: String(record.created_at),
-        };
-      });
+    const statement = scope.taskId
+      ? this.db.prepare("SELECT * FROM task_attachments WHERE task_id = ? ORDER BY created_at, id")
+      : this.db.prepare(
+          "SELECT * FROM task_attachments WHERE comment_id = ? ORDER BY created_at, id",
+        );
+    return selectAll(statement, TaskAttachmentRowSchema, "task_attachments", [
+      scope.taskId ?? scope.commentId ?? "",
+    ]).map(toAttachment);
   }
 
   getAttachmentBlobPath(attachmentId: string): string | null {
-    const row = this.db
-      .prepare("SELECT blob_path FROM task_attachments WHERE id = ?")
-      .get(attachmentId) as { blob_path: string } | undefined;
-    return row ? String(row.blob_path) : null;
+    return (
+      selectOne(
+        this.db.prepare("SELECT blob_path FROM task_attachments WHERE id = ?"),
+        BlobPathRowSchema,
+        "task_attachments",
+        [attachmentId],
+      )?.blob_path ?? null
+    );
   }
 
   // --- Presets ---
 
   createPreset(input: CreateTaskPresetInput): TaskPreset {
     const id = generateId("tpst");
-    const createdAt = this.timestamp();
     this.db
       .prepare(
         `INSERT INTO task_presets (
@@ -597,49 +644,34 @@ export class TaskStore {
         input.instructions ?? "",
         input.environmentKind,
         input.baseBranch ?? null,
-        createdAt,
+        this.timestamp(),
       );
-    return this.requirePreset(id);
-  }
-
-  listPresets(): TaskPreset[] {
-    return this.db
-      .prepare("SELECT * FROM task_presets ORDER BY name COLLATE NOCASE, id")
-      .all()
-      .map((row) => this.rowToPreset(row as Record<string, unknown>));
-  }
-
-  getPreset(presetId: string): TaskPreset | null {
-    const row = this.db.prepare("SELECT * FROM task_presets WHERE id = ?").get(presetId) as
-      | Record<string, unknown>
-      | undefined;
-    return row ? this.rowToPreset(row) : null;
-  }
-
-  private requirePreset(presetId: string): TaskPreset {
-    const preset = this.getPreset(presetId);
+    const preset = this.getPreset(id);
     if (!preset) {
-      throw new Error(`Unknown preset ${presetId}`);
+      throw new Error(`Preset ${id} vanished immediately after insert`);
     }
     return preset;
   }
 
-  deletePreset(presetId: string): void {
-    this.db.prepare("DELETE FROM task_presets WHERE id = ?").run(presetId);
+  listPresets(): TaskPreset[] {
+    return selectAll(
+      this.db.prepare("SELECT * FROM task_presets ORDER BY name COLLATE NOCASE, id"),
+      TaskPresetRowSchema,
+      "task_presets",
+    ).map(toPreset);
   }
 
-  private rowToPreset(row: Record<string, unknown>): TaskPreset {
-    return {
-      id: String(row.id),
-      name: String(row.name),
-      provider: String(row.provider) as TaskPreset["provider"],
-      model: toNullableString(row.model),
-      modeId: toNullableString(row.mode_id),
-      thinkingOptionId: toNullableString(row.thinking_option_id),
-      instructions: String(row.instructions),
-      environmentKind: row.environment_kind as TaskPreset["environmentKind"],
-      baseBranch: toNullableString(row.base_branch),
-      createdAt: String(row.created_at),
-    };
+  getPreset(presetId: string): TaskPreset | null {
+    const row = selectOne(
+      this.db.prepare("SELECT * FROM task_presets WHERE id = ?"),
+      TaskPresetRowSchema,
+      "task_presets",
+      [presetId],
+    );
+    return row ? toPreset(row) : null;
+  }
+
+  deletePreset(presetId: string): void {
+    this.db.prepare("DELETE FROM task_presets WHERE id = ?").run(presetId);
   }
 }

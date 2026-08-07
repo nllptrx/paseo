@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { TaskRowShapeError } from "./rows.js";
 import { TaskStore } from "./store.js";
 
 function createStore(): TaskStore {
@@ -238,5 +243,49 @@ describe("TaskStore", () => {
   it("refuses a task on an unknown project without consuming a number", () => {
     expect(() => store.createTask({ projectId: "nope", title: "Orphan" })).toThrow();
     expect(store.createTask({ projectId, title: "First" }).number).toBe(1);
+  });
+});
+
+describe("TaskStore row shape", () => {
+  let directory: string;
+
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), "paseo-tasks-"));
+  });
+
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /**
+   * The reason this store parses rows instead of casting them: a database
+   * written by a different build is a real state, and it has to be reported as
+   * one rather than turning into undefined halfway up the call stack.
+   */
+  it("names the table when the database on disk has a different shape", () => {
+    const databasePath = join(directory, "tasks.db");
+    const first = new TaskStore({ databasePath });
+    const projectId = first.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
+    first.createTask({ projectId, title: "Before the change" });
+    first.close();
+
+    const raw = new DatabaseSync(databasePath);
+    raw.exec("ALTER TABLE tasks RENAME COLUMN priority TO importance");
+    raw.close();
+
+    const second = new TaskStore({ databasePath });
+    try {
+      let thrown: unknown;
+      try {
+        second.snapshot();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(TaskRowShapeError);
+      expect((thrown as TaskRowShapeError).table).toBe("tasks");
+      expect((thrown as Error).message).toContain("priority");
+    } finally {
+      second.close();
+    }
   });
 });
