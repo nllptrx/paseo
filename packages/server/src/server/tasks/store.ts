@@ -767,7 +767,7 @@ export class TaskStore {
       "task_comments",
       [input.projectId, limit],
     );
-    return rows.reverse().map((row) => this.toComment(row));
+    return rows.toReversed().map((row) => this.toComment(row));
   }
 
   listComments(taskId: string): TaskComment[] {
