@@ -370,3 +370,32 @@ export const TasksFeedPostResponseSchema = z.object({
     error: z.string().nullable(),
   }),
 });
+
+export const TasksDependencyAddRequestSchema = z.object({
+  type: z.literal("tasks.dependency.add.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+  dependsOnTaskId: z.string(),
+});
+
+export const TasksDependencyRemoveRequestSchema = z.object({
+  type: z.literal("tasks.dependency.remove.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+  dependsOnTaskId: z.string(),
+});
+
+const TaskDependencyResultSchema = z.object({
+  requestId: z.string(),
+  error: z.string().nullable(),
+});
+
+export const TasksDependencyAddResponseSchema = z.object({
+  type: z.literal("tasks.dependency.add.response"),
+  payload: TaskDependencyResultSchema,
+});
+
+export const TasksDependencyRemoveResponseSchema = z.object({
+  type: z.literal("tasks.dependency.remove.response"),
+  payload: TaskDependencyResultSchema,
+});

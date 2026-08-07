@@ -31,6 +31,9 @@ export interface TaskStepIdentifier {
 interface WorktreeWorkspaceInput {
   cwd: string;
   firstAgentContext: { prompt: string };
+  /** Where the new branch starts. A subtask starts from its parent's branch so
+   * the two stack instead of racing main. */
+  baseBranch?: string;
 }
 
 export interface TaskWorkflowEngineDeps {
@@ -42,6 +45,7 @@ export interface TaskWorkflowEngineDeps {
     | "listWorkflows"
     | "mutateStep"
     | "attachAgent"
+    | "listTaskAgents"
     | "isAvailable"
   >;
   agentManager: AgentManager;
@@ -384,6 +388,30 @@ export class TaskWorkflowEngine {
     return this.getProjectRootCwd(project.paseoProjectId);
   }
 
+  /**
+   * A subtask's work starts from its parent's branch, not from main: the two
+   * stack, and the subtask's diff is reviewable on its own instead of carrying
+   * everything the parent already did.
+   *
+   * The parent's branch is the one its own worktree is on. A parent with no
+   * worktree yet has nothing to stack onto, and the subtask starts from the
+   * default branch like any other work.
+   */
+  private async resolveParentBranch(taskId: string): Promise<string | null> {
+    const task = await this.taskService.getTask(taskId);
+    if (!task?.parentTaskId) {
+      return null;
+    }
+    const parentLinks = await this.taskService.listTaskAgents(task.parentTaskId);
+    for (const link of parentLinks) {
+      const workspace = await this.getWorkspace(link.workspaceId);
+      if (workspace && !workspace.archivedAt && workspace.branch) {
+        return workspace.branch;
+      }
+    }
+    return null;
+  }
+
   private async resolveTargetsForStep(
     identifier: TaskStepIdentifier,
     steps: Step[],
@@ -404,9 +432,11 @@ export class TaskWorkflowEngine {
       }
       case "worktree": {
         const sourceCwd = await this.resolveProjectRootCwd(identifier.taskId);
+        const baseBranch = await this.resolveParentBranch(identifier.taskId);
         const created = await this.createWorktreeWorkspace({
           cwd: sourceCwd,
           firstAgentContext: { prompt: step.prompt },
+          ...(baseBranch ? { baseBranch } : {}),
         });
         return Array.from({ length: agentCount }, () => ({
           cwd: created.workspace.cwd,
@@ -415,11 +445,13 @@ export class TaskWorkflowEngine {
       }
       case "worktree_per_agent": {
         const sourceCwd = await this.resolveProjectRootCwd(identifier.taskId);
+        const baseBranch = await this.resolveParentBranch(identifier.taskId);
         const targets: AgentTarget[] = [];
         for (let i = 0; i < agentCount; i++) {
           const created = await this.createWorktreeWorkspace({
             cwd: sourceCwd,
             firstAgentContext: { prompt: step.prompt },
+            ...(baseBranch ? { baseBranch } : {}),
           });
           targets.push({ cwd: created.workspace.cwd, workspaceId: created.workspace.workspaceId });
         }

@@ -388,6 +388,40 @@ export class TasksSession {
     }
   }
 
+  async handleDependencyAddRequest(
+    request: Inbound<"tasks.dependency.add.request">,
+  ): Promise<void> {
+    try {
+      await this.taskService.addDependency({
+        taskId: request.taskId,
+        dependsOnTaskId: request.dependsOnTaskId,
+      });
+      this.host.emit({
+        type: "tasks.dependency.add.response",
+        payload: { requestId: request.requestId, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleDependencyRemoveRequest(
+    request: Inbound<"tasks.dependency.remove.request">,
+  ): Promise<void> {
+    try {
+      await this.taskService.removeDependency({
+        taskId: request.taskId,
+        dependsOnTaskId: request.dependsOnTaskId,
+      });
+      this.host.emit({
+        type: "tasks.dependency.remove.response",
+        payload: { requestId: request.requestId, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
   handleSubscribeRequest(request: Inbound<"tasks.subscribe.request">): void {
     this.unsubscribe?.();
     this.unsubscribe = this.taskService.onRevision((revision) => {

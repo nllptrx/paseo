@@ -152,5 +152,8 @@ export const TaskSnapshotSchema = z.object({
   tasks: z.array(TaskSchema),
   /** Only for tasks that have one; a board is mostly cards without workflows. */
   workflows: z.array(TaskWorkflowSchema).optional(),
+  /** `taskId` waits on `dependsOnTaskId`. Optional on the wire: a snapshot
+   * without it has no dependencies to draw. */
+  dependencies: z.array(z.object({ taskId: z.string(), dependsOnTaskId: z.string() })).optional(),
 });
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;

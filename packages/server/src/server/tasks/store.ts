@@ -560,6 +560,7 @@ export class TaskStore {
       labels: this.listLabels(),
       tasks,
       workflows: this.listWorkflows(),
+      dependencies: this.listDependencies(),
     };
   }
 

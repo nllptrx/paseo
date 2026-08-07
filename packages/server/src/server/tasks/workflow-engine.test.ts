@@ -109,9 +109,16 @@ describe("TaskWorkflowEngine", () => {
   let createdAgentCounter: number;
   let archivedWorkspaceIds: string[];
   let settledTaskIds: string[];
+  let worktreeBaseBranches: Array<string | null>;
   let workspaces: Map<
     string,
-    { workspaceId: string; cwd: string; isPaseoOwnedWorktree: boolean; archivedAt: string | null }
+    {
+      workspaceId: string;
+      cwd: string;
+      branch?: string;
+      isPaseoOwnedWorktree: boolean;
+      archivedAt: string | null;
+    }
   >;
 
   const logger = {
@@ -129,6 +136,7 @@ describe("TaskWorkflowEngine", () => {
     createdAgentCounter = 0;
     archivedWorkspaceIds = [];
     settledTaskIds = [];
+    worktreeBaseBranches = [];
     workspaces = new Map([
       [
         "ws_shared",
@@ -160,12 +168,14 @@ describe("TaskWorkflowEngine", () => {
       getWorkspace: async (workspaceId: string) =>
         (workspaces.get(workspaceId) as unknown as PersistedWorkspaceRecord) ?? null,
       getProjectRootCwd: async () => "/repo",
-      createWorktreeWorkspace: async () => {
+      createWorktreeWorkspace: async (input) => {
         createdAgentCounter += 1;
         const workspaceId = `ws_wt_${createdAgentCounter}`;
+        worktreeBaseBranches.push(input.baseBranch ?? null);
         const workspace = {
           workspaceId,
           cwd: `/wt/${workspaceId}`,
+          branch: `paseo/${workspaceId}`,
           isPaseoOwnedWorktree: true,
           archivedAt: null,
         };
@@ -368,5 +378,45 @@ describe("TaskWorkflowEngine", () => {
     await expect(engine.runStep({ taskId: task.id, stepId: workflow.steps[0].id })).rejects.toThrow(
       /not linked to a Paseo project/,
     );
+  });
+  /** A subtask stacks on its parent instead of racing main, so its diff is
+   * reviewable on its own rather than carrying everything the parent did. */
+  test("a subtask's worktree starts from its parent's branch", async () => {
+    const parent = await seedWorkflow([makeStepInput({ workspace: { mode: "worktree" } })]);
+    const parentRun = await engine.runStep({ taskId: parent.taskId, stepId: parent.stepIds[0] });
+    const parentWorkspaceId = parentRun.runs[0].workspaceIds[0];
+
+    const child = await service.createTask({
+      projectId: parent.projectId,
+      title: "Subtask",
+      parentTaskId: parent.taskId,
+    });
+    const childWorkflow = await service.setWorkflow({
+      taskId: child.id,
+      steps: stamp([makeStepInput({ workspace: { mode: "worktree" } })]),
+    });
+
+    await engine.runStep({ taskId: child.id, stepId: childWorkflow.steps[0].id });
+
+    expect(worktreeBaseBranches).toEqual([null, `paseo/${parentWorkspaceId}`]);
+  });
+
+  /** A parent with no worktree has nothing to stack onto; the subtask starts
+   * where any other work would. */
+  test("a subtask whose parent never ran starts from the default branch", async () => {
+    const parent = await seedWorkflow([makeStepInput()]);
+    const child = await service.createTask({
+      projectId: parent.projectId,
+      title: "Subtask",
+      parentTaskId: parent.taskId,
+    });
+    const childWorkflow = await service.setWorkflow({
+      taskId: child.id,
+      steps: stamp([makeStepInput({ workspace: { mode: "worktree" } })]),
+    });
+
+    await engine.runStep({ taskId: child.id, stepId: childWorkflow.steps[0].id });
+
+    expect(worktreeBaseBranches).toEqual([null]);
   });
 });

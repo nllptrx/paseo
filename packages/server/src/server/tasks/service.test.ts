@@ -102,4 +102,43 @@ describe("TaskService", () => {
     expect((await service.snapshot()).tasks).toEqual([]);
     await service.close();
   });
+  /** The gate is what "claiming" means: a task waiting on something unfinished
+   * refuses the attachment rather than letting two agents race the order. */
+  it("refuses to attach an agent to a task whose blockers are open", async () => {
+    const service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
+    try {
+      const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
+      const blocked = await service.createTask({ projectId: project.id, title: "Second" });
+      const blocker = await service.createTask({ projectId: project.id, title: "First" });
+      await service.addDependency({ taskId: blocked.id, dependsOnTaskId: blocker.id });
+
+      await expect(
+        service.attachAgent({ taskId: blocked.id, agentId: "agt_1", workspaceId: "ws_1" }),
+      ).rejects.toThrow(/blocked by/);
+
+      await service.updateTask({ taskId: blocker.id, status: "done" });
+      await expect(
+        service.attachAgent({ taskId: blocked.id, agentId: "agt_1", workspaceId: "ws_1" }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await service.close();
+    }
+  });
+
+  it("reports the blockers a task is still waiting on", async () => {
+    const service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
+    try {
+      const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
+      const blocked = await service.createTask({ projectId: project.id, title: "Second" });
+      const open = await service.createTask({ projectId: project.id, title: "Open" });
+      const dropped = await service.createTask({ projectId: project.id, title: "Canceled" });
+      await service.addDependency({ taskId: blocked.id, dependsOnTaskId: open.id });
+      await service.addDependency({ taskId: blocked.id, dependsOnTaskId: dropped.id });
+      await service.updateTask({ taskId: dropped.id, status: "canceled" });
+
+      expect((await service.listBlockers(blocked.id)).map((task) => task.title)).toEqual(["Open"]);
+    } finally {
+      await service.close();
+    }
+  });
 });

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskBoardConfig } from "@getpaseo/protocol/tasks/types";
 import type { ManagedAgent } from "../agent/agent-manager.js";
 import { TaskService } from "./service.js";
@@ -182,5 +182,23 @@ describe("TaskTransitionEngine", () => {
     agentManager.emitLifecycle("agent-1", "idle");
     await new Promise((resolve) => setImmediate(resolve));
     expect((await service.getTask(task.id))?.status).toBe("done");
+  });
+  /** A failure moves nothing, so without a word in the feed it is invisible
+   * until someone opens the card. */
+  it("records a stalled agent in the feed without moving the task", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask();
+    engine.observeAttachment({ taskId: task.id, agentId: "agt_1" });
+
+    agentManager.emitLifecycle("agt_1", "running");
+    agentManager.emitLifecycle("agt_1", "error");
+    await vi.waitFor(async () => {
+      expect((await service.listBoardFeed({ projectId })).length).toBeGreaterThan(0);
+    });
+
+    const feed = await service.listBoardFeed({ projectId });
+    expect(feed[0].kind).toBe("system");
+    expect(feed[0].body).toContain("stopped on an error");
+    expect(feed[0].agentId).toBe("agt_1");
+    expect((await service.getTask(task.id))?.status).toBe("in_progress");
   });
 });

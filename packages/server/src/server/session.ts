@@ -622,6 +622,10 @@ function dispatchTaskWorkflowMessage(
       return session.handleFeedReadRequest(msg);
     case "tasks.feed.post.request":
       return session.handleFeedPostRequest(msg);
+    case "tasks.dependency.add.request":
+      return session.handleDependencyAddRequest(msg);
+    case "tasks.dependency.remove.request":
+      return session.handleDependencyRemoveRequest(msg);
     case "tasks.workflow.set.request":
       return session.handleWorkflowSetRequest(msg);
     case "tasks.workflow.clear.request":

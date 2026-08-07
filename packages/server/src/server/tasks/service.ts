@@ -1,5 +1,6 @@
 import type {
   Task,
+  TaskAgentLink,
   TaskBoardConfig,
   TaskComment,
   TaskProject,
@@ -260,8 +261,14 @@ export class TaskService {
     this.announce(store);
   }
 
-  /** Attaching an agent is how a plan step, a delegate or a plain chat all reach
-   * a task; they differ only in what created the agent. */
+  /**
+   * Attaching an agent is how a workflow step, a delegate or a plain chat all
+   * reach a task; they differ only in what created the agent.
+   *
+   * A task whose blockers are still open refuses the attachment. The gate is
+   * here rather than in each caller because that is what "claiming" means, and
+   * a rule enforced in three places is a rule enforced in two.
+   */
   async attachAgent(input: {
     taskId: string;
     agentId: string;
@@ -269,14 +276,45 @@ export class TaskService {
     presetId?: string | null;
   }): Promise<void> {
     const store = await this.require();
+    this.assertClaimable(store, input.taskId);
     store.attachAgent(input);
     this.announce(store);
+  }
+
+  /** Throws when something the task waits on is neither done nor canceled. */
+  assertClaimable(store: TaskStore, taskId: string): void {
+    const blockers = store.listUnmetDependencies(taskId);
+    if (blockers.length === 0) {
+      return;
+    }
+    const keys = blockers
+      .map((blockerId) => {
+        const blocker = store.getTask(blockerId);
+        return blocker ? `#${blocker.number}` : blockerId;
+      })
+      .join(", ");
+    throw new Error(
+      `Task ${taskId} is blocked by ${keys}; finish or cancel them before working it`,
+    );
+  }
+
+  /** The blockers a caller should show before offering to start work. */
+  async listBlockers(taskId: string): Promise<Task[]> {
+    const store = await this.require();
+    return store.listUnmetDependencies(taskId).flatMap((blockerId) => {
+      const blocker = store.getTask(blockerId);
+      return blocker ? [blocker] : [];
+    });
   }
 
   async detachAgent(input: { taskId: string; agentId: string }): Promise<void> {
     const store = await this.require();
     store.detachAgent(input);
     this.announce(store);
+  }
+
+  async listTaskAgents(taskId: string): Promise<TaskAgentLink[]> {
+    return (await this.require()).listTaskAgents(taskId);
   }
 
   async listAgentLinks(): Promise<Array<{ taskId: string; agentId: string; workspaceId: string }>> {

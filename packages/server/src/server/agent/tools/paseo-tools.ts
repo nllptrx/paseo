@@ -124,6 +124,9 @@ export interface PaseoToolHostDependencies {
     | "createComment"
     | "attachAgent"
     | "listBoardFeed"
+    | "addDependency"
+    | "removeDependency"
+    | "listBlockers"
     | "setWorkflow"
     | "getWorkflow"
     | "clearWorkflow"
@@ -3081,16 +3084,18 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         description: z.string().optional(),
         status: TaskStatusSchema.optional(),
         priority: TaskPrioritySchema.optional(),
+        parentTaskId: z.string().trim().min(1).optional(),
       },
       outputSchema: { task: TaskSchema },
     },
-    async ({ projectId, title, description, status, priority }) => {
+    async ({ projectId, title, description, status, priority, parentTaskId }) => {
       const task = await requireTaskService().createTask({
         projectId,
         title,
         ...(description === undefined ? {} : { description }),
         ...(status === undefined ? {} : { status }),
         ...(priority === undefined ? {} : { priority }),
+        ...(parentTaskId === undefined ? {} : { parentTaskId }),
       });
       return { content: [], structuredContent: ensureValidJson({ task }) };
     },
@@ -3202,6 +3207,60 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
       const task = await taskTransitions.applyReviewVerdict({ taskId, verdict });
       return { content: [], structuredContent: ensureValidJson({ task }) };
+    },
+  );
+
+  registerTool(
+    "add_task_dependency",
+    {
+      title: "Add task dependency",
+      description:
+        "Make one task wait on another. A task with an unfinished blocker refuses to have an agent attached, so this is how you stop work starting in the wrong order. A blocker that is canceled stops blocking — it is never going to be done.",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        dependsOnTaskId: z.string().trim().min(1),
+      },
+      outputSchema: { blockers: z.array(TaskSchema) },
+    },
+    async ({ taskId, dependsOnTaskId }) => {
+      const service = requireTaskService();
+      await service.addDependency({ taskId, dependsOnTaskId });
+      const blockers = await service.listBlockers(taskId);
+      return { content: [], structuredContent: ensureValidJson({ blockers }) };
+    },
+  );
+
+  registerTool(
+    "remove_task_dependency",
+    {
+      title: "Remove task dependency",
+      description: "Stop one task waiting on another.",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        dependsOnTaskId: z.string().trim().min(1),
+      },
+      outputSchema: { blockers: z.array(TaskSchema) },
+    },
+    async ({ taskId, dependsOnTaskId }) => {
+      const service = requireTaskService();
+      await service.removeDependency({ taskId, dependsOnTaskId });
+      const blockers = await service.listBlockers(taskId);
+      return { content: [], structuredContent: ensureValidJson({ blockers }) };
+    },
+  );
+
+  registerTool(
+    "list_task_blockers",
+    {
+      title: "List task blockers",
+      description:
+        "What a task is still waiting on. Empty means it is free to be worked; anything listed has to finish or be canceled first.",
+      inputSchema: { taskId: z.string().trim().min(1) },
+      outputSchema: { blockers: z.array(TaskSchema) },
+    },
+    async ({ taskId }) => {
+      const blockers = await requireTaskService().listBlockers(taskId);
+      return { content: [], structuredContent: ensureValidJson({ blockers }) };
     },
   );
 
