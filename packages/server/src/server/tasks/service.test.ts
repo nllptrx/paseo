@@ -141,4 +141,39 @@ describe("TaskService", () => {
       await service.close();
     }
   });
+  /** The board has to be true while work runs, not only after it. Starting from
+   * Backlog and jumping to Done would never have shown the work happening. */
+  it("moves a card to Working when an agent starts on it", async () => {
+    const service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
+    try {
+      const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
+      const task = await service.createTask({ projectId: project.id, title: "Ship it" });
+      expect(task.status).toBe("backlog");
+
+      await service.attachAgent({ taskId: task.id, agentId: "agt_1", workspaceId: "ws_1" });
+
+      expect((await service.getTask(task.id))?.status).toBe("in_progress");
+      const feed = await service.listBoardFeed({ projectId: project.id });
+      expect(feed.at(-1)?.body).toContain("moved to Working");
+    } finally {
+      await service.close();
+    }
+  });
+
+  /** A card already in Review says something more specific than Working; a
+   * second agent attaching must not drag it backwards. */
+  it("leaves a card that is past Working where it is", async () => {
+    const service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
+    try {
+      const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
+      const task = await service.createTask({ projectId: project.id, title: "Ship it" });
+      await service.updateTask({ taskId: task.id, status: "in_review" });
+
+      await service.attachAgent({ taskId: task.id, agentId: "agt_1", workspaceId: "ws_1" });
+
+      expect((await service.getTask(task.id))?.status).toBe("in_review");
+    } finally {
+      await service.close();
+    }
+  });
 });

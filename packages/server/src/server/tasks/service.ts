@@ -280,7 +280,31 @@ export class TaskService {
     const store = await this.require();
     this.assertClaimable(store, input.taskId);
     store.attachAgent(input);
+    this.moveToWorkingOnStart(store, input.taskId);
     this.announce(store);
+  }
+
+  /**
+   * An agent landing on a card moves it to Working, unless the card is already
+   * somewhere that means something more specific.
+   *
+   * Without this the board lies while it runs: work started from a card sitting
+   * in Backlog would finish and jump straight to Done, having never shown as
+   * happening. It is the same rule as settling, read from the other end.
+   */
+  private moveToWorkingOnStart(store: TaskStore, taskId: string): void {
+    const task = store.getTask(taskId);
+    if (!task || (task.status !== "backlog" && task.status !== "todo")) {
+      return;
+    }
+    store.updateTask({ taskId, status: "in_progress" });
+    store.createComment({
+      projectId: task.projectId,
+      taskId,
+      kind: "system",
+      authorName: "board",
+      body: `${task.title} moved to Working: an agent started on it.`,
+    });
   }
 
   /** Throws when something the task waits on is neither done nor canceled. */
