@@ -151,6 +151,7 @@ import { ScheduleService } from "./schedule/service.js";
 import { KanbanStore } from "./kanban/store.js";
 import { KanbanService } from "./kanban/service.js";
 import { KanbanEngine } from "./kanban/engine.js";
+import { formatSystemNotificationPrompt, sendPromptToAgent } from "./agent/agent-prompt.js";
 import { TaskService } from "./tasks/service.js";
 import { TaskTransitionEngine } from "./tasks/transitions.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
@@ -1252,6 +1253,29 @@ export async function createPaseoDaemon(
     taskService,
     listKanbans: () => kanbanService.list(),
     agentManager,
+    notifyBoard: ({ paseoProjectId, note }) => {
+      void (async () => {
+        const kanban = (await kanbanService.list()).find(
+          (candidate) => candidate.projectId === paseoProjectId && candidate.archivedAt === null,
+        );
+        if (!kanban) {
+          return;
+        }
+        const orchestrators = await kanbanService.listOrchestrators(kanban.id);
+        for (const peer of orchestrators) {
+          await sendPromptToAgent({
+            agentManager,
+            agentStorage,
+            agentId: peer.agentId,
+            prompt: formatSystemNotificationPrompt(note),
+            unarchive: false,
+            logger,
+          });
+        }
+      })().catch((error) => {
+        logger.error({ err: error, paseoProjectId }, "Failed to notify the board's Orchestrator");
+      });
+    },
     logger,
   });
   const kanbanEngine = new KanbanEngine({

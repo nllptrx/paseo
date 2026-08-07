@@ -11,14 +11,17 @@ import {
   selectKanbanOrchestrators,
   type AggregatedOrchestratorPeer,
 } from "@/kanban/orchestrator-peers";
+import {
+  createPaneFocusContextValue,
+  PaneFocusProvider,
+  PaneProvider,
+  type PaneContextValue,
+} from "@/panels/pane-context";
+import { getPanelRegistration } from "@/panels/panel-registry";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { OrchestratorRail } from "./orchestrator-rail";
-import {
-  OrchestratorThreadComposer,
-  OrchestratorThreadMessages,
-  useOrchestratorPeerThread,
-} from "./orchestrator-thread-view";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -29,9 +32,13 @@ export interface KanbanOrchestratorPaneProps {
 }
 
 /**
- * The board's own Orchestrators, beside the board. A kanban can be steered by
- * several, so the pane is a list first and a conversation second; a board with
- * exactly one skips the list, because there is nothing to choose between.
+ * The board's Orchestrator, beside the board — and it is the agent's own chat,
+ * the same stream and composer an agent tab mounts, transposed into the
+ * sidebar. The Orchestrator is a plain agent; a bespoke thread view here would
+ * be a second chat that drifts from the real one.
+ *
+ * A kanban can be steered by several, so the pane is a list first and a
+ * conversation second; a board with exactly one skips the list.
  */
 export function KanbanOrchestratorPane({
   serverId,
@@ -55,8 +62,6 @@ export function KanbanOrchestratorPane({
   );
   const handleBack = useCallback(() => setSelectedAgentId(null), []);
 
-  const state = useOrchestratorPeerThread({ peer: selected ?? null, enabled: true });
-
   if (!selected) {
     return (
       <View style={styles.pane} testID="kanban-orchestrator-pane">
@@ -77,18 +82,71 @@ export function KanbanOrchestratorPane({
 
   return (
     <View style={styles.pane} testID="kanban-orchestrator-pane">
-      <PaneHeader
-        peer={selected}
-        onBack={peers.length > 1 ? handleBack : null}
-        backLabel={t("kanban.orchestrator.pane.back")}
-      />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <OrchestratorThreadMessages state={state} />
-      </ScrollView>
-      <View style={styles.footer}>
-        <OrchestratorThreadComposer state={state} />
-      </View>
+      {peers.length > 1 ? (
+        <PaneHeader
+          peer={selected}
+          onBack={handleBack}
+          backLabel={t("kanban.orchestrator.pane.back")}
+        />
+      ) : null}
+      <OrchestratorAgentChat peer={selected} />
     </View>
+  );
+}
+
+/**
+ * Mounts the registered agent panel for the Orchestrator agent inside a
+ * sidebar-scoped pane context. Tab intents that only make sense inside the
+ * workspace tab strip (retarget, close, import) are no-ops; opening another
+ * agent navigates to its workspace, which is where a full conversation lives.
+ */
+function OrchestratorAgentChat({
+  peer,
+}: {
+  peer: AggregatedOrchestratorPeer;
+}): ReactElement | null {
+  const registration = getPanelRegistration("agent");
+
+  const paneValue = useMemo<PaneContextValue>(
+    () => ({
+      serverId: peer.serverId,
+      workspaceId: peer.workspaceId,
+      tabId: `orchestrator-sidebar-${peer.agentId}`,
+      target: { kind: "agent", agentId: peer.agentId },
+      openTab: (target) => {
+        if (target.kind === "agent") {
+          navigateToWorkspace({
+            serverId: peer.serverId,
+            workspaceId: peer.workspaceId,
+            target: { kind: "agent", agentId: target.agentId },
+          });
+        }
+      },
+      closeCurrentTab: () => {},
+      retargetCurrentTab: () => {},
+      openFileInWorkspace: () => {
+        navigateToWorkspace({ serverId: peer.serverId, workspaceId: peer.workspaceId });
+      },
+      openImportSheet: () => {},
+    }),
+    [peer.agentId, peer.serverId, peer.workspaceId],
+  );
+  const focusValue = useMemo(
+    () => createPaneFocusContextValue({ isWorkspaceFocused: true, isPaneFocused: true }),
+    [],
+  );
+
+  const AgentPanelComponent = registration?.component;
+  if (!AgentPanelComponent) {
+    return null;
+  }
+
+  return (
+    <PaneProvider value={paneValue}>
+      <PaneFocusProvider value={focusValue}>
+        <AgentPanelComponent />
+      </PaneFocusProvider>
+    </PaneProvider>
   );
 }
 
@@ -153,13 +211,5 @@ const styles = StyleSheet.create((theme) => ({
   scroll: {
     flex: 1,
     minHeight: 0,
-  },
-  scrollContent: {
-    paddingVertical: theme.spacing[3],
-  },
-  footer: {
-    padding: theme.spacing[3],
-    borderTopWidth: theme.borderWidth[1],
-    borderTopColor: theme.colors.border,
   },
 }));

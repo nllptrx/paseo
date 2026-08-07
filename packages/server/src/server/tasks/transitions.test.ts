@@ -71,6 +71,7 @@ describe("TaskTransitionEngine", () => {
   });
 
   async function seedTask(input?: { review?: KanbanSummary["review"] }) {
+    const boardNotes: string[] = [];
     const project = await service.createProject({
       name: "Paseo",
       prefix: "PSE",
@@ -88,15 +89,21 @@ describe("TaskTransitionEngine", () => {
       taskService: service,
       listKanbans: async () => kanbans,
       agentManager,
+      notifyBoard: ({ note }) => {
+        boardNotes.push(note);
+      },
       logger,
     });
-    return { task, engine, agentManager };
+    return { task, engine, agentManager, boardNotes };
   }
 
   it("moves a task to done when work settles and the board does not review", async () => {
-    const { task, engine } = await seedTask();
+    const { task, engine, boardNotes } = await seedTask();
     await engine.onWorkSettled(task.id);
     expect((await service.getTask(task.id))?.status).toBe("done");
+    expect(boardNotes).toEqual([
+      `Task PSE-1 "Ship it" settled its attached work and moved to done.`,
+    ]);
   });
 
   it("moves a task to in_review when the board reviews", async () => {
