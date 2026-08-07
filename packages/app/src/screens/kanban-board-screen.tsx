@@ -25,13 +25,13 @@ import { TaskBoardSurface } from "@/components/tasks/task-board-surface";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { useKanban, useKanbans } from "@/hooks/use-kanbans";
+import { useKanbans } from "@/hooks/use-kanbans";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionId } from "@/keyboard/keyboard-action-dispatcher";
 import { usePanelStore } from "@/stores/panel-store";
 import { selectProjectBoard } from "@/tasks/task-views";
-import { useTasks } from "@/tasks/use-tasks";
+import { useTaskMutations, useTasks } from "@/tasks/use-tasks";
 import { useProjectDisplayName } from "@/stores/session-store-hooks";
 import { buildKanbansRoute } from "@/utils/host-routes";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -119,8 +119,8 @@ function LoadedKanbanBoardScreen({
   const { t } = useTranslation();
   const { serverId } = summary;
   const isCompact = useIsCompactFormFactor();
-  const { provisionOrchestrator, updateKanban } = useKanbanMutations({ serverId });
-  const { kanban: detail } = useKanban({ serverId, kanbanId });
+  const { provisionOrchestrator } = useKanbanMutations({ serverId });
+  const { configureBoard } = useTaskMutations(serverId);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [planForm, setPlanForm] = useState<{ taskId: string | null } | null>(null);
   // Desktop remembers the pane like the explorer sidebar does; compact borrows
@@ -153,18 +153,6 @@ function LoadedKanbanBoardScreen({
     setPlanForm({ taskId: null });
     return true;
   }, []);
-  // The review flag routes a green settle to In Review instead of Done —
-  // docs/kanban-tasks-spec.md §3.
-  const reviewEnabled = detail?.review?.enabled === true;
-  const handleToggleReview = useCallback(() => {
-    void updateKanban({
-      kanbanId,
-      review: {
-        enabled: !reviewEnabled,
-        onReject: detail?.review?.onReject ?? "in_progress",
-      },
-    });
-  }, [detail?.review?.onReject, kanbanId, reviewEnabled, updateKanban]);
 
   useKeyboardActionHandler({
     handlerId: `kanban-plan-new-${kanbanId}`,
@@ -180,10 +168,22 @@ function LoadedKanbanBoardScreen({
   );
   const projectName = useProjectDisplayName(serverId, summary.projectId);
   const { snapshot } = useTasks(serverId);
-  const totalCount = useMemo(
-    () => selectProjectBoard(snapshot, summary.projectId).tasks.length,
+  const board = useMemo(
+    () => selectProjectBoard(snapshot, summary.projectId),
     [snapshot, summary.projectId],
   );
+  const totalCount = board.tasks.length;
+
+  // The review flag routes a green settle to In Review instead of Done, and it
+  // is a property of the board — which is the tracker project.
+  const trackerProject = board.projects[0] ?? null;
+  const reviewEnabled = trackerProject?.board?.reviewEnabled === true;
+  const handleToggleReview = useCallback(() => {
+    if (!trackerProject) {
+      return;
+    }
+    void configureBoard({ projectId: trackerProject.id, reviewEnabled: !reviewEnabled });
+  }, [configureBoard, reviewEnabled, trackerProject]);
 
   const headerLeft = useMemo(
     () => (
@@ -219,6 +219,7 @@ function LoadedKanbanBoardScreen({
             <DropdownMenuItem
               testID={`kanban-review-toggle-${kanbanId}`}
               onSelect={handleToggleReview}
+              disabled={trackerProject === null}
             >
               {t(reviewEnabled ? "kanban.board.reviewDisable" : "kanban.board.reviewEnable")}
             </DropdownMenuItem>
@@ -242,6 +243,7 @@ function LoadedKanbanBoardScreen({
       projectName,
       reviewEnabled,
       summary.name,
+      trackerProject,
       t,
     ],
   );

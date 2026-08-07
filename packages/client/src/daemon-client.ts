@@ -595,6 +595,24 @@ type TasksReviewPayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.review.response" }
 >["payload"];
+import type { StepInput } from "@getpaseo/protocol/tasks/workflow";
+
+type TasksBoardConfigurePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.board.configure.response" }
+>["payload"];
+type TasksWorkflowSetPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.workflow.set.response" }
+>["payload"];
+type TasksWorkflowClearPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.workflow.clear.response" }
+>["payload"];
+type TasksStepPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.step.run.response" }
+>["payload"];
 type TasksSubscribePayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.subscribe.response" }
@@ -5588,6 +5606,78 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.review.response">({
       requestId,
       message: { type: "tasks.review.request", ...options },
+    });
+  }
+
+  async tasksBoardConfigure(
+    options: {
+      projectId: string;
+      reviewEnabled?: boolean;
+      reviewOnReject?: "in_progress" | "todo" | "backlog";
+      archiveWorkspacesOnDone?: boolean;
+    },
+    requestId?: string,
+  ): Promise<TasksBoardConfigurePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.board.configure.response">({
+      requestId,
+      message: { type: "tasks.board.configure.request", ...options },
+    });
+  }
+
+  async tasksWorkflowSet(
+    options: { taskId: string; steps: StepInput[] },
+    requestId?: string,
+  ): Promise<TasksWorkflowSetPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.workflow.set.response">({
+      requestId,
+      message: { type: "tasks.workflow.set.request", ...options },
+    });
+  }
+
+  async tasksWorkflowClear(taskId: string, requestId?: string): Promise<TasksWorkflowClearPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.workflow.clear.response">({
+      requestId,
+      message: { type: "tasks.workflow.clear.request", taskId },
+    });
+  }
+
+  async tasksStepRun(
+    options: { taskId: string; stepId: string },
+    requestId?: string,
+  ): Promise<TasksStepPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.step.run.response">({
+      requestId,
+      message: { type: "tasks.step.run.request", ...options },
+    });
+  }
+
+  async tasksStepRetry(
+    options: { taskId: string; stepId: string },
+    requestId?: string,
+  ): Promise<TasksStepPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.step.retry.response">({
+      requestId,
+      message: { type: "tasks.step.retry.request", ...options },
+    });
+  }
+
+  async tasksStepSkip(
+    options: { taskId: string; stepId: string },
+    requestId?: string,
+  ): Promise<TasksStepPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.step.skip.response">({
+      requestId,
+      message: { type: "tasks.step.skip.request", ...options },
+    });
+  }
+
+  async tasksStepCancel(
+    options: { taskId: string; stepId: string },
+    requestId?: string,
+  ): Promise<TasksStepPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.step.cancel.response">({
+      requestId,
+      message: { type: "tasks.step.cancel.request", ...options },
     });
   }
 

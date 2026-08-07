@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type { Task, TaskSnapshot, TaskStatus } from "@getpaseo/protocol/tasks/types";
+import type { StepInput } from "@getpaseo/protocol/tasks/workflow";
 import { useFetchQuery } from "@/data/query";
 import { tasksPushRoute } from "@/data/push-router";
 import { tasksQueryBaseKey, tasksQueryKey } from "@/tasks/task-query-keys";
@@ -107,6 +108,15 @@ export interface UseTaskMutationsResult {
   }) => Promise<void>;
   moveTask: (input: TaskMovePatch) => Promise<void>;
   reviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => Promise<void>;
+  configureBoard: (input: {
+    projectId: string;
+    reviewEnabled?: boolean;
+    reviewOnReject?: "in_progress" | "todo" | "backlog";
+    archiveWorkspacesOnDone?: boolean;
+  }) => Promise<void>;
+  setWorkflow: (input: { taskId: string; steps: StepInput[] }) => Promise<void>;
+  clearWorkflow: (taskId: string) => Promise<void>;
+  runStep: (input: { taskId: string; stepId: string }) => Promise<void>;
   setStatus: (input: { taskId: string; status: TaskStatus }) => Promise<void>;
   setPriority: (input: {
     taskId: string;
@@ -211,8 +221,57 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
     onSettled: invalidate,
   });
 
+  const configureBoard = useMutation({
+    mutationFn: async (input: {
+      projectId: string;
+      reviewEnabled?: boolean;
+      reviewOnReject?: "in_progress" | "todo" | "backlog";
+      archiveWorkspacesOnDone?: boolean;
+    }) => {
+      const payload = await require().tasksBoardConfigure(input);
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+    },
+    onSettled: invalidate,
+  });
+
+  const setWorkflow = useMutation({
+    mutationFn: async (input: { taskId: string; steps: StepInput[] }) => {
+      const payload = await require().tasksWorkflowSet(input);
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+    },
+    onSettled: invalidate,
+  });
+
+  const clearWorkflow = useMutation({
+    mutationFn: async (taskId: string) => {
+      const payload = await require().tasksWorkflowClear(taskId);
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+    },
+    onSettled: invalidate,
+  });
+
+  const runStep = useMutation({
+    mutationFn: async (input: { taskId: string; stepId: string }) => {
+      const payload = await require().tasksStepRun(input);
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+    },
+    onSettled: invalidate,
+  });
+
   return {
     createProject: (input) => createProject.mutateAsync(input),
+    configureBoard: (input) => configureBoard.mutateAsync(input),
+    setWorkflow: (input) => setWorkflow.mutateAsync(input),
+    clearWorkflow: (taskId) => clearWorkflow.mutateAsync(taskId),
+    runStep: (input) => runStep.mutateAsync(input),
     createTask: (input) => createTask.mutateAsync(input),
     moveTask: (input) => move.mutateAsync(input),
     reviewTask: (input) => review.mutateAsync(input),
@@ -225,6 +284,10 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
       update.isPending ||
       move.isPending ||
       review.isPending ||
-      remove.isPending,
+      remove.isPending ||
+      configureBoard.isPending ||
+      setWorkflow.isPending ||
+      clearWorkflow.isPending ||
+      runStep.isPending,
   };
 }

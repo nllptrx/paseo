@@ -28,6 +28,7 @@ interface TrackerSeedClient {
   tasksSnapshot(): Promise<{
     snapshot: {
       tasks: Array<{ id: string; title: string; status: string }>;
+      projects: Array<{ id: string; board?: { reviewEnabled: boolean } }>;
     } | null;
     error: string | null;
   }>;
@@ -279,16 +280,19 @@ test.describe("Kanbans board", () => {
     const kanbanId = await seedKanban(workspace);
     cleanupTasks.push(() => archiveKanban(workspace, kanbanId));
 
+    // Review is board config, and the board is the tracker project — so the
+    // toggle needs one to exist.
+    const { projectId } = await seedTrackerTask(workspace, `Review seed ${Date.now()}`);
     await openBoard(page, kanbanId);
 
-    // Review is board config: the settle target of a green run — docs/kanban-tasks-spec.md §3.
     await page.getByTestId(`kanban-board-menu-${kanbanId}`).click();
     await page.getByTestId(`kanban-review-toggle-${kanbanId}`).click();
     await expect
       .poll(
         async () => {
-          const detail = await trackerClient(workspace).kanbanGet(kanbanId);
-          return detail.kanban?.review?.enabled ?? false;
+          const snapshot = await trackerClient(workspace).tasksSnapshot();
+          const project = snapshot.snapshot?.projects.find((entry) => entry.id === projectId);
+          return project?.board?.reviewEnabled ?? false;
         },
         { timeout: 30_000 },
       )
