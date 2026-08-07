@@ -595,6 +595,18 @@ type TasksReviewPayload = Extract<
 >["payload"];
 import type { StepInput } from "@getpaseo/protocol/tasks/workflow";
 
+type TasksDependencyPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.dependency.add.response" }
+>["payload"];
+type TasksPresetListPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.preset.list.response" }
+>["payload"];
+type TasksDelegatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.delegate.response" }
+>["payload"];
 type TasksFeedReadPayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.feed.read.response" }
@@ -5504,6 +5516,43 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.review.response">({
       requestId,
       message: { type: "tasks.review.request", ...options },
+    });
+  }
+
+  async tasksDependencyAdd(
+    options: { taskId: string; dependsOnTaskId: string },
+    requestId?: string,
+  ): Promise<TasksDependencyPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.dependency.add.response">({
+      requestId,
+      message: { type: "tasks.dependency.add.request", ...options },
+    });
+  }
+
+  async tasksDependencyRemove(
+    options: { taskId: string; dependsOnTaskId: string },
+    requestId?: string,
+  ): Promise<TasksDependencyPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.dependency.remove.response">({
+      requestId,
+      message: { type: "tasks.dependency.remove.request", ...options },
+    });
+  }
+
+  async tasksPresetList(requestId?: string): Promise<TasksPresetListPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.preset.list.response">({
+      requestId,
+      message: { type: "tasks.preset.list.request" },
+    });
+  }
+
+  async tasksDelegate(
+    options: { taskId: string; presetId: string },
+    requestId?: string,
+  ): Promise<TasksDelegatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.delegate.response">({
+      requestId,
+      message: { type: "tasks.delegate.request", ...options },
     });
   }
 

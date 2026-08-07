@@ -72,6 +72,7 @@ import {
 import {
   TaskCommentSchema,
   TaskPrioritySchema,
+  TaskPresetSchema,
   TaskSchema,
   TaskSnapshotSchema,
   TaskStatusSchema,
@@ -127,6 +128,7 @@ export interface PaseoToolHostDependencies {
     | "addDependency"
     | "removeDependency"
     | "listBlockers"
+    | "listPresets"
     | "setWorkflow"
     | "getWorkflow"
     | "clearWorkflow"
@@ -135,7 +137,7 @@ export interface PaseoToolHostDependencies {
   taskTransitions?: Pick<TaskTransitionEngine, "applyReviewVerdict" | "observeAttachment">;
   taskWorkflowEngine?: Pick<
     TaskWorkflowEngine,
-    "runStep" | "retryStep" | "skipStep" | "cancelStep"
+    "runStep" | "retryStep" | "skipStep" | "cancelStep" | "delegate"
   >;
   providerSnapshotManager: ProviderSnapshotManager;
   github?: ForgeService;
@@ -3261,6 +3263,42 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     async ({ taskId }) => {
       const blockers = await requireTaskService().listBlockers(taskId);
       return { content: [], structuredContent: ensureValidJson({ blockers }) };
+    },
+  );
+
+  registerTool(
+    "list_task_presets",
+    {
+      title: "List task presets",
+      description:
+        "The saved ways to start work on a card: provider, model, standing instructions and the environment the agent runs in.",
+      inputSchema: {},
+      outputSchema: { presets: z.array(TaskPresetSchema) },
+    },
+    async () => {
+      const presets = await requireTaskService().listPresets();
+      return { content: [], structuredContent: ensureValidJson({ presets }) };
+    },
+  );
+
+  registerTool(
+    "delegate_task",
+    {
+      title: "Delegate task",
+      description:
+        "Start work on a card from a preset: one agent, already attached, in the environment the preset asks for. Refuses when the task still has open blockers.",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        presetId: z.string().trim().min(1),
+      },
+      outputSchema: { agentId: z.string() },
+    },
+    async ({ taskId, presetId }) => {
+      if (!taskWorkflowEngine) {
+        throw new Error("Task workflows are not configured on this host");
+      }
+      const { agentId } = await taskWorkflowEngine.delegate({ taskId, presetId });
+      return { content: [], structuredContent: ensureValidJson({ agentId }) };
     },
   );
 

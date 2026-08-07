@@ -3,6 +3,7 @@ import type {
   TaskAgentLink,
   TaskBoardConfig,
   TaskComment,
+  TaskPreset,
   TaskProject,
   TaskSnapshot,
   TaskStatus,
@@ -13,6 +14,7 @@ import {
   openTaskStore,
   type CreateTaskCommentInput,
   type CreateTaskInput,
+  type CreateTaskPresetInput,
   type CreateTaskProjectInput,
   type TaskStore,
   type UpdateTaskInput,
@@ -310,6 +312,29 @@ export class TaskService {
   async detachAgent(input: { taskId: string; agentId: string }): Promise<void> {
     const store = await this.require();
     store.detachAgent(input);
+    this.announce(store);
+  }
+
+  // --- Presets ---
+
+  async listPresets(): Promise<TaskPreset[]> {
+    return (await this.require()).listPresets();
+  }
+
+  async getPreset(presetId: string): Promise<TaskPreset | null> {
+    return (await this.require()).getPreset(presetId);
+  }
+
+  async createPreset(input: CreateTaskPresetInput): Promise<TaskPreset> {
+    const store = await this.require();
+    const preset = store.createPreset(input);
+    this.announce(store);
+    return preset;
+  }
+
+  async deletePreset(presetId: string): Promise<void> {
+    const store = await this.require();
+    store.deletePreset(presetId);
     this.announce(store);
   }
 

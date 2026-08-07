@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   TaskCommentSchema,
   TaskPrioritySchema,
+  TaskPresetSchema,
   TaskProjectSchema,
   TaskSchema,
   TaskSnapshotSchema,
@@ -398,4 +399,34 @@ export const TasksDependencyAddResponseSchema = z.object({
 export const TasksDependencyRemoveResponseSchema = z.object({
   type: z.literal("tasks.dependency.remove.response"),
   payload: TaskDependencyResultSchema,
+});
+
+export const TasksPresetListRequestSchema = z.object({
+  type: z.literal("tasks.preset.list.request"),
+  requestId: z.string(),
+});
+
+export const TasksPresetListResponseSchema = z.object({
+  type: z.literal("tasks.preset.list.response"),
+  payload: z.object({
+    requestId: z.string(),
+    presets: z.array(TaskPresetSchema),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksDelegateRequestSchema = z.object({
+  type: z.literal("tasks.delegate.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+  presetId: z.string(),
+});
+
+export const TasksDelegateResponseSchema = z.object({
+  type: z.literal("tasks.delegate.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string().nullable(),
+    error: z.string().nullable(),
+  }),
 });

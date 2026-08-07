@@ -419,4 +419,37 @@ describe("TaskWorkflowEngine", () => {
 
     expect(worktreeBaseBranches).toEqual([null]);
   });
+  /** The short path a workflow makes long: a preset is a one-step workflow you
+   * do not have to author, and the agent lands attached. */
+  test("delegating a preset attaches the agent it starts", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const preset = await service.createPreset({
+      name: "Implement",
+      provider: "claude",
+      environmentKind: "new_worktree",
+      instructions: "Follow the house style.",
+    });
+
+    const { agentId } = await engine.delegate({ taskId, presetId: preset.id });
+
+    const task = await service.getTask(taskId);
+    expect(task?.agents.map((agent) => agent.agentId)).toEqual([agentId]);
+    expect(task?.agents[0].presetId).toBe(preset.id);
+    void projectId;
+  });
+
+  /** The gate belongs to claiming, so it has to stop a delegate before an agent
+   * exists — not leave one running against work that should not start. */
+  test("refuses to delegate a task whose blockers are open", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const blocker = await service.createTask({ projectId, title: "First" });
+    await service.addDependency({ taskId, dependsOnTaskId: blocker.id });
+    const preset = await service.createPreset({
+      name: "Implement",
+      provider: "claude",
+      environmentKind: "new_worktree",
+    });
+
+    await expect(engine.delegate({ taskId, presetId: preset.id })).rejects.toThrow(/blocked by/);
+  });
 });

@@ -422,6 +422,37 @@ export class TasksSession {
     }
   }
 
+  async handlePresetListRequest(request: Inbound<"tasks.preset.list.request">): Promise<void> {
+    try {
+      const presets = await this.taskService.listPresets();
+      this.host.emit({
+        type: "tasks.preset.list.response",
+        payload: { requestId: request.requestId, presets, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleDelegateRequest(request: Inbound<"tasks.delegate.request">): Promise<void> {
+    try {
+      if (!this.workflowEngine) {
+        throw new Error("This host does not run task workflows");
+      }
+      const { agentId } = await this.workflowEngine.delegate({
+        taskId: request.taskId,
+        presetId: request.presetId,
+      });
+      this.transitions.observeAttachment({ taskId: request.taskId, agentId });
+      this.host.emit({
+        type: "tasks.delegate.response",
+        payload: { requestId: request.requestId, agentId, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
   handleSubscribeRequest(request: Inbound<"tasks.subscribe.request">): void {
     this.unsubscribe?.();
     this.unsubscribe = this.taskService.onRevision((revision) => {

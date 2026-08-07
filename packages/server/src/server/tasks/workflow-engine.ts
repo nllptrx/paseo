@@ -46,6 +46,7 @@ export interface TaskWorkflowEngineDeps {
     | "mutateStep"
     | "attachAgent"
     | "listTaskAgents"
+    | "getPreset"
     | "isAvailable"
   >;
   agentManager: AgentManager;
@@ -397,6 +398,95 @@ export class TaskWorkflowEngine {
    * worktree yet has nothing to stack onto, and the subtask starts from the
    * default branch like any other work.
    */
+  /**
+   * Start work on a card from a preset: one agent, attached, in the environment
+   * the preset asks for. This is the short path a workflow makes long — the
+   * preset is a one-step workflow you do not have to author.
+   *
+   * The attachment goes through the tracker, so a task whose blockers are still
+   * open refuses it before an agent is created rather than after.
+   */
+  async delegate(input: { taskId: string; presetId: string }): Promise<{ agentId: string }> {
+    const preset = await this.taskService.getPreset(input.presetId);
+    if (!preset) {
+      throw new Error(`Preset not found: ${input.presetId}`);
+    }
+    const task = await this.taskService.getTask(input.taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${input.taskId}`);
+    }
+
+    const target = await this.resolveDelegateTarget(input.taskId, preset, task.title);
+    const prompt =
+      preset.instructions.trim().length > 0
+        ? `${preset.instructions.trim()}\n\n${task.title}`
+        : task.title;
+
+    const created = await this.createAgent({
+      kind: "mcp",
+      provider: formatProviderModel(
+        preset.provider as StepAgentSpec["provider"],
+        preset.model ?? undefined,
+      ),
+      title: task.title,
+      initialPrompt: prompt,
+      cwd: target.cwd,
+      workspaceId: target.workspaceId,
+      mode: preset.modeId ?? undefined,
+      thinking: preset.thinkingOptionId ?? undefined,
+      unattended: false,
+      promptFailure: "return-error",
+      background: true,
+      notifyOnFinish: false,
+    });
+
+    await this.taskService.attachAgent({
+      taskId: input.taskId,
+      agentId: created.snapshot.id,
+      workspaceId: target.workspaceId,
+      presetId: preset.id,
+    });
+    return { agentId: created.snapshot.id };
+  }
+
+  /**
+   * Where a delegated agent runs. `project_default` means "where this card is
+   * already being worked" — the workspace an agent on it is using. A card with
+   * nobody on it yet has no such place, so it gets a worktree like the other
+   * mode: an agent has to run somewhere, and the project root is not a
+   * workspace this daemon can attach to.
+   */
+  private async resolveDelegateTarget(
+    taskId: string,
+    preset: { environmentKind: "project_default" | "new_worktree"; baseBranch: string | null },
+    prompt: string,
+  ): Promise<AgentTarget> {
+    if (preset.environmentKind === "project_default") {
+      const existing = await this.resolveExistingTaskWorkspace(taskId);
+      if (existing) {
+        return existing;
+      }
+    }
+    const sourceCwd = await this.resolveProjectRootCwd(taskId);
+    const baseBranch = preset.baseBranch ?? (await this.resolveParentBranch(taskId));
+    const created = await this.createWorktreeWorkspace({
+      cwd: sourceCwd,
+      firstAgentContext: { prompt },
+      ...(baseBranch ? { baseBranch } : {}),
+    });
+    return { cwd: created.workspace.cwd, workspaceId: created.workspace.workspaceId };
+  }
+
+  private async resolveExistingTaskWorkspace(taskId: string): Promise<AgentTarget | null> {
+    for (const link of await this.taskService.listTaskAgents(taskId)) {
+      const workspace = await this.getWorkspace(link.workspaceId);
+      if (workspace && !workspace.archivedAt) {
+        return { cwd: workspace.cwd, workspaceId: workspace.workspaceId };
+      }
+    }
+    return null;
+  }
+
   private async resolveParentBranch(taskId: string): Promise<string | null> {
     const task = await this.taskService.getTask(taskId);
     if (!task?.parentTaskId) {
