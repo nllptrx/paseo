@@ -1,88 +1,103 @@
 # Tracker + Kanban — branch spec (design/workflow-stacking)
 
-Working spec for review. Every section is tagged: **[SHIPPED]** is on the
-branch and tested; **[DECIDED]** is agreed direction, not yet built;
-**[IN PROGRESS]** is started but not landed; **[PROPOSED]** is my intended
-next step, not built; **[OPEN]** needs your decision. Edit anything — this
-file is the contract for what happens next.
+The contract for the redesign on this branch. Section tags: **[SHIPPED]** is
+on the branch and tested; **[DECIDED]** is agreed and not yet built;
+**[SUPERSEDED]** shipped but a later decision removes or reshapes it.
+
+Docs of record (`docs/kanban.md`, `docs/tasks.md`) return once the code
+matches this file. Until then this is the only kanban/tasks doc.
 
 ## 1. Vision
 
-One tracker, one board, one kind of chat. A **Task** is the unit of work
-(bb-style: `PSE-42`, stored status, priority, labels, comments, for source of
-truth check: get-bb/bb). The **kanban is the board view of tasks** —
-columns are the stored statuses, never a second object with its own route.
-Execution (plans, agents) attaches to tasks and is always derived, never
-copied. Agents work the tracker through MCP tools; the board writes back to them.
-The **Orchestrator is a plain agent** that hears board events; agent↔agent
-coordination goes through the board (the bacheca), not through a parallel
-messaging system. For kanban, this is source of truth Emanuele-web04/synara.
-For the orchestration the architecture icould be either classic or a graph.
+One tracker, one board, one channel.
 
-## 2. Data model [SHIPPED]
+A **task** is the unit of work: key (`PSE-42`), stored status, priority,
+labels, comments, subtasks, dependencies. The **kanban is the board view of
+tasks** — columns are the stored statuses, never a second object with its own
+route. Execution attaches to a task: agents, and workflows of steps. Nothing
+about execution is stored twice; it is read off the agents and the runs.
+
+Agents work the tracker through MCP tools. The board writes back to them. All
+coordination goes through the board and its feed — the bacheca — never through
+a parallel messaging system between agents.
+
+Reference implementations for the tracker semantics: `get-bb/bb` (task model,
+keys, capture) and `Emanuele-web04/synara` (board behaviour).
+
+## 2. Data model
+
+### 2.0 Tracker [SHIPPED]
 
 - SQLite at `$PASEO_HOME/tasks.db` (`node:sqlite`). Tables: task_projects,
   tasks, labels(+links), comments, attachments, task_agents, presets, revision
   counter bumped by triggers.
 - **Stored** (intent): status `backlog|todo|in_progress|in_review|done|canceled`,
-  priority, labels, due date, fractional position (`POSITION_STEP=1024`,
-  neighbours sent by client, daemon picks the number).
-- **Derived** (execution): attached agents' live state read off the agents;
-  plan columns computed from step runs (`derivePlanColumn`), never stored.
+  priority, labels, due date, fractional position (`POSITION_STEP=1024`;
+  the client sends neighbours, the daemon picks the number).
+- **Derived** (execution): attached agents' live state, read off the agents.
 - Task project ↔ Paseo project via `paseoProjectId`; prefix unique per host.
-- Kanban record (JSON, unchanged engine) gains `review: { enabled, onReject }`
-  and plans gain optional `taskId`.
-- Sync: push `tasks.update { revision }`; client at same revision does nothing,
-  behind refetches. Push-router domain `tasks` registered app-side.
+- Sync: push `tasks.update { revision }`; a client at the same revision does
+  nothing, a client behind refetches. Push-router domain `tasks` app-side.
 
-### 2.1 The board IS the task project [DECIDED]
+### 2.1 The board is the task project [DECIDED]
 
-`StoredKanban` retires. There is one board-shaped object: the task project.
+`StoredKanban` retires. One board-shaped object: the task project.
 
-- `review`, `archiveWorkspacesOnDone`, and the Orchestrator association move
-  onto `task_projects` (SQLite). The kanban JSON record and its get-or-create
-  dance go away.
-- `/kanbans/<id>` resolves to the project's board; the feed room and board
-  events key on the task project, not a kanban id.
-- No migration: pre-branch plan boards break. The `tasks` feature gate has
-  never shipped in a release, so there is no released peer to shim for — no
-  COMPAT code, no one-shot migration.
+- `review`, `archiveWorkspacesOnDone` and the board's agent associations move
+  onto `task_projects` in SQLite. The kanban JSON record goes, and with it the
+  get-or-create dance the workspace tab needs today just to obtain an id.
+- `/kanbans/<id>` resolves to the project's board. Feed room and board events
+  key on the task project.
+- No migration. The `tasks` feature gate has never been in a release, so no
+  released peer can hold the old shape: pre-branch plan boards break, and no
+  COMPAT shim is warranted.
 
-### 2.2 Workflow-on-task [DECIDED]
+### 2.2 Workflow on task [DECIDED]
 
-Plans stop being objects. The step machine (agent specs, workspace strategy,
-triggers, hard gates, schedules) survives unchanged but re-homes: **steps
-attach to a task**. Plan `title`/`description` and nested plans die — the task
-is the only unit of work. "Add plan" becomes "Add workflow" on the card.
-`derivePlanColumn` dies with them: the task's stored status plus the
-transition engine are the only column truth.
+Plans stop being objects. The step machine — agent specs, workspace strategy,
+triggers, hard gates, schedules — survives unchanged and re-homes: **steps
+attach to a task**. Plan `title`/`description` and nested plans go; the task
+carries them. "Add plan" on the card becomes "Add workflow".
 
-Tasks gain `parentId` (subtasks) and dependencies (`blocks`/`blocked-by`) in
-SQLite — the dependency gate (§6.1) and the stacked-branch mapping read them.
+`derivePlanColumn` goes with them. A task's stored status and the transition
+engine are the only column truth.
 
-### 2.3 Board event bus [PROPOSED]
+### 2.3 Hierarchy and dependencies [DECIDED]
 
-One emission point for board events (task created/moved/settled/approved/
-rejected), three consumers: the feed room post (§6), the Orchestrator
-system-notification prompt, the `tasks.update` push. Today these are three
-independent writes; §6 becomes a consumer, not a second system.
+Tasks gain `parentId` (subtasks) and dependency links (`blocks` /
+`blocked-by`). The dependency gate (§6.1) and the stacked-branch mapping
+(§6.2) read them. A subtask is a task in every other respect — same statuses,
+same board, indented under its parent in the column.
+
+### 2.4 Board event bus [DECIDED]
+
+One emission point for board events — task created, moved, settled, approved,
+rejected, agent attached, agent stalled — and three consumers: the feed room
+post (§6), the `tasks.update` push, and the daemon rules (§6.1). Today those
+are independent writes from different call sites, which is how they drift.
 
 ## 3. Automatic transitions [SHIPPED]
 
-`packages/server/src/server/tasks/transitions.ts` (unit-tested):
+`packages/server/src/server/tasks/transitions.ts`, unit-tested:
 
-- Attached work settles green → task moves to `in_review` if the board's
-  `review.enabled`, else `done`.
-  - Plan-dispatched agents: attached WITHOUT observers; the plan's last step
-    settling is the signal (a 3-step plan must not move the task on step 1).
-  - Manually attached agents (RPC/MCP `attach_task_agent`): observer per
-    attachment, re-armed at daemon boot, fires once per finish (a task pushed
-    back to work moves again on the next finish).
-- Review verdict: approve → `done`; reject → `review.onReject` (default
-  `in_progress`). Exposed as RPC, card menu, and MCP `review_task`.
-- Failure moves nothing — stays `in_progress`, shows on the card.
-- Manual moves write the same stored field through the same RPC: automation
+- Attached work settles green → the task moves to `in_review` when the board
+  has `review.enabled`, else to `done`.
+  - Workflow-dispatched agents attach without observers; the last step
+    settling is the signal, so a 3-step workflow does not move the task on
+    step 1.
+  - Manually attached agents (RPC/MCP `attach_task_agent`) get an observer per
+    attachment, re-armed at daemon boot, firing once per finish. A task pushed
+    back to work moves again on the next finish.
+- Review verdict: approve → `done`; reject → `review.onReject`, default
+  `in_progress`. Exposed as RPC, card menu, and MCP `review_task`.
+- Failure moves nothing. The task stays `in_progress` and the card shows it.
+- Manual moves write the same stored field through the same RPC, so automation
   and hand cannot disagree.
+
+**[DECIDED] addition:** every automatic move posts to the feed naming what
+caused it, and stays reversible by hand. Boards that moved cards silently
+shipped ping-pong bugs between In Progress and In Review; attribution plus a
+one-move undo is what prevents it.
 
 ## 4. Agent access [SHIPPED]
 
@@ -91,132 +106,148 @@ independent writes; §6 becomes a consumer, not a second system.
   (defaults to the calling agent — "I'm taking PSE-3"), `review_task`.
   `create_plan` accepts `taskId`. Parity Suite G covers capture→review and
   self-attach.
-- CLI: `paseo task ls|create|move` (by key `PSE-42` or id).
-- Board events → the board's Orchestrator agents as system-notification
-  prompts (`sendPromptToAgent`): settled→in_review/done, approved, rejected.
-  Superseded by §6/§6.1: with no standing Orchestrator, the consumer that
-  prompts agents retires; events go to the feed room and the push instead.
+- CLI: `paseo task ls|create|move`, by key (`PSE-42`) or id.
+- **[DECIDED]** `create_plan` becomes `add_task_workflow` (§2.2); new tools
+  for subtasks and dependencies follow the same shape. Board events reach
+  agents through the feed room, not through per-agent prompts (§6.1).
 
-## 5. Surfaces — UI/UX
+## 5. Surfaces
 
 ### 5.1 Board page `/kanbans/<id>` [SHIPPED]
 
-- **Header** (workspace grammar): one `ScreenHeader` row — sidebar toggle,
-  project title, `···` menu (Ellipsis, hover color, sheet on compact) right
-  beside the title. Right side: task count + Orchestrator toggle. No back
-  arrow (back = sidebar "Kanbans" entry). Menu: Add plan, Require review
-  toggle, Create Orchestrator.
-- **Columns** = statuses, Canceled only when populated; flex 264–360 wide,
-  horizontal scroll; compact shows one column behind a scrollable segmented
-  picker.
-- **Card**: key, priority label (color-coded urgent/high), live StatusBucketDot
-  from attached agents, title, label chips. Press opens the conversation when
-  exactly one agent is attached. Kebab + right-click ContextMenu (same list):
-  Approve/Reject when in review, Add plan (binds the plan form to the task),
-  Open agent per attachment, move-to-status entries, Delete.
-- **Capture**: every column's "+" opens the minimal sheet (title only; first
-  capture also creates the tracker project, prefilled + linked). Form model
-  per docs/forms.md, unit-tested.
-- **Drag**: writes `tasks.move`, optimistic paint uses the daemon's own
-  position arithmetic; menu move for no-drag platforms. Every column is
-  hand-sortable (order is stored — unlike the plan board).
-- **Orchestrator sidebar**: full-height right sidebar (explorer shape) —
-  panel-store width, viewport clamp, `SidebarResizeHandle` drag, open state
-  persisted on desktop; sheet on compact. Content: see 5.4/6.
+- **Header**, in workspace grammar: one `ScreenHeader` row — sidebar toggle,
+  project title, `···` menu right beside the title (Ellipsis, hover colour,
+  sheet on compact). Right side: task count and the sidebar toggle. No back
+  arrow; back is the sidebar's Kanbans entry.
+- **Columns** are the statuses. Canceled appears only when populated. Columns
+  flex 264–360 wide with horizontal scroll; compact shows one column behind a
+  scrollable segmented picker.
+- **Card**: key, priority label (colour-coded urgent/high), live
+  `StatusBucketDot` from attached agents, title, label chips. Kebab and
+  right-click context menu carry the same list: Approve/Reject when in review,
+  Add workflow, Open agent per attachment, move-to-status, Delete.
+- **Capture**: every column's "+" opens the minimal sheet — title only. The
+  first capture also creates the tracker project, prefilled and linked. Form
+  model per [docs/forms.md](forms.md), unit-tested.
+- **Drag** writes `tasks.move`; the optimistic paint uses the daemon's own
+  position arithmetic. Menu move covers platforms without drag. Every column
+  is hand-sortable, because order is stored.
+- **Sidebar**: full-height right sidebar in the explorer shape — panel-store
+  width, viewport clamp, `SidebarResizeHandle`, open state persisted on
+  desktop, sheet on compact. Content is the feed (§6).
+
+**[DECIDED] menu changes**: "Add plan" → "Add workflow"; "Require review"
+becomes a checkmark toggle per [docs/menus.md](menus.md) rather than a menu
+item with a swapping label; "Create Orchestrator" goes (§6.1).
 
 ### 5.2 Workspace [SHIPPED]
 
-- **Kanban tab kind**: payload-less singleton per workspace, renders the same
-  `TaskBoardSurface` for the workspace's project. Entry points: "Kanban" in
-  the tab row's ⌄ menu (pinnable) and a default pinned launcher before the
-  terminal. Splittable/drag like any tab. `/kanbans` stays as cross-project
-  overview.
-- **Explorer sidebar**: gains an **Orchestrator** tab beside Changes/Files/PR,
-  visible when the project has a board; unavailable-tab fallback follows the
-  PR-tab rule. Per §6 the tab renames to **Feed** and renders the board
-  channel.
+- **Kanban tab kind**: payload-less singleton per workspace, rendering the
+  same `TaskBoardSurface` for the workspace's project. Entry points: "Kanban"
+  in the tab row's ⌄ menu (pinnable) and a default pinned launcher before the
+  terminal. Splittable and draggable like any tab.
+- **Explorer sidebar** gains a tab beside Changes/Files/PR when the project
+  has a board; the unavailable-tab fallback follows the PR-tab rule.
+  **[DECIDED]** the tab is named **Feed** and renders the board channel.
 
-### 5.3 Overview `/kanbans` [DECIDED via 2.1/2.2]
+### 5.3 Overview `/kanbans` [DECIDED]
 
-With plans gone there is no second vocabulary: the overview renders tasks per
-project. Falls out of the board-is-the-project rework, not a separate build.
+Renders tasks per project. With plans gone there is no second vocabulary to
+reconcile; this falls out of §2.1 and §2.2 rather than being its own build.
 
-### 5.4 Orchestrator chat [SHIPPED — superseded by §6]
+### 5.4 Task detail sheet [DECIDED]
 
-The sidebar currently mounts the real agent chat (registered agent panel
-inside a sidebar-scoped PaneProvider). Per §6 it becomes the board feed; the
-pane, the `orchestrator-thread-view`, and the Create Orchestrator entry
-retire. Opening any agent's full chat is a tap on its feed item.
+Description, comments, labels, due date, subtasks, dependencies and
+attachments are wire-complete with no surface. Build one sheet that shows
+them, opened by pressing a card. That also settles what a card press does:
 
-## 6. Board feed — "Slack channel per board" [DECIDED]
+- **press → detail sheet, always**, whatever the number of attached agents.
+  Attached agents are rows in the sheet; opening a conversation is a tap on a
+  row. Today's behaviour — open the chat when exactly one agent is attached,
+  silently do nothing otherwise — has no rule a user can learn.
+
+### 5.5 Presets and delegate [DECIDED]
+
+`task_presets` exists in the schema with no UI. The delegate flow: pick a
+preset on a task, an agent spawns already attached, in its own worktree
+(§6.2). Presets are per board. This is the fast path to "start work on this
+card" and it lands after the feed.
+
+## 6. Board feed [DECIDED]
 
 A real channel per board, on the existing chat store.
 
-- One room per board, deterministic name keyed on the task project (§2.1).
+- One room per board, deterministic name keyed on the task project.
 - What posts there:
-  - working agents' task comments (mirrored from `comment_task`, author = agent),
-  - board events from the event bus (§2.3): task created/moved/settled/
-    approved/rejected — every automatic transition attributed and reversible
-    by hand (the flip-flop bug other boards shipped came from silent,
-    unattributed moves),
-  - agent finish notes, carried on the settle event,
-  - you, from the sidebar composer — **posting as yourself**; `@mention`
-    fanout prompts the mentioned agent (mechanism exists).
-- The sidebar (board page + explorer tab) is the feed and nothing else:
-  Slack-like — author, timestamp, compact event items; tapping an item opens
-  the task or the agent's own chat. No Feed|Chat tabs; no agent is special.
-- Consequence — full mesh retirement: the per-daemon `orchestrators` room,
-  peer rail, bespoke thread-view, `send_orchestrator_message`, and the
-  Orchestrator sidebar pane (5.4) all go. The explorer "Orchestrator" tab and
-  the board-page toggle become the **Feed** tab/toggle.
+  - agents' task comments, mirrored from `comment_task`, authored by the agent;
+  - board events from the bus (§2.4), attributed;
+  - agent finish notes, carried on the settle event;
+  - you, from the sidebar composer, posting as yourself. `@mention` prompts
+    the mentioned agent through the existing fanout.
+- The sidebar renders the channel Slack-style: author, timestamp, compact
+  event items. Tapping an item opens the task or that agent's own chat. There
+  are no Feed|Chat tabs and no agent is special.
 
-## 6.1 No standing team-lead agent — daemon rules instead [DECIDED]
+### 6.1 No standing team-lead agent — daemon rules instead [DECIDED]
 
-Prior-art research (Vibe Kanban, Conductor, Copilot Mission Control, Linear
-agent sessions, Devin Managed Devins, Claude Code agent teams, CrewAI,
-blackboard papers): worktree-per-task is universal table stakes; every
-shipped product coordinates through the board, none built an agent message
+Prior-art research settled this: worktree-per-task is universal; every shipped
+product coordinates through the board and none built an agent-to-agent message
 bus; only Devin ships a supervisor agent, and the generic manager-agent is a
-documented anti-pattern (CrewAI). Decision:
+documented failure mode elsewhere (mis-routing, sequential execution,
+overwritten outputs, ~75x the tokens).
 
-- **No Orchestrator agent for now.** The board works standalone: tracker,
-  attach, auto-transitions, feed.
-- **The supervision jobs that matter are deterministic and live in the
-  daemon** as event-bus consumers: stall detection (agent idle/erroring/
-  waiting-for-input → feed post), dependency gating (a task with unresolved
-  deps is unclaimable), attributed transition posts.
-- **A decomposer agent (task → subtasks with agent specs) is a later phase**,
-  opt-in per board, and even then it never authors code and never issues
-  review verdicts.
-- **Subtask → git = stacked branches, sibling worktrees.** A subtask's base
-  branch is the parent task's branch (not main); its worktree directory sits
-  beside — never inside — the parent's; it merges back through the parent
-  branch, which merges to main. Maps 1:1 onto stacked PRs. Depth ≥2 allowed,
-  not encouraged by the UI.
+- **No Orchestrator agent.** The board stands alone: tracker, attach,
+  transitions, feed.
+- **The supervision that matters is deterministic**, and lives in the daemon
+  as event-bus consumers: stall detection (agent idle, erroring, or waiting on
+  input → feed post), dependency gating (a task with unresolved `blocked-by`
+  is not claimable), attributed transition posts.
+- **A decomposer agent is a later phase** — turn a task into subtasks with
+  agent specs — opt-in per board. Even then it authors no code and issues no
+  review verdicts. Review is human, or a verification agent with no
+  implementation context.
+- Retired in full: the per-daemon `orchestrators` room, the peer rail,
+  `orchestrator-thread-view`, `send_orchestrator_message`, the orchestrator
+  sidebar pane, and Create Orchestrator.
 
-## 7. Open decisions (besides 6)
+### 6.2 Subtask isolation — stacked branches, sibling worktrees [DECIDED]
 
-1. **Card press with 0 or 2+ agents** — today a silent no-op. Options: task
-   detail sheet (not built), agent picker, open the menu.
-2. **Task detail sheet** — description/comments/labels/due date are
-   wire-complete with no surface. Probably the same sheet solves (1).
-3. **Review toggle idiom** — plain menu item with swapping label; menus.md
-   wants a checkmark/toggle idiom.
-4. **Presets / Delegate flow** — schema exists (`task_presets`), no UI: pick a
-   preset on a task → agent spawns attached.
-5. **Mesh retirement scope [DECIDED via §6]** — full delete: `orchestrators`
-   room, rail, thread-view, `send_orchestrator_message`, orchestrator sidebar
-   pane, Create Orchestrator entry.
+- A task's agent works in its own worktree and branch.
+- A **subtask** branches off its **parent task's branch**, not off main. Its
+  worktree directory sits beside the parent's, never inside it — a checkout
+  nested in a live worktree confuses git and the agents' file tools.
+- A subtask merges into the parent branch; the parent merges to main. This
+  maps 1:1 onto stacked PRs and keeps review units bounded.
+- Depth beyond one level works, and the UI does not encourage it.
 
-## 8. Invariants (unchanged)
+## 7. Build order
 
-- Never store what can be derived (plan columns, agent liveness); always store
-  intent (task status).
-- One destination per object: the kanban IS the tasks' board view; no parallel
-  routes/screens for the same thing.
-- Protocol stays backward compatible; features gate on
-  `server_info.features.{tasks,kanban}`.
-- Steps keep hard gates; no second cron engine; workspaces stay the source of
-  truth of execution.
-- Chat/coordination composes existing primitives (agents, chat store, board);
-  no new messaging subsystems.
+Each phase leaves the branch green — typecheck, lint, the touched unit tests,
+and the board e2e.
+
+1. **Board is the task project** (§2.1). Config onto `task_projects`,
+   `StoredKanban` out of the data path, routes and overview resolving on the
+   project. The most invasive phase: kanban engine, RPCs, and the e2e specs
+   that still speak "plan".
+2. **Workflow on task** (§2.2). Steps re-homed, plans and `derivePlanColumn`
+   deleted, the form and card menu renamed.
+3. **Event bus and feed** (§2.4, §6). Single emission point, room per board,
+   `comment_task` mirroring, composer with mention fanout, mesh retirement,
+   Feed tab.
+4. **Hierarchy and rules** (§2.3, §6.1, §6.2). `parentId` and dependencies,
+   stall detection, dependency gate, stacked-branch worktrees for subtasks.
+5. **Detail sheet and delegate** (§5.4, §5.5).
+
+## 8. Invariants
+
+- Store intent, derive everything else. Task status is stored; agent liveness
+  and run outcomes are read, never copied.
+- One destination per object. The kanban is the tasks' board view; no parallel
+  route or screen shows the same thing.
+- The protocol stays backward compatible; features gate on
+  `server_info.features.{tasks,kanban}`. Compatibility shims are only for
+  shapes a released peer can actually produce.
+- Steps keep their hard gates. No second cron engine. Workspaces remain the
+  source of truth for execution.
+- Coordination composes what exists — agents, chat store, board. No new
+  messaging subsystem, and no agent-to-agent bus.
