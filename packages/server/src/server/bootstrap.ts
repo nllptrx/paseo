@@ -151,6 +151,7 @@ import { ScheduleService } from "./schedule/service.js";
 import { KanbanStore } from "./kanban/store.js";
 import { KanbanService } from "./kanban/service.js";
 import { KanbanEngine } from "./kanban/engine.js";
+import { TaskService } from "./tasks/service.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
@@ -1260,6 +1261,15 @@ export async function createPaseoDaemon(
     logger,
   });
   await kanbanEngine.recoverInterruptedRuns();
+
+  const taskService = new TaskService({
+    databasePath: path.join(config.paseoHome, "tasks.db"),
+    logger,
+  });
+  // Warmed here so `server_info` can answer synchronously at connect time. The
+  // probe opens the store, and a store that will not open leaves the tracker
+  // switched off rather than taking the daemon down with it.
+  void taskService.isAvailable();
   logger.info({ elapsed: elapsed() }, "Kanban workflow engine initialized");
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");
   const persistedRecords = await agentStorage.list();
@@ -1604,6 +1614,7 @@ export async function createPaseoDaemon(
               hubRelationships,
               workspaceSetupRuntime,
               kanbanEngine,
+              taskService,
             );
             relayRuntime = createRelayRuntime({
               config: {

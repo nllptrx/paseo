@@ -15,6 +15,7 @@ import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
 import type { KanbanEngine } from "./kanban/engine.js";
+import type { TaskService } from "./tasks/service.js";
 import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager, CheckoutDiffMetrics } from "./checkout-diff-manager.js";
 import type { DaemonConfigStore, MutableDaemonConfig } from "./daemon-config-store.js";
@@ -568,6 +569,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly scheduleService: ScheduleService;
   private readonly kanbanService: KanbanService;
   private readonly kanbanEngine: KanbanEngine;
+  private readonly taskService: TaskService | null;
   private readonly checkoutDiffManager: CheckoutDiffManager;
   private readonly github: ForgeService;
   private readonly workspaceGitService: WorkspaceGitService;
@@ -664,7 +666,9 @@ export class VoiceAssistantWebSocketServer {
     hubRelationships?: HubRelationshipManagement | null,
     workspaceSetupRuntime: WorkspaceSetupRuntime = new WorkspaceSetupRuntime(),
     kanbanEngine?: KanbanEngine,
+    taskService?: TaskService,
   ) {
+    this.taskService = taskService ?? null;
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
     this.advertiseDaemonStatusRpc = wsConfig.daemonStatusRpc !== false;
@@ -1398,6 +1402,7 @@ export class VoiceAssistantWebSocketServer {
       scheduleService: this.scheduleService,
       kanbanService: this.kanbanService,
       kanbanEngine: this.kanbanEngine,
+      ...(this.taskService ? { taskService: this.taskService } : {}),
       checkoutDiffManager: this.checkoutDiffManager,
       github: this.github,
       workspaceGitService: this.workspaceGitService,
@@ -1682,6 +1687,10 @@ export class VoiceAssistantWebSocketServer {
         checkoutDiscardChanges: true,
         // COMPAT(kanban): added in v0.3.0-beta.2, drop the gate when daemon floor >= v0.3.0-beta.2.
         kanban: true,
+        // COMPAT(tasks): added in v0.3.0-beta.2, drop the gate when daemon floor >= v0.3.0-beta.2.
+        // False when this host could not open its task store, so the client hides
+        // the tracker rather than offering a surface every request would reject.
+        tasks: this.taskService?.isAvailableNow ?? false,
       },
     };
   }

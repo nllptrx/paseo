@@ -553,6 +553,40 @@ type ScheduleUpdatePayload = Extract<
   SessionOutboundMessage,
   { type: "schedule/update/response" }
 >["payload"];
+type TasksSnapshotPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.snapshot.response" }
+>["payload"];
+type TasksProjectCreatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.project.create.response" }
+>["payload"];
+type TasksLabelCreatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.label.create.response" }
+>["payload"];
+type TasksCreatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.create.response" }
+>["payload"];
+type TasksUpdatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.update.response" }
+>["payload"];
+type TasksMovePayload = Extract<SessionOutboundMessage, { type: "tasks.move.response" }>["payload"];
+type TasksDeletePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.delete.response" }
+>["payload"];
+type TasksSubscribePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.subscribe.response" }
+>["payload"];
+type TasksUnsubscribePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.unsubscribe.response" }
+>["payload"];
+
 type KanbanListPayload = Extract<
   SessionOutboundMessage,
   { type: "kanban.list.response" }
@@ -5417,6 +5451,93 @@ export class DaemonClient {
         ...(options.expiresAt !== undefined ? { expiresAt: options.expiresAt } : {}),
       },
       responseType: "schedule/update/response",
+    });
+  }
+
+  async tasksSnapshot(requestId?: string): Promise<TasksSnapshotPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.snapshot.response">({
+      requestId,
+      message: { type: "tasks.snapshot.request" },
+    });
+  }
+
+  async tasksProjectCreate(
+    options: { name: string; prefix: string; color: string; paseoProjectId?: string | null },
+    requestId?: string,
+  ): Promise<TasksProjectCreatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.project.create.response">({
+      requestId,
+      message: { type: "tasks.project.create.request", ...options },
+    });
+  }
+
+  async tasksLabelCreate(
+    options: { projectId: string; name: string; color: string },
+    requestId?: string,
+  ): Promise<TasksLabelCreatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.label.create.response">({
+      requestId,
+      message: { type: "tasks.label.create.request", ...options },
+    });
+  }
+
+  async tasksCreate(
+    options: Omit<
+      Extract<SessionInboundMessage, { type: "tasks.create.request" }>,
+      "type" | "requestId"
+    >,
+    requestId?: string,
+  ): Promise<TasksCreatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.create.response">({
+      requestId,
+      message: { type: "tasks.create.request", ...options },
+    });
+  }
+
+  async tasksUpdate(
+    options: Omit<
+      Extract<SessionInboundMessage, { type: "tasks.update.request" }>,
+      "type" | "requestId"
+    >,
+    requestId?: string,
+  ): Promise<TasksUpdatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.update.response">({
+      requestId,
+      message: { type: "tasks.update.request", ...options },
+    });
+  }
+
+  async tasksMove(
+    options: Omit<
+      Extract<SessionInboundMessage, { type: "tasks.move.request" }>,
+      "type" | "requestId"
+    >,
+    requestId?: string,
+  ): Promise<TasksMovePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.move.response">({
+      requestId,
+      message: { type: "tasks.move.request", ...options },
+    });
+  }
+
+  async tasksDelete(taskId: string, requestId?: string): Promise<TasksDeletePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.delete.response">({
+      requestId,
+      message: { type: "tasks.delete.request", taskId },
+    });
+  }
+
+  async tasksSubscribe(requestId?: string): Promise<TasksSubscribePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.subscribe.response">({
+      requestId,
+      message: { type: "tasks.subscribe.request" },
+    });
+  }
+
+  async tasksUnsubscribe(requestId?: string): Promise<TasksUnsubscribePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.unsubscribe.response">({
+      requestId,
+      message: { type: "tasks.unsubscribe.request" },
     });
   }
 

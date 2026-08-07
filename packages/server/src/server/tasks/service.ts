@@ -24,6 +24,7 @@ export class TaskService {
   private readonly listeners = new Set<TaskRevisionListener>();
   private opening: Promise<TaskStore> | null = null;
   private unavailableReason: string | null = null;
+  private available = false;
 
   constructor(input: { databasePath: string; logger: pino.Logger }) {
     this.databasePath = input.databasePath;
@@ -43,7 +44,9 @@ export class TaskService {
       this.opening = openTaskStore({ databasePath: this.databasePath });
     }
     try {
-      return await this.opening;
+      const store = await this.opening;
+      this.available = true;
+      return store;
     } catch (error) {
       this.unavailableReason = error instanceof Error ? error.message : String(error);
       this.opening = null;
@@ -57,6 +60,16 @@ export class TaskService {
 
   async isAvailable(): Promise<boolean> {
     return (await this.store()) !== null;
+  }
+
+  /**
+   * The answer `server_info` can give, which has to be synchronous. It is false
+   * until the store has been opened once, so the daemon warms it at boot: a
+   * client connecting must be told whether the tracker exists before it decides
+   * to show it, and "not probed yet" is not something the wire can say.
+   */
+  get isAvailableNow(): boolean {
+    return this.available;
   }
 
   onRevision(listener: TaskRevisionListener): () => void {

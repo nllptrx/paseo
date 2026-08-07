@@ -210,7 +210,9 @@ import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
 import type { KanbanService } from "./kanban/service.js";
 import type { KanbanEngine } from "./kanban/engine.js";
+import type { TaskService } from "./tasks/service.js";
 import { KanbanSession } from "./session/kanban/kanban-session.js";
+import { TasksSession } from "./session/tasks/tasks-session.js";
 import {
   createGitHubService,
   GitHubAuthenticationError,
@@ -458,6 +460,7 @@ export interface SessionOptions {
   scheduleService: ScheduleService;
   kanbanService: KanbanService;
   kanbanEngine: KanbanEngine;
+  taskService?: TaskService;
   loopService: LoopService;
   checkoutDiffManager: CheckoutDiffManager;
   github?: ForgeService;
@@ -602,6 +605,26 @@ function describeRegistryTransition(record: ArchivedRecordSnapshot | null): Regi
  * It owns all state management, orchestration logic, and message processing.
  * Session has no knowledge of WebSockets - it only emits and receives messages.
  */
+/**
+ * Null when the host has no tracker. Every tasks request then falls through to
+ * the unknown-message path, which is the honest answer for a daemon that could
+ * not open one.
+ */
+function createTasksSession(input: {
+  taskService: TaskService | undefined;
+  host: { emit: (msg: SessionOutboundMessage) => void };
+  logger: pino.Logger;
+}): TasksSession | null {
+  if (!input.taskService) {
+    return null;
+  }
+  return new TasksSession({
+    host: input.host,
+    taskService: input.taskService,
+    logger: input.logger,
+  });
+}
+
 export class Session {
   private readonly clientId: string;
   private scopes: readonly string[];
@@ -679,6 +702,7 @@ export class Session {
   private readonly checkoutSession: CheckoutSession;
   private readonly chatScheduleLoopSession: ChatScheduleLoopSession;
   private readonly kanbanSession: KanbanSession;
+  private readonly tasksSession: TasksSession | null;
   private readonly providerCatalogSession: ProviderCatalogSession;
   private readonly workspaceFilesSession: WorkspaceFilesSession;
   private readonly agentConfigSession: AgentConfigSession;
@@ -715,6 +739,7 @@ export class Session {
       scheduleService,
       kanbanService,
       kanbanEngine,
+      taskService,
       loopService,
       checkoutDiffManager,
       github,
@@ -862,6 +887,11 @@ export class Session {
       scheduleService,
       loopService,
       clientId: this.clientId,
+      logger: this.sessionLogger,
+    });
+    this.tasksSession = createTasksSession({
+      taskService,
+      host: { emit: (msg) => this.emit(msg) },
       logger: this.sessionLogger,
     });
     this.kanbanSession = new KanbanSession({
@@ -1933,6 +1963,7 @@ export class Session {
       this.dispatchTerminalMessage(msg) ??
       this.dispatchChatScheduleLoopMessage(msg) ??
       this.dispatchKanbanMessage(msg) ??
+      this.dispatchTasksMessage(msg) ??
       this.dispatchMiscMessage(msg);
     if (promise) await promise;
   }
@@ -2390,6 +2421,37 @@ export class Session {
         return this.chatScheduleLoopSession.handleScheduleRunOnceRequest(msg);
       case "schedule/update":
         return this.chatScheduleLoopSession.handleScheduleUpdateRequest(msg);
+      default:
+        return undefined;
+    }
+  }
+
+  private dispatchTasksMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    const session = this.tasksSession;
+    if (!session) {
+      return undefined;
+    }
+    switch (msg.type) {
+      case "tasks.snapshot.request":
+        return session.handleSnapshotRequest(msg);
+      case "tasks.project.create.request":
+        return session.handleProjectCreateRequest(msg);
+      case "tasks.label.create.request":
+        return session.handleLabelCreateRequest(msg);
+      case "tasks.create.request":
+        return session.handleCreateRequest(msg);
+      case "tasks.update.request":
+        return session.handleUpdateRequest(msg);
+      case "tasks.move.request":
+        return session.handleMoveRequest(msg);
+      case "tasks.delete.request":
+        return session.handleDeleteRequest(msg);
+      case "tasks.subscribe.request":
+        session.handleSubscribeRequest(msg);
+        return Promise.resolve();
+      case "tasks.unsubscribe.request":
+        session.handleUnsubscribeRequest(msg);
+        return Promise.resolve();
       default:
         return undefined;
     }
@@ -7064,6 +7126,7 @@ export class Session {
     this.workspaceGitObserver.dispose();
     this.workspaceFilesSession.dispose();
     this.kanbanSession.dispose();
+    this.tasksSession?.dispose();
   }
 }
 

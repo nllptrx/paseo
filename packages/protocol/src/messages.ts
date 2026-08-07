@@ -91,6 +91,27 @@ import {
   KanbanUpdatePushSchema,
 } from "./kanban/rpc-schemas.js";
 import {
+  TasksSnapshotRequestSchema,
+  TasksSnapshotResponseSchema,
+  TasksProjectCreateRequestSchema,
+  TasksProjectCreateResponseSchema,
+  TasksLabelCreateRequestSchema,
+  TasksLabelCreateResponseSchema,
+  TasksCreateRequestSchema,
+  TasksCreateResponseSchema,
+  TasksUpdateRequestSchema,
+  TasksUpdateResponseSchema,
+  TasksMoveRequestSchema,
+  TasksMoveResponseSchema,
+  TasksDeleteRequestSchema,
+  TasksDeleteResponseSchema,
+  TasksSubscribeRequestSchema,
+  TasksSubscribeResponseSchema,
+  TasksUnsubscribeRequestSchema,
+  TasksUnsubscribeResponseSchema,
+  TasksUpdatePushSchema,
+} from "./tasks/rpc-schemas.js";
+import {
   BrowserAutomationExecuteRequestSchema,
   BrowserAutomationExecuteResponseSchema,
 } from "./browser-automation/rpc-schemas.js";
@@ -2842,6 +2863,15 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   KanbanOrchestratorListPeersRequestSchema,
   KanbanSubscribeRequestSchema,
   KanbanUnsubscribeRequestSchema,
+  TasksSnapshotRequestSchema,
+  TasksProjectCreateRequestSchema,
+  TasksLabelCreateRequestSchema,
+  TasksCreateRequestSchema,
+  TasksUpdateRequestSchema,
+  TasksMoveRequestSchema,
+  TasksDeleteRequestSchema,
+  TasksSubscribeRequestSchema,
+  TasksUnsubscribeRequestSchema,
 ]);
 
 export type SessionInboundMessage = z.infer<typeof SessionInboundMessageSchema>;
@@ -3111,6 +3141,10 @@ export const ServerInfoStatusPayloadSchema = z
         checkoutDiscardChanges: z.boolean().optional(),
         // COMPAT(kanban): added in v0.3.0-beta.2, drop the gate when daemon floor >= v0.3.0-beta.2.
         kanban: z.boolean().optional(),
+        // COMPAT(tasks): added in v0.3.0-beta.2, drop the gate when daemon floor >= v0.3.0-beta.2.
+        // Absent also means the host could not open its task store, so a client
+        // must gate on it rather than assume the daemon version implies it.
+        tasks: z.boolean().optional(),
       })
       .optional(),
   })
@@ -5808,6 +5842,16 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   KanbanSubscribeResponseSchema,
   KanbanUnsubscribeResponseSchema,
   KanbanUpdatePushSchema,
+  TasksSnapshotResponseSchema,
+  TasksProjectCreateResponseSchema,
+  TasksLabelCreateResponseSchema,
+  TasksCreateResponseSchema,
+  TasksUpdateResponseSchema,
+  TasksMoveResponseSchema,
+  TasksDeleteResponseSchema,
+  TasksSubscribeResponseSchema,
+  TasksUnsubscribeResponseSchema,
+  TasksUpdatePushSchema,
   DaemonUpdateProgressMessageSchema,
   DaemonUpdateResponseSchema,
 ]);
