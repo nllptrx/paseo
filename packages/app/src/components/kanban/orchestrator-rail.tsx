@@ -19,6 +19,10 @@ export interface OrchestratorRailProps {
   onSelectPeer: (peer: AggregatedOrchestratorPeer) => void;
   onRetry: () => void;
   hasError: boolean;
+  /** "No other Orchestrators yet" is only true of the mesh rail; a board's own
+   * rail is empty for a different reason and says so. */
+  emptyText?: string;
+  heading?: string;
 }
 
 /**
@@ -32,12 +36,14 @@ export function OrchestratorRail({
   onSelectPeer,
   onRetry,
   hasError,
+  emptyText,
+  heading,
 }: OrchestratorRailProps): ReactElement {
   const { t } = useTranslation();
 
   return (
     <View style={styles.rail} testID="orchestrator-rail">
-      <Text style={styles.heading}>{t("kanban.orchestrator.rail.heading")}</Text>
+      <Text style={styles.heading}>{heading ?? t("kanban.orchestrator.rail.heading")}</Text>
       {isLoading && peers.length === 0 ? (
         <View style={styles.centered}>
           <LoadingSpinner size="small" color={styles.spinner.color} />
@@ -52,11 +58,11 @@ export function OrchestratorRail({
         </View>
       ) : null}
       {!isLoading && !hasError && peers.length === 0 ? (
-        <Text style={styles.emptyText}>{t("kanban.orchestrator.rail.empty")}</Text>
+        <Text style={styles.emptyText}>{emptyText ?? t("kanban.orchestrator.rail.empty")}</Text>
       ) : null}
       {peers.map((peer) => (
         <OrchestratorRailRow
-          key={`${peer.serverId}:${peer.kanbanId}`}
+          key={`${peer.serverId}:${peer.agentId}`}
           peer={peer}
           showHostBadge={showHostBadge}
           onSelect={onSelectPeer}
@@ -91,14 +97,16 @@ function OrchestratorRailRow({
     <Pressable
       onPress={handlePress}
       style={styles.row}
-      testID={`orchestrator-rail-peer-${peer.kanbanId}`}
+      testID={`orchestrator-rail-peer-${peer.agentId}`}
       accessibilityRole="button"
       accessibilityLabel={t("kanban.orchestrator.rail.openThread", { name: peer.kanbanName })}
     >
       <View style={styles.rowTitles}>
         {showHostBadge ? <HostStatusDot serverId={peer.serverId} /> : null}
+        {/* A board can steer several Orchestrators, and they all share its name —
+            the agent's own title is the only thing that tells two rows apart. */}
         <Text style={styles.rowTitle} numberOfLines={1}>
-          {projectName ?? peer.kanbanName}
+          {peer.agentTitle ?? projectName ?? peer.kanbanName}
         </Text>
       </View>
       <View style={styles.rowMeta}>

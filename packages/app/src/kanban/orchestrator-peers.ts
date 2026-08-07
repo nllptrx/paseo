@@ -103,6 +103,23 @@ function toAgentLifecycleStatus(value: string | null): AgentLifecycleStatus | nu
   return AGENT_LIFECYCLE_STATUSES.find((status) => status === value) ?? null;
 }
 
+/**
+ * The Orchestrators steering one kanban on one host. Membership is a fact about
+ * the agent's labels, so the board reads it out of the same peer listing the
+ * mesh rail uses rather than off anything stored on the kanban. Ordered by the
+ * title provisioning gave them so a board with several reads the same way twice.
+ */
+export function selectKanbanOrchestrators(
+  peers: readonly AggregatedOrchestratorPeer[],
+  target: { serverId: string; kanbanId: string },
+): AggregatedOrchestratorPeer[] {
+  return peers
+    .filter((peer) => peer.serverId === target.serverId && peer.kanbanId === target.kanbanId)
+    .sort((left, right) =>
+      (left.agentTitle ?? left.agentId).localeCompare(right.agentTitle ?? right.agentId),
+    );
+}
+
 /** Drops the Orchestrator the pane itself belongs to — the rail only lists the others. */
 export function excludeSelfOrchestrator(
   peers: readonly AggregatedOrchestratorPeer[],

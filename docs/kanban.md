@@ -9,9 +9,9 @@ that file once nothing in it remains undocs'd here or in data-model.
 ## Layering
 
 - **Lower layer:** Workspace (cwd, agents, archive, FS). Unchanged ownership.
-- **Overlay:** one Kanban per project (v1), a set of Plans, optional
-  Orchestrator workspace linked from the kanban record. Columns are not stored —
-  see below.
+- **Overlay:** one Kanban per project (v1), a set of Plans, and any number of
+  Orchestrator workspaces, which the kanban does not record — they carry its id
+  on their agent labels. Columns are not stored — see below.
 - **Unbounded:** workspaces not referenced by any active Plan. Default sidebar
   experience is exactly today's status/project grouping — a user who never opts
   in never sees a board.
@@ -26,11 +26,11 @@ materialize real Schedules (`maxRuns: 1`); there is no second cron engine.
 2. "Add to Kanban" on a workspace/project menu lazily creates the project's
    kanban and (from a workspace row) a one-step manual workflow Plan with
    `existing` workspace strategy.
-3. Sidebar grouping "Kanban" — columns then Unbounded — gated on host feature
-   `kanban`.
-4. `/kanbans` — overview, one column per project, running work first. Opening a
-   project goes to `/kanbans/<kanbanId>`, its three-column board.
-5. "Create Orchestrator" — provisions a **local** workspace on the **project
+3. `/kanbans` — overview, one column per project, running work first, gated on
+   host feature `kanban`. Opening a project goes to `/kanbans/<kanbanId>`, its
+   three-column board. The sidebar has no kanban grouping: it is for watching
+   status, and the board is somewhere you go.
+4. "Create Orchestrator" — provisions a **local** workspace on the **project
    root** (not a worktree). The Orchestrator steers via tools and chat; it does
    not need checkout isolation for code edits.
 
@@ -70,10 +70,17 @@ agent. Messages are steering, not dispatch — "take this plan" still goes throu
 kanban tools. Cross-host peers are visible read-only in the app rail; daemon
 messaging stays host-local in v1.
 
-In the app, an Orchestrator workspace gains an **Orchestrator** tab (menu ⋯ →
-Open Orchestrator when that workspace is linked). The pane reuses
-`KanbanBoardSurface` (the same board as `/kanbans/<kanbanId>`, drag included)
-plus an Orchestrators rail that opens the host's `orchestrators` chat thread.
+Two surfaces reach that thread, and they answer different questions.
+`/kanbans/<kanbanId>` carries a pane beside the board listing **this board's**
+Orchestrators — derived by filtering the peer listing to the board's host and id
+— and opens straight into the conversation when there is only one. An
+Orchestrator workspace gains an **Orchestrator** tab (menu ⋯ → Open
+Orchestrator) that reuses `KanbanBoardSurface` plus a rail of the **other**
+boards' Orchestrators, for steering across boards.
+
+Both run the same conversation: `useOrchestratorPeerThread` plus the message
+list and composer in `orchestrator-thread-view.tsx`. A peer row is titled by its
+agent title, because every Orchestrator on one board shares the board's name.
 
 ## Client data
 
@@ -82,10 +89,9 @@ shape as schedules — not a new `SessionState` map. Gate every entry point on
 `server_info.features.kanban`. Feature contract: gate once, then run or tell the
 user to update the host — no silent fallbacks.
 
-Sidebar kanban grouping resolves a workspace to a plan through its step
-workspace refs (`existing` + `runs[].workspaceIds`), then to that plan's derived
-column. Nested-kanban children map to the top-level card's column. Plans with no workspaces yet stay invisible in
-the sidebar (execution-centric); planning lives in `/kanbans`.
+"Add to Kanban" resolves a workspace to a plan through its step workspace refs
+(`existing` + `runs[].workspaceIds`) so it can tell whether a board already
+covers that workspace.
 
 ## Persistence
 

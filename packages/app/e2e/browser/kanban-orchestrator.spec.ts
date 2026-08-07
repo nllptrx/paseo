@@ -64,6 +64,16 @@ test.describe("Kanban Orchestrator", () => {
     // peer once the agent exists — nothing is stamped on the board.
     await expect.poll(() => countOrchestrators(client, kanbanId), { timeout: 60_000 }).toBe(1);
 
+    // The board's own Orchestrator is reachable without leaving the board: the
+    // pane beside it opens straight into the conversation when there is only one.
+    const pane = page.getByTestId("kanban-orchestrator-pane");
+    await expect(pane).toBeVisible({ timeout: 30_000 });
+    await expect(pane.getByTestId("orchestrator-thread-input")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("kanban-orchestrator-pane-toggle").click();
+    await expect(pane).toHaveCount(0);
+    await page.getByTestId("kanban-orchestrator-pane-toggle").click();
+    await expect(pane).toBeVisible();
+
     // Reached the way a user would: the provisioned workspace shows up in the
     // sidebar, and its header menu is where the pane opens from.
     await page.getByText("Kanban Orchestrator").first().click();

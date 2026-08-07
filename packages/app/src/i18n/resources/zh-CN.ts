@@ -948,6 +948,11 @@ export const zhCN: TranslationResources = {
         loadError: "Unable to load Orchestrators",
         openThread: "Open the Orchestrators thread for {{name}}",
       },
+      pane: {
+        toggle: "Orchestrator chat",
+        empty: "No Orchestrator on this board yet",
+        back: "All Orchestrators",
+      },
       thread: {
         placeholder: "Message the Orchestrators…",
         send: "Send",

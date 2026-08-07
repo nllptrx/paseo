@@ -5,6 +5,7 @@ import {
   excludeSelfOrchestrator,
   fetchAggregatedOrchestratorPeers,
   resolveOrchestratorPeerBucket,
+  selectKanbanOrchestrators,
 } from "./orchestrator-peers";
 
 function peer(overrides: Partial<OrchestratorPeer> = {}): OrchestratorPeer {
@@ -133,6 +134,51 @@ describe("excludeSelfOrchestrator", () => {
       ["host-a", "kanban-2"],
       ["host-b", "kanban-1"],
     ]);
+  });
+});
+
+describe("selectKanbanOrchestrators", () => {
+  it("keeps only the board's own Orchestrators, on its own host", () => {
+    const peers = [
+      aggregated({ agentId: "agent-1", agentTitle: "Kanban Orchestrator" }),
+      aggregated({ agentId: "agent-2", kanbanId: "kanban-2" }),
+      aggregated({ agentId: "agent-3", serverId: "host-b", serverName: "Host B" }),
+    ];
+
+    const result = selectKanbanOrchestrators(peers, {
+      serverId: "host-a",
+      kanbanId: "kanban-1",
+    });
+
+    expect(result.map((entry) => entry.agentId)).toEqual(["agent-1"]);
+  });
+
+  it("orders several Orchestrators of one board by title", () => {
+    const peers = [
+      aggregated({ agentId: "agent-2", agentTitle: "Kanban Orchestrator 2" }),
+      aggregated({ agentId: "agent-1", agentTitle: "Kanban Orchestrator" }),
+    ];
+
+    const result = selectKanbanOrchestrators(peers, {
+      serverId: "host-a",
+      kanbanId: "kanban-1",
+    });
+
+    expect(result.map((entry) => entry.agentId)).toEqual(["agent-1", "agent-2"]);
+  });
+
+  it("falls back to the agent id when a peer has no title", () => {
+    const peers = [
+      aggregated({ agentId: "agent-b", agentTitle: null }),
+      aggregated({ agentId: "agent-a", agentTitle: null }),
+    ];
+
+    const result = selectKanbanOrchestrators(peers, {
+      serverId: "host-a",
+      kanbanId: "kanban-1",
+    });
+
+    expect(result.map((entry) => entry.agentId)).toEqual(["agent-a", "agent-b"]);
   });
 });
 

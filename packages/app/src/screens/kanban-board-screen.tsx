@@ -2,8 +2,9 @@ import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
-import { ArrowLeft, MoreVertical } from "lucide-react-native";
+import { ArrowLeft, MessagesSquare, MoreVertical } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { MenuHeader } from "@/components/headers/menu-header";
 import {
   DropdownMenu,
@@ -12,8 +13,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { KanbanBoardSurface } from "@/components/kanban/kanban-board-surface";
+import { KanbanOrchestratorPane } from "@/components/kanban/kanban-orchestrator-pane";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { useKanban, useKanbans } from "@/hooks/use-kanbans";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
 import { deriveBoard } from "@/kanban/derive-board";
@@ -24,6 +27,7 @@ import { ICON_SIZE, type Theme } from "@/styles/theme";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
+const ThemedMessagesSquare = withUnistyles(MessagesSquare);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 
@@ -88,8 +92,12 @@ function LoadedKanbanBoardScreen({
 }): ReactElement {
   const { t } = useTranslation();
   const { serverId } = summary;
+  const isCompact = useIsCompactFormFactor();
   const { provisionOrchestrator } = useKanbanMutations({ serverId });
   const [isProvisioning, setIsProvisioning] = useState(false);
+  // Wide layouts have room to keep the conversation open beside the board;
+  // a compact one borrows the whole screen for it, so it starts closed.
+  const [isOrchestratorPaneOpen, setIsOrchestratorPaneOpen] = useState(() => !isCompact);
 
   const handleProvisionOrchestrator = useCallback(async () => {
     setIsProvisioning(true);
@@ -99,6 +107,15 @@ function LoadedKanbanBoardScreen({
       setIsProvisioning(false);
     }
   }, [kanbanId, provisionOrchestrator]);
+  const handleToggleOrchestratorPane = useCallback(
+    () => setIsOrchestratorPaneOpen((open) => !open),
+    [],
+  );
+  const handleCloseOrchestratorPane = useCallback(() => setIsOrchestratorPaneOpen(false), []);
+  const orchestratorSheetHeader = useMemo(
+    () => ({ title: t("kanban.orchestrator.rail.heading") }),
+    [t],
+  );
   const { kanban: detail, isLoading, isError, error, refetch } = useKanban({ serverId, kanbanId });
   const draftOrder = useKanbanDraftOrder(kanbanId);
   const projectName = useProjectDisplayName(serverId, summary.projectId);
@@ -123,6 +140,18 @@ function LoadedKanbanBoardScreen({
         </Button>
         <View style={styles.subHeaderTrailing}>
           <Text style={styles.count}>{t("kanban.screen.planCount", { count: totalCount })}</Text>
+          <Button
+            variant="ghost"
+            size="xs"
+            onPress={handleToggleOrchestratorPane}
+            accessibilityLabel={t("kanban.orchestrator.pane.toggle")}
+            testID="kanban-orchestrator-pane-toggle"
+          >
+            <ThemedMessagesSquare
+              size={ICON_SIZE.sm}
+              uniProps={isOrchestratorPaneOpen ? foregroundIconMapping : mutedIconMapping}
+            />
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger
               style={styles.menuTrigger}
@@ -153,24 +182,43 @@ function LoadedKanbanBoardScreen({
           </DropdownMenu>
         </View>
       </View>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        testID={`kanban-board-${kanbanId}`}
-      >
-        <KanbanBoardSurface
-          serverId={serverId}
-          kanbanId={kanbanId}
-          detail={detail}
-          isLoading={isLoading}
-          isError={isError}
-          error={error}
-          onRetry={refetch}
-        />
-      </ScrollView>
+      <View style={styles.body}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          testID={`kanban-board-${kanbanId}`}
+        >
+          <KanbanBoardSurface
+            serverId={serverId}
+            kanbanId={kanbanId}
+            detail={detail}
+            isLoading={isLoading}
+            isError={isError}
+            error={error}
+            onRetry={refetch}
+          />
+        </ScrollView>
+        {isOrchestratorPaneOpen && !isCompact ? (
+          <View style={styles.orchestratorPane}>
+            <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
+          </View>
+        ) : null}
+      </View>
+      {isCompact ? (
+        <AdaptiveModalSheet
+          header={orchestratorSheetHeader}
+          visible={isOrchestratorPaneOpen}
+          onClose={handleCloseOrchestratorPane}
+          testID="kanban-orchestrator-sheet"
+        >
+          <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
+        </AdaptiveModalSheet>
+      ) : null}
     </View>
   );
 }
+
+const ORCHESTRATOR_PANE_WIDTH = 320;
 
 const styles = StyleSheet.create((theme) => ({
   container: {
@@ -199,9 +247,20 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
+  body: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: "row",
+  },
   scroll: {
     flex: 1,
     minHeight: 0,
+  },
+  orchestratorPane: {
+    width: ORCHESTRATOR_PANE_WIDTH,
+    minHeight: 0,
+    borderLeftWidth: theme.borderWidth[1],
+    borderLeftColor: theme.colors.border,
   },
   scrollContent: {
     flexGrow: 1,

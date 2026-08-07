@@ -12,6 +12,7 @@ import type {
 } from "@getpaseo/client/internal/daemon-client";
 import type { OrchestratorPeer } from "@getpaseo/protocol/kanban/rpc-schemas";
 import { kanbanQueryKey, kanbansQueryBaseKey } from "@/kanban/aggregated-kanbans";
+import { orchestratorPeersQueryBaseKey } from "@/kanban/orchestrator-peers";
 import { useSessionStore } from "@/stores/session-store";
 
 export type CreateKanbanInput = Omit<CreateKanbanOptions, "requestId">;
@@ -78,6 +79,16 @@ export function useKanbanMutations({ serverId }: { serverId: string }): UseKanba
       invalidateKanban(kanbanId);
     },
     [invalidateList, invalidateKanban],
+  );
+
+  /** Orchestrators are derived from agent labels and have no push channel, so a
+   * surface listing them only learns about one it just asked for from here. */
+  const invalidateOrchestrators = useCallback(
+    (kanbanId: string) => {
+      invalidateBoth(kanbanId);
+      void queryClient.invalidateQueries({ queryKey: orchestratorPeersQueryBaseKey });
+    },
+    [invalidateBoth, queryClient],
   );
 
   const createKanbanMutation = useMutation({
@@ -198,7 +209,7 @@ export function useKanbanMutations({ serverId }: { serverId: string }): UseKanba
         throw new Error(payload.error);
       }
     },
-    onSettled: (_data, _error, kanbanId) => invalidateBoth(kanbanId),
+    onSettled: (_data, _error, kanbanId) => invalidateOrchestrators(kanbanId),
   });
 
   const unlinkOrchestratorMutation = useMutation({
@@ -209,7 +220,7 @@ export function useKanbanMutations({ serverId }: { serverId: string }): UseKanba
         throw new Error(payload.error);
       }
     },
-    onSettled: (_data, _error, kanbanId) => invalidateBoth(kanbanId),
+    onSettled: (_data, _error, kanbanId) => invalidateOrchestrators(kanbanId),
   });
 
   const listOrchestratorPeers = useCallback(async (): Promise<OrchestratorPeer[]> => {
