@@ -30,6 +30,11 @@ export const MIN_EXPLORER_SIDEBAR_WIDTH = 280;
 // Upper bound is intentionally generous; desktop resizing enforces a min-chat-width constraint.
 export const MAX_EXPLORER_SIDEBAR_WIDTH = 2000;
 
+export const DEFAULT_ORCHESTRATOR_PANEL_WIDTH = 360;
+export const MIN_ORCHESTRATOR_PANEL_WIDTH = 280;
+// Same generous ceiling as the explorer: the viewport clamp owns the real bound.
+export const MAX_ORCHESTRATOR_PANEL_WIDTH = 2000;
+
 export const DEFAULT_EXPLORER_FILES_SPLIT_RATIO = 0.38;
 export const MIN_EXPLORER_FILES_SPLIT_RATIO = 0.2;
 export const MAX_EXPLORER_FILES_SPLIT_RATIO = 0.8;
@@ -67,6 +72,10 @@ export function clampSidebarWidth(width: number): number {
 
 export function clampExplorerWidth(width: number): number {
   return clampNumber(width, MIN_EXPLORER_SIDEBAR_WIDTH, MAX_EXPLORER_SIDEBAR_WIDTH);
+}
+
+export function clampOrchestratorWidth(width: number): number {
+  return clampNumber(width, MIN_ORCHESTRATOR_PANEL_WIDTH, MAX_ORCHESTRATOR_PANEL_WIDTH);
 }
 
 export function clampExplorerFilesSplitRatio(ratio: number): number {

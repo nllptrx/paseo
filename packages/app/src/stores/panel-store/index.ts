@@ -13,15 +13,19 @@ import {
   buildToggleFileExplorerPatch,
   clampExplorerFilesSplitRatio,
   clampExplorerWidth,
+  clampOrchestratorWidth,
   clampSidebarWidth,
   DEFAULT_EXPLORER_FILES_SPLIT_RATIO,
   DEFAULT_EXPLORER_SIDEBAR_WIDTH,
+  DEFAULT_ORCHESTRATOR_PANEL_WIDTH,
   DEFAULT_SIDEBAR_WIDTH,
   MAX_EXPLORER_FILES_SPLIT_RATIO,
   MAX_EXPLORER_SIDEBAR_WIDTH,
+  MAX_ORCHESTRATOR_PANEL_WIDTH,
   MAX_SIDEBAR_WIDTH,
   MIN_EXPLORER_FILES_SPLIT_RATIO,
   MIN_EXPLORER_SIDEBAR_WIDTH,
+  MIN_ORCHESTRATOR_PANEL_WIDTH,
   MIN_SIDEBAR_WIDTH,
   migratePanelState,
   selectIsAgentListOpen,
@@ -51,12 +55,15 @@ export type {
 export {
   DEFAULT_EXPLORER_FILES_SPLIT_RATIO,
   DEFAULT_EXPLORER_SIDEBAR_WIDTH,
+  DEFAULT_ORCHESTRATOR_PANEL_WIDTH,
   DEFAULT_SIDEBAR_WIDTH,
   MAX_EXPLORER_FILES_SPLIT_RATIO,
   MAX_EXPLORER_SIDEBAR_WIDTH,
+  MAX_ORCHESTRATOR_PANEL_WIDTH,
   MAX_SIDEBAR_WIDTH,
   MIN_EXPLORER_FILES_SPLIT_RATIO,
   MIN_EXPLORER_SIDEBAR_WIDTH,
+  MIN_ORCHESTRATOR_PANEL_WIDTH,
   MIN_SIDEBAR_WIDTH,
   selectIsAgentListOpen,
   selectIsFileExplorerOpen,
@@ -84,6 +91,8 @@ export interface PanelState {
   diffCollapsedFoldersByWorkspace: Record<string, string[]>;
   sidebarWidth: number;
   explorerWidth: number;
+  orchestratorPanelOpen: boolean;
+  orchestratorWidth: number;
   explorerSortOption: SortOption;
   explorerShowHiddenFiles: boolean;
   explorerFilesSplitRatio: number;
@@ -113,6 +122,8 @@ export interface PanelState {
   activateExplorerTabForCheckout: (checkout: ExplorerCheckoutContext) => void;
   setSidebarWidth: (width: number) => void;
   setExplorerWidth: (width: number) => void;
+  toggleOrchestratorPanel: () => void;
+  setOrchestratorWidth: (width: number) => void;
   setExplorerSortOption: (option: SortOption) => void;
   toggleExplorerShowHiddenFiles: () => void;
   setExplorerFilesSplitRatio: (ratio: number) => void;
@@ -149,6 +160,8 @@ export const usePanelStore = create<PanelState>()(
       diffCollapsedFoldersByWorkspace: {},
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       explorerWidth: DEFAULT_EXPLORER_SIDEBAR_WIDTH,
+      orchestratorPanelOpen: true,
+      orchestratorWidth: DEFAULT_ORCHESTRATOR_PANEL_WIDTH,
       explorerSortOption: "name",
       explorerShowHiddenFiles: true,
       explorerFilesSplitRatio: DEFAULT_EXPLORER_FILES_SPLIT_RATIO,
@@ -298,6 +311,9 @@ export const usePanelStore = create<PanelState>()(
         })),
       setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
       setExplorerWidth: (width) => set({ explorerWidth: clampExplorerWidth(width) }),
+      toggleOrchestratorPanel: () =>
+        set((state) => ({ orchestratorPanelOpen: !state.orchestratorPanelOpen })),
+      setOrchestratorWidth: (width) => set({ orchestratorWidth: clampOrchestratorWidth(width) }),
       setExplorerSortOption: (option) => set({ explorerSortOption: option }),
       toggleExplorerShowHiddenFiles: () =>
         set((state) => ({ explorerShowHiddenFiles: !state.explorerShowHiddenFiles })),
@@ -323,6 +339,8 @@ export const usePanelStore = create<PanelState>()(
         diffCollapsedFoldersByWorkspace: state.diffCollapsedFoldersByWorkspace,
         sidebarWidth: state.sidebarWidth,
         explorerWidth: state.explorerWidth,
+        orchestratorPanelOpen: state.orchestratorPanelOpen,
+        orchestratorWidth: state.orchestratorWidth,
         explorerSortOption: state.explorerSortOption,
         explorerShowHiddenFiles: state.explorerShowHiddenFiles,
         explorerFilesSplitRatio: state.explorerFilesSplitRatio,

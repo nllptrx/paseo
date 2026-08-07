@@ -1,11 +1,17 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
+import { Gesture } from "react-native-gesture-handler";
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { ArrowLeft, MessagesSquare, MoreVertical } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
-import { MenuHeader } from "@/components/headers/menu-header";
+import { ScreenHeader } from "@/components/headers/screen-header";
+import { ScreenTitle } from "@/components/headers/screen-title";
+import { SidebarMenuToggle } from "@/components/headers/menu-header";
+import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
+import { resolveDesktopOrchestratorWidth } from "@/components/desktop-sidebar-layout";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +28,7 @@ import { useKanban, useKanbans } from "@/hooks/use-kanbans";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionId } from "@/keyboard/keyboard-action-dispatcher";
+import { usePanelStore } from "@/stores/panel-store";
 import { selectProjectBoard } from "@/tasks/task-views";
 import { useTasks } from "@/tasks/use-tasks";
 import { useProjectDisplayName } from "@/stores/session-store-hooks";
@@ -61,7 +68,15 @@ export function KanbanBoardScreen({ kanbanId }: { kanbanId: string }): ReactElem
   if (loadState.status !== "loaded") {
     return (
       <View style={styles.container}>
-        <MenuHeader title={t("kanban.screen.title")} />
+        <ScreenHeader
+          left={
+            <>
+              <SidebarMenuToggle />
+              <ScreenTitle>{t("kanban.screen.title")}</ScreenTitle>
+            </>
+          }
+          leftStyle={styles.headerLeft}
+        />
         <View style={styles.centered}>
           <LoadingSpinner size="large" color={styles.spinner.color} />
         </View>
@@ -72,7 +87,15 @@ export function KanbanBoardScreen({ kanbanId }: { kanbanId: string }): ReactElem
   if (!summary) {
     return (
       <View style={styles.container}>
-        <MenuHeader title={t("kanban.screen.title")} />
+        <ScreenHeader
+          left={
+            <>
+              <SidebarMenuToggle />
+              <ScreenTitle>{t("kanban.screen.title")}</ScreenTitle>
+            </>
+          }
+          leftStyle={styles.headerLeft}
+        />
         <View style={styles.centered}>
           <Text style={styles.message}>{t("kanban.screen.boardMissing")}</Text>
           <Button variant="ghost" onPress={handleBack} testID="kanban-board-back-to-overview">
@@ -102,9 +125,12 @@ function LoadedKanbanBoardScreen({
   const { kanban: detail } = useKanban({ serverId, kanbanId });
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [planForm, setPlanForm] = useState<{ taskId: string | null } | null>(null);
-  // Wide layouts have room to keep the conversation open beside the board;
-  // a compact one borrows the whole screen for it, so it starts closed.
-  const [isOrchestratorPaneOpen, setIsOrchestratorPaneOpen] = useState(() => !isCompact);
+  // Desktop remembers the pane like the explorer sidebar does; compact borrows
+  // the whole screen for it, so it is a sheet you summon, never a default.
+  const orchestratorOpenDesktop = usePanelStore((state) => state.orchestratorPanelOpen);
+  const toggleOrchestratorPanel = usePanelStore((state) => state.toggleOrchestratorPanel);
+  const [isOrchestratorSheetOpen, setIsOrchestratorSheetOpen] = useState(false);
+  const isOrchestratorOpen = isCompact ? isOrchestratorSheetOpen : orchestratorOpenDesktop;
 
   const handleProvisionOrchestrator = useCallback(async () => {
     setIsProvisioning(true);
@@ -114,11 +140,14 @@ function LoadedKanbanBoardScreen({
       setIsProvisioning(false);
     }
   }, [kanbanId, provisionOrchestrator]);
-  const handleToggleOrchestratorPane = useCallback(
-    () => setIsOrchestratorPaneOpen((open) => !open),
-    [],
-  );
-  const handleCloseOrchestratorPane = useCallback(() => setIsOrchestratorPaneOpen(false), []);
+  const handleToggleOrchestrator = useCallback(() => {
+    if (isCompact) {
+      setIsOrchestratorSheetOpen((open) => !open);
+      return;
+    }
+    toggleOrchestratorPanel();
+  }, [isCompact, toggleOrchestratorPanel]);
+  const handleCloseOrchestratorSheet = useCallback(() => setIsOrchestratorSheetOpen(false), []);
   const handleOpenCreatePlan = useCallback(() => setPlanForm({ taskId: null }), []);
   const handleCreatePlanForTask = useCallback((taskId: string) => setPlanForm({ taskId }), []);
   const handleCloseCreatePlan = useCallback(() => setPlanForm(null), []);
@@ -158,76 +187,100 @@ function LoadedKanbanBoardScreen({
     [snapshot, summary.projectId],
   );
 
-  return (
-    <View style={styles.container}>
-      <MenuHeader title={projectName ?? summary.name} />
-      <View style={styles.subHeader}>
+  const headerLeft = useMemo(
+    () => (
+      <>
+        <SidebarMenuToggle />
         <Button
           variant="ghost"
-          size="sm"
-          leftIcon={ThemedArrowLeft}
+          size="xs"
           onPress={onBack}
           accessibilityLabel={t("kanban.screen.backToOverview")}
           testID="kanban-board-back"
         >
-          {t("kanban.screen.backToOverview")}
+          <ThemedArrowLeft size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
         </Button>
-        <View style={styles.subHeaderTrailing}>
-          <Text style={styles.count}>{t("tasks.screen.taskCount", { count: totalCount })}</Text>
-          <Button
-            variant="ghost"
-            size="xs"
-            onPress={handleToggleOrchestratorPane}
-            accessibilityLabel={t("kanban.orchestrator.pane.toggle")}
-            testID="kanban-orchestrator-pane-toggle"
+        <ScreenTitle>{projectName ?? summary.name}</ScreenTitle>
+      </>
+    ),
+    [onBack, projectName, summary.name, t],
+  );
+
+  const headerRight = useMemo(
+    () => (
+      <View style={styles.headerTrailing}>
+        <Text style={styles.count}>{t("tasks.screen.taskCount", { count: totalCount })}</Text>
+        <Button
+          variant="ghost"
+          size="xs"
+          onPress={handleToggleOrchestrator}
+          accessibilityLabel={t("kanban.orchestrator.pane.toggle")}
+          testID="kanban-orchestrator-pane-toggle"
+        >
+          <ThemedMessagesSquare
+            size={ICON_SIZE.sm}
+            uniProps={isOrchestratorOpen ? foregroundIconMapping : mutedIconMapping}
+          />
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            style={styles.menuTrigger}
+            testID={`kanban-board-menu-${kanbanId}`}
+            accessibilityRole="button"
+            accessibilityLabel={t("kanban.board.menu")}
           >
-            <ThemedMessagesSquare
-              size={ICON_SIZE.sm}
-              uniProps={isOrchestratorPaneOpen ? foregroundIconMapping : mutedIconMapping}
-            />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              style={styles.menuTrigger}
-              testID={`kanban-board-menu-${kanbanId}`}
-              accessibilityRole="button"
-              accessibilityLabel={t("kanban.board.menu")}
+            {({ hovered }) => (
+              <ThemedMoreVertical
+                size={ICON_SIZE.sm}
+                uniProps={hovered ? foregroundIconMapping : mutedIconMapping}
+              />
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="end"
+            testID={`kanban-board-menu-content-${kanbanId}`}
+          >
+            <DropdownMenuItem
+              testID={`kanban-new-plan-${kanbanId}`}
+              onSelect={handleOpenCreatePlan}
             >
-              {({ hovered }) => (
-                <ThemedMoreVertical
-                  size={ICON_SIZE.sm}
-                  uniProps={hovered ? foregroundIconMapping : mutedIconMapping}
-                />
-              )}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              side="bottom"
-              align="end"
-              testID={`kanban-board-menu-content-${kanbanId}`}
+              {t("kanban.column.addPlan")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              testID={`kanban-review-toggle-${kanbanId}`}
+              onSelect={handleToggleReview}
             >
-              <DropdownMenuItem
-                testID={`kanban-new-plan-${kanbanId}`}
-                onSelect={handleOpenCreatePlan}
-              >
-                {t("kanban.column.addPlan")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                testID={`kanban-review-toggle-${kanbanId}`}
-                onSelect={handleToggleReview}
-              >
-                {t(reviewEnabled ? "kanban.board.reviewDisable" : "kanban.board.reviewEnable")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                testID={`kanban-create-orchestrator-${kanbanId}`}
-                onSelect={handleProvisionOrchestrator}
-                disabled={isProvisioning}
-              >
-                {t("kanban.board.createOrchestrator")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </View>
+              {t(reviewEnabled ? "kanban.board.reviewDisable" : "kanban.board.reviewEnable")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              testID={`kanban-create-orchestrator-${kanbanId}`}
+              onSelect={handleProvisionOrchestrator}
+              disabled={isProvisioning}
+            >
+              {t("kanban.board.createOrchestrator")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </View>
+    ),
+    [
+      handleOpenCreatePlan,
+      handleProvisionOrchestrator,
+      handleToggleOrchestrator,
+      handleToggleReview,
+      isOrchestratorOpen,
+      isProvisioning,
+      kanbanId,
+      reviewEnabled,
+      t,
+      totalCount,
+    ],
+  );
+
+  return (
+    <View style={styles.container}>
+      <ScreenHeader left={headerLeft} right={headerRight} leftStyle={styles.headerLeft} />
       <View style={styles.body}>
         <ScrollView
           style={styles.scroll}
@@ -241,17 +294,15 @@ function LoadedKanbanBoardScreen({
             onCreatePlanForTask={handleCreatePlanForTask}
           />
         </ScrollView>
-        {isOrchestratorPaneOpen && !isCompact ? (
-          <View style={styles.orchestratorPane}>
-            <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
-          </View>
+        {!isCompact && orchestratorOpenDesktop ? (
+          <OrchestratorSidebar serverId={serverId} kanbanId={kanbanId} />
         ) : null}
       </View>
       {isCompact ? (
         <AdaptiveModalSheet
           header={orchestratorSheetHeader}
-          visible={isOrchestratorPaneOpen}
-          onClose={handleCloseOrchestratorPane}
+          visible={isOrchestratorSheetOpen}
+          onClose={handleCloseOrchestratorSheet}
           testID="kanban-orchestrator-sheet"
         >
           <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
@@ -271,21 +322,79 @@ function LoadedKanbanBoardScreen({
   );
 }
 
-const ORCHESTRATOR_PANE_WIDTH = 320;
+/**
+ * The explorer sidebar's shape, for the board: width owned by the panel store,
+ * clamped against the viewport, resized by the same edge gesture. Mounted only
+ * while open, so reopening refetches what the conversation shows.
+ */
+function OrchestratorSidebar({
+  serverId,
+  kanbanId,
+}: {
+  serverId: string;
+  kanbanId: string;
+}): ReactElement {
+  const orchestratorWidth = usePanelStore((state) => state.orchestratorWidth);
+  const setOrchestratorWidth = usePanelStore((state) => state.setOrchestratorWidth);
+  const { width: viewportWidth } = useWindowDimensions();
+  const visibleWidth = resolveDesktopOrchestratorWidth({
+    requestedWidth: orchestratorWidth,
+    viewportWidth,
+  });
+  const startWidthRef = useRef(visibleWidth);
+  const resizeWidth = useSharedValue(visibleWidth);
+
+  useEffect(() => {
+    resizeWidth.value = visibleWidth;
+  }, [resizeWidth, visibleWidth]);
+
+  const resizeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(true)
+        .hitSlop({ left: 8, right: 8, top: 0, bottom: 0 })
+        .onStart(() => {
+          startWidthRef.current = visibleWidth;
+          resizeWidth.value = visibleWidth;
+        })
+        .onUpdate((event) => {
+          const newWidth = startWidthRef.current - event.translationX;
+          resizeWidth.value = resolveDesktopOrchestratorWidth({
+            requestedWidth: newWidth,
+            viewportWidth,
+          });
+        })
+        .onEnd(() => {
+          runOnJS(setOrchestratorWidth)(resizeWidth.value);
+        }),
+    [resizeWidth, setOrchestratorWidth, viewportWidth, visibleWidth],
+  );
+
+  const resizeAnimatedStyle = useAnimatedStyle(() => ({
+    width: resizeWidth.value,
+  }));
+
+  return (
+    <Animated.View style={[styles.orchestratorPane, resizeAnimatedStyle]}>
+      <SidebarResizeHandle
+        edge="left"
+        gesture={resizeGesture}
+        testID="kanban-orchestrator-resize-handle"
+      />
+      <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
+    </Animated.View>
+  );
+}
 
 const styles = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.surface0,
   },
-  subHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: { xs: theme.spacing[3], md: theme.spacing[6] },
-    paddingTop: theme.spacing[3],
+  headerLeft: {
+    gap: theme.spacing[2],
   },
-  subHeaderTrailing: {
+  headerTrailing: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
@@ -310,7 +419,6 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 0,
   },
   orchestratorPane: {
-    width: ORCHESTRATOR_PANE_WIDTH,
     minHeight: 0,
     borderLeftWidth: theme.borderWidth[1],
     borderLeftColor: theme.colors.border,

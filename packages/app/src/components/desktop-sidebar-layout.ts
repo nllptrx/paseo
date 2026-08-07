@@ -1,8 +1,10 @@
 import { SETTINGS_DESKTOP_SPLIT_MIN_WIDTH } from "@/constants/layout";
 import {
   MAX_EXPLORER_SIDEBAR_WIDTH,
+  MAX_ORCHESTRATOR_PANEL_WIDTH,
   MAX_SIDEBAR_WIDTH,
   MIN_EXPLORER_SIDEBAR_WIDTH,
+  MIN_ORCHESTRATOR_PANEL_WIDTH,
   MIN_SIDEBAR_WIDTH,
 } from "@/stores/panel-store";
 
@@ -76,6 +78,18 @@ export function resolveDesktopExplorerWidth(input: {
     ...input,
     minimumWidth: MIN_EXPLORER_SIDEBAR_WIDTH,
     maximumWidth: MAX_EXPLORER_SIDEBAR_WIDTH,
+  });
+}
+
+export function resolveDesktopOrchestratorWidth(input: {
+  requestedWidth: number;
+  viewportWidth: number;
+}): number {
+  "worklet";
+  return resolveDesktopPanelWidth({
+    ...input,
+    minimumWidth: MIN_ORCHESTRATOR_PANEL_WIDTH,
+    maximumWidth: MAX_ORCHESTRATOR_PANEL_WIDTH,
   });
 }
 
