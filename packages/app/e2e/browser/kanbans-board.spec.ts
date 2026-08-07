@@ -274,7 +274,7 @@ test.describe("Kanbans board", () => {
       .toBe("in_progress");
   });
 
-  test("the board menu toggles review and the new-plan shortcut still works", async ({ page }) => {
+  test("the board menu toggles review, and a card authors a workflow", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-review-" });
     cleanupTasks.push(() => workspace.cleanup());
     const kanbanId = await seedKanban(workspace);
@@ -282,7 +282,7 @@ test.describe("Kanbans board", () => {
 
     // Review is board config, and the board is the tracker project — so the
     // toggle needs one to exist.
-    const { projectId } = await seedTrackerTask(workspace, `Review seed ${Date.now()}`);
+    const { projectId, taskId } = await seedTrackerTask(workspace, `Review seed ${Date.now()}`);
     await openBoard(page, kanbanId);
 
     await page.getByTestId(`kanban-board-menu-${kanbanId}`).click();
@@ -298,9 +298,11 @@ test.describe("Kanbans board", () => {
       )
       .toBe(true);
 
-    const modifier = process.platform === "darwin" ? "Meta" : "Control";
-    await page.keyboard.press(`${modifier}+Alt+p`);
-    await expect(page.getByTestId("kanban-plan-form-sheet")).toBeVisible({ timeout: 10_000 });
+    // A workflow belongs to a card, so it is authored from the card's menu.
+    const board = page.getByTestId(`kanban-board-${kanbanId}`);
+    await board.getByTestId(`task-card-status-${taskId}`).click();
+    await page.getByTestId(`task-card-add-workflow-${taskId}`).click();
+    await expect(page.getByTestId("task-workflow-form-sheet")).toBeVisible({ timeout: 10_000 });
   });
 });
 

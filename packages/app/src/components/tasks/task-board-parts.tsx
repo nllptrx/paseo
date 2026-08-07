@@ -89,7 +89,7 @@ export interface TaskBoardProps {
   onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
   onDeleteTask: (taskId: string) => void;
   /** Authors a plan already attached to the task, when the surface offers one. */
-  onCreatePlanForTask?: (taskId: string) => void;
+  onCreateWorkflowForTask?: (taskId: string) => void;
   selectedColumn: TaskStatus;
   onSelectColumn: (status: TaskStatus) => void;
 }
@@ -136,7 +136,7 @@ export function TaskColumn({
   onOpenAgent,
   onReviewTask,
   onDeleteTask,
-  onCreatePlanForTask,
+  onCreateWorkflowForTask,
   isOver = false,
   renderCard,
   bodyRef,
@@ -151,7 +151,7 @@ export function TaskColumn({
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
   onDeleteTask: (taskId: string) => void;
-  onCreatePlanForTask?: ((taskId: string) => void) | undefined;
+  onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
   isOver?: boolean;
   /** Lets the web board wrap each card in a sortable without forking the column. */
   renderCard?: (task: Task, card: ReactElement) => ReactElement;
@@ -193,7 +193,7 @@ export function TaskColumn({
               onOpenAgent={onOpenAgent}
               onReviewTask={onReviewTask}
               onDeleteTask={onDeleteTask}
-              onCreatePlanForTask={onCreatePlanForTask}
+              onCreateWorkflowForTask={onCreateWorkflowForTask}
             />
           );
           return renderCard ? renderCard(task, card) : card;
@@ -217,7 +217,7 @@ export function TaskCard({
   onOpenAgent,
   onReviewTask,
   onDeleteTask,
-  onCreatePlanForTask,
+  onCreateWorkflowForTask,
   isOverlay = false,
   isDragSource = false,
 }: {
@@ -229,7 +229,7 @@ export function TaskCard({
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
   onDeleteTask: (taskId: string) => void;
-  onCreatePlanForTask?: ((taskId: string) => void) | undefined;
+  onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
   /** Rendered inside the drag overlay: lifted, non-interactive. */
   isOverlay?: boolean;
   /** The in-column original while its overlay clone is being dragged. */
@@ -273,12 +273,12 @@ export function TaskCard({
         },
       );
     }
-    if (onCreatePlanForTask) {
+    if (onCreateWorkflowForTask) {
       entries.push({
-        key: "add-plan",
-        label: t("kanban.column.addPlan"),
-        testID: `task-card-add-plan-${task.id}`,
-        onSelect: () => onCreatePlanForTask(task.id),
+        key: "add-workflow",
+        label: t("tasks.workflow.addToTask"),
+        testID: `task-card-add-workflow-${task.id}`,
+        onSelect: () => onCreateWorkflowForTask(task.id),
       });
     }
     for (const link of task.agents) {
@@ -308,7 +308,7 @@ export function TaskCard({
     });
     return entries;
   }, [
-    onCreatePlanForTask,
+    onCreateWorkflowForTask,
     onDeleteTask,
     onMoveToStatus,
     onOpenAgent,

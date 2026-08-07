@@ -1010,6 +1010,7 @@ export const fr: TranslationResources = {
       noProject: "Aucun projet où placer cette tâche",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

@@ -971,6 +971,7 @@ export const zhCN: TranslationResources = {
       noProject: "没有可放置此任务的项目",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

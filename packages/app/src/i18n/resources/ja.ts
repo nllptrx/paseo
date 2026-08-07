@@ -990,6 +990,7 @@ export const ja: TranslationResources = {
       noProject: "このタスクを入れるプロジェクトがありません",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

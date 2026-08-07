@@ -21,7 +21,7 @@ export interface TaskBoardSurfaceProps {
   /** Prefills the tracker project the first capture creates. */
   projectDisplayName: string;
   /** Offered on every card when the host screen can author a plan for a task. */
-  onCreatePlanForTask?: (taskId: string) => void;
+  onCreateWorkflowForTask?: (taskId: string) => void;
 }
 
 /**
@@ -32,7 +32,7 @@ export function TaskBoardSurface({
   serverId,
   paseoProjectId,
   projectDisplayName,
-  onCreatePlanForTask,
+  onCreateWorkflowForTask,
 }: TaskBoardSurfaceProps): ReactElement {
   const { t } = useTranslation();
   const toast = useToast();
@@ -133,7 +133,7 @@ export function TaskBoardSurface({
         onOpenAgent={handleOpenAgent}
         onReviewTask={handleReviewTask}
         onDeleteTask={handleDeleteTask}
-        onCreatePlanForTask={onCreatePlanForTask}
+        onCreateWorkflowForTask={onCreateWorkflowForTask}
         selectedColumn={selectedColumn}
         onSelectColumn={setSelectedColumn}
       />

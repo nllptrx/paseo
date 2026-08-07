@@ -1001,6 +1001,7 @@ export const ptBR: TranslationResources = {
       noProject: "Nenhum projeto para colocar esta tarefa",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

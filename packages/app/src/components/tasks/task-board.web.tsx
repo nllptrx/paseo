@@ -110,7 +110,7 @@ export function TaskBoard({
   onOpenAgent,
   onReviewTask,
   onDeleteTask,
-  onCreatePlanForTask,
+  onCreateWorkflowForTask,
   selectedColumn,
   onSelectColumn,
 }: TaskBoardProps): ReactElement {
@@ -248,7 +248,7 @@ export function TaskBoard({
             onOpenAgent={onOpenAgent}
             onReviewTask={onReviewTask}
             onDeleteTask={onDeleteTask}
-            onCreatePlanForTask={onCreatePlanForTask}
+            onCreateWorkflowForTask={onCreateWorkflowForTask}
           />
         ) : null}
       </View>
@@ -277,7 +277,7 @@ export function TaskBoard({
             onOpenAgent={handleOpenAgent}
             onReviewTask={onReviewTask}
             onDeleteTask={onDeleteTask}
-            onCreatePlanForTask={onCreatePlanForTask}
+            onCreateWorkflowForTask={onCreateWorkflowForTask}
             activeTaskId={activeTaskId}
           />
         ))}
@@ -317,7 +317,7 @@ function DroppableTaskColumn({
   onOpenAgent,
   onReviewTask,
   onDeleteTask,
-  onCreatePlanForTask,
+  onCreateWorkflowForTask,
   activeTaskId,
 }: {
   serverId: string;
@@ -330,7 +330,7 @@ function DroppableTaskColumn({
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
   onDeleteTask: (taskId: string) => void;
-  onCreatePlanForTask?: ((taskId: string) => void) | undefined;
+  onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
   activeTaskId: string | null;
 }): ReactElement {
   const { isOver, setNodeRef } = useDroppable({ id: columnDropId(status) });
@@ -358,7 +358,7 @@ function DroppableTaskColumn({
         onOpenAgent={onOpenAgent}
         onReviewTask={onReviewTask}
         onDeleteTask={onDeleteTask}
-        onCreatePlanForTask={onCreatePlanForTask}
+        onCreateWorkflowForTask={onCreateWorkflowForTask}
         isOver={isOver}
         renderCard={renderCard}
         bodyRef={setNodeRef}

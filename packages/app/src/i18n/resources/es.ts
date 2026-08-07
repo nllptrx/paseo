@@ -1010,6 +1010,7 @@ export const es: TranslationResources = {
       noProject: "No hay proyecto donde poner esta tarea",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

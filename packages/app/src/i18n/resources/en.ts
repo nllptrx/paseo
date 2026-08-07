@@ -989,6 +989,7 @@ export const en = {
       noProject: "No project to put this task in",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

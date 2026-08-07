@@ -979,6 +979,7 @@ export const ar: TranslationResources = {
       noProject: "لا يوجد مشروع لوضع هذه المهمة فيه",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

@@ -1001,6 +1001,7 @@ export const ru: TranslationResources = {
       noProject: "Нет проекта для этой задачи",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

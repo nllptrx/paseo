@@ -986,6 +986,7 @@ export const ko: TranslationResources = {
       noProject: "이 태스크를 넣을 프로젝트가 없습니다",
     },
     workflow: {
+      addToTask: "Add workflow",
       title: "Task workflow",
       submit: "Save workflow",
       promptLabel: "Prompt",

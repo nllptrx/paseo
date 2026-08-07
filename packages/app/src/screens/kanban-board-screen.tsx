@@ -20,15 +20,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { KanbanOrchestratorPane } from "@/components/kanban/kanban-orchestrator-pane";
-import { KanbanPlanFormSheet } from "@/components/kanban/kanban-plan-form-sheet";
+import { TaskWorkflowFormSheet } from "@/components/tasks/task-workflow-form-sheet";
 import { TaskBoardSurface } from "@/components/tasks/task-board-surface";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useKanbans } from "@/hooks/use-kanbans";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
-import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
-import type { KeyboardActionId } from "@/keyboard/keyboard-action-dispatcher";
 import { usePanelStore } from "@/stores/panel-store";
 import { selectProjectBoard } from "@/tasks/task-views";
 import { useTaskMutations, useTasks } from "@/tasks/use-tasks";
@@ -40,8 +38,6 @@ const ThemedEllipsis = withUnistyles(Ellipsis);
 const ThemedMessagesSquare = withUnistyles(MessagesSquare);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
-
-const NEW_PLAN_ACTIONS: readonly KeyboardActionId[] = ["kanban.plan.new"];
 
 export function KanbanBoardScreen({ kanbanId }: { kanbanId: string }): ReactElement {
   const { t } = useTranslation();
@@ -122,7 +118,7 @@ function LoadedKanbanBoardScreen({
   const { provisionOrchestrator } = useKanbanMutations({ serverId });
   const { configureBoard } = useTaskMutations(serverId);
   const [isProvisioning, setIsProvisioning] = useState(false);
-  const [planForm, setPlanForm] = useState<{ taskId: string | null } | null>(null);
+  const [workflowTaskId, setWorkflowTaskId] = useState<string | null>(null);
   // Desktop remembers the pane like the explorer sidebar does; compact borrows
   // the whole screen for it, so it is a sheet you summon, never a default.
   const orchestratorOpenDesktop = usePanelStore((state) => state.orchestratorPanelOpen);
@@ -146,21 +142,11 @@ function LoadedKanbanBoardScreen({
     toggleOrchestratorPanel();
   }, [isCompact, toggleOrchestratorPanel]);
   const handleCloseOrchestratorSheet = useCallback(() => setIsOrchestratorSheetOpen(false), []);
-  const handleOpenCreatePlan = useCallback(() => setPlanForm({ taskId: null }), []);
-  const handleCreatePlanForTask = useCallback((taskId: string) => setPlanForm({ taskId }), []);
-  const handleCloseCreatePlan = useCallback(() => setPlanForm(null), []);
-  const handleNewPlanShortcut = useCallback(() => {
-    setPlanForm({ taskId: null });
-    return true;
-  }, []);
-
-  useKeyboardActionHandler({
-    handlerId: `kanban-plan-new-${kanbanId}`,
-    actions: NEW_PLAN_ACTIONS,
-    enabled: planForm === null,
-    priority: 0,
-    handle: handleNewPlanShortcut,
-  });
+  const handleCreateWorkflowForTask = useCallback(
+    (taskId: string) => setWorkflowTaskId(taskId),
+    [],
+  );
+  const handleCloseWorkflowForm = useCallback(() => setWorkflowTaskId(null), []);
 
   const orchestratorSheetHeader = useMemo(
     () => ({ title: t("kanban.orchestrator.rail.heading") }),
@@ -211,12 +197,6 @@ function LoadedKanbanBoardScreen({
             sheetTitle={t("kanban.board.menu")}
           >
             <DropdownMenuItem
-              testID={`kanban-new-plan-${kanbanId}`}
-              onSelect={handleOpenCreatePlan}
-            >
-              {t("kanban.column.addPlan")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
               testID={`kanban-review-toggle-${kanbanId}`}
               onSelect={handleToggleReview}
               disabled={trackerProject === null}
@@ -235,7 +215,6 @@ function LoadedKanbanBoardScreen({
       </>
     ),
     [
-      handleOpenCreatePlan,
       handleProvisionOrchestrator,
       handleToggleReview,
       isProvisioning,
@@ -283,7 +262,7 @@ function LoadedKanbanBoardScreen({
               serverId={serverId}
               paseoProjectId={summary.projectId}
               projectDisplayName={projectName ?? summary.name}
-              onCreatePlanForTask={handleCreatePlanForTask}
+              onCreateWorkflowForTask={handleCreateWorkflowForTask}
             />
           </ScrollView>
         </View>
@@ -301,14 +280,12 @@ function LoadedKanbanBoardScreen({
           <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
         </AdaptiveModalSheet>
       ) : null}
-      {planForm ? (
-        <KanbanPlanFormSheet
+      {workflowTaskId ? (
+        <TaskWorkflowFormSheet
           serverId={serverId}
-          kanbanId={kanbanId}
-          parentPlanId={null}
-          taskId={planForm.taskId}
+          taskId={workflowTaskId}
           visible
-          onClose={handleCloseCreatePlan}
+          onClose={handleCloseWorkflowForm}
         />
       ) : null}
     </View>

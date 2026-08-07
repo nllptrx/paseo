@@ -37,7 +37,7 @@ export function TaskBoard({
   onOpenAgent,
   onReviewTask,
   onDeleteTask,
-  onCreatePlanForTask,
+  onCreateWorkflowForTask,
   selectedColumn,
   onSelectColumn,
 }: TaskBoardProps): ReactElement {
@@ -91,7 +91,7 @@ export function TaskBoard({
             onOpenAgent={onOpenAgent}
             onReviewTask={onReviewTask}
             onDeleteTask={onDeleteTask}
-            onCreatePlanForTask={onCreatePlanForTask}
+            onCreateWorkflowForTask={onCreateWorkflowForTask}
           />
         ) : null}
       </View>
@@ -113,7 +113,7 @@ export function TaskBoard({
           onOpenAgent={onOpenAgent}
           onReviewTask={onReviewTask}
           onDeleteTask={onDeleteTask}
-          onCreatePlanForTask={onCreatePlanForTask}
+          onCreateWorkflowForTask={onCreateWorkflowForTask}
         />
       ))}
     </ScrollView>
