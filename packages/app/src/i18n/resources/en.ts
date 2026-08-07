@@ -252,6 +252,14 @@ export const en = {
       thisMonth: "This month",
       older: "Older",
     },
+    view: {
+      list: "List",
+      board: "Board",
+    },
+    board: {
+      emptyColumn: "Nothing here",
+      changeStatus: "Change status",
+    },
     status: {
       initializing: "Starting",
       idle: "Idle",

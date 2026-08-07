@@ -255,6 +255,14 @@ export const ru: TranslationResources = {
       thisMonth: "В этом месяце",
       older: "Старше",
     },
+    view: {
+      list: "Список",
+      board: "Доска",
+    },
+    board: {
+      emptyColumn: "Здесь пусто",
+      changeStatus: "Изменить статус",
+    },
     status: {
       initializing: "Начало",
       idle: "Праздный",

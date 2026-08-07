@@ -6,6 +6,8 @@ import { StyleSheet } from "react-native-unistyles";
 import type { Task, TaskLabel, TaskProject, TaskStatus } from "@getpaseo/protocol/tasks/types";
 import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { TASK_STATUS_LABEL_KEYS, TaskBoard } from "@/components/tasks/task-board";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
@@ -20,15 +22,6 @@ import {
 } from "@/tasks/task-views";
 import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
-
-const STATUS_LABEL_KEYS: Record<TaskStatus, string> = {
-  backlog: "tasks.status.backlog",
-  todo: "tasks.status.todo",
-  in_progress: "tasks.status.inProgress",
-  in_review: "tasks.status.inReview",
-  done: "tasks.status.done",
-  canceled: "tasks.status.canceled",
-};
 
 const ROW_LABEL_CAP = 2;
 const DEFAULT_PROJECT_COLOR = "#7C6BF5";
@@ -64,7 +57,12 @@ function Empty({ title, message }: { title: string; message: string }): ReactEle
 function LoadedTasksScreen({ serverId }: { serverId: string }): ReactElement {
   const { t } = useTranslation();
   const { snapshot, isLoading, isError, error, refetch } = useTasks(serverId);
+  const { setStatus } = useTaskMutations(serverId);
   const [isCreating, setIsCreating] = useState(false);
+  // One object, two representations. The tab changes how you look at the tasks,
+  // never which tasks you are looking at.
+  const [view, setView] = useState<"list" | "board">("list");
+  const [boardColumn, setBoardColumn] = useState<TaskStatus>("backlog");
 
   const projectsById = useMemo(
     () => new Map((snapshot?.projects ?? []).map((project) => [project.id, project])),
@@ -76,6 +74,23 @@ function LoadedTasksScreen({ serverId }: { serverId: string }): ReactElement {
   );
   const total = snapshot?.tasks.length ?? 0;
 
+  const handleSelectView = useCallback((value: string) => {
+    setView(value === "board" ? "board" : "list");
+  }, []);
+  const handleSetStatus = useCallback(
+    (input: { taskId: string; status: TaskStatus }) => {
+      void setStatus(input);
+    },
+    [setStatus],
+  );
+  const viewOptions = useMemo(
+    () => [
+      { value: "list", label: t("tasks.view.list") },
+      { value: "board", label: t("tasks.view.board") },
+    ],
+    [t],
+  );
+
   const handleOpenCreate = useCallback(() => setIsCreating(true), []);
   const handleCloseCreate = useCallback(() => setIsCreating(false), []);
 
@@ -83,6 +98,13 @@ function LoadedTasksScreen({ serverId }: { serverId: string }): ReactElement {
     <View style={styles.container}>
       <MenuHeader title={t("tasks.screen.title")} />
       <View style={styles.subHeader}>
+        <SegmentedControl
+          size="sm"
+          value={view}
+          onValueChange={handleSelectView}
+          options={viewOptions}
+          testID="tasks-view-picker"
+        />
         <Text style={styles.count}>{t("tasks.screen.taskCount", { count: total })}</Text>
         <Button
           variant="ghost"
@@ -116,24 +138,37 @@ function LoadedTasksScreen({ serverId }: { serverId: string }): ReactElement {
         </View>
       ) : null}
 
-      <ScrollView style={styles.scroll} testID="tasks-list">
-        {groups.map((group) => (
-          <View key={group.status} style={styles.group}>
-            <View style={styles.groupHeader} testID={`tasks-group-${group.status}`}>
-              <Text style={styles.groupTitle}>{t(STATUS_LABEL_KEYS[group.status])}</Text>
-              <Text style={styles.groupCount}>{group.tasks.length}</Text>
+      {view === "board" ? (
+        <ScrollView style={styles.scroll}>
+          <TaskBoard
+            tasks={snapshot?.tasks ?? []}
+            labels={snapshot?.labels ?? []}
+            projectsById={projectsById}
+            onSetStatus={handleSetStatus}
+            selectedColumn={boardColumn}
+            onSelectColumn={setBoardColumn}
+          />
+        </ScrollView>
+      ) : (
+        <ScrollView style={styles.scroll} testID="tasks-list">
+          {groups.map((group) => (
+            <View key={group.status} style={styles.group}>
+              <View style={styles.groupHeader} testID={`tasks-group-${group.status}`}>
+                <Text style={styles.groupTitle}>{t(TASK_STATUS_LABEL_KEYS[group.status])}</Text>
+                <Text style={styles.groupCount}>{group.tasks.length}</Text>
+              </View>
+              {group.tasks.map((task) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  project={projectsById.get(task.projectId)}
+                  labels={snapshot?.labels ?? []}
+                />
+              ))}
             </View>
-            {group.tasks.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                project={projectsById.get(task.projectId)}
-                labels={snapshot?.labels ?? []}
-              />
-            ))}
-          </View>
-        ))}
-      </ScrollView>
+          ))}
+        </ScrollView>
+      )}
 
       {isCreating ? (
         <NewTaskSheet

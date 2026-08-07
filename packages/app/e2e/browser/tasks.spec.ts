@@ -57,6 +57,26 @@ test.describe("Tasks", () => {
       await expect(page.getByText(title).first()).toBeVisible({ timeout: 30_000 });
       await expect(page.getByTestId("tasks-group-backlog")).toBeVisible();
       await expect(page.getByText("PSE-1").first()).toBeVisible();
+
+      // One object, two representations: the tab changes how the same task is
+      // drawn, not which task is there.
+      await page.getByTestId("tasks-view-picker").getByText("Board").click();
+      const board = page.getByTestId("task-board");
+      await expect(board).toBeVisible({ timeout: 10_000 });
+      const taskId = (await client.tasksSnapshot()).snapshot?.tasks[0]?.id ?? "";
+      await expect(board.getByTestId(`task-card-${taskId}`)).toContainText(title);
+      // Canceled earns its column only when something is in it.
+      await expect(page.getByTestId("task-column-backlog")).toBeVisible();
+      await expect(page.getByTestId("task-column-canceled")).toHaveCount(0);
+
+      // Moving it on the board writes through to the daemon.
+      await page.getByTestId(`task-card-status-${taskId}`).click();
+      await page.getByTestId(`task-card-status-${taskId}-in_progress`).click();
+      await expect
+        .poll(async () => (await client.tasksSnapshot()).snapshot?.tasks[0]?.status, {
+          timeout: 30_000,
+        })
+        .toBe("in_progress");
     } finally {
       await workspace.cleanup();
     }

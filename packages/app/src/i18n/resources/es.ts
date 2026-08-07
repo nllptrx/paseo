@@ -256,6 +256,14 @@ export const es: TranslationResources = {
       thisMonth: "este mes",
       older: "Más viejo",
     },
+    view: {
+      list: "Lista",
+      board: "Tablero",
+    },
+    board: {
+      emptyColumn: "Nada aquí",
+      changeStatus: "Cambiar estado",
+    },
     status: {
       initializing: "A partir de",
       idle: "Inactivo",
