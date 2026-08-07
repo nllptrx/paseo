@@ -233,7 +233,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
 
   const hosts = useHosts();
   const hostServerIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
-  const kanbanFeatureByHost = useHostFeatureMap(hostServerIds, "kanban");
+  const kanbanFeatureByHost = useHostFeatureMap(hostServerIds, "tasks");
   const showKanbans = useMemo(
     () => Array.from(kanbanFeatureByHost.values()).some(Boolean),
     [kanbanFeatureByHost],

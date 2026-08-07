@@ -24,9 +24,6 @@ import {
 import { useCheckoutGitActionsStore } from "@/git/actions-store";
 import type { UsePrPaneDataResult } from "@/git/pull-request-panel/use-data";
 import { usePanelStore, selectIsFileExplorerOpen, type ExplorerTab } from "@/stores/panel-store";
-import { KanbanOrchestratorPane } from "@/components/kanban/kanban-orchestrator-pane";
-import { useKanbans } from "@/hooks/use-kanbans";
-import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { useToast } from "@/contexts/toast-context";
 import { useCloseFileExplorerGesture } from "@/mobile-panels/gestures";
 import { MobilePanelOverlay } from "@/mobile-panels/presentation";
@@ -296,34 +293,11 @@ function ExplorerTabButton({
   );
 }
 
-/** The board whose Orchestrator this workspace's project talks to, if any. */
-function useProjectKanbanId(
-  serverId: string,
-  workspaceId: string | null | undefined,
-): string | null {
-  const projectId = useWorkspaceFields(serverId, workspaceId ?? null, (fields) => fields.projectId);
-  const { loadState } = useKanbans();
-  return useMemo(() => {
-    if (loadState.status !== "loaded" || !projectId) {
-      return null;
-    }
-    return (
-      loadState.data.find(
-        (kanban) =>
-          kanban.serverId === serverId &&
-          kanban.projectId === projectId &&
-          kanban.archivedAt === null,
-      )?.id ?? null
-    );
-  }, [loadState, projectId, serverId]);
-}
-
 /** A tab you cannot show falls back to the leftmost one you can. */
 function resolveExplorerContentTab(input: {
   activeTab: ExplorerTab;
   isGit: boolean;
   showPrTab: boolean;
-  showOrchestratorTab: boolean;
 }): ExplorerTab {
   const requested =
     !input.isGit && (input.activeTab === "changes" || input.activeTab === "pr")
@@ -331,9 +305,6 @@ function resolveExplorerContentTab(input: {
       : input.activeTab;
   if (requested === "pr" && !input.showPrTab) {
     return "changes";
-  }
-  if (requested === "orchestrator" && !input.showOrchestratorTab) {
-    return input.isGit ? "changes" : "files";
   }
   return requested;
 }
@@ -374,13 +345,10 @@ function ExplorerSidebarContent({
   });
   const hasPullRequest = prPane.prNumber !== null;
   const showPrTab = hasPullRequest || (activeTab === "pr" && prPane.isLoading);
-  const projectKanbanId = useProjectKanbanId(serverId, workspaceId);
-  const showOrchestratorTab = projectKanbanId !== null;
   const resolvedTab = resolveExplorerContentTab({
     activeTab,
     isGit,
     showPrTab,
-    showOrchestratorTab,
   });
   const prTabLabel = formatPrTabLabel(prPane.prNumber);
   const refreshGitActions = useCheckoutGitActionsStore((s) => s.refresh);
@@ -421,15 +389,6 @@ function ExplorerSidebarContent({
             onTabPress={onTabPress}
             testID="explorer-tab-files"
           />
-          {showOrchestratorTab && (
-            <ExplorerTabButton
-              tab="orchestrator"
-              active={resolvedTab === "orchestrator"}
-              label={t("kanban.orchestrator.panel.label")}
-              onTabPress={onTabPress}
-              testID="explorer-tab-orchestrator"
-            />
-          )}
           {isGit && showPrTab && (
             <ExplorerTabButton
               tab="pr"
@@ -501,9 +460,6 @@ function ExplorerSidebarContent({
             onRetry={handlePrRetry}
           />
         )}
-        {resolvedTab === "orchestrator" && projectKanbanId ? (
-          <KanbanOrchestratorPane serverId={serverId} kanbanId={projectKanbanId} />
-        ) : null}
       </View>
     </View>
   );

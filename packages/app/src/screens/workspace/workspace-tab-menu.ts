@@ -151,9 +151,6 @@ function getCloseButtonTestId(tab: WorkspaceTabDescriptor): string {
   if (tab.target.kind === "working_diff") {
     return `workspace-working-diff-close-${encodeFilePathForPathSegment(buildDeterministicWorkspaceTabId(tab.target))}`;
   }
-  if (tab.target.kind === "orchestrator") {
-    return "workspace-orchestrator-close";
-  }
   if (tab.target.kind === "kanban") {
     return "workspace-kanban-close";
   }

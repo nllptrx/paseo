@@ -4,7 +4,6 @@ import { commitDiffPanelRegistration, workingDiffPanelRegistration } from "@/pan
 import { draftPanelRegistration } from "@/panels/draft-panel";
 import { filePanelRegistration } from "@/panels/file-panel";
 import { kanbanPanelRegistration } from "@/panels/kanban-panel";
-import { orchestratorPanelRegistration } from "@/panels/orchestrator-panel";
 import { registerPanel } from "@/panels/panel-registry";
 import { setupPanelRegistration } from "@/panels/setup-panel";
 import { terminalPanelRegistration } from "@/panels/terminal-panel";
@@ -25,7 +24,6 @@ export function ensurePanelsRegistered(): void {
   registerPanel(filePanelRegistration);
   registerPanel(commitDiffPanelRegistration);
   registerPanel(workingDiffPanelRegistration);
-  registerPanel(orchestratorPanelRegistration);
   registerPanel(kanbanPanelRegistration);
   panelsRegistered = true;
 }

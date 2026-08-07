@@ -14,11 +14,9 @@ import type { ProjectUpdate } from "./workspace-reconciliation-service.js";
 import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
-import type { KanbanEngine } from "./kanban/engine.js";
 import type { TaskWorkflowEngine } from "./tasks/workflow-engine.js";
 import type { TaskService } from "./tasks/service.js";
 import type { TaskTransitionEngine } from "./tasks/transitions.js";
-import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager, CheckoutDiffMetrics } from "./checkout-diff-manager.js";
 import type { DaemonConfigStore, MutableDaemonConfig } from "./daemon-config-store.js";
 import {
@@ -500,8 +498,6 @@ interface RequiredWebSocketServices {
   chatService: FileBackedChatService;
   loopService: LoopService;
   scheduleService: ScheduleService;
-  kanbanService: KanbanService;
-  kanbanEngine: KanbanEngine;
   checkoutDiffManager: CheckoutDiffManager;
 }
 
@@ -509,18 +505,9 @@ function requireWebSocketServices(params: {
   chatService?: FileBackedChatService;
   loopService?: LoopService;
   scheduleService?: ScheduleService;
-  kanbanService?: KanbanService;
-  kanbanEngine?: KanbanEngine;
   checkoutDiffManager?: CheckoutDiffManager;
 }): RequiredWebSocketServices {
-  const {
-    chatService,
-    loopService,
-    scheduleService,
-    kanbanService,
-    kanbanEngine,
-    checkoutDiffManager,
-  } = params;
+  const { chatService, loopService, scheduleService, checkoutDiffManager } = params;
   if (!chatService) {
     throw new Error("VoiceAssistantWebSocketServer requires a chat service.");
   }
@@ -530,12 +517,6 @@ function requireWebSocketServices(params: {
   if (!scheduleService) {
     throw new Error("VoiceAssistantWebSocketServer requires a schedule service.");
   }
-  if (!kanbanService) {
-    throw new Error("VoiceAssistantWebSocketServer requires a kanban service.");
-  }
-  if (!kanbanEngine) {
-    throw new Error("VoiceAssistantWebSocketServer requires a kanban engine.");
-  }
   if (!checkoutDiffManager) {
     throw new Error("VoiceAssistantWebSocketServer requires a checkout diff manager.");
   }
@@ -543,8 +524,6 @@ function requireWebSocketServices(params: {
     chatService,
     loopService,
     scheduleService,
-    kanbanService,
-    kanbanEngine,
     checkoutDiffManager,
   };
 }
@@ -569,8 +548,6 @@ export class VoiceAssistantWebSocketServer {
   private readonly chatService: FileBackedChatService;
   private readonly loopService: LoopService;
   private readonly scheduleService: ScheduleService;
-  private readonly kanbanService: KanbanService;
-  private readonly kanbanEngine: KanbanEngine;
   private readonly taskService: TaskService | null;
   private readonly taskTransitions: TaskTransitionEngine | null;
   private readonly taskWorkflowEngine: TaskWorkflowEngine | null;
@@ -648,7 +625,6 @@ export class VoiceAssistantWebSocketServer {
     chatService?: FileBackedChatService,
     loopService?: LoopService,
     scheduleService?: ScheduleService,
-    kanbanService?: KanbanService,
     checkoutDiffManager?: CheckoutDiffManager,
     serviceProxy?: ServiceProxySubsystem | null,
     scriptRuntimeStore?: WorkspaceScriptRuntimeStore | null,
@@ -669,7 +645,6 @@ export class VoiceAssistantWebSocketServer {
     browserToolsBroker?: BrowserToolsBroker | null,
     hubRelationships?: HubRelationshipManagement | null,
     workspaceSetupRuntime: WorkspaceSetupRuntime = new WorkspaceSetupRuntime(),
-    kanbanEngine?: KanbanEngine,
     taskService?: TaskService,
     taskTransitions?: TaskTransitionEngine,
     taskWorkflowEngine?: TaskWorkflowEngine,
@@ -697,15 +672,11 @@ export class VoiceAssistantWebSocketServer {
       chatService,
       loopService,
       scheduleService,
-      kanbanService,
-      kanbanEngine,
       checkoutDiffManager,
     });
     this.chatService = requiredServices.chatService;
     this.loopService = requiredServices.loopService;
     this.scheduleService = requiredServices.scheduleService;
-    this.kanbanService = requiredServices.kanbanService;
-    this.kanbanEngine = requiredServices.kanbanEngine;
     this.checkoutDiffManager = requiredServices.checkoutDiffManager;
     this.github = github ?? createGitHubService();
     this.workspaceGitService = workspaceGitService ?? createFallbackWorkspaceGitService();
@@ -1408,8 +1379,6 @@ export class VoiceAssistantWebSocketServer {
       chatService: this.chatService,
       loopService: this.loopService,
       scheduleService: this.scheduleService,
-      kanbanService: this.kanbanService,
-      kanbanEngine: this.kanbanEngine,
       ...(this.taskService ? { taskService: this.taskService } : {}),
       ...(this.taskTransitions ? { taskTransitions: this.taskTransitions } : {}),
       ...(this.taskWorkflowEngine ? { taskWorkflowEngine: this.taskWorkflowEngine } : {}),
@@ -1695,8 +1664,6 @@ export class VoiceAssistantWebSocketServer {
         fsEntryDuplicate: true,
         // COMPAT(checkoutDiscardChanges): added in v0.3.0, remove gate after 2027-02-08.
         checkoutDiscardChanges: true,
-        // COMPAT(kanban): added in v0.3.0-beta.2, drop the gate when daemon floor >= v0.3.0-beta.2.
-        kanban: true,
         // COMPAT(tasks): added in v0.3.0-beta.2, drop the gate when daemon floor >= v0.3.0-beta.2.
         // False when this host could not open its task store, so the client hides
         // the tracker rather than offering a surface every request would reject.

@@ -148,11 +148,7 @@ import { FileBackedChatService } from "./chat/chat-service.js";
 import { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
-import { KanbanStore } from "./kanban/store.js";
-import { KanbanService } from "./kanban/service.js";
-import { KanbanEngine } from "./kanban/engine.js";
 import { TaskWorkflowEngine } from "./tasks/workflow-engine.js";
-import { formatSystemNotificationPrompt, sendPromptToAgent } from "./agent/agent-prompt.js";
 import { TaskService } from "./tasks/service.js";
 import { TaskTransitionEngine } from "./tasks/transitions.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
@@ -1239,13 +1235,6 @@ export async function createPaseoDaemon(
     }
   });
   logger.info({ elapsed: elapsed() }, "Schedule service initialized");
-  const kanbanStore = new KanbanStore(path.join(config.paseoHome, "kanbans"));
-  const kanbanService = new KanbanService({
-    store: kanbanStore,
-    logger,
-    agentManager,
-    agentStorage,
-  });
   const taskService = new TaskService({
     databasePath: path.join(config.paseoHome, "tasks.db"),
     logger,
@@ -1253,51 +1242,8 @@ export async function createPaseoDaemon(
   const taskTransitions = new TaskTransitionEngine({
     taskService,
     agentManager,
-    notifyBoard: ({ paseoProjectId, note }) => {
-      void (async () => {
-        const kanban = (await kanbanService.list()).find(
-          (candidate) => candidate.projectId === paseoProjectId && candidate.archivedAt === null,
-        );
-        if (!kanban) {
-          return;
-        }
-        const orchestrators = await kanbanService.listOrchestrators(kanban.id);
-        for (const peer of orchestrators) {
-          await sendPromptToAgent({
-            agentManager,
-            agentStorage,
-            agentId: peer.agentId,
-            prompt: formatSystemNotificationPrompt(note),
-            unarchive: false,
-            logger,
-          });
-        }
-      })().catch((error) => {
-        logger.error({ err: error, paseoProjectId }, "Failed to notify the board's Orchestrator");
-      });
-    },
     logger,
   });
-  const kanbanEngine = new KanbanEngine({
-    kanbanService,
-    agentManager,
-    createAgent,
-    scheduleService,
-    attachTaskAgent: (input) => taskService.attachAgent(input),
-    getWorkspace: (workspaceId) => workspaceRegistry.get(workspaceId),
-    getProjectRootCwd: async (projectId) => {
-      const project = await projectRegistry.get(projectId);
-      if (!project) {
-        throw new Error(`Unknown project: ${projectId}`);
-      }
-      return project.rootPath;
-    },
-    createWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
-    archiveWorkspace: archiveScheduleWorkspaceExternal,
-    logger,
-  });
-  await kanbanEngine.recoverInterruptedRuns();
-
   const taskWorkflowEngine = new TaskWorkflowEngine({
     taskService,
     agentManager,
@@ -1321,11 +1267,6 @@ export async function createPaseoDaemon(
     });
   });
 
-  kanbanEngine.setOnPlanSettled((taskId) => {
-    void taskTransitions.onWorkSettled(taskId).catch((error) => {
-      logger.error({ err: error, taskId }, "Failed to move a task after its plan settled");
-    });
-  });
   // Warmed here so `server_info` can answer synchronously at connect time. The
   // probe opens the store, and a store that will not open leaves the tracker
   // switched off rather than taking the daemon down with it. The same warm-up
@@ -1334,7 +1275,7 @@ export async function createPaseoDaemon(
     await taskTransitions.start();
     return taskWorkflowEngine.recoverInterruptedRuns();
   });
-  logger.info({ elapsed: elapsed() }, "Kanban workflow engine initialized");
+  logger.info({ elapsed: elapsed() }, "Task workflow engine initialized");
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");
   const persistedRecords = await agentStorage.list();
   logger.info(
@@ -1354,12 +1295,9 @@ export async function createPaseoDaemon(
     terminalManager,
     getDaemonTcpPort: () => (boundListenTarget?.type === "tcp" ? boundListenTarget.port : null),
     scheduleService,
-    kanbanService,
-    kanbanEngine,
     taskService,
     taskTransitions,
     taskWorkflowEngine,
-    chatService,
     providerSnapshotManager,
     github,
     workspaceGitService,
@@ -1651,7 +1589,6 @@ export async function createPaseoDaemon(
               chatService,
               loopService,
               scheduleService,
-              kanbanService,
               checkoutDiffManager,
               serviceProxy,
               scriptRuntimeStore,
@@ -1681,7 +1618,6 @@ export async function createPaseoDaemon(
               browserToolsBroker,
               hubRelationships,
               workspaceSetupRuntime,
-              kanbanEngine,
               taskService,
               taskTransitions,
               taskWorkflowEngine,

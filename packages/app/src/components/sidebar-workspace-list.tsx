@@ -126,10 +126,8 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useClearWorkspaceAttention } from "@/hooks/use-clear-workspace-attention";
-import {
-  useGetOrCreateProjectKanban,
-  useSidebarAddToKanbanAction,
-} from "@/hooks/use-add-to-kanban";
+import { useEnsureProjectBoard, useSidebarAddToBoardAction } from "@/tasks/use-add-to-board";
+import { useProjectDisplayName } from "@/stores/session-store-hooks";
 import type { PrHint } from "@/git/use-pr-status-query";
 import {
   buildSidebarProjectRowModel,
@@ -580,15 +578,20 @@ function ProjectMenuItems({
         toast.error(t("sidebar.project.actions.openNewWindowFailed"));
       });
   }, [projectPath, t, toast]);
-  const hasKanbanFeature = useHostFeature(settingsTarget?.serverId, "kanban");
-  const getOrCreateProjectKanban = useGetOrCreateProjectKanban();
+  const hasKanbanFeature = useHostFeature(settingsTarget?.serverId, "tasks");
+  const projectMenuName =
+    useProjectDisplayName(settingsTarget?.serverId ?? "", settingsTarget?.projectId ?? "") ??
+    settingsTarget?.projectId ??
+    "";
+  const ensureProjectBoard = useEnsureProjectBoard();
   const handleAddToKanban = useCallback(() => {
     if (!settingsTarget) return;
-    getOrCreateProjectKanban.mutate({
+    ensureProjectBoard.mutate({
       serverId: settingsTarget.serverId,
       projectId: settingsTarget.projectId,
+      projectName: projectMenuName,
     });
-  }, [getOrCreateProjectKanban, settingsTarget]);
+  }, [ensureProjectBoard, projectMenuName, settingsTarget]);
 
   return (
     <>
@@ -1358,10 +1361,9 @@ function WorkspaceRowWithMenu({
     onToggleWorkspacePin(workspace);
   }, [onToggleWorkspacePin, workspace]);
   const onTogglePin = canPin ? handleTogglePin : undefined;
-  const handleAddToKanban = useSidebarAddToKanbanAction({
+  const handleAddToKanban = useSidebarAddToBoardAction({
     serverId: workspace.serverId,
     projectId: workspace.projectId,
-    workspaceId: workspace.workspaceId,
     title: workspace.title ?? workspace.name,
   });
 

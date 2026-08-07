@@ -32,7 +32,7 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useClearWorkspaceAttention } from "@/hooks/use-clear-workspace-attention";
-import { useSidebarAddToKanbanAction } from "@/hooks/use-add-to-kanban";
+import { useSidebarAddToBoardAction } from "@/tasks/use-add-to-board";
 import {
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
@@ -583,10 +583,9 @@ function StatusWorkspaceRowWithMenu({
     onToggleWorkspacePin(workspace);
   }, [onToggleWorkspacePin, workspace]);
   const onTogglePin = canPin ? handleTogglePin : undefined;
-  const handleAddToKanban = useSidebarAddToKanbanAction({
+  const handleAddToKanban = useSidebarAddToBoardAction({
     serverId: workspace.serverId,
     projectId: workspace.projectId,
-    workspaceId: workspace.workspaceId,
     title: workspace.title ?? workspace.name,
   });
 

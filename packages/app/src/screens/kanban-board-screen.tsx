@@ -224,11 +224,6 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minHeight: 0,
   },
-  orchestratorPane: {
-    minHeight: 0,
-    borderLeftWidth: theme.borderWidth[1],
-    borderLeftColor: theme.colors.border,
-  },
   scrollContent: {
     flexGrow: 1,
     paddingBottom: theme.spacing[6],

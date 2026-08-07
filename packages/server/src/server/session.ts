@@ -208,12 +208,9 @@ import type pino from "pino";
 import { FileBackedChatService } from "./chat/chat-service.js";
 import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
-import type { KanbanService } from "./kanban/service.js";
-import type { KanbanEngine } from "./kanban/engine.js";
 import type { TaskWorkflowEngine } from "./tasks/workflow-engine.js";
 import type { TaskService } from "./tasks/service.js";
 import { TaskTransitionEngine } from "./tasks/transitions.js";
-import { KanbanSession } from "./session/kanban/kanban-session.js";
 import { TasksSession } from "./session/tasks/tasks-session.js";
 import {
   createGitHubService,
@@ -460,8 +457,6 @@ export interface SessionOptions {
   filesystem?: SessionFileSystem;
   chatService: FileBackedChatService;
   scheduleService: ScheduleService;
-  kanbanService: KanbanService;
-  kanbanEngine: KanbanEngine;
   taskService?: TaskService;
   taskTransitions?: TaskTransitionEngine;
   taskWorkflowEngine?: TaskWorkflowEngine;
@@ -644,7 +639,6 @@ function createTasksSession(input: {
   taskService: TaskService | undefined;
   transitions: TaskTransitionEngine | undefined;
   workflowEngine: TaskWorkflowEngine | undefined;
-  kanbanService: KanbanService;
   agentManager: AgentManager;
   host: { emit: (msg: SessionOutboundMessage) => void };
   logger: pino.Logger;
@@ -746,7 +740,6 @@ export class Session {
   private readonly voiceSession: VoiceSession;
   private readonly checkoutSession: CheckoutSession;
   private readonly chatScheduleLoopSession: ChatScheduleLoopSession;
-  private readonly kanbanSession: KanbanSession;
   private readonly tasksSession: TasksSession | null;
   private readonly providerCatalogSession: ProviderCatalogSession;
   private readonly workspaceFilesSession: WorkspaceFilesSession;
@@ -782,8 +775,6 @@ export class Session {
       filesystem,
       chatService,
       scheduleService,
-      kanbanService,
-      kanbanEngine,
       taskService,
       taskTransitions,
       taskWorkflowEngine,
@@ -940,76 +931,9 @@ export class Session {
       taskService,
       transitions: taskTransitions,
       workflowEngine: taskWorkflowEngine,
-      kanbanService,
       agentManager,
       host: { emit: (msg) => this.emit(msg) },
       logger: this.sessionLogger,
-    });
-    this.kanbanSession = new KanbanSession({
-      host: {
-        emit: (msg) => this.emit(msg),
-      },
-      kanbanService,
-      kanbanEngine,
-      logger: this.sessionLogger,
-      orchestratorProvisioning: {
-        projectRegistry: this.projectRegistry,
-        createDirectoryWorkspace: async (cwd, title, projectId) => {
-          const workspace = await this.workspaceProvisioning.createWorkspaceForDirectory(
-            cwd,
-            title,
-            projectId,
-          );
-          await this.emitWorkspaceUpdatesForWorkspaceIds([workspace.workspaceId]);
-          return workspace;
-        },
-        createAgent: (input) =>
-          createAgentCommand(
-            {
-              agentManager: this.agentManager,
-              agentStorage: this.agentStorage,
-              logger: this.sessionLogger,
-              paseoHome: this.paseoHome,
-              worktreesRoot: this.worktreesRoot,
-              providerSnapshotManager: this.providerSnapshotManager,
-            },
-            input,
-          ),
-        resolveDefaultProvider: async () => {
-          const providers = await this.providerSnapshotManager.listProviders({ wait: true });
-          const enabled = providers.find((provider) => provider.enabled);
-          if (!enabled) {
-            throw new Error("No agent provider is available to provision an Orchestrator");
-          }
-          return enabled.provider;
-        },
-        archiveWorkspace: async (workspaceId) => {
-          await archiveByScope(
-            {
-              paseoHome: this.paseoHome,
-              paseoWorktreesBaseRoot: this.worktreesRoot,
-              github: this.github,
-              workspaceGitService: this.workspaceGitService,
-              agentManager: this.agentManager,
-              agentStorage: this.agentStorage,
-              findWorkspaceIdForCwd: (cwd) => this.findWorkspaceIdForCwd(cwd),
-              listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
-              archiveWorkspaceRecord: (id) => this.archiveWorkspaceRecord(id),
-              emitWorkspaceUpdatesForWorkspaceIds: (ids) =>
-                this.emitWorkspaceUpdatesForWorkspaceIds(ids),
-              markWorkspaceArchiving: (ids, at) => this.markWorkspaceArchiving(ids, at),
-              clearWorkspaceArchiving: (ids) => this.clearWorkspaceArchiving(ids),
-              killTerminalsForWorkspace: (id) =>
-                this.terminalController.killTerminalsForWorkspace(id),
-              sessionLogger: this.sessionLogger,
-            },
-            {
-              scope: { kind: "workspace", workspaceId },
-              requestId: "kanban-orchestrator-rollback",
-            },
-          );
-        },
-      },
     });
     this.providerCatalogSession = new ProviderCatalogSession({
       host: {
@@ -2013,7 +1937,6 @@ export class Session {
       this.dispatchProviderMessage(msg) ??
       this.dispatchTerminalMessage(msg) ??
       this.dispatchChatScheduleLoopMessage(msg) ??
-      this.dispatchKanbanMessage(msg) ??
       this.dispatchTasksMessage(msg) ??
       this.dispatchMiscMessage(msg);
     if (promise) await promise;
@@ -2513,47 +2436,6 @@ export class Session {
         return Promise.resolve();
       default:
         return dispatchTaskWorkflowMessage(session, msg);
-    }
-  }
-
-  private dispatchKanbanMessage(msg: SessionInboundMessage): Promise<void> | undefined {
-    switch (msg.type) {
-      case "kanban.list.request":
-        return this.kanbanSession.handleListRequest(msg);
-      case "kanban.get.request":
-        return this.kanbanSession.handleGetRequest(msg);
-      case "kanban.create.request":
-        return this.kanbanSession.handleCreateRequest(msg);
-      case "kanban.update.request":
-        return this.kanbanSession.handleUpdateRequest(msg);
-      case "kanban.archive.request":
-        return this.kanbanSession.handleArchiveRequest(msg);
-      case "kanban.plan.create.request":
-        return this.kanbanSession.handlePlanCreateRequest(msg);
-      case "kanban.plan.update.request":
-        return this.kanbanSession.handlePlanUpdateRequest(msg);
-      case "kanban.plan.archive.request":
-        return this.kanbanSession.handlePlanArchiveRequest(msg);
-      case "kanban.step.run.request":
-        return this.kanbanSession.handleStepRunRequest(msg);
-      case "kanban.step.retry.request":
-        return this.kanbanSession.handleStepRetryRequest(msg);
-      case "kanban.step.skip.request":
-        return this.kanbanSession.handleStepSkipRequest(msg);
-      case "kanban.step.cancel.request":
-        return this.kanbanSession.handleStepCancelRequest(msg);
-      case "kanban.orchestrator.provision.request":
-        return this.kanbanSession.handleOrchestratorProvisionRequest(msg);
-      case "kanban.orchestrator.unlink.request":
-        return this.kanbanSession.handleOrchestratorUnlinkRequest(msg);
-      case "kanban.orchestrator.list_peers.request":
-        return this.kanbanSession.handleOrchestratorListPeersRequest(msg);
-      case "kanban.subscribe.request":
-        return this.kanbanSession.handleSubscribeRequest(msg);
-      case "kanban.unsubscribe.request":
-        return this.kanbanSession.handleUnsubscribeRequest(msg);
-      default:
-        return undefined;
     }
   }
 
@@ -7184,7 +7066,6 @@ export class Session {
 
     this.workspaceGitObserver.dispose();
     this.workspaceFilesSession.dispose();
-    this.kanbanSession.dispose();
     this.tasksSession?.dispose();
   }
 }
