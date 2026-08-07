@@ -45,9 +45,13 @@ import {
   useMoveToStatusEnd,
   type TaskBoardMove,
   type TaskBoardProps,
-} from "./task-board";
+} from "./task-board-parts";
 
-export { TASK_STATUS_LABEL_KEYS, type TaskBoardMove, type TaskBoardProps } from "./task-board";
+export {
+  TASK_STATUS_LABEL_KEYS,
+  type TaskBoardMove,
+  type TaskBoardProps,
+} from "./task-board-parts";
 
 const COLUMN_DROP_PREFIX = "column:";
 const DRAG_ACTIVATION_CONFIG = {

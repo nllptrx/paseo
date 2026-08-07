@@ -28,26 +28,36 @@ materialize real Schedules (`maxRuns: 1`); there is no second cron engine.
    `existing` workspace strategy.
 3. `/kanbans` — overview, one column per project, running work first, gated on
    host feature `kanban`. Opening a project goes to `/kanbans/<kanbanId>`, its
-   three-column board. The sidebar has no kanban grouping: it is for watching
-   status, and the board is somewhere you go.
+   board: the project's **tasks** by stored status ([tasks.md](tasks.md)), with
+   plan authoring in the board menu and on every task card. The sidebar has no
+   kanban grouping: it is for watching status, and the board is somewhere you
+   go.
 4. "Create Orchestrator" — provisions a **local** workspace on the **project
    root** (not a worktree). The Orchestrator steers via tools and chat; it does
    not need checkout isolation for code edits.
 
-## Derived columns, hard steps
+## The board shows tasks; plans stay derived
 
-A Plan's column is computed from its step runs, never stored: no runs is
-`draft`, every step settled successfully is `done`, anything else is
-`inProgress`. `derivePlanColumn` in `packages/protocol/src/kanban/derive.ts` is
-the single definition, shared by app, CLI and daemon.
+The project board's columns are the task statuses, stored intent written by a
+drag, a menu or the daemon's automatic transitions — the split between stored
+and derived is argued in [tasks.md](tasks.md). A **Plan** is execution attached
+to a task, never a card of its own: a plan authored from the board menu or a
+task card's menu carries that task's id, its dispatched agents attach to the
+task, and its last step settling green moves the task (`in_review` when the
+kanban's `review.enabled`, else `done`).
 
-This is why there is no move RPC, no `lastMove`, and no lifecycle sync. A stored
-column is a second copy of execution state that something has to push back after
-every finish, and it lies whenever that push is missed.
+Wherever plans themselves are listed — the overview's project columns, the
+Orchestrator board pane — a plan's column is still computed from its step runs,
+never stored: no runs is `draft`, every step settled successfully is `done`,
+anything else is `inProgress`. `derivePlanColumn` in
+`packages/protocol/src/kanban/derive.ts` is the single definition, shared by
+app, CLI and daemon. A stored plan column would be a second copy of execution
+state that something has to push back after every finish, and it lies whenever
+that push is missed.
 
 Failure is not a column. A failed run still belongs to work in progress;
 splitting it out doubles the places a card can hide. Surfaces show it as status
-on the card instead.
+on the card instead — and it never moves the task.
 
 Step gates stay hard: the next step cannot start until the previous succeeded or
 was skipped.
@@ -60,33 +70,31 @@ Cancel, and one that succeeded or was skipped offers nothing. Skip survives a
 closed gate; Run and Retry do not. A disabled button that can never become
 enabled is a worse answer than no button.
 
-Dragging means one thing: a draft dropped on the running column runs its first
-unfinished step. Dropping on Done says so and does nothing. Draft order is the
-only hand-set ordering, and it is a client-side view preference
-(`kanban-draft-order-store`); the other columns order by recency.
+On the project board, dragging a task writes its stored status and position
+through `tasks.move`, painted optimistically with the daemon's own position
+arithmetic so the settled write does not jump; the card menu moves to the end
+of a column for the platforms without drag ([tasks.md](tasks.md)).
 
-The dropped card moves at once, before the daemon answers. `applyOptimisticDispatch`
-lays the pending ids over the derived board for display only — it never invents a
-run, so a dispatch that fails reverts by dropping the id and says why. Pending
-ids are reconciled against the board derived from what the daemon holds, never
-against the overlay, or the two would agree with each other and drift from the
-runs. A second drop while an id is pending is ignored rather than queuing another
-turn.
+On the plan surfaces, dragging still means one thing: a draft dropped on the
+running column runs its first unfinished step, moved at once by
+`applyOptimisticDispatch` before the daemon answers — display only, reconciled
+against what the daemon holds, a second drop ignored while one is pending. A
+dispatch is checked against `list_available_providers` first
+(`resolveStepDispatchBlock`), so a step whose agent the host cannot run says
+which provider and why instead of failing somewhere inside the run.
 
-A dispatch is checked against `list_available_providers` first
-(`resolveStepDispatchBlock`), so a step whose agent the host cannot run says which
-provider and why instead of failing somewhere inside the run. A host that has not
-answered yet does not block anything — the daemon still decides.
-
-A card's actions are reachable three ways, all the same list: the kebab, right
-click (web only; long press stays free because that is how a touch board picks a
-card up), and dragging for the run. ⌘⌥P / Ctrl+Alt+P opens the New plan form
-wherever a board is mounted, registered through the shared keybindings in
-`src/keyboard/` — not a listener of its own.
+⌘⌥P / Ctrl+Alt+P opens the New plan form wherever a board is mounted,
+registered through the shared keybindings in `src/keyboard/` — not a listener
+of its own. Opened from a task card's menu, the same form binds the plan to
+that task.
 
 The one automation left is `archiveWorkspacesOnDone`, per kanban and off by
 default: once a plan's last step settles, the worktrees its steps created are
 archived. Shared and pre-existing workspaces are never touched.
+
+The kanban record also carries the tracker's `review` config — whether a green
+settle routes the task to In Review, and where a rejection sends it back. The
+board menu toggles it; the rules live in [tasks.md](tasks.md).
 
 ## Orchestrator mesh
 

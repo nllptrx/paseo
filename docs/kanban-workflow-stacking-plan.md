@@ -450,9 +450,13 @@ done`, `canceled` shown only when populated. This replaces the three derived
 
 ### Phasing
 
+All four phases landed 2026-08-07 (`b5bf830c8`..); what shipped is documented
+in [tasks.md](tasks.md) and [kanban.md](kanban.md), including its "Not built"
+tail (presets/Delegate, task detail sheet).
+
 1. Board reads tasks: status columns, task cards, move menu + drag writing
-   `task.update` status; quick-capture sheet.
-2. Attachment surfaced: plan/agent chips on the card, live-activity derived
-   from attached agents.
-3. Automatic transitions + `review` config on the board record.
-4. MCP task tools + parity test; CLI `paseo task ls|create|move`.
+   `tasks.move`; quick-capture sheet. ✔
+2. Attachment surfaced: live bucket dot from attached agents, card opens the
+   conversation, card menu authors a task-bound plan. ✔
+3. Automatic transitions + `review` config on the board record. ✔
+4. MCP task tools + parity Suite G; CLI `paseo task ls|create|move`. ✔
