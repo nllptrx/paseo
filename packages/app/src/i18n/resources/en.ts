@@ -943,6 +943,14 @@ export const en = {
     },
   },
   tasks: {
+    feed: {
+      empty: "Nothing on this board yet",
+      loadError: "Unable to load the feed",
+      composerPlaceholder: "Write to the board",
+      send: "Send",
+      tab: "Feed",
+      toggle: "Board feed",
+    },
     screen: {
       title: "Tasks",
       empty: "No task yet",

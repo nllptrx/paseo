@@ -271,6 +271,38 @@ test.describe("Kanbans board", () => {
     await page.getByTestId(`task-card-add-workflow-${taskId}`).click();
     await expect(page.getByTestId("task-workflow-form-sheet")).toBeVisible({ timeout: 10_000 });
   });
+
+  /** The feed is where an automatic move says what it did, and where a note you
+   * type at the board lands — one channel, both kinds of entry. */
+  test("the board feed records an automatic move and takes a note", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-feed-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `Feed task ${Date.now()}`, "in_review");
+
+    await openBoard(page, seeded.projectId);
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
+    await expect(board.getByTestId(`task-card-${seeded.taskId}`)).toBeVisible({ timeout: 30_000 });
+
+    await page.getByTestId(`task-card-status-${seeded.taskId}`).click();
+    await page.getByTestId(`task-card-approve-${seeded.taskId}`).click();
+    await expect
+      .poll(() => readTaskStatus(workspace, seeded.taskId), { timeout: 30_000 })
+      .toBe("done");
+
+    // The sidebar is open by default on desktop, so this toggles it into view
+    // only when something (a persisted panel state) had closed it.
+    const feed = page.getByTestId("board-feed-pane");
+    if (!(await feed.isVisible())) {
+      await page.getByTestId("board-feed-toggle").click();
+    }
+    await expect(feed).toBeVisible({ timeout: 10_000 });
+    await expect(feed).toContainText("was approved and moved to done", { timeout: 30_000 });
+
+    const note = `Typed at the board ${Date.now()}`;
+    await page.getByTestId("board-feed-composer-input").fill(note);
+    await page.getByTestId("board-feed-send").click();
+    await expect(feed).toContainText(note, { timeout: 30_000 });
+  });
 });
 
 test.describe("Kanbans overview", () => {

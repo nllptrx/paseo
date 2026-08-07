@@ -180,20 +180,31 @@ preset on a task, an agent spawns already attached, in its own worktree
 (§6.2). Presets are per board. This is the fast path to "start work on this
 card" and it lands after the feed.
 
-## 6. Board feed [DECIDED]
+## 6. Board feed [SHIPPED]
 
-A real channel per board, on the existing chat store.
+The board's feed is the board's comments. `task_comments` already carried what
+a feed entry is — kind, author, agent, body, time — so the entries live there
+rather than in a chat room beside them: a room would be a second copy, and its
+author is required to be an agent, which a board event and a note you type are
+not.
 
-- One room per board, deterministic name keyed on the task project.
-- What posts there:
-  - agents' task comments, mirrored from `comment_task`, authored by the agent;
-  - board events from the bus (§2.4), attributed;
-  - agent finish notes, carried on the settle event;
-  - you, from the sidebar composer, posting as yourself. `@mention` prompts
-    the mentioned agent through the existing fanout.
-- The sidebar renders the channel Slack-style: author, timestamp, compact
-  event items. Tapping an item opens the task or that agent's own chat. There
-  are no Feed|Chat tabs and no agent is special.
+- Migration 3 rebuilt the table board-scoped: `project_id` required, `task_id`
+  nullable. A comment on a card is an entry with a card; a note at the board is
+  one without.
+- What lands there: agents' `comment_task` calls, every automatic transition
+  (naming the card and what caused it), and what you type in the composer.
+- Ordering is `created_at` then rowid. Two entries in the same millisecond are
+  ordinary — a move and the note about it — and ids are random hex, so ordering
+  by them shuffled a cause after its effect.
+- Read capped at the newest 200, returned oldest-first: a feed reads back, and
+  past that the answer is to open the card.
+- Surfaces: a resizable right sidebar on the board page (the slot the
+  orchestrator pane left, same panel-store width), a sheet on compact, and a
+  **Feed** tab in the explorer sidebar when the workspace's project has a
+  board. RPCs `tasks.feed.read`/`tasks.feed.post`; agents read it with
+  `read_board_feed`.
+- **[PROPOSED]** `@mention` fanout from the composer, so a note can prompt a
+  named agent.
 
 ### 6.1 No standing team-lead agent — daemon rules instead [DECIDED]
 

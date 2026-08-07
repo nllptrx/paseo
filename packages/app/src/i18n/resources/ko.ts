@@ -940,6 +940,14 @@ export const ko: TranslationResources = {
     },
   },
   tasks: {
+    feed: {
+      empty: "Nothing on this board yet",
+      loadError: "Unable to load the feed",
+      composerPlaceholder: "Write to the board",
+      send: "Send",
+      tab: "Feed",
+      toggle: "Board feed",
+    },
     screen: {
       title: "태스크",
       empty: "아직 태스크가 없습니다",

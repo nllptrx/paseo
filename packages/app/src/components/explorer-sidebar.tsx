@@ -13,6 +13,10 @@ import { Gesture } from "react-native-gesture-handler";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
+import type { Task, TaskProject } from "@getpaseo/protocol/tasks/types";
+import { BoardFeedPane } from "@/components/tasks/board-feed-pane";
+import { useWorkspaceFields } from "@/stores/session-store-hooks";
+import { useTasks } from "@/tasks/use-tasks";
 import {
   formatPrTabLabel,
   PullRequestPane,
@@ -293,11 +297,38 @@ function ExplorerTabButton({
   );
 }
 
+/** The board this workspace's project keeps, when it has one. */
+function useWorkspaceBoard(
+  serverId: string,
+  workspaceId: string | null | undefined,
+): { project: TaskProject; tasks: Task[] } | null {
+  const paseoProjectId = useWorkspaceFields(
+    serverId,
+    workspaceId ?? null,
+    (fields) => fields.projectId,
+  );
+  const { snapshot } = useTasks(serverId);
+  return useMemo(() => {
+    if (!paseoProjectId || !snapshot) {
+      return null;
+    }
+    const project = snapshot.projects.find((entry) => entry.paseoProjectId === paseoProjectId);
+    if (!project) {
+      return null;
+    }
+    return {
+      project,
+      tasks: snapshot.tasks.filter((task) => task.projectId === project.id),
+    };
+  }, [paseoProjectId, snapshot]);
+}
+
 /** A tab you cannot show falls back to the leftmost one you can. */
 function resolveExplorerContentTab(input: {
   activeTab: ExplorerTab;
   isGit: boolean;
   showPrTab: boolean;
+  showFeedTab: boolean;
 }): ExplorerTab {
   const requested =
     !input.isGit && (input.activeTab === "changes" || input.activeTab === "pr")
@@ -305,6 +336,9 @@ function resolveExplorerContentTab(input: {
       : input.activeTab;
   if (requested === "pr" && !input.showPrTab) {
     return "changes";
+  }
+  if (requested === "feed" && !input.showFeedTab) {
+    return input.isGit ? "changes" : "files";
   }
   return requested;
 }
@@ -345,10 +379,13 @@ function ExplorerSidebarContent({
   });
   const hasPullRequest = prPane.prNumber !== null;
   const showPrTab = hasPullRequest || (activeTab === "pr" && prPane.isLoading);
+  const board = useWorkspaceBoard(serverId, workspaceId);
+  const showFeedTab = board !== null;
   const resolvedTab = resolveExplorerContentTab({
     activeTab,
     isGit,
     showPrTab,
+    showFeedTab,
   });
   const prTabLabel = formatPrTabLabel(prPane.prNumber);
   const refreshGitActions = useCheckoutGitActionsStore((s) => s.refresh);
@@ -389,6 +426,15 @@ function ExplorerSidebarContent({
             onTabPress={onTabPress}
             testID="explorer-tab-files"
           />
+          {showFeedTab && (
+            <ExplorerTabButton
+              tab="feed"
+              active={resolvedTab === "feed"}
+              label={t("tasks.feed.tab")}
+              onTabPress={onTabPress}
+              testID="explorer-tab-feed"
+            />
+          )}
           {isGit && showPrTab && (
             <ExplorerTabButton
               tab="pr"
@@ -451,6 +497,9 @@ function ExplorerSidebarContent({
             onOpenFile={onOpenFile}
           />
         )}
+        {resolvedTab === "feed" && board ? (
+          <BoardFeedPane serverId={serverId} project={board.project} tasks={board.tasks} />
+        ) : null}
         {resolvedTab === "pr" && (
           <PrTabContent
             serverId={serverId}

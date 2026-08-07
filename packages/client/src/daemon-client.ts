@@ -595,6 +595,14 @@ type TasksReviewPayload = Extract<
 >["payload"];
 import type { StepInput } from "@getpaseo/protocol/tasks/workflow";
 
+type TasksFeedReadPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.feed.read.response" }
+>["payload"];
+type TasksFeedPostPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.feed.post.response" }
+>["payload"];
 type TasksBoardConfigurePayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.board.configure.response" }
@@ -5496,6 +5504,26 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.review.response">({
       requestId,
       message: { type: "tasks.review.request", ...options },
+    });
+  }
+
+  async tasksFeedRead(
+    options: { projectId: string; limit?: number },
+    requestId?: string,
+  ): Promise<TasksFeedReadPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.feed.read.response">({
+      requestId,
+      message: { type: "tasks.feed.read.request", ...options },
+    });
+  }
+
+  async tasksFeedPost(
+    options: { projectId: string; taskId?: string | null; body: string },
+    requestId?: string,
+  ): Promise<TasksFeedPostPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.feed.post.response">({
+      requestId,
+      message: { type: "tasks.feed.post.request", ...options },
     });
   }
 

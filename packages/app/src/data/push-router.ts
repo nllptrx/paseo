@@ -5,7 +5,8 @@ import type {
   SessionOutboundMessage,
 } from "@getpaseo/protocol/messages";
 import type { TaskSnapshot } from "@getpaseo/protocol/tasks/types";
-import { tasksQueryKey } from "@/tasks/task-query-keys";
+import { boardFeedQueryBaseKey, tasksQueryKey } from "@/tasks/task-query-keys";
+import { taskBoardsQueryBaseKey } from "@/tasks/aggregated-task-boards";
 import { agentCommandsQueryRoot } from "@/hooks/agent-commands-query";
 import { orderCheckoutDiffFiles } from "@/git/diff-order";
 import { daemonConfigQueryKey } from "@/data/daemon-config";
@@ -629,6 +630,13 @@ function applyTerminalsChanged(input: {
  * has nothing to do; anything behind refetches — including the optimistic guess
  * a move left in the cache.
  */
+/**
+ * Every view the tracker feeds refetches on one revision: the board snapshot,
+ * the board feed, and the cross-host board list. They are separate query keys
+ * because they answer different questions, but they all go stale on the same
+ * write, and invalidating only the snapshot left the feed showing the board as
+ * it was before the move it was supposed to report.
+ */
 function applyTasksUpdate(input: {
   queryClient: QueryClient;
   serverId: string;
@@ -640,6 +648,10 @@ function applyTasksUpdate(input: {
     return;
   }
   void input.queryClient.invalidateQueries({ queryKey });
+  void input.queryClient.invalidateQueries({
+    queryKey: [...boardFeedQueryBaseKey, input.serverId],
+  });
+  void input.queryClient.invalidateQueries({ queryKey: taskBoardsQueryBaseKey });
 }
 
 function getActiveServerDataRoute(

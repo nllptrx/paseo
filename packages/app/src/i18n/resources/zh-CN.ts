@@ -925,6 +925,14 @@ export const zhCN: TranslationResources = {
     },
   },
   tasks: {
+    feed: {
+      empty: "Nothing on this board yet",
+      loadError: "Unable to load the feed",
+      composerPlaceholder: "Write to the board",
+      send: "Send",
+      tab: "Feed",
+      toggle: "Board feed",
+    },
     screen: {
       title: "任务",
       empty: "还没有任务",
