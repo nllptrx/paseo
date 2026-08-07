@@ -1,20 +1,23 @@
 # Tracker + Kanban — branch spec (design/workflow-stacking)
 
 Working spec for review. Every section is tagged: **[SHIPPED]** is on the
-branch and tested; **[IN PROGRESS]** is started but not landed; **[PROPOSED]**
-is my intended next step, not built; **[OPEN]** needs your decision. Edit
-anything — this file is the contract for what happens next.
+branch and tested; **[DECIDED]** is agreed direction, not yet built;
+**[IN PROGRESS]** is started but not landed; **[PROPOSED]** is my intended
+next step, not built; **[OPEN]** needs your decision. Edit anything — this
+file is the contract for what happens next.
 
 ## 1. Vision
 
 One tracker, one board, one kind of chat. A **Task** is the unit of work
-(bb-style: `PSE-42`, stored status, priority, labels, comments). The **kanban
-is the board view of tasks** — columns are the stored statuses, never a second
-object with its own route. Execution (plans, agents) attaches to tasks and is
-always derived, never copied. Agents work the tracker through MCP tools; the
-board writes back to them. The **Orchestrator is a plain agent** that hears
-board events; agent↔agent coordination goes through the board (the bacheca),
-not through a parallel messaging system.
+(bb-style: `PSE-42`, stored status, priority, labels, comments, for source of
+truth check: get-bb/bb). The **kanban is the board view of tasks** —
+columns are the stored statuses, never a second object with its own route.
+Execution (plans, agents) attaches to tasks and is always derived, never
+copied. Agents work the tracker through MCP tools; the board writes back to them.
+The **Orchestrator is a plain agent** that hears board events; agent↔agent
+coordination goes through the board (the bacheca), not through a parallel
+messaging system. For kanban, this is source of truth Emanuele-web04/synara.
+For the orchestration the architecture icould be either classic or a graph.
 
 ## 2. Data model [SHIPPED]
 
@@ -31,6 +34,38 @@ not through a parallel messaging system.
   and plans gain optional `taskId`.
 - Sync: push `tasks.update { revision }`; client at same revision does nothing,
   behind refetches. Push-router domain `tasks` registered app-side.
+
+### 2.1 The board IS the task project [DECIDED]
+
+`StoredKanban` retires. There is one board-shaped object: the task project.
+
+- `review`, `archiveWorkspacesOnDone`, and the Orchestrator association move
+  onto `task_projects` (SQLite). The kanban JSON record and its get-or-create
+  dance go away.
+- `/kanbans/<id>` resolves to the project's board; the feed room and board
+  events key on the task project, not a kanban id.
+- No migration: pre-branch plan boards break. The `tasks` feature gate has
+  never shipped in a release, so there is no released peer to shim for — no
+  COMPAT code, no one-shot migration.
+
+### 2.2 Workflow-on-task [DECIDED]
+
+Plans stop being objects. The step machine (agent specs, workspace strategy,
+triggers, hard gates, schedules) survives unchanged but re-homes: **steps
+attach to a task**. Plan `title`/`description` and nested plans die — the task
+is the only unit of work. "Add plan" becomes "Add workflow" on the card.
+`derivePlanColumn` dies with them: the task's stored status plus the
+transition engine are the only column truth.
+
+Tasks gain `parentId` (subtasks) and dependencies (`blocks`/`blocked-by`) in
+SQLite — the dependency gate (§6.1) and the stacked-branch mapping read them.
+
+### 2.3 Board event bus [PROPOSED]
+
+One emission point for board events (task created/moved/settled/approved/
+rejected), three consumers: the feed room post (§6), the Orchestrator
+system-notification prompt, the `tasks.update` push. Today these are three
+independent writes; §6 becomes a consumer, not a second system.
 
 ## 3. Automatic transitions [SHIPPED]
 
@@ -59,6 +94,8 @@ not through a parallel messaging system.
 - CLI: `paseo task ls|create|move` (by key `PSE-42` or id).
 - Board events → the board's Orchestrator agents as system-notification
   prompts (`sendPromptToAgent`): settled→in_review/done, approved, rejected.
+  Superseded by §6/§6.1: with no standing Orchestrator, the consumer that
+  prompts agents retires; events go to the feed room and the push instead.
 
 ## 5. Surfaces — UI/UX
 
@@ -96,47 +133,68 @@ not through a parallel messaging system.
   overview.
 - **Explorer sidebar**: gains an **Orchestrator** tab beside Changes/Files/PR,
   visible when the project has a board; unavailable-tab fallback follows the
-  PR-tab rule.
+  PR-tab rule. Per §6 the tab renames to **Feed** and renders the board
+  channel.
 
-### 5.3 Overview `/kanbans` [OPEN]
+### 5.3 Overview `/kanbans` [DECIDED via 2.1/2.2]
 
-Still renders **plan** cards per project column while the board shows tasks —
-two vocabularies one click apart. Options: (a) switch overview columns to
-tasks, (b) keep plans and label it as the execution overview. Not decided.
+With plans gone there is no second vocabulary: the overview renders tasks per
+project. Falls out of the board-is-the-project rework, not a separate build.
 
-### 5.4 Orchestrator chat [SHIPPED, being superseded by §6]
+### 5.4 Orchestrator chat [SHIPPED — superseded by §6]
 
-The sidebar mounts the **real agent chat** (registered agent panel inside a
-sidebar-scoped PaneProvider — AgentStreamView + Composer, the normal
-composer). The bespoke `orchestrator-thread-view` is out of the loop.
+The sidebar currently mounts the real agent chat (registered agent panel
+inside a sidebar-scoped PaneProvider). Per §6 it becomes the board feed; the
+pane, the `orchestrator-thread-view`, and the Create Orchestrator entry
+retire. Opening any agent's full chat is a tap on its feed item.
 
-## 6. Board feed — "Slack channel per board" [IN PROGRESS — your pick]
+## 6. Board feed — "Slack channel per board" [DECIDED]
 
-Your chosen model: **a real channel per board**, on the existing chat store.
+A real channel per board, on the existing chat store.
 
-- One room per kanban, deterministic name (`kanban:<kanbanId>`).
+- One room per board, deterministic name keyed on the task project (§2.1).
 - What posts there:
   - working agents' task comments (mirrored from `comment_task`, author = agent),
-  - board events (task created/moved/settled/approved/rejected) as system
-    posts,
-  - the Orchestrator's messages,
-  - you, from the sidebar composer; `@mention` fanout prompts the mentioned
-    agent (mechanism exists).
-- The sidebar (board page + explorer Orchestrator tab) renders this channel as
-  a Slack-like feed: author, timestamp, event items compact; tapping an item
-  opens the task or the agent chat.
-- The Orchestrator agent still receives events as system notifications (so it
-  can act without polling the room).
-- Consequence: the per-daemon `orchestrators` room, peer mesh rail and
-  mention-only steering become redundant → retire after this lands.
+  - board events from the event bus (§2.3): task created/moved/settled/
+    approved/rejected — every automatic transition attributed and reversible
+    by hand (the flip-flop bug other boards shipped came from silent,
+    unattributed moves),
+  - agent finish notes, carried on the settle event,
+  - you, from the sidebar composer — **posting as yourself**; `@mention`
+    fanout prompts the mentioned agent (mechanism exists).
+- The sidebar (board page + explorer tab) is the feed and nothing else:
+  Slack-like — author, timestamp, compact event items; tapping an item opens
+  the task or the agent's own chat. No Feed|Chat tabs; no agent is special.
+- Consequence — full mesh retirement: the per-daemon `orchestrators` room,
+  peer rail, bespoke thread-view, `send_orchestrator_message`, and the
+  Orchestrator sidebar pane (5.4) all go. The explorer "Orchestrator" tab and
+  the board-page toggle become the **Feed** tab/toggle.
 
-**[OPEN] within §6**: (a) does the composer post as "you" into the room, or
-always steer the Orchestrator? (b) do agent finish-notes auto-post, or only
-explicit `comment_task`? (c) does the sidebar replace the agent chat (5.4)
-entirely, with the Orchestrator's own chat one tap away, or are they two tabs
-(Feed | Chat)?
+## 6.1 No standing team-lead agent — daemon rules instead [DECIDED]
 
-## 7. Open decisions (besides 5.3 and 6)
+Prior-art research (Vibe Kanban, Conductor, Copilot Mission Control, Linear
+agent sessions, Devin Managed Devins, Claude Code agent teams, CrewAI,
+blackboard papers): worktree-per-task is universal table stakes; every
+shipped product coordinates through the board, none built an agent message
+bus; only Devin ships a supervisor agent, and the generic manager-agent is a
+documented anti-pattern (CrewAI). Decision:
+
+- **No Orchestrator agent for now.** The board works standalone: tracker,
+  attach, auto-transitions, feed.
+- **The supervision jobs that matter are deterministic and live in the
+  daemon** as event-bus consumers: stall detection (agent idle/erroring/
+  waiting-for-input → feed post), dependency gating (a task with unresolved
+  deps is unclaimable), attributed transition posts.
+- **A decomposer agent (task → subtasks with agent specs) is a later phase**,
+  opt-in per board, and even then it never authors code and never issues
+  review verdicts.
+- **Subtask → git = stacked branches, sibling worktrees.** A subtask's base
+  branch is the parent task's branch (not main); its worktree directory sits
+  beside — never inside — the parent's; it merges back through the parent
+  branch, which merges to main. Maps 1:1 onto stacked PRs. Depth ≥2 allowed,
+  not encouraged by the UI.
+
+## 7. Open decisions (besides 6)
 
 1. **Card press with 0 or 2+ agents** — today a silent no-op. Options: task
    detail sheet (not built), agent picker, open the menu.
@@ -146,10 +204,9 @@ entirely, with the Orchestrator's own chat one tap away, or are they two tabs
    wants a checkmark/toggle idiom.
 4. **Presets / Delegate flow** — schema exists (`task_presets`), no UI: pick a
    preset on a task → agent spawns attached.
-5. **Mesh retirement scope** — delete `orchestrators` room, rail,
-   thread-view, `send_orchestrator_message`, or keep dormant behind the
-   feature flag.
-6. **Overview** — see 5.3.
+5. **Mesh retirement scope [DECIDED via §6]** — full delete: `orchestrators`
+   room, rail, thread-view, `send_orchestrator_message`, orchestrator sidebar
+   pane, Create Orchestrator entry.
 
 ## 8. Invariants (unchanged)
 
