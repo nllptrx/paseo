@@ -183,7 +183,9 @@ test.describe("Kanbans board", () => {
 
     await openKanbans(page);
     await expect(page.getByText("No kanbans yet")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("sidebar-kanbans")).toBeVisible();
+    // The board lives at its URL, not in the nav: there is one destination for
+    // work now, and it is the tracker.
+    await expect(page.getByTestId("sidebar-kanbans")).toHaveCount(0);
   });
 
   test("renders a seeded board and creates a plan", async ({ page }) => {

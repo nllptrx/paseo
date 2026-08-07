@@ -81,6 +81,19 @@ A **Plan** is the third way, and the only one that is more than a single
 dispatch: an ordered, gated workflow. It attaches to a task like any other work.
 The tracker does not gain workflow semantics; the plan keeps them.
 
+## One destination
+
+There is one place work lives, and it is the tracker. The kanban board is a
+_representation_ of the same tasks, not a second object with a nav entry of its
+own — this branch already learned that once, building a sidebar kanban grouping
+beside the Kanbans nav entry and deleting it because two routes to one object
+read as confusing. A tab switches List and Board; nothing switches what you are
+looking at.
+
+Until Plans are folded into Tasks, `/kanbans` stays reachable by URL and out of
+the nav. Putting a tab bar over the two before the fusion would claim they are
+representations of one thing while showing two.
+
 ## Surfaces
 
 Two views over the same tasks, and the difference is what you came to do. The
