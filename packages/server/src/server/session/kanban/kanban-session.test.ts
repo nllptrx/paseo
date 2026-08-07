@@ -27,10 +27,11 @@ describe("KanbanSession orchestrator provisioning", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  test("provisions a workspace + agent + pointer atomically", async () => {
+  test("provisions a workspace and an agent wearing the kanban's labels", async () => {
     const kanban = await kanbanService.getOrCreateForProject("proj-1", { name: "Board" });
     const emitted: SessionOutboundMessage[] = [];
     let archiveCalls = 0;
+    let createdAgent: { title?: string | null; labels?: Record<string, string> } | null = null;
 
     const session = new KanbanSession({
       host: { emit: (msg) => emitted.push(msg) },
@@ -56,13 +57,16 @@ describe("KanbanSession orchestrator provisioning", () => {
           autoArchivedChangeRequestUrl: null,
           pinnedAt: null,
         }),
-        createAgent: async () => ({
-          snapshot: { id: "agent-1" } as never,
-          liveSnapshot: { id: "agent-1" } as never,
-          background: true,
-          initialPromptStarted: false,
-          initialPromptError: null,
-        }),
+        createAgent: async (input) => {
+          createdAgent = input as never;
+          return {
+            snapshot: { id: "agent-1" } as never,
+            liveSnapshot: { id: "agent-1" } as never,
+            background: true,
+            initialPromptStarted: false,
+            initialPromptError: null,
+          };
+        },
         resolveDefaultProvider: async () => "claude",
         archiveWorkspace: async () => {
           archiveCalls += 1;
@@ -79,34 +83,55 @@ describe("KanbanSession orchestrator provisioning", () => {
     expect(archiveCalls).toBe(0);
     const response = emitted.find((msg) => msg.type === "kanban.orchestrator.provision.response");
     expect(response).toMatchObject({
-      payload: {
-        requestId: "req-1",
-        error: null,
-        kanban: { orchestrator: { workspaceId: "ws-1", agentId: "agent-1" } },
-      },
+      payload: { requestId: "req-1", error: null, kanban: { id: kanban.id } },
     });
 
-    const reloaded = await kanbanService.get(kanban.id);
-    expect(reloaded?.orchestrator).toEqual({ workspaceId: "ws-1", agentId: "agent-1" });
+    // The labels are what make the agent an Orchestrator. Nothing is written to
+    // the kanban record, so they are also the only place it is recorded.
+    expect(createdAgent).toMatchObject({
+      title: "Board Orchestrator",
+      labels: { "paseo.kanban-orchestrator": "true", "paseo.kanban-id": kanban.id },
+    });
   });
 
-  test("fails fast without creating a workspace when the kanban already has an orchestrator", async () => {
-    const kanban = await kanbanService.getOrCreateForProject("proj-1");
-    await kanbanService.provisionOrchestratorPointer(kanban.id, {
-      workspaceId: "ws-existing",
-      agentId: "agent-existing",
+  test("provisions a second Orchestrator for the same kanban, numbering its title", async () => {
+    const kanban = await kanbanService.getOrCreateForProject("proj-1", { name: "Board" });
+    // One Orchestrator already exists, which is a fact about an agent's labels
+    // rather than anything stored on the kanban.
+    const withExisting = new KanbanService({
+      store,
+      logger: testLogger(),
+      agentStorage: {
+        get: async () => null as never,
+        list: async () =>
+          [
+            {
+              id: "agent-existing",
+              workspaceId: "ws-existing",
+              title: "Board Orchestrator",
+              labels: {
+                "paseo.kanban-orchestrator": "true",
+                "paseo.kanban-id": kanban.id,
+              },
+            },
+          ] as never,
+      },
     });
 
     const emitted: SessionOutboundMessage[] = [];
     let archivedWorkspaceId: string | null = null;
+    let createdTitle: string | null = null;
 
     const session = new KanbanSession({
       host: { emit: (msg) => emitted.push(msg) },
-      kanbanService,
+      kanbanService: withExisting,
       logger: testLogger(),
       orchestratorProvisioning: {
         projectRegistry: { get: async () => ({ rootPath: "/tmp/project-root" }) as never },
-        createDirectoryWorkspace: async () => ({ workspaceId: "ws-2", cwd: "/tmp" }) as never,
+        createDirectoryWorkspace: async (_cwd, title) => {
+          createdTitle = title ?? null;
+          return { workspaceId: "ws-2", cwd: "/tmp" } as never;
+        },
         createAgent: async () => ({
           snapshot: { id: "agent-2" } as never,
           liveSnapshot: { id: "agent-2" } as never,
@@ -127,17 +152,9 @@ describe("KanbanSession orchestrator provisioning", () => {
       kanbanId: kanban.id,
     });
 
+    expect(emitted.find((msg) => msg.type === "rpc_error")).toBeUndefined();
     expect(archivedWorkspaceId).toBeNull();
-    const errorMsg = emitted.find((msg) => msg.type === "rpc_error");
-    expect(errorMsg).toMatchObject({
-      payload: { requestId: "req-2", error: expect.stringMatching(/already has an orchestrator/) },
-    });
-
-    const reloaded = await kanbanService.get(kanban.id);
-    expect(reloaded?.orchestrator).toEqual({
-      workspaceId: "ws-existing",
-      agentId: "agent-existing",
-    });
+    expect(createdTitle).toBe("Board Orchestrator 2");
   });
 
   test("provision fails clearly when orchestrator provisioning is not configured", async () => {
@@ -161,16 +178,31 @@ describe("KanbanSession orchestrator provisioning", () => {
     });
   });
 
-  test("listOrchestratorPeers passthrough and unlink clear the pointer", async () => {
-    const kanban = await kanbanService.getOrCreateForProject("proj-1");
-    await kanbanService.provisionOrchestratorPointer(kanban.id, {
-      workspaceId: "ws-1",
-      agentId: "agent-1",
+  test("lists the Orchestrators their agent labels say exist", async () => {
+    const kanban = await kanbanService.getOrCreateForProject("proj-1", { name: "Board" });
+    const withExisting = new KanbanService({
+      store,
+      logger: testLogger(),
+      agentStorage: {
+        get: async () => null as never,
+        list: async () =>
+          [
+            {
+              id: "agent-1",
+              workspaceId: "ws-1",
+              title: "Board Orchestrator",
+              labels: {
+                "paseo.kanban-orchestrator": "true",
+                "paseo.kanban-id": kanban.id,
+              },
+            },
+          ] as never,
+      },
     });
     const emitted: SessionOutboundMessage[] = [];
     const session = new KanbanSession({
       host: { emit: (msg) => emitted.push(msg) },
-      kanbanService,
+      kanbanService: withExisting,
       logger: testLogger(),
     });
 
@@ -178,26 +210,14 @@ describe("KanbanSession orchestrator provisioning", () => {
       type: "kanban.orchestrator.list_peers.request",
       requestId: "req-4",
     });
-    const peersResponse = emitted.find(
-      (msg) => msg.type === "kanban.orchestrator.list_peers.response",
-    );
-    expect(peersResponse).toMatchObject({
+
+    expect(
+      emitted.find((msg) => msg.type === "kanban.orchestrator.list_peers.response"),
+    ).toMatchObject({
       payload: {
         requestId: "req-4",
         peers: [expect.objectContaining({ kanbanId: kanban.id, agentId: "agent-1" })],
       },
-    });
-
-    await session.handleOrchestratorUnlinkRequest({
-      type: "kanban.orchestrator.unlink.request",
-      requestId: "req-5",
-      kanbanId: kanban.id,
-    });
-    const unlinkResponse = emitted.find(
-      (msg) => msg.type === "kanban.orchestrator.unlink.response",
-    );
-    expect(unlinkResponse).toMatchObject({
-      payload: { requestId: "req-5", kanban: { orchestrator: null } },
     });
   });
 });
