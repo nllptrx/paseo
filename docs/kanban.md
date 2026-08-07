@@ -96,16 +96,23 @@ The kanban record also carries the tracker's `review` config — whether a green
 settle routes the task to In Review, and where a rejection sends it back. The
 board menu toggles it; the rules live in [tasks.md](tasks.md).
 
-## Orchestrator mesh
+## The Orchestrator is an agent
 
-Same-daemon Orchestrators discover each other via
-`kanban.orchestrator.list_peers`. Messaging reuses the chat store: one room
-named `orchestrators`, directed asks via `@mention` of the peer's primary
-agent. Messages are steering, not dispatch — "take this plan" still goes through
-kanban tools. Cross-host peers are visible read-only in the app rail; daemon
-messaging stays host-local in v1.
+An Orchestrator is a plain agent on a `local` workspace at the project root;
+nothing about it is a separate subsystem. Its conversation is the agent's own
+chat, mounted wherever a surface needs it. The board tells it what happened:
+every automatic transition — settled to `in_review` or `done`, approved,
+rejected back — is delivered to the board's Orchestrator agents as a system
+notification through `sendPromptToAgent`, the same path every other surface
+uses. Working agents talk through the board itself (comments, attachments,
+status); the Orchestrator listens and steers.
 
-Two surfaces reach that thread, and they answer different questions.
+Same-daemon Orchestrators still discover each other via
+`kanban.orchestrator.list_peers`. The `orchestrators` chat room and mention
+fanout exist but are no longer in the steering loop — retiring them is pending
+once the event-notification model settles.
+
+Two surfaces reach that conversation, and they answer different questions.
 `/kanbans/<kanbanId>` carries a pane beside the board listing **this board's**
 Orchestrators — derived by filtering the peer listing to the board's host and id
 — and opens straight into the conversation when there is only one. An
@@ -113,9 +120,10 @@ Orchestrator workspace gains an **Orchestrator** tab (menu ⋯ → Open
 Orchestrator) that reuses `KanbanBoardSurface` plus a rail of the **other**
 boards' Orchestrators, for steering across boards.
 
-Both run the same conversation: `useOrchestratorPeerThread` plus the message
-list and composer in `orchestrator-thread-view.tsx`. A peer row is titled by its
-agent title, because every Orchestrator on one board shares the board's name.
+Both mount the same conversation: the registered agent panel inside a
+sidebar-scoped pane context (`kanban-orchestrator-pane.tsx`) — never a bespoke
+message view. A peer row is titled by its agent title, because every
+Orchestrator on one board shares the board's name.
 
 ## Client data
 
