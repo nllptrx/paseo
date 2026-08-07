@@ -1065,6 +1065,8 @@ export const es: TranslationResources = {
       providerEmptyText: "No available providers",
       submit: "Crear plan",
       addStep: "Añadir paso",
+      stepsHeading_one: "{{count}} Paso",
+      stepsHeading_other: "{{count}} Pasos",
       stepHeading: "Paso {{index}} de {{total}}",
       stepNameLabel: "Nombre del paso",
       stepNamePlaceholder: "Qué hace este paso",

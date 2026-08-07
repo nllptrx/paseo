@@ -1045,6 +1045,8 @@ export const ja: TranslationResources = {
       providerEmptyText: "No available providers",
       submit: "プランを作成",
       addStep: "ステップを追加",
+      stepsHeading_one: "{{count}} ステップ",
+      stepsHeading_other: "{{count}} ステップ",
       stepHeading: "ステップ {{index}}/{{total}}",
       stepNameLabel: "ステップ名",
       stepNamePlaceholder: "このステップの内容",

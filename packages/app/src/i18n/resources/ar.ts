@@ -1033,6 +1033,8 @@ export const ar: TranslationResources = {
       providerEmptyText: "No available providers",
       submit: "إنشاء خطة",
       addStep: "إضافة خطوة",
+      stepsHeading_one: "{{count}} خطوة",
+      stepsHeading_other: "{{count}} خطوات",
       stepHeading: "الخطوة {{index}} من {{total}}",
       stepNameLabel: "اسم الخطوة",
       stepNamePlaceholder: "ما تقوم به هذه الخطوة",

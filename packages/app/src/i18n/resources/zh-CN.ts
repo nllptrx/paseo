@@ -1025,6 +1025,8 @@ export const zhCN: TranslationResources = {
       providerEmptyText: "No available providers",
       submit: "创建计划",
       addStep: "添加步骤",
+      stepsHeading_one: "{{count}} 步骤",
+      stepsHeading_other: "{{count}} 步骤",
       stepHeading: "第 {{index}}/{{total}} 步",
       stepNameLabel: "步骤名称",
       stepNamePlaceholder: "这一步做什么",

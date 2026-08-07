@@ -1056,6 +1056,8 @@ export const ru: TranslationResources = {
       providerEmptyText: "No available providers",
       submit: "Создать план",
       addStep: "Добавить шаг",
+      stepsHeading_one: "{{count}} Шаг",
+      stepsHeading_other: "{{count}} Шага",
       stepHeading: "Шаг {{index}} из {{total}}",
       stepNameLabel: "Название шага",
       stepNamePlaceholder: "Что делает этот шаг",

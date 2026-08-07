@@ -1042,6 +1042,8 @@ export const ko: TranslationResources = {
       providerEmptyText: "No available providers",
       submit: "플랜 생성",
       addStep: "단계 추가",
+      stepsHeading_one: "{{count}} 단계",
+      stepsHeading_other: "{{count}} 단계",
       stepHeading: "{{total}}단계 중 {{index}}",
       stepNameLabel: "단계 이름",
       stepNamePlaceholder: "이 단계가 하는 일",

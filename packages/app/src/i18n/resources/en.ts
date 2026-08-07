@@ -1044,6 +1044,8 @@ export const en = {
       providerEmptyText: "No available providers",
       submit: "Create plan",
       addStep: "Add step",
+      stepsHeading_one: "{{count}} Step",
+      stepsHeading_other: "{{count}} Steps",
       stepHeading: "Step {{index}} of {{total}}",
       stepNameLabel: "Step name",
       stepNamePlaceholder: "What this step does",

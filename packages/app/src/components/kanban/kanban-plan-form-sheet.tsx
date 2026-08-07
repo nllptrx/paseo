@@ -117,6 +117,23 @@ function OpenKanbanPlanFormSheet({
             testID="kanban-plan-form-description-input"
           />
         </Field>
+        {/* Above the list, not below it: a step editor is tall enough that one
+            step already fills the sheet, so an Add button after the last one
+            starts below the fold and walks further away with every step. */}
+        <View style={styles.stepsHeader}>
+          <Text style={styles.stepsHeading}>
+            {t("kanban.planForm.stepsHeading", { count: state.steps.length })}
+          </Text>
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={Plus}
+            onPress={model.addStep}
+            testID="kanban-plan-form-add-step"
+          >
+            {t("kanban.planForm.addStep")}
+          </Button>
+        </View>
         <View style={styles.steps}>
           {state.steps.map((step, index) => (
             <KanbanPlanStepEditor
@@ -129,15 +146,6 @@ function OpenKanbanPlanFormSheet({
             />
           ))}
         </View>
-        <Button
-          variant="ghost"
-          size="sm"
-          leftIcon={Plus}
-          onPress={model.addStep}
-          testID="kanban-plan-form-add-step"
-        >
-          {t("kanban.planForm.addStep")}
-        </Button>
         {state.submitError ? (
           <Text style={styles.error} testID="kanban-plan-form-error">
             {state.submitError}
@@ -157,6 +165,17 @@ const styles = StyleSheet.create((theme) => ({
   },
   steps: {
     gap: theme.spacing[3],
+  },
+  stepsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: -theme.spacing[2],
+  },
+  stepsHeading: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
   },
   error: {
     color: theme.colors.statusDanger,

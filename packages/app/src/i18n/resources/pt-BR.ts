@@ -1056,6 +1056,8 @@ export const ptBR: TranslationResources = {
       providerEmptyText: "No available providers",
       submit: "Criar plano",
       addStep: "Adicionar etapa",
+      stepsHeading_one: "{{count}} Etapa",
+      stepsHeading_other: "{{count}} Etapas",
       stepHeading: "Etapa {{index}} de {{total}}",
       stepNameLabel: "Nome da etapa",
       stepNamePlaceholder: "O que esta etapa faz",
