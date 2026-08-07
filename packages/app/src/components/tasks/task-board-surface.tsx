@@ -12,6 +12,7 @@ import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks
 import { toErrorMessage } from "@/utils/error-messages";
 import { NewTaskSheet } from "./new-task-sheet";
 import { TaskBoard, type TaskBoardMove } from "./task-board";
+import { TaskDetailSheet } from "./task-detail-sheet";
 
 export interface TaskBoardSurfaceProps {
   serverId: string;
@@ -45,6 +46,7 @@ export function TaskBoardSurface({
   const { moveTask, reviewTask, deleteTask } = useTaskMutations(serverId);
   const [selectedColumn, setSelectedColumn] = useState<TaskStatus>("backlog");
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const board = useMemo(
     () =>
@@ -100,6 +102,8 @@ export function TaskBoardSurface({
     [serverId],
   );
   const handleCloseCapture = useCallback(() => setCapturingStatus(null), []);
+  const handleOpenTask = useCallback((taskId: string) => setOpenTaskId(taskId), []);
+  const handleCloseTask = useCallback(() => setOpenTaskId(null), []);
 
   if (!supported) {
     return (
@@ -138,6 +142,7 @@ export function TaskBoardSurface({
         onMoveTask={handleMoveTask}
         onCreateTask={handleCreateTask}
         onOpenAgent={handleOpenAgent}
+        onOpenTask={handleOpenTask}
         onReviewTask={handleReviewTask}
         onDeleteTask={handleDeleteTask}
         onCreateWorkflowForTask={onCreateWorkflowForTask}
@@ -154,6 +159,14 @@ export function TaskBoardSurface({
           onClose={handleCloseCapture}
         />
       ) : null}
+      <TaskDetailSheet
+        serverId={serverId}
+        taskId={openTaskId}
+        tasks={board.tasks}
+        labels={board.labels}
+        projectsById={projectsById}
+        onClose={handleCloseTask}
+      />
     </>
   );
 }

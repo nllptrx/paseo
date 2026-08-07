@@ -1027,6 +1027,19 @@ export const ko: TranslationResources = {
         schedule: "On a schedule",
       },
     },
+    detail: {
+      menuLabel: "Details",
+      statusLabel: "Status",
+      priorityLabel: "Priority",
+      priorityNone: "No priority",
+      labelsHeading: "Labels",
+      due: "Due {{date}}",
+      agentsHeading: "Agents",
+      commentsHeading: "Comments",
+      commentsEmpty: "No comments yet",
+      commentPlaceholder: "Write a comment",
+      commentSend: "Send",
+    },
   },
   kanban: {
     panel: {

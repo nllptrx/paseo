@@ -272,6 +272,29 @@ test.describe("Kanbans board", () => {
     await expect(page.getByTestId("task-workflow-form-sheet")).toBeVisible({ timeout: 10_000 });
   });
 
+  /** A press always opens the card, whatever is attached to it. The old rule —
+   * open the chat when exactly one agent is attached, do nothing otherwise —
+   * was one no user could learn. */
+  test("pressing a card opens its details and takes a comment", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-detail-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const title = `Detail task ${Date.now()}`;
+    const seeded = await seedTrackerTask(workspace, title);
+
+    await openBoard(page, seeded.projectId);
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
+    await board.getByTestId(`task-card-${seeded.taskId}`).click();
+
+    const sheet = page.getByTestId("task-detail-sheet");
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    await expect(sheet).toContainText(title);
+
+    const note = `Comment ${Date.now()}`;
+    await sheet.getByTestId("task-detail-comment-input").fill(note);
+    await sheet.getByTestId("task-detail-comment-send").click();
+    await expect(sheet).toContainText(note, { timeout: 30_000 });
+  });
+
   /** The feed is where an automatic move says what it did, and where a note you
    * type at the board lands — one channel, both kinds of entry. */
   test("the board feed records an automatic move and takes a note", async ({ page }) => {

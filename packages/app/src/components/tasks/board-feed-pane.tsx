@@ -3,13 +3,14 @@ import { ScrollView, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { SendHorizontal } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
-import type { Task, TaskComment, TaskProject } from "@getpaseo/protocol/tasks/types";
+import type { Task, TaskProject } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { formatTaskKey } from "@/tasks/task-views";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import { toErrorMessage } from "@/utils/error-messages";
+import { BoardFeedEntryRow } from "./board-feed-entry";
 
 export interface BoardFeedPaneProps {
   serverId: string;
@@ -82,7 +83,7 @@ export function BoardFeedPane({
           </View>
         ) : null}
         {entries.map((entry) => (
-          <FeedEntryRow
+          <BoardFeedEntryRow
             key={entry.id}
             entry={entry}
             taskKey={entry.taskId ? keyByTaskId.get(entry.taskId) : undefined}
@@ -116,54 +117,6 @@ export function BoardFeedPane({
   );
 }
 
-function FeedEntryRow({
-  entry,
-  taskKey,
-  onOpenTask,
-}: {
-  entry: TaskComment;
-  taskKey: string | undefined;
-  onOpenTask: ((taskId: string) => void) | undefined;
-}): ReactElement {
-  const handlePress = useCallback(() => {
-    if (entry.taskId && onOpenTask) {
-      onOpenTask(entry.taskId);
-    }
-  }, [entry.taskId, onOpenTask]);
-
-  const isSystem = entry.kind === "system";
-  return (
-    <View style={styles.entry} testID={`board-feed-entry-${entry.id}`}>
-      <View style={styles.entryHeader}>
-        <Text style={[styles.author, isSystem && styles.authorSystem]} numberOfLines={1}>
-          {entry.authorName}
-        </Text>
-        {taskKey ? (
-          <Text
-            style={styles.taskKey}
-            onPress={handlePress}
-            accessibilityRole={onOpenTask ? "button" : undefined}
-            testID={`board-feed-entry-task-${entry.id}`}
-          >
-            {taskKey}
-          </Text>
-        ) : null}
-        <Text style={styles.time}>{formatEntryTime(entry.createdAt)}</Text>
-      </View>
-      <Text style={[styles.body, isSystem && styles.bodySystem]}>{entry.body}</Text>
-    </View>
-  );
-}
-
-/** Wall-clock time only: a feed you read top to bottom already carries the day. */
-function formatEntryTime(createdAt: string): string {
-  const at = new Date(createdAt);
-  if (Number.isNaN(at.getTime())) {
-    return "";
-  }
-  return at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
 const styles = StyleSheet.create((theme) => ({
   pane: {
     flex: 1,
@@ -181,41 +134,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
     paddingVertical: theme.spacing[6],
-  },
-  entry: {
-    gap: theme.spacing[1],
-  },
-  entryHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-  },
-  author: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.semibold,
-  },
-  authorSystem: {
-    color: theme.colors.foregroundMuted,
-  },
-  taskKey: {
-    color: theme.colors.accent,
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.medium,
-  },
-  time: {
-    flex: 1,
-    textAlign: "right",
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-  },
-  body: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-  },
-  bodySystem: {
-    color: theme.colors.foregroundMuted,
-    fontStyle: "italic",
   },
   composer: {
     flexDirection: "row",

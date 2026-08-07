@@ -108,6 +108,7 @@ export function TaskBoard({
   onMoveTask,
   onCreateTask,
   onOpenAgent,
+  onOpenTask,
   onReviewTask,
   onDeleteTask,
   onCreateWorkflowForTask,
@@ -246,6 +247,7 @@ export function TaskBoard({
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
             onOpenAgent={onOpenAgent}
+            onOpenTask={onOpenTask}
             onReviewTask={onReviewTask}
             onDeleteTask={onDeleteTask}
             onCreateWorkflowForTask={onCreateWorkflowForTask}
@@ -275,6 +277,7 @@ export function TaskBoard({
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
             onOpenAgent={handleOpenAgent}
+            onOpenTask={onOpenTask}
             onReviewTask={onReviewTask}
             onDeleteTask={onDeleteTask}
             onCreateWorkflowForTask={onCreateWorkflowForTask}
@@ -315,6 +318,7 @@ function DroppableTaskColumn({
   onMoveToStatus,
   onCreateTask,
   onOpenAgent,
+  onOpenTask,
   onReviewTask,
   onDeleteTask,
   onCreateWorkflowForTask,
@@ -328,6 +332,7 @@ function DroppableTaskColumn({
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onCreateTask: (status: TaskStatus) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onOpenTask: (taskId: string) => void;
   onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
@@ -356,6 +361,7 @@ function DroppableTaskColumn({
         onMoveToStatus={onMoveToStatus}
         onCreateTask={onCreateTask}
         onOpenAgent={onOpenAgent}
+        onOpenTask={onOpenTask}
         onReviewTask={onReviewTask}
         onDeleteTask={onDeleteTask}
         onCreateWorkflowForTask={onCreateWorkflowForTask}

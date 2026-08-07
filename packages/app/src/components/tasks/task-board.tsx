@@ -35,6 +35,7 @@ export function TaskBoard({
   onMoveTask,
   onCreateTask,
   onOpenAgent,
+  onOpenTask,
   onReviewTask,
   onDeleteTask,
   onCreateWorkflowForTask,
@@ -89,6 +90,7 @@ export function TaskBoard({
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
             onOpenAgent={onOpenAgent}
+            onOpenTask={onOpenTask}
             onReviewTask={onReviewTask}
             onDeleteTask={onDeleteTask}
             onCreateWorkflowForTask={onCreateWorkflowForTask}
@@ -111,6 +113,7 @@ export function TaskBoard({
           onMoveToStatus={handleMoveToStatus}
           onCreateTask={onCreateTask}
           onOpenAgent={onOpenAgent}
+          onOpenTask={onOpenTask}
           onReviewTask={onReviewTask}
           onDeleteTask={onDeleteTask}
           onCreateWorkflowForTask={onCreateWorkflowForTask}

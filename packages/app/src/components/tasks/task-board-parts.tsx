@@ -82,8 +82,10 @@ export interface TaskBoardProps {
   onMoveTask: (move: TaskBoardMove) => void;
   /** The column's own "+" captures straight into that status. */
   onCreateTask: (status: TaskStatus) => void;
-  /** A card with work attached opens the conversation doing it. */
+  /** Opens the per-agent conversation from a menu row. */
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  /** A press on the card always opens the detail sheet. */
+  onOpenTask: (taskId: string) => void;
   /** The verdict on an In Review card — distinct from a status move, because
    * reject routes through the board's review.onReject. */
   onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
@@ -134,6 +136,7 @@ export function TaskColumn({
   onMoveToStatus,
   onCreateTask,
   onOpenAgent,
+  onOpenTask,
   onReviewTask,
   onDeleteTask,
   onCreateWorkflowForTask,
@@ -149,6 +152,7 @@ export function TaskColumn({
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onCreateTask: (status: TaskStatus) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onOpenTask: (taskId: string) => void;
   onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
@@ -191,6 +195,7 @@ export function TaskColumn({
               labels={labels}
               onMoveToStatus={onMoveToStatus}
               onOpenAgent={onOpenAgent}
+              onOpenTask={onOpenTask}
               onReviewTask={onReviewTask}
               onDeleteTask={onDeleteTask}
               onCreateWorkflowForTask={onCreateWorkflowForTask}
@@ -215,6 +220,7 @@ export function TaskCard({
   labels,
   onMoveToStatus,
   onOpenAgent,
+  onOpenTask,
   onReviewTask,
   onDeleteTask,
   onCreateWorkflowForTask,
@@ -227,6 +233,8 @@ export function TaskCard({
   labels: readonly TaskLabel[];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  /** Absent only in the drag overlay clone, which renders no press target. */
+  onOpenTask?: (taskId: string) => void;
   onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
@@ -246,17 +254,22 @@ export function TaskCard({
     }
     return aggregateSidebarStateBuckets(statusByWorkspaceId.values());
   }, [statusByWorkspaceId]);
-  const singleAgent = task.agents.length === 1 ? task.agents[0] : undefined;
   const handlePress = useCallback(() => {
-    if (singleAgent) {
-      onOpenAgent({ workspaceId: singleAgent.workspaceId, agentId: singleAgent.agentId });
-    }
-  }, [onOpenAgent, singleAgent]);
+    onOpenTask?.(task.id);
+  }, [onOpenTask, task.id]);
 
   // One list feeds the kebab and the right-click menu, so a card is reachable
   // the way any other card on this platform is.
   const actions = useMemo<TaskCardAction[]>(() => {
     const entries: TaskCardAction[] = [];
+    if (onOpenTask) {
+      entries.push({
+        key: "details",
+        label: t("tasks.detail.menuLabel"),
+        testID: `task-card-details-${task.id}`,
+        onSelect: () => onOpenTask(task.id),
+      });
+    }
     if (task.status === "in_review") {
       entries.push(
         {
@@ -312,6 +325,7 @@ export function TaskCard({
     onDeleteTask,
     onMoveToStatus,
     onOpenAgent,
+    onOpenTask,
     onReviewTask,
     t,
     task.agents,
@@ -367,18 +381,7 @@ export function TaskCard({
       <Text style={styles.cardTitle} numberOfLines={3}>
         {task.title}
       </Text>
-      {taskLabels.length > 0 ? (
-        <View style={styles.cardLabels}>
-          {taskLabels.map((label) => (
-            <View key={label.id} style={styles.chip}>
-              <View style={[styles.chipDot, { backgroundColor: label.color }]} />
-              <Text style={styles.chipText} numberOfLines={1}>
-                {label.name}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
+      <TaskLabelChips labels={taskLabels} />
     </>
   );
 
@@ -419,6 +422,26 @@ export function TaskCard({
         ))}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** The card's label row, reused by the detail sheet so a task's labels look
+ * the same wherever they show up. */
+export function TaskLabelChips({ labels }: { labels: readonly TaskLabel[] }): ReactElement | null {
+  if (labels.length === 0) {
+    return null;
+  }
+  return (
+    <View style={styles.cardLabels}>
+      {labels.map((label) => (
+        <View key={label.id} style={styles.chip}>
+          <View style={[styles.chipDot, { backgroundColor: label.color }]} />
+          <Text style={styles.chipText} numberOfLines={1}>
+            {label.name}
+          </Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
