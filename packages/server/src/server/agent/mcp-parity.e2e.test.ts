@@ -1197,3 +1197,86 @@ describe("Suite F: Kanban Tools", () => {
     }
   }, 15_000);
 });
+
+describe("Suite G: Task Tools", () => {
+  test("carries a task from capture to a review verdict", async () => {
+    const project = await callToolStructured(topLevelClient, "create_task_project", {
+      name: "Parity tracker",
+      prefix: "par",
+    });
+    const projectId = str(project.projectId);
+
+    const created = await callToolStructured(topLevelClient, "create_task", {
+      projectId,
+      title: "Ship the tracker",
+    });
+    const task = created.task as StructuredContent;
+    const taskId = str(task.id);
+    expect(task.status).toBe("backlog");
+
+    const listed = await callToolStructured(topLevelClient, "list_tasks", {});
+    const snapshot = listed.snapshot as StructuredContent;
+    expect(recordArr(snapshot.tasks).some((entry) => entry.id === taskId)).toBe(true);
+    expect(
+      recordArr(snapshot.projects).some(
+        (entry) => entry.id === projectId && entry.prefix === "PAR",
+      ),
+    ).toBe(true);
+
+    const commented = await callToolStructured(topLevelClient, "comment_task", {
+      taskId,
+      body: "Looks close.",
+    });
+    expect((commented.comment as StructuredContent).kind).toBe("user");
+
+    await expectToolError(
+      topLevelClient,
+      "review_task",
+      { taskId, verdict: "approve" },
+      /not in review/i,
+    );
+
+    await callToolStructured(topLevelClient, "update_task", { taskId, status: "in_review" });
+    const approved = await callToolStructured(topLevelClient, "review_task", {
+      taskId,
+      verdict: "approve",
+    });
+    expect((approved.task as StructuredContent).status).toBe("done");
+  }, 20_000);
+
+  test("an agent attaches itself and its comment carries its identity", async () => {
+    const project = await callToolStructured(topLevelClient, "create_task_project", {
+      name: "Attach tracker",
+      prefix: "att",
+    });
+    const projectId = str(project.projectId);
+    const created = await callToolStructured(topLevelClient, "create_task", {
+      projectId,
+      title: "Agent-worked task",
+    });
+    const taskId = str((created.task as StructuredContent).id);
+
+    let agentId: string | null = null;
+    let agentClient: McpClient | null = null;
+    try {
+      agentId = await createTopLevelAgent({ title: "Task worker" });
+      agentClient = await createMcpClient(
+        `http://127.0.0.1:${daemonHandle.port}/mcp/agents?callerAgentId=${encodeURIComponent(agentId)}`,
+      );
+
+      const attached = await callToolStructured(agentClient, "attach_task_agent", { taskId });
+      const links = recordArr((attached.task as StructuredContent).agents);
+      expect(links.some((link) => link.agentId === agentId)).toBe(true);
+
+      const commented = await callToolStructured(agentClient, "comment_task", {
+        taskId,
+        body: "On it.",
+      });
+      expect((commented.comment as StructuredContent).kind).toBe("agent");
+      expect((commented.comment as StructuredContent).agentId).toBe(agentId);
+    } finally {
+      await agentClient?.close();
+      await archiveAgentIfPresent(agentId);
+    }
+  }, 20_000);
+});

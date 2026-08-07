@@ -72,7 +72,6 @@ describe("canonical CLI surface", () => {
       "ls",
       "inspect",
       "create",
-      "move",
       "run",
       "retry",
       "skip",
@@ -80,7 +79,17 @@ describe("canonical CLI surface", () => {
     ]);
 
     const planCreate = plan?.commands.find((command) => command.name() === "create");
-    expect(planCreate?.helpInformation()).toContain("--column <columnId>");
     expect(planCreate?.helpInformation()).toContain("--step-prompt <text>");
+  });
+
+  it("exposes the task command group", () => {
+    const cli = createCli();
+    const task = cli.commands.find((command) => command.name() === "task");
+
+    expect(task?.commands.map((command) => command.name())).toEqual(["ls", "create", "move"]);
+
+    const move = task?.commands.find((command) => command.name() === "move");
+    expect(move?.helpInformation()).toContain("<task>");
+    expect(move?.helpInformation()).toContain("<status>");
   });
 });

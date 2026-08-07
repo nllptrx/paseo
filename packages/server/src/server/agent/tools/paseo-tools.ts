@@ -66,6 +66,8 @@ import {
 import { resolveAgentIdentifier } from "../resolve-agent-identifier.js";
 import type { KanbanEngine } from "../../kanban/engine.js";
 import type { KanbanService } from "../../kanban/service.js";
+import type { TaskService } from "../../tasks/service.js";
+import type { TaskTransitionEngine } from "../../tasks/transitions.js";
 import {
   isKanbanOrchestratorAgent,
   getKanbanIdFromLabels,
@@ -88,6 +90,13 @@ import {
   KanbanPlanCreateBodySchema,
   OrchestratorPeerSchema,
 } from "@getpaseo/protocol/kanban/rpc-schemas";
+import {
+  TaskCommentSchema,
+  TaskPrioritySchema,
+  TaskSchema,
+  TaskSnapshotSchema,
+  TaskStatusSchema,
+} from "@getpaseo/protocol/tasks/types";
 import { respondToAgentPermission } from "../permission-response.js";
 import {
   archiveAgentCommand,
@@ -137,6 +146,17 @@ export interface PaseoToolHostDependencies {
     | "listOrchestratorPeers"
   >;
   kanbanEngine?: Pick<KanbanEngine, "runStep" | "retryStep" | "skipStep" | "cancelStep">;
+  taskService?: Pick<
+    TaskService,
+    | "snapshot"
+    | "getTask"
+    | "createProject"
+    | "createTask"
+    | "updateTask"
+    | "createComment"
+    | "attachAgent"
+  >;
+  taskTransitions?: Pick<TaskTransitionEngine, "applyReviewVerdict" | "observeAttachment">;
   chatService?: Pick<
     FileBackedChatService,
     "createRoom" | "inspectRoom" | "dispatchMessage" | "listRoomPosterAgentIds"
@@ -588,6 +608,8 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     scheduleService,
     kanbanService,
     kanbanEngine,
+    taskService,
+    taskTransitions,
     chatService,
     providerSnapshotManager,
     callerAgentId,
@@ -3231,11 +3253,12 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         parentPlanId: z.string().trim().min(1).optional(),
         title: z.string().trim().min(1),
         description: z.string().trim().min(1).optional(),
+        taskId: z.string().trim().min(1).optional(),
         body: KanbanPlanCreateBodySchema,
       },
       outputSchema: { plan: KanbanPlanSchema },
     },
-    async ({ kanbanId, parentPlanId, title, description, body }) => {
+    async ({ kanbanId, parentPlanId, title, description, taskId, body }) => {
       if (!kanbanService) {
         throw new Error("Kanban service is not configured");
       }
@@ -3245,6 +3268,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         parentPlanId,
         title,
         description: description ?? null,
+        taskId: taskId ?? null,
         body,
       });
       return { content: [], structuredContent: ensureValidJson({ plan }) };
@@ -3357,6 +3381,189 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
       const step = await kanbanEngine.retryStep({ kanbanId, planId, parentPlanId, stepId });
       return { content: [], structuredContent: ensureValidJson({ step }) };
+    },
+  );
+
+  function requireTaskService() {
+    if (!taskService) {
+      throw new Error("Task tracker is not configured on this host");
+    }
+    return taskService;
+  }
+
+  registerTool(
+    "list_tasks",
+    {
+      title: "List tasks",
+      description:
+        "Read the task tracker: projects, labels and tasks with stored status and priority. Filter client-side; the snapshot is small.",
+      inputSchema: {},
+      outputSchema: { snapshot: TaskSnapshotSchema },
+    },
+    async () => {
+      const snapshot = await requireTaskService().snapshot();
+      return { content: [], structuredContent: ensureValidJson({ snapshot }) };
+    },
+  );
+
+  registerTool(
+    "create_task_project",
+    {
+      title: "Create task project",
+      description:
+        "Create a tracker project: a name, an uppercase prefix (tasks read PSE-42) and optionally the Paseo project whose checkout its work happens in.",
+      inputSchema: {
+        name: z.string().trim().min(1),
+        prefix: z.string().trim().min(1).max(8),
+        color: z.string().trim().min(1).optional(),
+        paseoProjectId: z.string().trim().min(1).optional(),
+      },
+      outputSchema: { projectId: z.string() },
+    },
+    async ({ name, prefix, color, paseoProjectId }) => {
+      const project = await requireTaskService().createProject({
+        name,
+        prefix: prefix.toUpperCase(),
+        color: color ?? "#7C6BF5",
+        paseoProjectId: paseoProjectId ?? null,
+      });
+      return { content: [], structuredContent: ensureValidJson({ projectId: project.id }) };
+    },
+  );
+
+  registerTool(
+    "create_task",
+    {
+      title: "Create task",
+      description:
+        "Capture a task in a tracker project. Defaults to backlog — the column drafts are found in.",
+      inputSchema: {
+        projectId: z.string().trim().min(1),
+        title: z.string().trim().min(1),
+        description: z.string().optional(),
+        status: TaskStatusSchema.optional(),
+        priority: TaskPrioritySchema.optional(),
+      },
+      outputSchema: { task: TaskSchema },
+    },
+    async ({ projectId, title, description, status, priority }) => {
+      const task = await requireTaskService().createTask({
+        projectId,
+        title,
+        ...(description === undefined ? {} : { description }),
+        ...(status === undefined ? {} : { status }),
+        ...(priority === undefined ? {} : { priority }),
+      });
+      return { content: [], structuredContent: ensureValidJson({ task }) };
+    },
+  );
+
+  registerTool(
+    "update_task",
+    {
+      title: "Update task",
+      description:
+        "Update a task's title, description, stored status or priority. Status is intent: prefer letting attached work move it, and move it by hand only when the intent actually changed.",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        title: z.string().trim().min(1).optional(),
+        description: z.string().optional(),
+        status: TaskStatusSchema.optional(),
+        priority: TaskPrioritySchema.optional(),
+      },
+      outputSchema: { task: TaskSchema },
+    },
+    async ({ taskId, title, description, status, priority }) => {
+      const task = await requireTaskService().updateTask({
+        taskId,
+        ...(title === undefined ? {} : { title }),
+        ...(description === undefined ? {} : { description }),
+        ...(status === undefined ? {} : { status }),
+        ...(priority === undefined ? {} : { priority }),
+      });
+      return { content: [], structuredContent: ensureValidJson({ task }) };
+    },
+  );
+
+  registerTool(
+    "comment_task",
+    {
+      title: "Comment on task",
+      description: "Add a comment to a task. Agent comments carry the calling agent's identity.",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        body: z.string().trim().min(1),
+      },
+      outputSchema: { comment: TaskCommentSchema },
+    },
+    async ({ taskId, body }) => {
+      const callerAgent = resolveCallerAgent();
+      const comment = await requireTaskService().createComment({
+        taskId,
+        kind: callerAgent ? "agent" : "user",
+        authorName: callerAgent?.config.title ?? callerAgent?.id ?? "user",
+        agentId: callerAgent?.id ?? null,
+        workspaceId: callerAgent?.workspaceId ?? null,
+        body,
+      });
+      return { content: [], structuredContent: ensureValidJson({ comment }) };
+    },
+  );
+
+  registerTool(
+    "attach_task_agent",
+    {
+      title: "Attach agent to task",
+      description:
+        "Attach an agent to a task so the card shows its live status and its finishes move the task. Defaults to the calling agent.",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        agentId: z.string().trim().min(1).optional(),
+        workspaceId: z.string().trim().min(1).optional(),
+      },
+      outputSchema: { task: TaskSchema.nullable() },
+    },
+    async ({ taskId, agentId, workspaceId }) => {
+      const service = requireTaskService();
+      const callerAgent = resolveCallerAgent();
+      const resolvedAgentId = agentId ?? callerAgent?.id;
+      const resolvedWorkspaceId =
+        workspaceId ??
+        (agentId ? agentManager.getAgent(agentId)?.workspaceId : callerAgent?.workspaceId);
+      if (!resolvedAgentId || !resolvedWorkspaceId) {
+        throw new Error(
+          "attach_task_agent needs an agentId and workspaceId when not called by an agent",
+        );
+      }
+      await service.attachAgent({
+        taskId,
+        agentId: resolvedAgentId,
+        workspaceId: resolvedWorkspaceId,
+      });
+      taskTransitions?.observeAttachment({ taskId, agentId: resolvedAgentId });
+      const task = await service.getTask(taskId);
+      return { content: [], structuredContent: ensureValidJson({ task }) };
+    },
+  );
+
+  registerTool(
+    "review_task",
+    {
+      title: "Review task",
+      description:
+        "Give a verdict on a task that is In Review: approve moves it to Done, reject sends it back to the board's onReject status (in_progress unless configured).",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        verdict: z.enum(["approve", "reject"]),
+      },
+      outputSchema: { task: TaskSchema },
+    },
+    async ({ taskId, verdict }) => {
+      if (!taskTransitions) {
+        throw new Error("Task tracker is not configured on this host");
+      }
+      const task = await taskTransitions.applyReviewVerdict({ taskId, verdict });
+      return { content: [], structuredContent: ensureValidJson({ task }) };
     },
   );
 
