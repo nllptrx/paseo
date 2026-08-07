@@ -18,24 +18,12 @@ import {
   type KanbanPlanFormTriggerType,
   type KanbanPlanFormWorkspaceMode,
 } from "@/kanban/kanban-plan-form-model";
+import { STEP_TRIGGER_LABEL_KEYS, STEP_WORKSPACE_LABEL_KEYS } from "@/kanban/step-detail";
 
 const ThemedTrash = withUnistyles(Trash2);
 const ThemedChevronUp = withUnistyles(ChevronUp);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
-
-const WORKSPACE_MODE_LABEL_KEYS: Record<KanbanPlanFormWorkspaceMode, string> = {
-  worktree: "kanban.planForm.workspace.worktree",
-  worktree_per_agent: "kanban.planForm.workspace.worktreePerAgent",
-  reuse_previous: "kanban.planForm.workspace.reusePrevious",
-  existing: "kanban.planForm.workspace.existing",
-};
-
-const TRIGGER_LABEL_KEYS: Record<KanbanPlanFormTriggerType, string> = {
-  manual: "kanban.planForm.trigger.manual",
-  immediate: "kanban.planForm.trigger.immediate",
-  schedule: "kanban.planForm.trigger.schedule",
-};
 
 export interface KanbanPlanStepEditorProps {
   step: KanbanPlanFormStep;
@@ -86,17 +74,17 @@ export function KanbanPlanStepEditor({
       KANBAN_PLAN_WORKSPACE_MODES.map((mode) => ({
         id: mode,
         value: mode,
-        label: t(WORKSPACE_MODE_LABEL_KEYS[mode]),
+        label: t(STEP_WORKSPACE_LABEL_KEYS[mode]),
         testID: `kanban-plan-form-workspace-option-${mode}`,
       })),
     [t],
   );
   const workspaceDisplay = useMemo(
-    () => ({ label: t(WORKSPACE_MODE_LABEL_KEYS[step.workspaceMode]) }),
+    () => ({ label: t(STEP_WORKSPACE_LABEL_KEYS[step.workspaceMode]) }),
     [step.workspaceMode, t],
   );
   const triggerDisplay = useMemo(
-    () => ({ label: t(TRIGGER_LABEL_KEYS[step.trigger]) }),
+    () => ({ label: t(STEP_TRIGGER_LABEL_KEYS[step.trigger]) }),
     [step.trigger, t],
   );
   const triggerOptions = useMemo(
@@ -104,7 +92,7 @@ export function KanbanPlanStepEditor({
       KANBAN_PLAN_TRIGGER_TYPES.map((trigger) => ({
         id: trigger,
         value: trigger,
-        label: t(TRIGGER_LABEL_KEYS[trigger]),
+        label: t(STEP_TRIGGER_LABEL_KEYS[trigger]),
         testID: `kanban-plan-form-trigger-option-${trigger}`,
       })),
     [t],

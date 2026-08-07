@@ -1010,6 +1010,10 @@ export const ar: TranslationResources = {
     },
     planSheet: {
       noSteps: "لا توجد خطوات في هذه الخطة بعد.",
+      noRuns: "لم يُنفَّذ بعد",
+      openChat: "فتح المحادثة",
+      defaultModel: "النموذج الافتراضي",
+      gateBlocked: "في انتظار الخطوة السابقة",
     },
     planForm: {
       title: "خطة جديدة",

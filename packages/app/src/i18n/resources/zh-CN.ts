@@ -1002,6 +1002,10 @@ export const zhCN: TranslationResources = {
     },
     planSheet: {
       noSteps: "此计划尚无步骤。",
+      noRuns: "尚未运行",
+      openChat: "打开对话",
+      defaultModel: "默认模型",
+      gateBlocked: "等待上一步完成",
     },
     planForm: {
       title: "新建计划",

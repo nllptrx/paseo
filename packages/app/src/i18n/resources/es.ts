@@ -1042,6 +1042,10 @@ export const es: TranslationResources = {
     },
     planSheet: {
       noSteps: "Este plan aún no tiene pasos.",
+      noRuns: "Aún no se ha ejecutado",
+      openChat: "Abrir chat",
+      defaultModel: "Modelo predeterminado",
+      gateBlocked: "Esperando al paso anterior",
     },
     planForm: {
       title: "Nuevo plan",

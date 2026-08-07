@@ -1021,6 +1021,10 @@ export const en = {
     },
     planSheet: {
       noSteps: "This plan has no steps yet.",
+      noRuns: "Not run yet",
+      openChat: "Open chat",
+      defaultModel: "Default model",
+      gateBlocked: "Waiting on the previous step",
     },
     planForm: {
       title: "New plan",

@@ -1018,6 +1018,10 @@ export const ko: TranslationResources = {
     },
     planSheet: {
       noSteps: "이 플랜에는 아직 단계가 없습니다.",
+      noRuns: "아직 실행되지 않음",
+      openChat: "채팅 열기",
+      defaultModel: "기본 모델",
+      gateBlocked: "이전 단계를 기다리는 중",
     },
     planForm: {
       title: "새 플랜",

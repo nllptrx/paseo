@@ -1022,6 +1022,10 @@ export const ja: TranslationResources = {
     },
     planSheet: {
       noSteps: "このプランにはまだステップがありません。",
+      noRuns: "未実行",
+      openChat: "チャットを開く",
+      defaultModel: "デフォルトのモデル",
+      gateBlocked: "前のステップを待機中",
     },
     planForm: {
       title: "新しいプラン",

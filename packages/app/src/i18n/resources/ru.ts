@@ -1033,6 +1033,10 @@ export const ru: TranslationResources = {
     },
     planSheet: {
       noSteps: "В этом плане пока нет шагов.",
+      noRuns: "Ещё не запускался",
+      openChat: "Открыть чат",
+      defaultModel: "Модель по умолчанию",
+      gateBlocked: "Ожидает предыдущий шаг",
     },
     planForm: {
       title: "Новый план",

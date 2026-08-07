@@ -52,6 +52,14 @@ on the card instead.
 Step gates stay hard: the next step cannot start until the previous succeeded or
 was skipped.
 
+Surfaces offer only the step actions the daemon would accept, from
+`resolveStepActions` in `packages/app/src/kanban/step-detail.ts`: a step that has
+never started offers Run, one whose last run failed offers Retry (which reuses
+the workspace it failed in, so Run is not also offered), one still going offers
+Cancel, and one that succeeded or was skipped offers nothing. Skip survives a
+closed gate; Run and Retry do not. A disabled button that can never become
+enabled is a worse answer than no button.
+
 Dragging means one thing: a draft dropped on the running column runs its first
 unfinished step. Dropping on Done says so and does nothing. Draft order is the
 only hand-set ordering, and it is a client-side view preference

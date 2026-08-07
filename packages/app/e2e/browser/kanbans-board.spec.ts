@@ -14,7 +14,11 @@ interface KanbanSeedClient {
       id: string;
       plans: Record<
         string,
-        { id: string; title: string; body: { type: string; steps?: Array<{ runs: unknown[] }> } }
+        {
+          id: string;
+          title: string;
+          body: { type: string; steps?: Array<{ id: string; runs: unknown[] }> };
+        }
       >;
     } | null;
     error: string | null;
@@ -22,6 +26,7 @@ interface KanbanSeedClient {
   kanbanPlanCreate(input: {
     kanbanId: string;
     title: string;
+    description?: string;
     body: {
       type: "workflow";
       steps: Array<{
@@ -42,6 +47,7 @@ const DRAG_ACTIVATION_DISTANCE_PX = 6;
 async function seedKanbanWithPlan(
   workspace: SeededWorkspace,
   title: string,
+  description?: string,
 ): Promise<{ kanbanId: string; planId: string }> {
   const client = workspace.client as unknown as KanbanSeedClient;
   const created = await client.kanbanCreate({ projectId: workspace.projectId });
@@ -51,6 +57,7 @@ async function seedKanbanWithPlan(
   const plan = await client.kanbanPlanCreate({
     kanbanId: created.kanban.id,
     title,
+    ...(description ? { description } : {}),
     body: {
       type: "workflow",
       steps: [
@@ -91,6 +98,19 @@ async function planHasStepRun(
     return false;
   }
   return (plan.body.steps ?? []).some((step) => step.runs.length > 0);
+}
+
+async function readFirstStepId(
+  workspace: SeededWorkspace,
+  kanbanId: string,
+  planId: string,
+): Promise<string> {
+  const detail = await (workspace.client as unknown as KanbanSeedClient).kanbanGet(kanbanId);
+  const stepId = detail.kanban?.plans[planId]?.body.steps?.[0]?.id;
+  if (!stepId) {
+    throw new Error(`Plan ${planId} has no steps`);
+  }
+  return stepId;
 }
 
 async function kanbanHasPlanTitled(
@@ -200,6 +220,35 @@ test.describe("Kanbans board", () => {
       .toBe(true);
 
     await expect(page.getByText(createTitle).first()).toBeVisible({ timeout: 30_000 });
+  });
+
+  test("opening a draft card shows what the plan would run", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-plan-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const planTitle = `Sheet plan ${Date.now()}`;
+    const description = "What this plan is for";
+    const seeded = await seedKanbanWithPlan(workspace, planTitle, description);
+    cleanupTasks.push(() => archiveKanban(workspace, seeded.kanbanId));
+    const stepId = await readFirstStepId(workspace, seeded.kanbanId, seeded.planId);
+
+    await openBoard(page, seeded.kanbanId);
+    await page.getByTestId(`kanban-card-${seeded.planId}`).click();
+
+    const sheet = page.getByTestId("kanban-plan-sheet");
+    await expect(sheet).toBeVisible({ timeout: 30_000 });
+    // The context you open a plan for: why it exists, what the step sends, where
+    // it would run, and what has happened so far.
+    await expect(sheet).toContainText(description);
+    await expect(sheet).toContainText("An existing workspace");
+    await expect(sheet).toContainText("Manually");
+    await expect(sheet).toContainText("Not run yet");
+
+    // A step that has never started can be run or skipped, and nothing else.
+    await expect(page.getByTestId(`kanban-step-run-${stepId}`)).toBeVisible();
+    await expect(page.getByTestId(`kanban-step-skip-${stepId}`)).toBeVisible();
+    await expect(page.getByTestId(`kanban-step-retry-${stepId}`)).toHaveCount(0);
+    await expect(page.getByTestId(`kanban-step-cancel-${stepId}`)).toHaveCount(0);
+    await expect(page.getByTestId(`kanban-step-chat-${stepId}`)).toHaveCount(0);
   });
 
   test("dragging a draft onto the running column runs its first step", async ({ page }) => {

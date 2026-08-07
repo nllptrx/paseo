@@ -3,7 +3,7 @@ import type { KanbanPlanCreateBody } from "@getpaseo/protocol/kanban/rpc-schemas
 
 type KanbanPlanCreateStep = Extract<KanbanPlanCreateBody, { type: "workflow" }>["steps"][number];
 import type { StepTrigger, StepWorkspaceStrategy } from "@getpaseo/protocol/kanban/types";
-import { AGENT_PROVIDER_DEFINITIONS } from "@getpaseo/protocol/provider-manifest";
+import { resolveProviderLabel } from "./step-detail";
 
 export interface KanbanPlanFormDisplay {
   label: string;
@@ -93,12 +93,6 @@ export interface KanbanPlanFormModel {
   setStepWorkspaceMode: (key: string, mode: KanbanPlanFormWorkspaceMode) => void;
   setStepTrigger: (key: string, trigger: KanbanPlanFormTriggerType) => void;
   setSubmitError: (value: string | null) => void;
-}
-
-function resolveProviderLabel(provider: AgentProvider): string {
-  return (
-    AGENT_PROVIDER_DEFINITIONS.find((definition) => definition.id === provider)?.label ?? provider
-  );
 }
 
 function buildProviderOptionTestId(provider: AgentProvider): string {
