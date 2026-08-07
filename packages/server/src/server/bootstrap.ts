@@ -1332,7 +1332,7 @@ export async function createPaseoDaemon(
   // re-arms the attachment observers a restart dropped.
   void taskService.isAvailable().then(async () => {
     await taskTransitions.start();
-    await taskWorkflowEngine.recoverInterruptedRuns();
+    return taskWorkflowEngine.recoverInterruptedRuns();
   });
   logger.info({ elapsed: elapsed() }, "Kanban workflow engine initialized");
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");

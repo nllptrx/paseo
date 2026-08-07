@@ -614,6 +614,32 @@ function describeRegistryTransition(record: ArchivedRecordSnapshot | null): Regi
  * the unknown-message path, which is the honest answer for a daemon that could
  * not open one.
  */
+/** Split out of the tracker dispatcher so neither switch outgrows the
+ * complexity budget: these are the execution half of the tasks namespace. */
+function dispatchTaskWorkflowMessage(
+  session: TasksSession,
+  msg: SessionInboundMessage,
+): Promise<void> | undefined {
+  switch (msg.type) {
+    case "tasks.board.configure.request":
+      return session.handleBoardConfigureRequest(msg);
+    case "tasks.workflow.set.request":
+      return session.handleWorkflowSetRequest(msg);
+    case "tasks.workflow.clear.request":
+      return session.handleWorkflowClearRequest(msg);
+    case "tasks.step.run.request":
+      return session.handleStepRunRequest(msg);
+    case "tasks.step.retry.request":
+      return session.handleStepRetryRequest(msg);
+    case "tasks.step.skip.request":
+      return session.handleStepSkipRequest(msg);
+    case "tasks.step.cancel.request":
+      return session.handleStepCancelRequest(msg);
+    default:
+      return undefined;
+  }
+}
+
 function createTasksSession(input: {
   taskService: TaskService | undefined;
   transitions: TaskTransitionEngine | undefined;
@@ -2479,20 +2505,6 @@ export class Session {
         return session.handleCommentCreateRequest(msg);
       case "tasks.review.request":
         return session.handleReviewRequest(msg);
-      case "tasks.board.configure.request":
-        return session.handleBoardConfigureRequest(msg);
-      case "tasks.workflow.set.request":
-        return session.handleWorkflowSetRequest(msg);
-      case "tasks.workflow.clear.request":
-        return session.handleWorkflowClearRequest(msg);
-      case "tasks.step.run.request":
-        return session.handleStepRunRequest(msg);
-      case "tasks.step.retry.request":
-        return session.handleStepRetryRequest(msg);
-      case "tasks.step.skip.request":
-        return session.handleStepSkipRequest(msg);
-      case "tasks.step.cancel.request":
-        return session.handleStepCancelRequest(msg);
       case "tasks.subscribe.request":
         session.handleSubscribeRequest(msg);
         return Promise.resolve();
@@ -2500,7 +2512,7 @@ export class Session {
         session.handleUnsubscribeRequest(msg);
         return Promise.resolve();
       default:
-        return undefined;
+        return dispatchTaskWorkflowMessage(session, msg);
     }
   }
 

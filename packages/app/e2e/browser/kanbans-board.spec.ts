@@ -84,6 +84,15 @@ async function readTaskStatus(workspace: SeededWorkspace, taskId: string): Promi
   return payload.snapshot?.tasks.find((task) => task.id === taskId)?.status ?? null;
 }
 
+async function readBoardReviewEnabled(
+  workspace: SeededWorkspace,
+  projectId: string,
+): Promise<boolean> {
+  const payload = await trackerClient(workspace).tasksSnapshot();
+  const project = payload.snapshot?.projects.find((entry) => entry.id === projectId);
+  return project?.board?.reviewEnabled ?? false;
+}
+
 async function archiveKanban(workspace: SeededWorkspace, kanbanId: string): Promise<void> {
   const result = await trackerClient(workspace).kanbanArchive({ kanbanId });
   if (result.error) {
@@ -288,14 +297,7 @@ test.describe("Kanbans board", () => {
     await page.getByTestId(`kanban-board-menu-${kanbanId}`).click();
     await page.getByTestId(`kanban-review-toggle-${kanbanId}`).click();
     await expect
-      .poll(
-        async () => {
-          const snapshot = await trackerClient(workspace).tasksSnapshot();
-          const project = snapshot.snapshot?.projects.find((entry) => entry.id === projectId);
-          return project?.board?.reviewEnabled ?? false;
-        },
-        { timeout: 30_000 },
-      )
+      .poll(async () => readBoardReviewEnabled(workspace, projectId), { timeout: 30_000 })
       .toBe(true);
 
     // A workflow belongs to a card, so it is authored from the card's menu.
