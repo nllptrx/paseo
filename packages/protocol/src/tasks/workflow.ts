@@ -28,6 +28,9 @@ export const StepTriggerSchema = z.discriminatedUnion("type", [
 export type StepTrigger = z.infer<typeof StepTriggerSchema>;
 
 export const StepRunStatusSchema = z.enum([
+  // Admitted but not yet dispatched: the host was already running as much work
+  // as it allows. Queued runs survive a restart and are drained at boot.
+  "queued",
   "running",
   "succeeded",
   "failed",

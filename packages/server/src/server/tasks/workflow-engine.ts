@@ -36,6 +36,13 @@ interface WorktreeWorkspaceInput {
   baseBranch?: string;
 }
 
+/**
+ * How many step runs this host dispatches at once. Every run can fan out to
+ * several agents, so the real ceiling is higher — this bounds how many pieces
+ * of work start, not how many processes exist.
+ */
+export const DEFAULT_MAX_CONCURRENT_RUNS = 3;
+
 export interface TaskWorkflowEngineDeps {
   taskService: Pick<
     TaskService,
@@ -60,6 +67,7 @@ export interface TaskWorkflowEngineDeps {
   archiveWorkspace: (workspaceId: string) => Promise<void>;
   logger: Logger;
   now?: () => Date;
+  maxConcurrentRuns?: number;
 }
 
 interface AgentTarget {
@@ -127,6 +135,8 @@ export class TaskWorkflowEngine {
   private readonly logger: Logger;
   private readonly now: () => Date;
   private readonly runTrackers = new Map<string, RunTracker>();
+  private readonly maxConcurrentRuns: number;
+  private draining = false;
   private onWorkflowSettled: ((taskId: string) => void) | null = null;
 
   constructor(deps: TaskWorkflowEngineDeps) {
@@ -140,6 +150,7 @@ export class TaskWorkflowEngine {
     this.archiveWorkspace = deps.archiveWorkspace;
     this.logger = deps.logger.child({ module: "task-workflow-engine" });
     this.now = deps.now ?? (() => new Date());
+    this.maxConcurrentRuns = deps.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS;
   }
 
   /** Fired when a task's last step settles green. The engine only reports; where
@@ -182,6 +193,9 @@ export class TaskWorkflowEngine {
         });
       }
     }
+
+    // Anything the crash left queued is still owed its turn.
+    await this.drainQueue();
   }
 
   private async requireSteps(taskId: string): Promise<Step[]> {
@@ -292,7 +306,7 @@ export class TaskWorkflowEngine {
 
   private assertNotRunning(step: Step): void {
     const latest = latestRunOf(step);
-    if (latest?.status === "running") {
+    if (latest?.status === "running" || latest?.status === "queued") {
       throw new Error(`Step ${step.id} already has a run in progress`);
     }
   }
@@ -593,12 +607,141 @@ export class TaskWorkflowEngine {
     return resolved;
   }
 
+  private hasFreeSlot(): boolean {
+    return this.runTrackers.size < this.maxConcurrentRuns;
+  }
+
+  /**
+   * Records a run the host is not ready to start. The row is the queue: it
+   * survives a restart, which an in-memory list of pending callbacks would not,
+   * and a run that vanished on restart would leave a card waiting on work
+   * nobody is going to do.
+   */
+  private async enqueueRun(
+    identifier: TaskStepIdentifier,
+    reuseWorkspaceIds: string[] | null,
+  ): Promise<Step> {
+    const now = this.now().toISOString();
+    const { step } = await this.taskService.mutateStep({
+      ...identifier,
+      mutate: (current) => ({
+        ...current,
+        runs: [
+          ...current.runs,
+          {
+            id: randomUUID(),
+            startedAt: now,
+            endedAt: null,
+            status: "queued",
+            agentIds: [],
+            workspaceIds: reuseWorkspaceIds ?? [],
+            scheduleId: null,
+            error: null,
+          },
+        ],
+      }),
+    });
+    return step;
+  }
+
+  /**
+   * Starts as many queued runs as there is room for, oldest first. Called
+   * whenever a slot frees and once at boot, so a queue left by a crash is not
+   * a queue nobody looks at again.
+   */
+  async drainQueue(): Promise<void> {
+    if (this.draining || !(await this.taskService.isAvailable())) {
+      return;
+    }
+    this.draining = true;
+    try {
+      while (this.hasFreeSlot()) {
+        const next = await this.findOldestQueuedRun();
+        if (!next) {
+          return;
+        }
+        await this.startQueuedRun(next).catch((error) => {
+          this.logger.error(
+            { err: error, taskId: next.taskId, stepId: next.stepId },
+            "Failed to start a queued step run",
+          );
+        });
+      }
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  private async findOldestQueuedRun(): Promise<{
+    taskId: string;
+    stepId: string;
+    runId: string;
+    startedAt: string;
+    workspaceIds: string[];
+  } | null> {
+    const workflows = await this.taskService.listWorkflows();
+    let oldest: {
+      taskId: string;
+      stepId: string;
+      runId: string;
+      startedAt: string;
+      workspaceIds: string[];
+    } | null = null;
+    for (const workflow of workflows) {
+      for (const step of workflow.steps) {
+        const latest = latestRunOf(step);
+        if (latest?.status !== "queued") {
+          continue;
+        }
+        if (!oldest || latest.startedAt < oldest.startedAt) {
+          oldest = {
+            taskId: workflow.taskId,
+            stepId: step.id,
+            runId: latest.id,
+            startedAt: latest.startedAt,
+            workspaceIds: latest.workspaceIds,
+          };
+        }
+      }
+    }
+    return oldest;
+  }
+
+  private async startQueuedRun(queued: {
+    taskId: string;
+    stepId: string;
+    runId: string;
+    workspaceIds: string[];
+  }): Promise<void> {
+    const steps = await this.requireSteps(queued.taskId);
+    const stepIndex = requireStepIndex(steps, queued.stepId);
+    // Drop the placeholder before dispatching: the real run replaces it, and
+    // leaving both would show the step as having been attempted twice.
+    await this.taskService.mutateStep({
+      taskId: queued.taskId,
+      stepId: queued.stepId,
+      mutate: (current) => ({
+        ...current,
+        runs: current.runs.filter((run) => run.id !== queued.runId),
+      }),
+    });
+    await this.dispatchRun(
+      { taskId: queued.taskId, stepId: queued.stepId },
+      steps,
+      stepIndex,
+      queued.workspaceIds.length > 0 ? queued.workspaceIds : null,
+    );
+  }
+
   private async dispatchRun(
     identifier: TaskStepIdentifier,
     steps: Step[],
     stepIndex: number,
     reuseWorkspaceIds: string[] | null,
   ): Promise<Step> {
+    if (!this.hasFreeSlot()) {
+      return this.enqueueRun(identifier, reuseWorkspaceIds);
+    }
     const step = steps[stepIndex];
     const targets = reuseWorkspaceIds
       ? await this.resolveTargetsFromWorkspaceIds(reuseWorkspaceIds, step.agents.length)
@@ -807,6 +950,10 @@ export class TaskWorkflowEngine {
         this.runTrackers.delete(tracker.runId);
       }
     }
+
+    void this.drainQueue().catch((drainError) => {
+      this.logger.error({ err: drainError }, "Failed to drain the step-run queue");
+    });
 
     if (status !== "succeeded" || stepIndex === -1) {
       return;

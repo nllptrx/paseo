@@ -110,6 +110,7 @@ describe("TaskWorkflowEngine", () => {
   let archivedWorkspaceIds: string[];
   let settledTaskIds: string[];
   let worktreeBaseBranches: Array<string | null>;
+  let engineDeps: () => ConstructorParameters<typeof TaskWorkflowEngine>[0];
   let workspaces: Map<
     string,
     {
@@ -149,7 +150,7 @@ describe("TaskWorkflowEngine", () => {
       ],
     ]);
 
-    engine = new TaskWorkflowEngine({
+    engineDeps = () => ({
       taskService: service,
       agentManager: agentManager.asAgentManager(),
       createAgent: async () => {
@@ -190,6 +191,7 @@ describe("TaskWorkflowEngine", () => {
       logger,
       now: () => new Date("2026-01-01T00:00:00.000Z"),
     });
+    engine = new TaskWorkflowEngine(engineDeps());
     engine.setOnWorkflowSettled((taskId) => settledTaskIds.push(taskId));
   });
 
@@ -202,10 +204,12 @@ describe("TaskWorkflowEngine", () => {
     return (await service.getWorkflow(taskId))?.steps[stepIndex];
   }
 
+  let seededProjects = 0;
   async function seedWorkflow(steps: StepInput[], options?: { paseoProjectId?: string }) {
+    seededProjects += 1;
     const project = await service.createProject({
       name: "Paseo",
-      prefix: "PSE",
+      prefix: `PSE${seededProjects}`,
       color: "#fff",
       paseoProjectId: options?.paseoProjectId ?? "proj-1",
     });
@@ -451,5 +455,65 @@ describe("TaskWorkflowEngine", () => {
     });
 
     await expect(engine.delegate({ taskId, presetId: preset.id })).rejects.toThrow(/blocked by/);
+  });
+  async function secondRunStatus(taskId: string): Promise<boolean> {
+    const step = (await service.getWorkflow(taskId))?.steps[0];
+    return step?.runs.at(-1)?.status === "running";
+  }
+
+  /** The cap bounds how much work starts, and the queue is a row rather than
+   * an in-memory list so a restart does not lose a card's turn. */
+  test("queues a run past the cap and starts it when a slot frees", async () => {
+    const capped = new TaskWorkflowEngine({ ...engineDeps(), maxConcurrentRuns: 1 });
+    const first = await seedWorkflow([makeStepInput()]);
+    const second = await seedWorkflow([makeStepInput()]);
+
+    const running = await capped.runStep({ taskId: first.taskId, stepId: first.stepIds[0] });
+    expect(running.runs[0].status).toBe("running");
+
+    const queued = await capped.runStep({ taskId: second.taskId, stepId: second.stepIds[0] });
+    expect(queued.runs[0].status).toBe("queued");
+    expect(queued.runs[0].agentIds).toEqual([]);
+
+    const agentId = running.runs[0].agentIds[0];
+    agentManager.setLifecycle(agentId, "running");
+    agentManager.setLifecycle(agentId, "idle");
+
+    await waitFor(() => secondRunStatus(second.taskId));
+
+    const secondStep = (await service.getWorkflow(second.taskId))?.steps[0];
+    // The placeholder is replaced, not stacked: the step was attempted once.
+    expect(secondStep?.runs).toHaveLength(1);
+    expect(secondStep?.runs[0].agentIds).toHaveLength(1);
+  });
+
+  /** A queue only a live process knows about is a queue a crash erases. */
+  test("starts a run left queued by a crash at boot", async () => {
+    const capped = new TaskWorkflowEngine({ ...engineDeps(), maxConcurrentRuns: 1 });
+    const first = await seedWorkflow([makeStepInput()]);
+    const second = await seedWorkflow([makeStepInput()]);
+    await capped.runStep({ taskId: first.taskId, stepId: first.stepIds[0] });
+    await capped.runStep({ taskId: second.taskId, stepId: second.stepIds[0] });
+
+    // A fresh engine is what a restart looks like: no trackers, rows intact.
+    const rebooted = new TaskWorkflowEngine({ ...engineDeps(), maxConcurrentRuns: 1 });
+    await rebooted.recoverInterruptedRuns();
+
+    const firstStep = (await service.getWorkflow(first.taskId))?.steps[0];
+    expect(firstStep?.runs[0].status).toBe("interrupted");
+    const secondStep = (await service.getWorkflow(second.taskId))?.steps[0];
+    expect(secondStep?.runs.at(-1)?.status).toBe("running");
+  });
+
+  test("refuses a second request while a run is queued", async () => {
+    const capped = new TaskWorkflowEngine({ ...engineDeps(), maxConcurrentRuns: 1 });
+    const first = await seedWorkflow([makeStepInput()]);
+    const second = await seedWorkflow([makeStepInput()]);
+    await capped.runStep({ taskId: first.taskId, stepId: first.stepIds[0] });
+    await capped.runStep({ taskId: second.taskId, stepId: second.stepIds[0] });
+
+    await expect(
+      capped.runStep({ taskId: second.taskId, stepId: second.stepIds[0] }),
+    ).rejects.toThrow(/already has a run in progress/);
   });
 });
