@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { ensureValidJson } from "../../json-utils.js";
 import type { Logger } from "pino";
@@ -68,6 +69,13 @@ import type { KanbanEngine } from "../../kanban/engine.js";
 import type { KanbanService } from "../../kanban/service.js";
 import type { TaskService } from "../../tasks/service.js";
 import type { TaskTransitionEngine } from "../../tasks/transitions.js";
+import type { TaskWorkflowEngine } from "../../tasks/workflow-engine.js";
+import {
+  StepInputSchema,
+  StepSchema,
+  TaskWorkflowSchema,
+  type StepInput,
+} from "@getpaseo/protocol/tasks/workflow";
 import {
   isKanbanOrchestratorAgent,
   getKanbanIdFromLabels,
@@ -155,8 +163,16 @@ export interface PaseoToolHostDependencies {
     | "updateTask"
     | "createComment"
     | "attachAgent"
+    | "setWorkflow"
+    | "getWorkflow"
+    | "clearWorkflow"
+    | "configureBoard"
   >;
   taskTransitions?: Pick<TaskTransitionEngine, "applyReviewVerdict" | "observeAttachment">;
+  taskWorkflowEngine?: Pick<
+    TaskWorkflowEngine,
+    "runStep" | "retryStep" | "skipStep" | "cancelStep"
+  >;
   chatService?: Pick<
     FileBackedChatService,
     "createRoom" | "inspectRoom" | "dispatchMessage" | "listRoomPosterAgentIds"
@@ -610,6 +626,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     kanbanEngine,
     taskService,
     taskTransitions,
+    taskWorkflowEngine,
     chatService,
     providerSnapshotManager,
     callerAgentId,
@@ -3564,6 +3581,72 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
       const task = await taskTransitions.applyReviewVerdict({ taskId, verdict });
       return { content: [], structuredContent: ensureValidJson({ task }) };
+    },
+  );
+
+  registerTool(
+    "add_task_workflow",
+    {
+      title: "Add task workflow",
+      description:
+        "Attach a workflow to a task: an ordered list of steps with a hard gate between them, so a step only runs once the one before it has succeeded or been skipped. Replaces any workflow the task already had.",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        steps: z.array(StepInputSchema).min(1),
+      },
+      outputSchema: { workflow: TaskWorkflowSchema },
+    },
+    async ({ taskId, steps }) => {
+      if (!taskService) {
+        throw new Error("Task tracker is not configured on this host");
+      }
+      const workflow = await taskService.setWorkflow({
+        taskId,
+        steps: steps.map((step: StepInput) => ({
+          ...step,
+          id: `stp_${randomBytes(4).toString("hex")}`,
+          runs: [],
+        })),
+      });
+      return { content: [], structuredContent: ensureValidJson({ workflow }) };
+    },
+  );
+
+  registerTool(
+    "get_task_workflow",
+    {
+      title: "Get task workflow",
+      description: "Read a task's workflow, including each step's run history.",
+      inputSchema: { taskId: z.string().trim().min(1) },
+      outputSchema: { workflow: TaskWorkflowSchema.nullable() },
+    },
+    async ({ taskId }) => {
+      if (!taskService) {
+        throw new Error("Task tracker is not configured on this host");
+      }
+      const workflow = await taskService.getWorkflow(taskId);
+      return { content: [], structuredContent: ensureValidJson({ workflow }) };
+    },
+  );
+
+  registerTool(
+    "run_task_step",
+    {
+      title: "Run task step",
+      description:
+        "Dispatch one step of a task's workflow. Fails when the previous step has not succeeded or been skipped.",
+      inputSchema: {
+        taskId: z.string().trim().min(1),
+        stepId: z.string().trim().min(1),
+      },
+      outputSchema: { step: StepSchema },
+    },
+    async ({ taskId, stepId }) => {
+      if (!taskWorkflowEngine) {
+        throw new Error("Task workflows are not configured on this host");
+      }
+      const step = await taskWorkflowEngine.runStep({ taskId, stepId });
+      return { content: [], structuredContent: ensureValidJson({ step }) };
     },
   );
 

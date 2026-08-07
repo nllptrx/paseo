@@ -1358,6 +1358,7 @@ export async function createPaseoDaemon(
     kanbanEngine,
     taskService,
     taskTransitions,
+    taskWorkflowEngine,
     chatService,
     providerSnapshotManager,
     github,

@@ -1244,6 +1244,41 @@ describe("Suite G: Task Tools", () => {
     expect((approved.task as StructuredContent).status).toBe("done");
   }, 20_000);
 
+  /** A workflow belongs to the card. Adding one twice must leave one workflow,
+   * not two competing answers to what this task is doing. */
+  test("attaches a workflow to a task and replaces it on the next write", async () => {
+    const project = await callToolStructured(topLevelClient, "create_task_project", {
+      name: "Workflow tracker",
+      prefix: "wfl",
+    });
+    const created = await callToolStructured(topLevelClient, "create_task", {
+      projectId: str(project.projectId),
+      title: "Multi-step work",
+    });
+    const taskId = str((created.task as StructuredContent).id);
+
+    const step = {
+      name: "Implement",
+      prompt: "do the thing",
+      agents: [{ provider: "claude" }],
+      completion: "all",
+      workspace: { mode: "worktree" },
+      trigger: { type: "manual" },
+    };
+
+    const added = await callToolStructured(topLevelClient, "add_task_workflow", {
+      taskId,
+      steps: [step, { ...step, name: "Verify" }],
+    });
+    const workflow = added.workflow as StructuredContent;
+    expect(recordArr(workflow.steps)).toHaveLength(2);
+    expect(recordArr(workflow.steps)[0].runs).toEqual([]);
+
+    await callToolStructured(topLevelClient, "add_task_workflow", { taskId, steps: [step] });
+    const read = await callToolStructured(topLevelClient, "get_task_workflow", { taskId });
+    expect(recordArr((read.workflow as StructuredContent).steps)).toHaveLength(1);
+  }, 20_000);
+
   test("an agent attaches itself and its comment carries its identity", async () => {
     const project = await callToolStructured(topLevelClient, "create_task_project", {
       name: "Attach tracker",
