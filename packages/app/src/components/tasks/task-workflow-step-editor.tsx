@@ -1,0 +1,246 @@
+import { useCallback, useMemo, type ReactElement } from "react";
+import { Text, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { ChevronDown, ChevronUp, Trash2 } from "lucide-react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import type { AgentProvider } from "@getpaseo/protocol/agent-types";
+import { Button } from "@/components/ui/button";
+import { Field, FormTextInput } from "@/components/ui/form-field";
+import { SelectField } from "@/components/ui/select-field";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
+import {
+  TASK_WORKFLOW_TRIGGER_LABEL_KEYS,
+  TASK_WORKFLOW_TRIGGER_TYPES,
+  TASK_WORKFLOW_WORKSPACE_LABEL_KEYS,
+  TASK_WORKFLOW_WORKSPACE_MODES,
+  resolveProviderDisplay,
+  type TaskWorkflowFormModel,
+  type TaskWorkflowFormState,
+  type TaskWorkflowFormStep,
+  type TaskWorkflowFormTriggerType,
+  type TaskWorkflowFormWorkspaceMode,
+} from "@/tasks/task-workflow-form-model";
+
+const ThemedTrash = withUnistyles(Trash2);
+const ThemedChevronUp = withUnistyles(ChevronUp);
+const ThemedChevronDown = withUnistyles(ChevronDown);
+const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+
+export interface TaskWorkflowStepEditorProps {
+  step: TaskWorkflowFormStep;
+  index: number;
+  stepCount: number;
+  state: TaskWorkflowFormState;
+  model: TaskWorkflowFormModel;
+}
+
+/**
+ * One step of a workflow: what to run, which agent runs it, where, and what
+ * starts it. Everything a step carries on the wire is editable here — a form that
+ * only asked for a prompt could only ever author the simplest possible workflow.
+ */
+export function TaskWorkflowStepEditor({
+  step,
+  index,
+  stepCount,
+  state,
+  model,
+}: TaskWorkflowStepEditorProps): ReactElement {
+  const { t } = useTranslation();
+  const { key } = step;
+
+  const handleName = useCallback((value: string) => model.setStepName(key, value), [key, model]);
+  const handlePrompt = useCallback(
+    (value: string) => model.setStepPrompt(key, value),
+    [key, model],
+  );
+  const handleProvider = useCallback(
+    (provider: AgentProvider) => model.setStepAgent(key, { provider, model: null }),
+    [key, model],
+  );
+  const handleWorkspace = useCallback(
+    (mode: TaskWorkflowFormWorkspaceMode) => model.setStepWorkspaceMode(key, mode),
+    [key, model],
+  );
+  const handleTrigger = useCallback(
+    (trigger: TaskWorkflowFormTriggerType) => model.setStepTrigger(key, trigger),
+    [key, model],
+  );
+  const handleRemove = useCallback(() => model.removeStep(key), [key, model]);
+  const handleMoveUp = useCallback(() => model.moveStep(key, -1), [key, model]);
+  const handleMoveDown = useCallback(() => model.moveStep(key, 1), [key, model]);
+
+  const workspaceOptions = useMemo(
+    () =>
+      TASK_WORKFLOW_WORKSPACE_MODES.map((mode) => ({
+        id: mode,
+        value: mode,
+        label: t(TASK_WORKFLOW_WORKSPACE_LABEL_KEYS[mode]),
+        testID: `task-workflow-form-workspace-option-${mode}`,
+      })),
+    [t],
+  );
+  const workspaceDisplay = useMemo(
+    () => ({ label: t(TASK_WORKFLOW_WORKSPACE_LABEL_KEYS[step.workspaceMode]) }),
+    [step.workspaceMode, t],
+  );
+  const triggerDisplay = useMemo(
+    () => ({ label: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS[step.trigger]) }),
+    [step.trigger, t],
+  );
+  const triggerOptions = useMemo(
+    () =>
+      TASK_WORKFLOW_TRIGGER_TYPES.map((trigger) => ({
+        id: trigger,
+        value: trigger,
+        label: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS[trigger]),
+        testID: `task-workflow-form-trigger-option-${trigger}`,
+      })),
+    [t],
+  );
+
+  return (
+    <View style={styles.step} testID={`task-workflow-form-step-${index}`}>
+      <View style={styles.header}>
+        <Text style={styles.heading}>
+          {t("tasks.workflow.stepHeading", { index: index + 1, total: stepCount })}
+        </Text>
+        <View style={styles.headerActions}>
+          <Button
+            variant="ghost"
+            size="xs"
+            onPress={handleMoveUp}
+            disabled={index === 0}
+            accessibilityLabel={t("tasks.workflow.moveStepUp")}
+            testID={`task-workflow-form-step-up-${index}`}
+          >
+            <ThemedChevronUp size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onPress={handleMoveDown}
+            disabled={index === stepCount - 1}
+            accessibilityLabel={t("tasks.workflow.moveStepDown")}
+            testID={`task-workflow-form-step-down-${index}`}
+          >
+            <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onPress={handleRemove}
+            disabled={stepCount <= 1}
+            accessibilityLabel={t("tasks.workflow.removeStep")}
+            testID={`task-workflow-form-step-remove-${index}`}
+          >
+            <ThemedTrash size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+          </Button>
+        </View>
+      </View>
+
+      <Field
+        label={t("tasks.workflow.stepNameLabel")}
+        testID={`task-workflow-form-step-name-${index}`}
+      >
+        <FormTextInput
+          value={step.name}
+          onChangeText={handleName}
+          placeholder={t("tasks.workflow.stepNamePlaceholder")}
+          testID={`task-workflow-form-step-name-input-${index}`}
+        />
+      </Field>
+
+      <Field
+        label={t("tasks.workflow.promptLabel")}
+        hint={t("tasks.workflow.promptHint")}
+        testID={`task-workflow-form-step-prompt-${index}`}
+      >
+        <FormTextInput
+          value={step.prompt}
+          onChangeText={handlePrompt}
+          placeholder={t("tasks.workflow.promptPlaceholder")}
+          multiline
+          testID={`task-workflow-form-step-prompt-input-${index}`}
+        />
+      </Field>
+
+      <SelectField
+        label={t("tasks.workflow.providerLabel")}
+        value={step.provider}
+        selectedDisplay={resolveProviderDisplay(state.providerOptions, step.provider)}
+        options={state.providerOptions}
+        onChange={handleProvider}
+        placeholder={t("tasks.workflow.providerPlaceholder")}
+        emptyText={t("tasks.workflow.providerEmptyText")}
+        loading={state.providerResolutionStatus === "pending"}
+        testID={`task-workflow-form-provider-${index}`}
+        triggerTestID={`task-workflow-form-provider-trigger-${index}`}
+      />
+
+      <View style={styles.row}>
+        <View style={styles.rowItem}>
+          <SelectField
+            label={t("tasks.workflow.workspaceLabel")}
+            value={step.workspaceMode}
+            selectedDisplay={workspaceDisplay}
+            options={workspaceOptions}
+            onChange={handleWorkspace}
+            placeholder={t("tasks.workflow.workspaceLabel")}
+            emptyText={t("tasks.workflow.workspaceLabel")}
+            testID={`task-workflow-form-workspace-${index}`}
+            triggerTestID={`task-workflow-form-workspace-trigger-${index}`}
+          />
+        </View>
+        <View style={styles.rowItem}>
+          <SelectField
+            label={t("tasks.workflow.triggerLabel")}
+            hint={index === 0 ? undefined : t("tasks.workflow.triggerHint")}
+            value={step.trigger}
+            selectedDisplay={triggerDisplay}
+            options={triggerOptions}
+            onChange={handleTrigger}
+            placeholder={t("tasks.workflow.triggerLabel")}
+            emptyText={t("tasks.workflow.triggerLabel")}
+            testID={`task-workflow-form-trigger-${index}`}
+            triggerTestID={`task-workflow-form-trigger-trigger-${index}`}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create((theme) => ({
+  step: {
+    gap: theme.spacing[3],
+    padding: theme.spacing[3],
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface1,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  heading: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  row: {
+    flexDirection: "row",
+    gap: theme.spacing[3],
+  },
+  rowItem: {
+    flex: 1,
+    minWidth: 0,
+  },
+}));
