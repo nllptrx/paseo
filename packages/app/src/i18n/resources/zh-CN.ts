@@ -923,6 +923,38 @@ export const zhCN: TranslationResources = {
       },
     },
   },
+  tasks: {
+    screen: {
+      title: "任务",
+      empty: "还没有任务",
+      noHost: "没有已连接的主机",
+      unsupported: "此主机没有任务追踪器。",
+      taskCount_one: "{{count}} 个任务",
+      taskCount_other: "{{count}} 个任务",
+      newTask: "新建任务",
+    },
+    status: {
+      backlog: "待办池",
+      todo: "待办",
+      inProgress: "进行中",
+      inReview: "评审中",
+      done: "已完成",
+      canceled: "已取消",
+    },
+    form: {
+      title: "新建任务",
+      submit: "创建",
+      taskTitleLabel: "标题",
+      taskTitlePlaceholder: "要做什么？",
+      firstProjectHint: "此主机还没有任务项目，将一并创建。",
+      projectNameLabel: "项目名称",
+      projectNamePlaceholder: "Paseo",
+      prefixLabel: "前缀",
+      prefixHint: "大写，最多 8 个字母。任务显示为 PSE-42。",
+      prefixPlaceholder: "PSE",
+      noProject: "没有可放置此任务的项目",
+    },
+  },
   kanban: {
     screen: {
       title: "看板",

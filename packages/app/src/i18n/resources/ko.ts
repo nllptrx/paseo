@@ -938,6 +938,38 @@ export const ko: TranslationResources = {
       },
     },
   },
+  tasks: {
+    screen: {
+      title: "태스크",
+      empty: "아직 태스크가 없습니다",
+      noHost: "연결된 호스트가 없습니다",
+      unsupported: "이 호스트에는 태스크 트래커가 없습니다.",
+      taskCount_one: "태스크 {{count}}개",
+      taskCount_other: "태스크 {{count}}개",
+      newTask: "새 태스크",
+    },
+    status: {
+      backlog: "백로그",
+      todo: "할 일",
+      inProgress: "진행 중",
+      inReview: "검토 중",
+      done: "완료",
+      canceled: "취소됨",
+    },
+    form: {
+      title: "새 태스크",
+      submit: "만들기",
+      taskTitleLabel: "제목",
+      taskTitlePlaceholder: "무엇을 해야 하나요?",
+      firstProjectHint: "이 호스트에는 아직 태스크 프로젝트가 없어 함께 만듭니다.",
+      projectNameLabel: "프로젝트 이름",
+      projectNamePlaceholder: "Paseo",
+      prefixLabel: "접두사",
+      prefixHint: "대문자, 최대 8자. 태스크는 PSE-42로 표시됩니다.",
+      prefixPlaceholder: "PSE",
+      noProject: "이 태스크를 넣을 프로젝트가 없습니다",
+    },
+  },
   kanban: {
     screen: {
       title: "칸반",

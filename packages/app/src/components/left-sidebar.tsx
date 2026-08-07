@@ -5,6 +5,7 @@ import {
   History,
   Home,
   Kanban,
+  ListChecks,
   Plus,
   Search,
   Server,
@@ -65,6 +66,7 @@ import { useIsMobilePanelPresented } from "@/mobile-panels/provider";
 import {
   buildOpenProjectRoute,
   buildKanbansRoute,
+  buildTasksRoute,
   buildNewWorkspaceRoute,
   buildSchedulesRoute,
   buildSessionsRoute,
@@ -112,6 +114,7 @@ interface SidebarLabels {
   sessions: string;
   schedules: string;
   kanbans: string;
+  tasks: string;
   closeSidebar: string;
 }
 
@@ -123,6 +126,8 @@ interface MobileSidebarProps extends SidebarSharedProps {
   handleViewSchedulesNavigate: () => void;
   handleViewKanbansNavigate: () => void;
   showKanbans: boolean;
+  handleViewTasksNavigate: () => void;
+  showTasks: boolean;
 }
 
 interface DesktopSidebarProps extends SidebarSharedProps {
@@ -132,6 +137,8 @@ interface DesktopSidebarProps extends SidebarSharedProps {
   handleViewSchedules: () => void;
   handleViewKanbans: () => void;
   showKanbans: boolean;
+  handleViewTasks: () => void;
+  showTasks: boolean;
 }
 
 export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boolean }) {
@@ -231,12 +238,21 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
     router.push(buildKanbansRoute());
   }, []);
 
+  const handleViewTasksNavigate = useCallback(() => {
+    router.push(buildTasksRoute());
+  }, []);
+
   const hosts = useHosts();
   const hostServerIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
   const kanbanFeatureByHost = useHostFeatureMap(hostServerIds, "kanban");
   const showKanbans = useMemo(
     () => Array.from(kanbanFeatureByHost.values()).some(Boolean),
     [kanbanFeatureByHost],
+  );
+  const tasksFeatureByHost = useHostFeatureMap(hostServerIds, "tasks");
+  const showTasks = useMemo(
+    () => Array.from(tasksFeatureByHost.values()).some(Boolean),
+    [tasksFeatureByHost],
   );
 
   const newWorkspaceKeys = useShortcutKeys("new-workspace");
@@ -251,6 +267,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
       sessions: t("sidebar.sections.sessions"),
       schedules: t("sidebar.sections.schedules"),
       kanbans: t("sidebar.sections.kanbans"),
+      tasks: t("tasks.screen.title"),
       closeSidebar: t("sidebar.actions.closeSidebar"),
     }),
     [t],
@@ -273,6 +290,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
     labels,
     newWorkspaceKeys,
     showKanbans,
+    showTasks,
   };
 
   if (isCompactLayout) {
@@ -291,6 +309,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
           handleViewMoreNavigate={handleViewMoreNavigate}
           handleViewSchedulesNavigate={handleViewSchedulesNavigate}
           handleViewKanbansNavigate={handleViewKanbansNavigate}
+          handleViewTasksNavigate={handleViewTasksNavigate}
         />
       </RetainedPanelActivity>
     );
@@ -310,6 +329,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
         handleViewMore={handleViewMoreNavigate}
         handleViewSchedules={handleViewSchedulesNavigate}
         handleViewKanbans={handleViewKanbansNavigate}
+        handleViewTasks={handleViewTasksNavigate}
       />
     </RetainedPanelActivity>
   );
@@ -639,13 +659,16 @@ function MobileSidebar({
   handleViewMoreNavigate,
   handleViewSchedulesNavigate,
   handleViewKanbansNavigate,
+  handleViewTasksNavigate,
   showKanbans,
+  showTasks,
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const isSessionsActive = pathname.includes("/sessions");
   const isSchedulesActive = pathname.includes("/schedules");
   const isKanbansActive = pathname.includes("/kanbans");
+  const isTasksActive = pathname.includes("/tasks");
   const { gesture: closeGesture, gestureRef: closeGestureRef } = useCloseAgentListGesture();
   const dragGestureHostPresented = useIsMobilePanelPresented("agent-list");
 
@@ -663,6 +686,11 @@ function MobileSidebar({
     closeSidebar();
     handleViewKanbansNavigate();
   }, [closeSidebar, handleViewKanbansNavigate]);
+
+  const handleViewTasks = useCallback(() => {
+    closeSidebar();
+    handleViewTasksNavigate();
+  }, [closeSidebar, handleViewTasksNavigate]);
 
   const handleWorkspacePress = useCallback(() => {
     closeSidebar();
@@ -716,6 +744,16 @@ function MobileSidebar({
               onPress={handleViewKanbans}
               isActive={isKanbansActive}
               testID="sidebar-kanbans"
+              variant="compact"
+            />
+          ) : null}
+          {showTasks ? (
+            <SidebarHeaderRow
+              icon={ListChecks}
+              label={labels.tasks}
+              onPress={handleViewTasks}
+              isActive={isTasksActive}
+              testID="sidebar-tasks"
               variant="compact"
             />
           ) : null}
@@ -802,7 +840,9 @@ function DesktopSidebar({
   handleViewMore,
   handleViewSchedules,
   handleViewKanbans,
+  handleViewTasks,
   showKanbans,
+  showTasks,
 }: DesktopSidebarProps) {
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const pathname = usePathname();
@@ -810,6 +850,7 @@ function DesktopSidebar({
   const isSessionsActive = pathname.includes("/sessions");
   const isSchedulesActive = pathname.includes("/schedules");
   const isKanbansActive = pathname.includes("/kanbans");
+  const isTasksActive = pathname.includes("/tasks");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
   const { width: viewportWidth } = useWindowDimensions();
@@ -934,6 +975,16 @@ function DesktopSidebar({
                 onPress={handleViewKanbans}
                 isActive={isKanbansActive}
                 testID="sidebar-kanbans"
+                variant="compact"
+              />
+            ) : null}
+            {showTasks ? (
+              <SidebarHeaderRow
+                icon={ListChecks}
+                label={labels.tasks}
+                onPress={handleViewTasks}
+                isActive={isTasksActive}
+                testID="sidebar-tasks"
                 variant="compact"
               />
             ) : null}

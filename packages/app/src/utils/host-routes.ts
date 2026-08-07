@@ -432,6 +432,10 @@ export function buildKanbansRoute() {
   return "/kanbans" as const;
 }
 
+export function buildTasksRoute() {
+  return "/tasks" as const;
+}
+
 export function buildKanbanBoardRoute(kanbanId: string) {
   return `/kanbans/${encodeURIComponent(kanbanId)}` as const;
 }

@@ -953,6 +953,38 @@ export const ru: TranslationResources = {
       },
     },
   },
+  tasks: {
+    screen: {
+      title: "Задачи",
+      empty: "Задач пока нет",
+      noHost: "Нет подключённого хоста",
+      unsupported: "На этом хосте нет трекера задач.",
+      taskCount_one: "{{count}} задача",
+      taskCount_other: "{{count}} задач",
+      newTask: "Новая задача",
+    },
+    status: {
+      backlog: "Бэклог",
+      todo: "К выполнению",
+      inProgress: "В работе",
+      inReview: "На проверке",
+      done: "Готово",
+      canceled: "Отменено",
+    },
+    form: {
+      title: "Новая задача",
+      submit: "Создать",
+      taskTitleLabel: "Заголовок",
+      taskTitlePlaceholder: "Что нужно сделать?",
+      firstProjectHint: "На этом хосте ещё нет проекта задач, поэтому он будет создан тоже.",
+      projectNameLabel: "Название проекта",
+      projectNamePlaceholder: "Paseo",
+      prefixLabel: "Префикс",
+      prefixHint: "Заглавные, до 8 букв. Задачи выглядят как PSE-42.",
+      prefixPlaceholder: "PSE",
+      noProject: "Нет проекта для этой задачи",
+    },
+  },
   kanban: {
     screen: {
       title: "Канбаны",

@@ -961,6 +961,39 @@ export const fr: TranslationResources = {
       },
     },
   },
+  tasks: {
+    screen: {
+      title: "Tâches",
+      empty: "Aucune tâche pour l'instant",
+      noHost: "Aucun hôte connecté",
+      unsupported: "Cet hôte n'a pas de gestionnaire de tâches.",
+      taskCount_one: "{{count}} tâche",
+      taskCount_other: "{{count}} tâches",
+      newTask: "Nouvelle tâche",
+    },
+    status: {
+      backlog: "Backlog",
+      todo: "À faire",
+      inProgress: "En cours",
+      inReview: "En revue",
+      done: "Terminé",
+      canceled: "Annulé",
+    },
+    form: {
+      title: "Nouvelle tâche",
+      submit: "Créer",
+      taskTitleLabel: "Titre",
+      taskTitlePlaceholder: "Qu'y a-t-il à faire ?",
+      firstProjectHint:
+        "Cet hôte n'a pas encore de projet de tâches, celui-ci sera donc créé aussi.",
+      projectNameLabel: "Nom du projet",
+      projectNamePlaceholder: "Paseo",
+      prefixLabel: "Préfixe",
+      prefixHint: "Majuscules, 8 lettres maximum. Les tâches s'écrivent PSE-42.",
+      prefixPlaceholder: "PSE",
+      noProject: "Aucun projet où placer cette tâche",
+    },
+  },
   kanban: {
     screen: {
       title: "Kanbans",

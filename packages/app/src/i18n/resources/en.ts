@@ -941,6 +941,38 @@ export const en = {
       },
     },
   },
+  tasks: {
+    screen: {
+      title: "Tasks",
+      empty: "No task yet",
+      noHost: "No host connected",
+      unsupported: "This host has no task tracker.",
+      taskCount_one: "{{count}} task",
+      taskCount_other: "{{count}} tasks",
+      newTask: "New task",
+    },
+    status: {
+      backlog: "Backlog",
+      todo: "Todo",
+      inProgress: "In Progress",
+      inReview: "In Review",
+      done: "Done",
+      canceled: "Canceled",
+    },
+    form: {
+      title: "New task",
+      submit: "Create",
+      taskTitleLabel: "Title",
+      taskTitlePlaceholder: "What needs doing?",
+      firstProjectHint: "This host has no task project yet, so this creates one too.",
+      projectNameLabel: "Project name",
+      projectNamePlaceholder: "Paseo",
+      prefixLabel: "Prefix",
+      prefixHint: "Upper case, up to 8 letters. Tasks read PSE-42.",
+      prefixPlaceholder: "PSE",
+      noProject: "No project to put this task in",
+    },
+  },
   kanban: {
     screen: {
       title: "Kanbans",

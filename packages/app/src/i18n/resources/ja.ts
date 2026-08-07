@@ -942,6 +942,38 @@ export const ja: TranslationResources = {
       },
     },
   },
+  tasks: {
+    screen: {
+      title: "タスク",
+      empty: "タスクはまだありません",
+      noHost: "接続中のホストがありません",
+      unsupported: "このホストにはタスクトラッカーがありません。",
+      taskCount_one: "{{count}} 件のタスク",
+      taskCount_other: "{{count}} 件のタスク",
+      newTask: "新しいタスク",
+    },
+    status: {
+      backlog: "バックログ",
+      todo: "未着手",
+      inProgress: "進行中",
+      inReview: "レビュー中",
+      done: "完了",
+      canceled: "キャンセル",
+    },
+    form: {
+      title: "新しいタスク",
+      submit: "作成",
+      taskTitleLabel: "タイトル",
+      taskTitlePlaceholder: "何をしますか？",
+      firstProjectHint: "このホストにはまだタスクプロジェクトがないため、あわせて作成します。",
+      projectNameLabel: "プロジェクト名",
+      projectNamePlaceholder: "Paseo",
+      prefixLabel: "プレフィックス",
+      prefixHint: "大文字、8 文字まで。タスクは PSE-42 と表示されます。",
+      prefixPlaceholder: "PSE",
+      noProject: "このタスクを入れるプロジェクトがありません",
+    },
+  },
   kanban: {
     screen: {
       title: "カンバン",

@@ -953,6 +953,38 @@ export const ptBR: TranslationResources = {
       },
     },
   },
+  tasks: {
+    screen: {
+      title: "Tarefas",
+      empty: "Ainda não há tarefas",
+      noHost: "Nenhum host conectado",
+      unsupported: "Este host não tem rastreador de tarefas.",
+      taskCount_one: "{{count}} tarefa",
+      taskCount_other: "{{count}} tarefas",
+      newTask: "Nova tarefa",
+    },
+    status: {
+      backlog: "Backlog",
+      todo: "A fazer",
+      inProgress: "Em andamento",
+      inReview: "Em revisão",
+      done: "Concluído",
+      canceled: "Cancelado",
+    },
+    form: {
+      title: "Nova tarefa",
+      submit: "Criar",
+      taskTitleLabel: "Título",
+      taskTitlePlaceholder: "O que precisa ser feito?",
+      firstProjectHint: "Este host ainda não tem projeto de tarefas, então um será criado também.",
+      projectNameLabel: "Nome do projeto",
+      projectNamePlaceholder: "Paseo",
+      prefixLabel: "Prefixo",
+      prefixHint: "Maiúsculas, até 8 letras. As tarefas aparecem como PSE-42.",
+      prefixPlaceholder: "PSE",
+      noProject: "Nenhum projeto para colocar esta tarefa",
+    },
+  },
   kanban: {
     screen: {
       title: "Kanbans",

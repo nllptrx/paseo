@@ -931,6 +931,38 @@ export const ar: TranslationResources = {
       },
     },
   },
+  tasks: {
+    screen: {
+      title: "المهام",
+      empty: "لا توجد مهام بعد",
+      noHost: "لا يوجد مضيف متصل",
+      unsupported: "هذا المضيف لا يملك متتبع مهام.",
+      taskCount_one: "{{count}} مهمة",
+      taskCount_other: "{{count}} مهام",
+      newTask: "مهمة جديدة",
+    },
+    status: {
+      backlog: "قائمة الانتظار",
+      todo: "للتنفيذ",
+      inProgress: "قيد التنفيذ",
+      inReview: "قيد المراجعة",
+      done: "منجز",
+      canceled: "ملغى",
+    },
+    form: {
+      title: "مهمة جديدة",
+      submit: "إنشاء",
+      taskTitleLabel: "العنوان",
+      taskTitlePlaceholder: "ما الذي يجب فعله؟",
+      firstProjectHint: "هذا المضيف لا يملك مشروع مهام بعد، لذا سيتم إنشاء واحد أيضًا.",
+      projectNameLabel: "اسم المشروع",
+      projectNamePlaceholder: "Paseo",
+      prefixLabel: "البادئة",
+      prefixHint: "أحرف كبيرة، حتى 8 أحرف. تظهر المهام كـ PSE-42.",
+      prefixPlaceholder: "PSE",
+      noProject: "لا يوجد مشروع لوضع هذه المهمة فيه",
+    },
+  },
   kanban: {
     screen: {
       title: "لوحات كانبان",
