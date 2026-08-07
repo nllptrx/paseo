@@ -63,12 +63,11 @@ carries them. "Add plan" on the card becomes "Add workflow".
 `derivePlanColumn` goes with them. A task's stored status and the transition
 engine are the only column truth.
 
-### 2.3 Hierarchy and dependencies [DECIDED]
+### 2.3 Hierarchy and dependencies [SHIPPED]
 
-Tasks gain `parentId` (subtasks) and dependency links (`blocks` /
-`blocked-by`). The dependency gate (§6.1) and the stacked-branch mapping
-(§6.2) read them. A subtask is a task in every other respect — same statuses,
-same board, indented under its parent in the column.
+Tasks carry `parentTaskId` (subtasks) and dependency edges in
+`task_dependencies`. The snapshot carries the edges so a client can draw them.
+A subtask is a task in every other respect — same statuses, same board.
 
 ### 2.4 Board event bus [DECIDED]
 
@@ -173,12 +172,18 @@ them, opened by pressing a card. That also settles what a card press does:
   row. Today's behaviour — open the chat when exactly one agent is attached,
   silently do nothing otherwise — has no rule a user can learn.
 
-### 5.5 Presets and delegate [DECIDED]
+### 5.5 Presets and delegate [SHIPPED server-side]
 
-`task_presets` exists in the schema with no UI. The delegate flow: pick a
-preset on a task, an agent spawns already attached, in its own worktree
-(§6.2). Presets are per board. This is the fast path to "start work on this
-card" and it lands after the feed.
+A preset is the one-step workflow you do not have to author: pick one on a
+card and an agent starts, already attached, in the environment the preset asks
+for. It attaches through the tracker, so a blocked task refuses before an agent
+exists rather than after one is running.
+
+`project_default` means "where this card is already being worked" — the
+workspace an agent on it is using. A card nobody is on gets a worktree like the
+other mode; the project root is not a workspace the daemon can attach to.
+
+**[PROPOSED]** the picker itself, on the detail sheet.
 
 ## 6. Board feed [SHIPPED]
 
@@ -216,10 +221,11 @@ overwritten outputs, ~75x the tokens).
 
 - **No Orchestrator agent.** The board stands alone: tracker, attach,
   transitions, feed.
-- **The supervision that matters is deterministic**, and lives in the daemon
-  as event-bus consumers: stall detection (agent idle, erroring, or waiting on
-  input → feed post), dependency gating (a task with unresolved `blocked-by`
-  is not claimable), attributed transition posts.
+- **[SHIPPED] The supervision that matters is deterministic**, and lives in
+  the daemon: a stalled agent (errored or closed without finishing) says so in
+  the feed; a task whose blockers are still open refuses an attachment, naming
+  them, which is what claiming means; every transition posts what caused it.
+  A canceled blocker stops blocking — it is never going to be done.
 - **A decomposer agent is a later phase** — turn a task into subtasks with
   agent specs — opt-in per board. Even then it authors no code and issues no
   review verdicts. Review is human, or a verification agent with no
@@ -229,14 +235,17 @@ overwritten outputs, ~75x the tokens).
   the orchestrator sidebar pane, the workspace tab kind, the explorer tab, and
   Create Orchestrator.
 
-### 6.2 Subtask isolation — stacked branches, sibling worktrees [DECIDED]
+### 6.2 Subtask isolation — stacked branches, sibling worktrees [SHIPPED]
 
 - A task's agent works in its own worktree and branch.
-- A **subtask** branches off its **parent task's branch**, not off main. Its
-  worktree directory sits beside the parent's, never inside it — a checkout
-  nested in a live worktree confuses git and the agents' file tools.
-- A subtask merges into the parent branch; the parent merges to main. This
-  maps 1:1 onto stacked PRs and keeps review units bounded.
+- A **subtask** branches off its **parent task's branch**, read from the
+  parent's own worktree, not off main. Worktree directories are siblings, as
+  they already were — a checkout nested in a live worktree confuses git and the
+  agents' file tools.
+- A parent that never ran has nothing to stack onto; the subtask starts where
+  any other work would.
+- A subtask merges into the parent branch; the parent merges to main. This maps
+  1:1 onto stacked PRs and keeps review units bounded.
 - Depth beyond one level works, and the UI does not encourage it.
 
 ## 7. Build order
@@ -253,9 +262,9 @@ and the board e2e.
 3. **Event bus and feed** (§2.4, §6) — _next_. Single emission point, room per board,
    `comment_task` mirroring, composer with mention fanout, mesh retirement,
    Feed tab.
-4. **Hierarchy and rules** (§2.3, §6.1, §6.2). `parentId` and dependencies,
-   stall detection, dependency gate, stacked-branch worktrees for subtasks.
-5. **Detail sheet and delegate** (§5.4, §5.5).
+4. **Hierarchy and rules** (§2.3, §6.1, §6.2). **Done.**
+5. **Detail sheet and delegate** (§5.4, §5.5). Delegate done server-side; the
+   sheet and the preset picker are the remaining UI.
 
 ## 8. Invariants
 
