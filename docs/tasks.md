@@ -81,38 +81,41 @@ A **Plan** is the third way, and the only one that is more than a single
 dispatch: an ordered, gated workflow. It attaches to a task like any other work.
 The tracker does not gain workflow semantics; the plan keeps them.
 
-## Surfaces
+## Surface
 
-Two views over the same tasks, and the difference is what you came to do. The
-**list** groups by status and is for reading a lot at once; the **board** is for
-moving things. Both read `task-views.ts`, so neither invents an ordering.
+The tracker has one surface, and it is the kanban board ([kanban.md](kanban.md)).
+There is no tasks screen, list route or nav entry of its own — this branch built
+one twice and deleted it twice, because a second route to the same work reads as
+a second kind of work. A card is a task; a column is the task's stored status,
+with **Canceled** appearing only once something is in it. `task-views.ts` owns
+grouping, ordering and rail-capping rules, tested on their own, so the board
+renders what it returns.
 
-The board always shows five columns and adds **Canceled** only once something is
-in it. A board is where work is going; a permanent column of abandoned work is
-dead width.
+The fusion that makes the board's cards tasks is in
+[kanban-workflow-stacking-plan.md](kanban-workflow-stacking-plan.md) §13. Until
+it lands, the tracker is reachable only over RPC.
 
-A **row** is one line: priority, key, status, title, then a right-hand rail of
-label chips, attachment and comment counts. The rail is capped — two chips, one
-when narrow, the rest collapsing into a count that names them on hover — because
-a task with nine labels must not push its own title off the row.
+## Automatic transitions
 
-Status and priority are editable from the row without opening the task. They are
-the two fields you change in a sweep, and making a sweep cost one navigation each
-is what makes people stop grooming a backlog.
+Status is stored intent, but two transitions are written by the daemon rather
+than by a hand, because they are judgements the runs _can_ produce:
 
-Sorting defaults to **manual**, the order you dragged things into, because every
-other sort throws that away. Sorting by due date puts undated tasks last: no date
-is not an early date.
+- When the last work attached to a task settles successfully, the task moves to
+  `in_review` when the board's review flag is on, else `done`.
+- A review verdict moves it on: approve goes to `done`; reject goes back to
+  `in_progress` (per-board `review.onReject`). The verdict can come from a
+  person on the board or from an agent through the MCP tools.
 
-Label filters collapse by name, so selecting "bug" across projects matches every
-project's own "bug" rather than asking which one you meant.
+A failed run moves nothing. Failure shows on the card and the task stays
+`in_progress` — moving it would bury work that still needs a decision.
 
-The live-activity chip sits in the rail next to the labels: same shape, green,
-pulsing. That placement is the whole argument of this doc in one glance — what
-you intend on the left, what is happening on the right, neither pretending to be
-the other.
+Manual moves write the same stored field through the same RPC, so automation
+and hand never disagree about where status lives; the revision counter carries
+either to every client.
 
 ## Not built
 
+- The board fusion, automatic transitions and MCP task tools above — planned,
+  see the plan doc §13.
 - Folders for grouping task projects. The sidebar groups by project.
 - Cross-host tasks. The tracker is host-local, like the kanban.

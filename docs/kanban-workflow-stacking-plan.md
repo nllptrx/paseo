@@ -417,3 +417,42 @@ Per `docs/testing.md` (real dependencies, determinism, one behavior per test) an
 - [ ] App: route + view, board DnD + status badges, orchestrator surface (board pane + peer rail), sidebar grouping widening, push-router domain, forms, entry points, gating
 - [ ] Test suites per §11; QA evidence collected
 - [ ] Sweep: `rg -n 'ADR ?\d+'` in source (none expected), `rg "COMPAT\("` entries dated, no bare `Plan` exports
+
+## 13. Task fusion (second wave)
+
+The tracker ([tasks.md](tasks.md)) exists as backend only: SQLite store, RPCs,
+`features.tasks`. This wave makes the kanban board its surface and retires the
+idea of a Plan as the unit of work. Direction settled 2026-08-07 after building
+and deleting a parallel `/tasks` surface twice: the kanban is the destination,
+tasks are what it shows.
+
+### Model
+
+- **Card = Task.** A Plan is execution attached to a task, never a card of its
+  own. Delegate / Attach / Plan all hang off the task (tasks.md, "Attaching
+  work").
+- **Column = stored task status**: `backlog | todo | in_progress | in_review |
+done`, `canceled` shown only when populated. This replaces the three derived
+  plan columns on the board. Execution state stays derived and shows on the
+  card, exactly as the status-vs-column tension in §8 already demands.
+- **Automatic transitions** (daemon, on run settlement — same observation path
+  steps already use): last attached work settles green → `in_review` if the
+  board's `review.enabled`, else `done`. Review verdict: approve → `done`,
+  reject → `review.onReject` (default `in_progress`). Failure moves nothing.
+- **Quick capture.** The bb habit worth keeping: creating a task inside a
+  project costs one gesture and a title — board column "+", project menu, and
+  ⌘-shortcut all open the same minimal sheet, and the task lands in `backlog`
+  where drafts are found. Every other field is editable later; a capture form
+  that asks questions is a capture form that gets skipped.
+- **Agent access.** MCP task tools on the daemon (`create/list/update/comment`,
+  review verdict), scoped like the kanban tools in §6, so project agents and
+  Orchestrators work the tracker instead of only plans.
+
+### Phasing
+
+1. Board reads tasks: status columns, task cards, move menu + drag writing
+   `task.update` status; quick-capture sheet.
+2. Attachment surfaced: plan/agent chips on the card, live-activity derived
+   from attached agents.
+3. Automatic transitions + `review` config on the board record.
+4. MCP task tools + parity test; CLI `paseo task ls|create|move`.
