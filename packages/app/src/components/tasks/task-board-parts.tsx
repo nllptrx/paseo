@@ -1,10 +1,16 @@
 import { useCallback, useMemo, type ReactElement } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { MoreVertical, Plus } from "lucide-react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Task, TaskLabel, TaskProject, TaskStatus } from "@getpaseo/protocol/tasks/types";
 import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +22,18 @@ import { StatusBucketDot } from "@/components/status-bucket-dot";
 import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
 import { formatTaskKey, resolveTaskLabels } from "@/tasks/task-views";
 import { aggregateSidebarStateBuckets, type SidebarStateBucket } from "@/utils/sidebar-agent-state";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
+
+const ThemedMoreVertical = withUnistyles(MoreVertical);
+const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
+
+interface TaskCardAction {
+  key: string;
+  label: string;
+  testID: string;
+  onSelect: () => void;
+}
 
 export const TASK_STATUS_LABEL_KEYS: Record<TaskStatus, string> = {
   backlog: "tasks.status.backlog",
@@ -121,7 +139,7 @@ export function TaskColumn({
         <Text style={styles.columnCount}>{tasks.length}</Text>
         <Button
           variant="ghost"
-          size="xs"
+          size="sm"
           leftIcon={Plus}
           onPress={handleCreate}
           style={styles.addButton}
@@ -199,10 +217,40 @@ export function TaskCard({
       onOpenAgent({ workspaceId: singleAgent.workspaceId, agentId: singleAgent.agentId });
     }
   }, [onOpenAgent, singleAgent]);
-  const handleCreatePlan = useCallback(
-    () => onCreatePlanForTask?.(task.id),
-    [onCreatePlanForTask, task.id],
-  );
+
+  // One list feeds the kebab and the right-click menu, so a card is reachable
+  // the way any other card on this platform is.
+  const actions = useMemo<TaskCardAction[]>(() => {
+    const entries: TaskCardAction[] = [];
+    if (onCreatePlanForTask) {
+      entries.push({
+        key: "add-plan",
+        label: t("kanban.column.addPlan"),
+        testID: `task-card-add-plan-${task.id}`,
+        onSelect: () => onCreatePlanForTask(task.id),
+      });
+    }
+    for (const link of task.agents) {
+      entries.push({
+        key: `open-agent-${link.agentId}`,
+        label: t("tasks.board.openAgent"),
+        testID: `task-card-open-agent-${task.id}-${link.agentId}`,
+        onSelect: () => onOpenAgent({ workspaceId: link.workspaceId, agentId: link.agentId }),
+      });
+    }
+    for (const status of TASK_STATUSES) {
+      if (status === task.status) {
+        continue;
+      }
+      entries.push({
+        key: status,
+        label: t(TASK_STATUS_LABEL_KEYS[status]),
+        testID: `task-card-status-${task.id}-${status}`,
+        onSelect: () => onMoveToStatus({ taskId: task.id, status }),
+      });
+    }
+    return entries;
+  }, [onCreatePlanForTask, onMoveToStatus, onOpenAgent, t, task.agents, task.id, task.status]);
 
   const body = (
     <>
@@ -210,43 +258,32 @@ export function TaskCard({
         <Text style={styles.cardKey}>{formatTaskKey(project, task)}</Text>
         {bucket ? <StatusBucketDot bucket={bucket} /> : null}
         {isOverlay ? null : (
-          <View style={styles.cardMenu}>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                testID={`task-card-status-${task.id}`}
-                accessibilityRole="button"
-                accessibilityLabel={t("tasks.board.changeStatus")}
-              >
-                <Text style={styles.cardMenuGlyph}>⋯</Text>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end">
-                {onCreatePlanForTask ? (
-                  <DropdownMenuItem
-                    testID={`task-card-add-plan-${task.id}`}
-                    onSelect={handleCreatePlan}
-                  >
-                    {t("kanban.column.addPlan")}
-                  </DropdownMenuItem>
-                ) : null}
-                {task.agents.map((link) => (
-                  <OpenAgentMenuItem
-                    key={link.agentId}
-                    taskId={task.id}
-                    link={link}
-                    onOpenAgent={onOpenAgent}
-                  />
-                ))}
-                {TASK_STATUSES.filter((status) => status !== task.status).map((status) => (
-                  <StatusMenuItem
-                    key={status}
-                    taskId={task.id}
-                    status={status}
-                    onMoveToStatus={onMoveToStatus}
-                  />
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </View>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              style={styles.menuTrigger}
+              testID={`task-card-status-${task.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t("tasks.board.changeStatus")}
+            >
+              {({ hovered }) => (
+                <ThemedMoreVertical
+                  size={ICON_SIZE.sm}
+                  uniProps={hovered ? foregroundIconMapping : mutedIconMapping}
+                />
+              )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="bottom" align="end">
+              {actions.map((action) => (
+                <DropdownMenuItem
+                  key={action.key}
+                  testID={action.testID}
+                  onSelect={action.onSelect}
+                >
+                  {action.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </View>
       <Text style={styles.cardTitle} numberOfLines={3}>
@@ -272,71 +309,40 @@ export function TaskCard({
     isOverlay && styles.cardOverlay,
     isDragSource && styles.cardDragSource,
   ];
-  if (singleAgent && !isOverlay) {
+  if (isOverlay) {
     return (
-      <Pressable
+      <View style={cardStyle} testID={`task-card-${task.id}`}>
+        {body}
+      </View>
+    );
+  }
+
+  // Long press is left alone: on a touch board it is how a card is picked up.
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
         onPress={handlePress}
         style={cardStyle}
         testID={`task-card-${task.id}`}
         accessibilityRole="button"
+        enabledOnMobile={false}
       >
         {body}
-      </Pressable>
-    );
-  }
-  return (
-    <View style={cardStyle} testID={`task-card-${task.id}`}>
-      {body}
-    </View>
+      </ContextMenuTrigger>
+      <ContextMenuContent align="start" width={220} testID={`task-card-context-menu-${task.id}`}>
+        {actions.map((action) => (
+          <ContextMenuItem
+            key={action.key}
+            testID={`task-card-context-action-${task.id}-${action.key}`}
+            onSelect={action.onSelect}
+          >
+            {action.label}
+          </ContextMenuItem>
+        ))}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
-
-function OpenAgentMenuItem({
-  taskId,
-  link,
-  onOpenAgent,
-}: {
-  taskId: string;
-  link: Task["agents"][number];
-  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  const handleSelect = useCallback(
-    () => onOpenAgent({ workspaceId: link.workspaceId, agentId: link.agentId }),
-    [link.agentId, link.workspaceId, onOpenAgent],
-  );
-  return (
-    <DropdownMenuItem
-      testID={`task-card-open-agent-${taskId}-${link.agentId}`}
-      onSelect={handleSelect}
-    >
-      {t("tasks.board.openAgent")}
-    </DropdownMenuItem>
-  );
-}
-
-function StatusMenuItem({
-  taskId,
-  status,
-  onMoveToStatus,
-}: {
-  taskId: string;
-  status: TaskStatus;
-  onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  const handleSelect = useCallback(
-    () => onMoveToStatus({ taskId, status }),
-    [onMoveToStatus, status, taskId],
-  );
-  return (
-    <DropdownMenuItem testID={`task-card-status-${taskId}-${status}`} onSelect={handleSelect}>
-      {t(TASK_STATUS_LABEL_KEYS[status])}
-    </DropdownMenuItem>
-  );
-}
-
-const COLUMN_WIDTH = 280;
 
 const styles = StyleSheet.create((theme) => ({
   compact: {
@@ -350,7 +356,9 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "flex-start",
   },
   column: {
-    width: { xs: "100%", md: COLUMN_WIDTH },
+    flexGrow: 1,
+    minWidth: 264,
+    maxWidth: 360,
     gap: theme.spacing[1],
   },
   columnHeader: {
@@ -414,13 +422,11 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
   },
-  cardMenu: {
-    width: 20,
+  menuTrigger: {
+    width: 24,
+    height: 24,
     alignItems: "center",
-  },
-  cardMenuGlyph: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
+    justifyContent: "center",
   },
   cardTitle: {
     color: theme.colors.foreground,

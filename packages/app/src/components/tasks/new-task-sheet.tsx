@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useMemo, useSyncExternalStore, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -6,16 +6,24 @@ import type { TaskProject, TaskStatus } from "@getpaseo/protocol/tasks/types";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
+import { useNewTaskFormModel } from "@/tasks/use-new-task-form-model";
 import { useTaskMutations } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
 
 const DEFAULT_PROJECT_COLOR = "#7C6BF5";
-const PREFIX_MAX_LENGTH = 8;
 
-/** `Paseo Mobile` → `PAS`: enough to read as a key, always editable before submit. */
-export function suggestTaskProjectPrefix(name: string): string {
-  const letters = name.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  return letters.slice(0, Math.min(3, PREFIX_MAX_LENGTH));
+export interface NewTaskSheetProps {
+  serverId: string;
+  /** The tracker project the task lands in, or null when it must be created. */
+  project: TaskProject | null;
+  paseoProjectId: string | null;
+  suggestedProjectName: string;
+  initialStatus: TaskStatus;
+  onClose: () => void;
+}
+
+function openKey(props: NewTaskSheetProps): string {
+  return `${props.serverId}:${props.project?.id ?? ""}:${props.initialStatus}`;
 }
 
 /**
@@ -24,83 +32,74 @@ export function suggestTaskProjectPrefix(name: string): string {
  * prefix rather than sending you somewhere else first — a capture form that
  * asks questions is a capture form that gets skipped.
  */
-export function NewTaskSheet({
+export function NewTaskSheet(props: NewTaskSheetProps): ReactElement {
+  return <OpenNewTaskSheet key={openKey(props)} {...props} />;
+}
+
+function OpenNewTaskSheet({
   serverId,
   project,
   paseoProjectId,
   suggestedProjectName,
   initialStatus,
   onClose,
-}: {
-  serverId: string;
-  /** The tracker project the task lands in, or null when it must be created. */
-  project: TaskProject | null;
-  paseoProjectId: string | null;
-  suggestedProjectName: string;
-  initialStatus: TaskStatus;
-  onClose: () => void;
-}): ReactElement {
+}: NewTaskSheetProps): ReactElement {
   const { t } = useTranslation();
-  const { createProject, createTask, isBusy } = useTaskMutations(serverId);
-  const [title, setTitle] = useState("");
-  const [projectName, setProjectName] = useState(suggestedProjectName);
-  const [prefix, setPrefix] = useState(() => suggestTaskProjectPrefix(suggestedProjectName));
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const { createProject, createTask } = useTaskMutations(serverId);
+  const snapshot = useMemo(
+    () => ({ serverId, project, paseoProjectId, suggestedProjectName, initialStatus }),
+    [initialStatus, paseoProjectId, project, serverId, suggestedProjectName],
+  );
+  const model = useNewTaskFormModel(snapshot);
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
 
-  const needsProject = project === null;
-  const canSubmit =
-    title.trim().length > 0 &&
-    (!needsProject || (projectName.trim().length > 0 && prefix.trim().length > 0)) &&
-    !isBusy;
+  const handleSubmit = useCallback(async () => {
+    const current = model.getState();
+    if (!current.canSubmit) {
+      return;
+    }
+    model.setSubmitting(true);
+    try {
+      // The id comes back from the create rather than from the snapshot: the
+      // snapshot has not refetched yet, so reading it here would find nothing
+      // and silently drop the task.
+      const projectId =
+        current.projectId ??
+        (await createProject({
+          name: current.projectName.trim(),
+          prefix: current.prefix.trim().toUpperCase(),
+          color: DEFAULT_PROJECT_COLOR,
+          paseoProjectId: current.paseoProjectId,
+        }));
+      await createTask({
+        projectId,
+        title: current.title.trim(),
+        status: current.initialStatus,
+      });
+      onClose();
+    } catch (error) {
+      model.setSubmitError(toErrorMessage(error));
+    }
+  }, [createProject, createTask, model, onClose]);
 
-  const handleSubmit = useCallback(() => {
-    setSubmitError(null);
-    void (async () => {
-      try {
-        // The id comes back from the create rather than from the snapshot: the
-        // snapshot has not refetched yet, so reading it here would find nothing
-        // and silently drop the task.
-        const projectId = needsProject
-          ? await createProject({
-              name: projectName.trim(),
-              prefix: prefix.trim().toUpperCase(),
-              color: DEFAULT_PROJECT_COLOR,
-              paseoProjectId,
-            })
-          : project.id;
-        await createTask({ projectId, title: title.trim(), status: initialStatus });
-        onClose();
-      } catch (error) {
-        setSubmitError(toErrorMessage(error));
-      }
-    })();
-  }, [
-    createProject,
-    createTask,
-    initialStatus,
-    needsProject,
-    onClose,
-    paseoProjectId,
-    prefix,
-    project,
-    projectName,
-    title,
-  ]);
+  const handleSubmitPress = useCallback(() => {
+    void handleSubmit();
+  }, [handleSubmit]);
 
   const header = useMemo(() => ({ title: t("tasks.form.title") }), [t]);
   const footer = useMemo(
     () => (
       <Button
         variant="default"
-        onPress={handleSubmit}
-        disabled={!canSubmit}
-        loading={isBusy}
+        onPress={handleSubmitPress}
+        disabled={!state.canSubmit}
+        loading={state.isSubmitting}
         testID="tasks-form-submit"
       >
         {t("tasks.form.submit")}
       </Button>
     ),
-    [canSubmit, handleSubmit, isBusy, t],
+    [handleSubmitPress, state.canSubmit, state.isSubmitting, t],
   );
 
   return (
@@ -114,20 +113,20 @@ export function NewTaskSheet({
       <View style={styles.form}>
         <Field label={t("tasks.form.taskTitleLabel")} testID="tasks-form-title">
           <FormTextInput
-            value={title}
-            onChangeText={setTitle}
+            value={state.title}
+            onChangeText={model.setTitle}
             placeholder={t("tasks.form.taskTitlePlaceholder")}
             autoFocus
             testID="tasks-form-title-input"
           />
         </Field>
-        {needsProject ? (
+        {state.needsProject ? (
           <>
             <Text style={styles.formHint}>{t("tasks.form.firstProjectHint")}</Text>
             <Field label={t("tasks.form.projectNameLabel")} testID="tasks-form-project-name">
               <FormTextInput
-                value={projectName}
-                onChangeText={setProjectName}
+                value={state.projectName}
+                onChangeText={model.setProjectName}
                 placeholder={t("tasks.form.projectNamePlaceholder")}
                 testID="tasks-form-project-name-input"
               />
@@ -138,15 +137,15 @@ export function NewTaskSheet({
               testID="tasks-form-prefix"
             >
               <FormTextInput
-                value={prefix}
-                onChangeText={setPrefix}
+                value={state.prefix}
+                onChangeText={model.setPrefix}
                 placeholder={t("tasks.form.prefixPlaceholder")}
                 testID="tasks-form-prefix-input"
               />
             </Field>
           </>
         ) : null}
-        {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
+        {state.submitError ? <Text style={styles.errorText}>{state.submitError}</Text> : null}
       </View>
     </AdaptiveModalSheet>
   );
