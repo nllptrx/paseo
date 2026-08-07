@@ -88,9 +88,14 @@ export const TaskAttachmentSchema = z.object({
 });
 export type TaskAttachment = z.infer<typeof TaskAttachmentSchema>;
 
+/**
+ * One entry in a board's feed. `taskId` is null when the entry belongs to the
+ * board rather than to a card — a settle notice, or a note typed at the board.
+ */
 export const TaskCommentSchema = z.object({
   id: z.string(),
-  taskId: z.string(),
+  projectId: z.string(),
+  taskId: z.string().nullable(),
   kind: z.enum(["user", "agent", "system"]),
   authorName: z.string(),
   /** Set when an agent wrote it, so the comment can link back to the transcript. */

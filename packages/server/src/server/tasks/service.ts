@@ -19,6 +19,11 @@ import {
 
 export type TaskRevisionListener = (revision: number) => void;
 
+/** Either a task (the board comes from it) or a board directly. */
+export type CreateFeedEntryInput = Omit<CreateTaskCommentInput, "projectId"> & {
+  projectId?: string;
+};
+
 /**
  * The tracker, and the one place that decides whether there is one.
  *
@@ -282,11 +287,39 @@ export class TaskService {
     return (await this.require()).findTasksByAgent(agentId);
   }
 
-  async createComment(input: CreateTaskCommentInput): Promise<TaskComment> {
+  /**
+   * Writes one feed entry. A caller that names a task does not have to know
+   * which board it belongs to — the task answers that, and letting the caller
+   * pass both would let the two disagree.
+   */
+  async createComment(input: CreateFeedEntryInput): Promise<TaskComment> {
     const store = await this.require();
-    const comment = store.createComment(input);
+    const projectId = await this.resolveFeedProjectId(store, input);
+    const comment = store.createComment({ ...input, projectId });
     this.announce(store);
     return comment;
+  }
+
+  private async resolveFeedProjectId(
+    store: TaskStore,
+    input: CreateFeedEntryInput,
+  ): Promise<string> {
+    if (!input.taskId) {
+      if (!input.projectId) {
+        throw new Error("A feed entry needs either a task or a board");
+      }
+      return input.projectId;
+    }
+    const task = store.getTask(input.taskId);
+    if (!task) {
+      throw new Error(`No task ${input.taskId} to comment on`);
+    }
+    return task.projectId;
+  }
+
+  /** The board's feed, oldest first. */
+  async listBoardFeed(input: { projectId: string; limit?: number }): Promise<TaskComment[]> {
+    return (await this.require()).listBoardFeed(input);
   }
 
   async close(): Promise<void> {

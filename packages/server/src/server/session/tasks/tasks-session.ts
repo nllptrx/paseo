@@ -355,6 +355,39 @@ export class TasksSession {
     }
   }
 
+  async handleFeedReadRequest(request: Inbound<"tasks.feed.read.request">): Promise<void> {
+    try {
+      const entries = await this.taskService.listBoardFeed({
+        projectId: request.projectId,
+        ...(request.limit !== undefined ? { limit: request.limit } : {}),
+      });
+      this.host.emit({
+        type: "tasks.feed.read.response",
+        payload: { requestId: request.requestId, entries, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleFeedPostRequest(request: Inbound<"tasks.feed.post.request">): Promise<void> {
+    try {
+      const entry = await this.taskService.createComment({
+        projectId: request.projectId,
+        taskId: request.taskId ?? null,
+        kind: "user",
+        authorName: "user",
+        body: request.body,
+      });
+      this.host.emit({
+        type: "tasks.feed.post.response",
+        payload: { requestId: request.requestId, entry, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
   handleSubscribeRequest(request: Inbound<"tasks.subscribe.request">): void {
     this.unsubscribe?.();
     this.unsubscribe = this.taskService.onRevision((revision) => {

@@ -335,3 +335,38 @@ export const TasksStepCancelResponseSchema = z.object({
   type: z.literal("tasks.step.cancel.response"),
   payload: TaskStepResultSchema,
 });
+
+export const TasksFeedReadRequestSchema = z.object({
+  type: z.literal("tasks.feed.read.request"),
+  requestId: z.string(),
+  projectId: z.string(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
+export const TasksFeedReadResponseSchema = z.object({
+  type: z.literal("tasks.feed.read.response"),
+  payload: z.object({
+    requestId: z.string(),
+    entries: z.array(TaskCommentSchema),
+    error: z.string().nullable(),
+  }),
+});
+
+/** A note typed at the board rather than on a card. `taskId` carries one when
+ * the composer was opened from a card. */
+export const TasksFeedPostRequestSchema = z.object({
+  type: z.literal("tasks.feed.post.request"),
+  requestId: z.string(),
+  projectId: z.string(),
+  taskId: z.string().nullable().optional(),
+  body: z.string().trim().min(1),
+});
+
+export const TasksFeedPostResponseSchema = z.object({
+  type: z.literal("tasks.feed.post.response"),
+  payload: z.object({
+    requestId: z.string(),
+    entry: TaskCommentSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});

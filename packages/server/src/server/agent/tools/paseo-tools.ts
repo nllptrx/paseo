@@ -123,6 +123,7 @@ export interface PaseoToolHostDependencies {
     | "updateTask"
     | "createComment"
     | "attachAgent"
+    | "listBoardFeed"
     | "setWorkflow"
     | "getWorkflow"
     | "clearWorkflow"
@@ -3201,6 +3202,30 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       }
       const task = await taskTransitions.applyReviewVerdict({ taskId, verdict });
       return { content: [], structuredContent: ensureValidJson({ task }) };
+    },
+  );
+
+  registerTool(
+    "read_board_feed",
+    {
+      title: "Read board feed",
+      description:
+        "Read a board's feed oldest-first: every card's comments plus the board's own entries, which is where automatic moves are recorded. Use it to catch up on what happened without opening each card.",
+      inputSchema: {
+        projectId: z.string().trim().min(1),
+        limit: z.number().int().positive().max(500).optional(),
+      },
+      outputSchema: { entries: z.array(TaskCommentSchema) },
+    },
+    async ({ projectId, limit }) => {
+      if (!taskService) {
+        throw new Error("Task tracker is not configured on this host");
+      }
+      const entries = await taskService.listBoardFeed({
+        projectId,
+        ...(limit !== undefined ? { limit } : {}),
+      });
+      return { content: [], structuredContent: ensureValidJson({ entries }) };
     },
   );
 

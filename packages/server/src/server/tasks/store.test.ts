@@ -118,8 +118,15 @@ describe("TaskStore", () => {
 
   it("counts comments on the task and carries their agent authorship", () => {
     const task = store.createTask({ projectId, title: "Discussed" });
-    store.createComment({ taskId: task.id, kind: "user", authorName: "me", body: "why?" });
     store.createComment({
+      projectId,
+      taskId: task.id,
+      kind: "user",
+      authorName: "me",
+      body: "why?",
+    });
+    store.createComment({
+      projectId,
       taskId: task.id,
       kind: "agent",
       authorName: "Claude",
@@ -137,6 +144,7 @@ describe("TaskStore", () => {
   it("hangs an attachment off either a task or a comment, never both", () => {
     const task = store.createTask({ projectId, title: "Attached" });
     const comment = store.createComment({
+      projectId,
       taskId: task.id,
       kind: "user",
       authorName: "me",
@@ -178,7 +186,7 @@ describe("TaskStore", () => {
 
   it("deletes a task's comments, attachments and agent links with it", () => {
     const task = store.createTask({ projectId, title: "Doomed" });
-    store.createComment({ taskId: task.id, kind: "user", authorName: "me", body: "hi" });
+    store.createComment({ projectId, taskId: task.id, kind: "user", authorName: "me", body: "hi" });
     store.attachAgent({ taskId: task.id, agentId: "agt_1", workspaceId: "ws_1" });
 
     store.deleteTask(task.id);
@@ -395,6 +403,75 @@ describe("TaskStore row shape", () => {
 
       store.removeDependency({ taskId: blocked.id, dependsOnTaskId: open.id });
       expect(store.listUnmetDependencies(blocked.id)).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+  /** One order for the whole board: a note typed at the board and a comment on a
+   * card are the same kind of entry, and the feed is where they meet. */
+  it("merges card comments and board entries into one feed", async () => {
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    try {
+      const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
+      const task = store.createTask({ projectId, title: "Ship it" });
+
+      store.createComment({
+        projectId,
+        taskId: task.id,
+        kind: "user",
+        authorName: "user",
+        body: "on the card",
+      });
+      store.createComment({ projectId, kind: "system", authorName: "board", body: "at the board" });
+
+      const feed = store.listBoardFeed({ projectId });
+      expect(feed.map((entry) => entry.body)).toEqual(["on the card", "at the board"]);
+      expect(feed[0].taskId).toBe(task.id);
+      expect(feed[1].taskId).toBeNull();
+      expect(store.listComments(task.id).map((entry) => entry.body)).toEqual(["on the card"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  /** The cap reads back from the newest, so a busy board shows what just
+   * happened rather than the day it opened. */
+  it("caps the feed at the newest entries and still returns them oldest-first", async () => {
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    try {
+      const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
+      for (let index = 0; index < 5; index++) {
+        store.createComment({
+          projectId,
+          kind: "user",
+          authorName: "user",
+          body: `entry ${index}`,
+        });
+      }
+      const feed = store.listBoardFeed({ projectId, limit: 2 });
+      expect(feed.map((entry) => entry.body)).toEqual(["entry 3", "entry 4"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("keeps a board entry when the card it was about is deleted", async () => {
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    try {
+      const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
+      const task = store.createTask({ projectId, title: "Ship it" });
+      store.createComment({
+        projectId,
+        taskId: task.id,
+        kind: "system",
+        authorName: "board",
+        body: "moved to done",
+      });
+      store.createComment({ projectId, kind: "user", authorName: "user", body: "board note" });
+
+      store.deleteTask(task.id);
+
+      expect(store.listBoardFeed({ projectId }).map((entry) => entry.body)).toEqual(["board note"]);
     } finally {
       store.close();
     }

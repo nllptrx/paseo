@@ -11,6 +11,35 @@ import { migrateTasksDatabase } from "./schema.js";
  * tasks.db is the one database the daemon cannot recreate.
  */
 function rewindToVersion1(db: DatabaseSync): void {
+  db.exec("DROP TRIGGER task_revision_comments_insert");
+  db.exec("DROP INDEX idx_task_comments_feed");
+  db.exec("DROP INDEX idx_task_comments_order");
+  db.exec("ALTER TABLE task_comments RENAME TO task_comments_v3");
+  db.exec(`
+    CREATE TABLE task_comments (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('user', 'agent', 'system')),
+      author_name TEXT NOT NULL,
+      agent_id TEXT,
+      workspace_id TEXT,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`
+    INSERT INTO task_comments (id, task_id, kind, author_name, agent_id, workspace_id, body, created_at)
+    SELECT id, task_id, kind, author_name, agent_id, workspace_id, body, created_at
+    FROM task_comments_v3 WHERE task_id IS NOT NULL
+  `);
+  db.exec("DROP TABLE task_comments_v3");
+  db.exec("CREATE INDEX idx_task_comments_order ON task_comments(task_id, created_at, id)");
+  db.exec(`
+    CREATE TRIGGER task_revision_comments_insert AFTER INSERT ON task_comments BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END
+  `);
+  db.exec("DELETE FROM schema_version WHERE version = 3");
   db.exec("DROP TRIGGER task_revision_workflows_insert");
   db.exec("DROP TRIGGER task_revision_workflows_update");
   db.exec("DROP TRIGGER task_revision_workflows_delete");
@@ -65,7 +94,7 @@ describe("migrateTasksDatabase", () => {
         .prepare("SELECT version FROM schema_version ORDER BY version")
         .all()
         .map((row) => (row as { version: number }).version);
-      expect(versions).toEqual([1, 2]);
+      expect(versions).toEqual([1, 2, 3]);
 
       const project = second.prepare("SELECT * FROM task_projects WHERE id = 'tprj_1'").get() as {
         name: string;
@@ -98,7 +127,7 @@ describe("migrateTasksDatabase", () => {
       const applied = second.prepare("SELECT count(*) AS total FROM schema_version").get() as {
         total: number;
       };
-      expect(applied.total).toBe(2);
+      expect(applied.total).toBe(3);
     } finally {
       second.close();
     }

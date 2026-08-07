@@ -70,7 +70,8 @@ export type TaskLabelRow = z.infer<typeof TaskLabelRowSchema>;
 
 export const TaskCommentRowSchema = z.object({
   id: z.string(),
-  task_id: z.string(),
+  project_id: z.string(),
+  task_id: z.string().nullable(),
   kind: z.enum(["user", "agent", "system"]),
   author_name: z.string(),
   agent_id: z.string().nullable(),

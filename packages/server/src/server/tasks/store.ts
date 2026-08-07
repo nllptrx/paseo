@@ -49,6 +49,10 @@ import { migrateTasksDatabase } from "./schema.js";
  * instead of renumbering the column. */
 const POSITION_STEP = 1024;
 
+/** A feed reads back, not forward: past this the answer is to open the card,
+ * not to scroll further. */
+const DEFAULT_FEED_LIMIT = 200;
+
 function generateId(prefix: string): string {
   return `${prefix}_${randomBytes(8).toString("hex")}`;
 }
@@ -83,7 +87,9 @@ export interface UpdateTaskInput {
 }
 
 export interface CreateTaskCommentInput {
-  taskId: string;
+  projectId: string;
+  /** Null for an entry about the board rather than about one card. */
+  taskId?: string | null;
   kind: TaskComment["kind"];
   authorName: string;
   agentId?: string | null;
@@ -712,12 +718,13 @@ export class TaskStore {
     this.db
       .prepare(
         `INSERT INTO task_comments (
-           id, task_id, kind, author_name, agent_id, workspace_id, body, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           id, project_id, task_id, kind, author_name, agent_id, workspace_id, body, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
-        input.taskId,
+        input.projectId,
+        input.taskId ?? null,
         input.kind,
         input.authorName,
         input.agentId ?? null,
@@ -727,7 +734,8 @@ export class TaskStore {
       );
     return {
       id,
-      taskId: input.taskId,
+      projectId: input.projectId,
+      taskId: input.taskId ?? null,
       kind: input.kind,
       authorName: input.authorName,
       agentId: input.agentId ?? null,
@@ -738,9 +746,33 @@ export class TaskStore {
     };
   }
 
+  /**
+   * The board's whole feed, oldest first: every card's comments plus the
+   * entries that belong to the board itself, in one order.
+   *
+   * The tie-break is the rowid rather than the id. Two entries written in the
+   * same millisecond are common — a move and the note about it — and ids are
+   * random hex, so ordering by them would shuffle a cause after its effect.
+   */
+  listBoardFeed(input: { projectId: string; limit?: number }): TaskComment[] {
+    const limit = input.limit ?? DEFAULT_FEED_LIMIT;
+    const rows = selectAll(
+      this.db.prepare(
+        `SELECT * FROM task_comments
+         WHERE project_id = ?
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT ?`,
+      ),
+      TaskCommentRowSchema,
+      "task_comments",
+      [input.projectId, limit],
+    );
+    return rows.reverse().map((row) => this.toComment(row));
+  }
+
   listComments(taskId: string): TaskComment[] {
     return selectAll(
-      this.db.prepare("SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at, id"),
+      this.db.prepare("SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at, rowid"),
       TaskCommentRowSchema,
       "task_comments",
       [taskId],
@@ -750,6 +782,7 @@ export class TaskStore {
   private toComment(row: TaskCommentRow): TaskComment {
     return {
       id: row.id,
+      projectId: row.project_id,
       taskId: row.task_id,
       kind: row.kind,
       authorName: row.author_name,

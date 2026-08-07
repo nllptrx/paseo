@@ -202,6 +202,41 @@ const MIGRATIONS: readonly string[] = [
       UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
     END;
   `,
+  `
+    -- The feed is the board's comments in one order, so an entry has to be able
+    -- to belong to the board rather than to a task: a settle notice and a note
+    -- typed at the board are both feed entries with no card behind them.
+    -- SQLite cannot drop a NOT NULL, so the table is rebuilt.
+    CREATE TABLE task_comments_next (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES task_projects(id) ON DELETE CASCADE,
+      task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('user', 'agent', 'system')),
+      author_name TEXT NOT NULL,
+      agent_id TEXT,
+      workspace_id TEXT,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    INSERT INTO task_comments_next (
+      id, project_id, task_id, kind, author_name, agent_id, workspace_id, body, created_at
+    )
+    SELECT c.id, t.project_id, c.task_id, c.kind, c.author_name, c.agent_id, c.workspace_id,
+           c.body, c.created_at
+    FROM task_comments c
+    JOIN tasks t ON t.id = c.task_id;
+
+    DROP TABLE task_comments;
+    ALTER TABLE task_comments_next RENAME TO task_comments;
+
+    CREATE INDEX idx_task_comments_order ON task_comments(task_id, created_at, id);
+    CREATE INDEX idx_task_comments_feed ON task_comments(project_id, created_at, id);
+
+    CREATE TRIGGER task_revision_comments_insert AFTER INSERT ON task_comments BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

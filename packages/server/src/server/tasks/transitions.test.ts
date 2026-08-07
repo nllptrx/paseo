@@ -54,7 +54,6 @@ describe("TaskTransitionEngine", () => {
   });
 
   async function seedTask(input?: { review?: TaskBoardConfig }) {
-    const boardNotes: string[] = [];
     const project = await service.createProject({
       name: "Paseo",
       prefix: "PSE",
@@ -73,21 +72,21 @@ describe("TaskTransitionEngine", () => {
     const engine = new TaskTransitionEngine({
       taskService: service,
       agentManager,
-      notifyBoard: ({ note }) => {
-        boardNotes.push(note);
-      },
       logger,
     });
-    return { task, engine, agentManager, boardNotes };
+    return { task, engine, agentManager, projectId: project.id };
   }
 
   it("moves a task to done when work settles and the board does not review", async () => {
-    const { task, engine, boardNotes } = await seedTask();
+    const { task, engine, projectId } = await seedTask();
     await engine.onWorkSettled(task.id);
     expect((await service.getTask(task.id))?.status).toBe("done");
-    expect(boardNotes).toEqual([
-      `Task PSE-1 "Ship it" settled its attached work and moved to done.`,
+
+    const feed = await service.listBoardFeed({ projectId });
+    expect(feed.map((entry) => ({ kind: entry.kind, body: entry.body }))).toEqual([
+      { kind: "system", body: `PSE-1 "Ship it" settled its attached work and moved to done.` },
     ]);
+    expect(feed[0].taskId).toBe(task.id);
   });
 
   it("moves a task to in_review when the board reviews", async () => {

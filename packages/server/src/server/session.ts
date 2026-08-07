@@ -618,6 +618,10 @@ function dispatchTaskWorkflowMessage(
   switch (msg.type) {
     case "tasks.board.configure.request":
       return session.handleBoardConfigureRequest(msg);
+    case "tasks.feed.read.request":
+      return session.handleFeedReadRequest(msg);
+    case "tasks.feed.post.request":
+      return session.handleFeedPostRequest(msg);
     case "tasks.workflow.set.request":
       return session.handleWorkflowSetRequest(msg);
     case "tasks.workflow.clear.request":
