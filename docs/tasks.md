@@ -96,15 +96,9 @@ representations of one thing while showing two.
 
 ## Surfaces
 
-Two views over the same tasks behind one tab, and the difference is what you
-came to do. The **list** groups by status and is for reading a lot at once; the
-**board** is for moving things. Both read `task-views.ts`, so neither invents an
-ordering, and the tab changes how a task is drawn rather than which tasks are
-there.
-
-The board moves a task through a menu on the card, not a drag, for now. Dragging
-is the gesture the board exists for and it is the next thing; a menu that writes
-through beats a board you can only read.
+Two views over the same tasks, and the difference is what you came to do. The
+**list** groups by status and is for reading a lot at once; the **board** is for
+moving things. Both read `task-views.ts`, so neither invents an ordering.
 
 The board always shows five columns and adds **Canceled** only once something is
 in it. A board is where work is going; a permanent column of abandoned work is

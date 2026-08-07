@@ -256,14 +256,6 @@ export const ptBR: TranslationResources = {
       thisMonth: "Este mês",
       older: "Mais antigas",
     },
-    view: {
-      list: "Lista",
-      board: "Quadro",
-    },
-    board: {
-      emptyColumn: "Nada aqui",
-      changeStatus: "Alterar status",
-    },
     status: {
       initializing: "Iniciando",
       idle: "Ocioso",

@@ -253,14 +253,6 @@ export const ar: TranslationResources = {
       thisMonth: "هذا الشهر",
       older: "أقدم",
     },
-    view: {
-      list: "قائمة",
-      board: "لوحة",
-    },
-    board: {
-      emptyColumn: "لا شيء هنا",
-      changeStatus: "تغيير الحالة",
-    },
     status: {
       initializing: "البدء",
       idle: "عاطل",

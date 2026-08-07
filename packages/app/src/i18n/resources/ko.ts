@@ -254,14 +254,6 @@ export const ko: TranslationResources = {
       thisMonth: "이번 달",
       older: "이전",
     },
-    view: {
-      list: "목록",
-      board: "보드",
-    },
-    board: {
-      emptyColumn: "여기엔 아무것도 없습니다",
-      changeStatus: "상태 변경",
-    },
     status: {
       initializing: "시작 중",
       idle: "대기 중",

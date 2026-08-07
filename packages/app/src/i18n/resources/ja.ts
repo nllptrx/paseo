@@ -256,14 +256,6 @@ export const ja: TranslationResources = {
       thisMonth: "今月",
       older: "以前",
     },
-    view: {
-      list: "リスト",
-      board: "ボード",
-    },
-    board: {
-      emptyColumn: "ここには何もありません",
-      changeStatus: "ステータスを変更",
-    },
     status: {
       initializing: "起動中",
       idle: "アイドル",

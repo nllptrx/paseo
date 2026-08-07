@@ -253,14 +253,6 @@ export const zhCN: TranslationResources = {
       thisMonth: "本月",
       older: "更早",
     },
-    view: {
-      list: "列表",
-      board: "看板",
-    },
-    board: {
-      emptyColumn: "这里什么都没有",
-      changeStatus: "更改状态",
-    },
     status: {
       initializing: "正在启动",
       idle: "空闲",

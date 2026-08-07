@@ -257,14 +257,6 @@ export const fr: TranslationResources = {
       thisMonth: "Ce mois-ci",
       older: "Plus vieux",
     },
-    view: {
-      list: "Liste",
-      board: "Tableau",
-    },
-    board: {
-      emptyColumn: "Rien ici",
-      changeStatus: "Changer le statut",
-    },
     status: {
       initializing: "Départ",
       idle: "Inactif",
