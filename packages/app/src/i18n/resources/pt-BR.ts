@@ -971,6 +971,11 @@ export const ptBR: TranslationResources = {
       done: "Concluído",
       canceled: "Cancelado",
     },
+    board: {
+      emptyColumn: "Nada aqui",
+      changeStatus: "Alterar status",
+      addTask: "Nova tarefa",
+    },
     form: {
       title: "Nova tarefa",
       submit: "Criar",

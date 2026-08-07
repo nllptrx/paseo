@@ -971,6 +971,11 @@ export const ru: TranslationResources = {
       done: "Готово",
       canceled: "Отменено",
     },
+    board: {
+      emptyColumn: "Здесь пусто",
+      changeStatus: "Изменить статус",
+      addTask: "Новая задача",
+    },
     form: {
       title: "Новая задача",
       submit: "Создать",

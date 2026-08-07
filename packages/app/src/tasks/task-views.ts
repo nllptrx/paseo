@@ -4,8 +4,41 @@ import {
   type TaskLabel,
   type TaskPriority,
   type TaskProject,
+  type TaskSnapshot,
   type TaskStatus,
 } from "@getpaseo/protocol/tasks/types";
+
+export interface ProjectBoardSelection {
+  /** Tracker projects linked to the Paseo project, in snapshot order. */
+  projects: TaskProject[];
+  /** Their tasks, manual-sorted, ready for the board. */
+  tasks: Task[];
+  /** Labels scoped to those projects. */
+  labels: TaskLabel[];
+}
+
+/**
+ * One Paseo project's slice of the tracker. The kanban board is per project,
+ * so it shows the tasks of the tracker projects linked to it — nothing else.
+ */
+export function selectProjectBoard(
+  snapshot: TaskSnapshot | null,
+  paseoProjectId: string,
+): ProjectBoardSelection {
+  if (!snapshot) {
+    return { projects: [], tasks: [], labels: [] };
+  }
+  const projects = snapshot.projects.filter((project) => project.paseoProjectId === paseoProjectId);
+  const projectIds = new Set(projects.map((project) => project.id));
+  return {
+    projects,
+    tasks: sortTasks(
+      snapshot.tasks.filter((task) => projectIds.has(task.projectId)),
+      "manual",
+    ),
+    labels: snapshot.labels.filter((label) => projectIds.has(label.projectId)),
+  };
+}
 
 /**
  * Columns the board always shows. `canceled` is not one of them: a board is

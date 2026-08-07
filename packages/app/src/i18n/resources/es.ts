@@ -980,6 +980,11 @@ export const es: TranslationResources = {
       done: "Hecho",
       canceled: "Cancelado",
     },
+    board: {
+      emptyColumn: "Nada aquí",
+      changeStatus: "Cambiar estado",
+      addTask: "Nueva tarea",
+    },
     form: {
       title: "Nueva tarea",
       submit: "Crear",

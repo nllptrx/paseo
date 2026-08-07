@@ -28,13 +28,15 @@ type SubscribeCheckoutDiffResponseMessage = Extract<
 type StatusMessage = Extract<SessionOutboundMessage, { type: "status" }>;
 type TerminalsChangedMessage = Extract<SessionOutboundMessage, { type: "terminals_changed" }>;
 type KanbanUpdateMessage = Extract<SessionOutboundMessage, { type: "kanban.update" }>;
+type TasksUpdateMessage = Extract<SessionOutboundMessage, { type: "tasks.update" }>;
 type RouterMessage =
   | ProvidersSnapshotUpdateMessage
   | CheckoutDiffUpdateMessage
   | SubscribeCheckoutDiffResponseMessage
   | StatusMessage
   | TerminalsChangedMessage
-  | KanbanUpdateMessage;
+  | KanbanUpdateMessage
+  | TasksUpdateMessage;
 type RouterMessageType = RouterMessage["type"];
 type RouterHandler = (message: RouterMessage) => void;
 type RouterClient = Parameters<typeof mountServerDataPushRouter>[0]["client"];
@@ -51,7 +53,11 @@ const daemonConfig: MutableDaemonConfig = {
 };
 
 function createFakeClient(
-  config: { rejectCheckoutDiffSubscribe?: boolean; rejectKanbanSubscribe?: boolean } = {},
+  config: {
+    rejectCheckoutDiffSubscribe?: boolean;
+    rejectKanbanSubscribe?: boolean;
+    rejectTasksSubscribe?: boolean;
+  } = {},
 ): {
   client: RouterClient;
   emit: <K extends RouterMessageType>(message: Extract<RouterMessage, { type: K }>) => void;
@@ -65,6 +71,8 @@ function createFakeClient(
   unsubscribeTerminalCalls: Array<{ cwd: string; workspaceId?: string }>;
   kanbanSubscribeCalls: number;
   kanbanUnsubscribeCalls: number;
+  tasksSubscribeCalls: number;
+  tasksUnsubscribeCalls: number;
 } {
   const handlers: Record<RouterMessageType, RouterHandler[]> = {
     providers_snapshot_update: [],
@@ -73,6 +81,7 @@ function createFakeClient(
     status: [],
     terminals_changed: [],
     "kanban.update": [],
+    "tasks.update": [],
   };
   const subscribeCheckoutDiffCalls: Array<{
     cwd: string;
@@ -84,6 +93,8 @@ function createFakeClient(
   const unsubscribeTerminalCalls: Array<{ cwd: string; workspaceId?: string }> = [];
   let kanbanSubscribeCalls = 0;
   let kanbanUnsubscribeCalls = 0;
+  let tasksSubscribeCalls = 0;
+  let tasksUnsubscribeCalls = 0;
 
   function on<K extends RouterMessageType>(
     type: K,
@@ -146,6 +157,17 @@ function createFakeClient(
         kanbanUnsubscribeCalls += 1;
         return { error: null, requestId: requestId ?? "kanban-unsubscribe" };
       },
+      async tasksSubscribe(requestId) {
+        tasksSubscribeCalls += 1;
+        if (config.rejectTasksSubscribe) {
+          throw new Error("subscribe failed");
+        }
+        return { error: null, requestId: requestId ?? "tasks-subscribe" };
+      },
+      async tasksUnsubscribe(requestId) {
+        tasksUnsubscribeCalls += 1;
+        return { error: null, requestId: requestId ?? "tasks-unsubscribe" };
+      },
     },
     emit,
     subscribeCheckoutDiffCalls,
@@ -157,6 +179,12 @@ function createFakeClient(
     },
     get kanbanUnsubscribeCalls() {
       return kanbanUnsubscribeCalls;
+    },
+    get tasksSubscribeCalls() {
+      return tasksSubscribeCalls;
+    },
+    get tasksUnsubscribeCalls() {
+      return tasksUnsubscribeCalls;
     },
   };
 }

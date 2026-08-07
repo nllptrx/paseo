@@ -960,6 +960,11 @@ export const ja: TranslationResources = {
       done: "完了",
       canceled: "キャンセル",
     },
+    board: {
+      emptyColumn: "ここには何もありません",
+      changeStatus: "ステータスを変更",
+      addTask: "新しいタスク",
+    },
     form: {
       title: "新しいタスク",
       submit: "作成",

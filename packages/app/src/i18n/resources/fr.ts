@@ -979,6 +979,11 @@ export const fr: TranslationResources = {
       done: "Terminé",
       canceled: "Annulé",
     },
+    board: {
+      emptyColumn: "Rien ici",
+      changeStatus: "Changer le statut",
+      addTask: "Nouvelle tâche",
+    },
     form: {
       title: "Nouvelle tâche",
       submit: "Créer",

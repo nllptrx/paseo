@@ -949,6 +949,11 @@ export const ar: TranslationResources = {
       done: "منجز",
       canceled: "ملغى",
     },
+    board: {
+      emptyColumn: "لا شيء هنا",
+      changeStatus: "تغيير الحالة",
+      addTask: "مهمة جديدة",
+    },
     form: {
       title: "مهمة جديدة",
       submit: "إنشاء",

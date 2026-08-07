@@ -12,15 +12,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { KanbanBoardSurface } from "@/components/kanban/kanban-board-surface";
 import { KanbanOrchestratorPane } from "@/components/kanban/kanban-orchestrator-pane";
+import { KanbanPlanFormSheet } from "@/components/kanban/kanban-plan-form-sheet";
+import { TaskBoardSurface } from "@/components/tasks/task-board-surface";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { useKanban, useKanbans } from "@/hooks/use-kanbans";
+import { useKanbans } from "@/hooks/use-kanbans";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
-import { deriveBoard } from "@/kanban/derive-board";
-import { useKanbanDraftOrder } from "@/stores/kanban-draft-order-store";
+import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
+import type { KeyboardActionId } from "@/keyboard/keyboard-action-dispatcher";
+import { selectProjectBoard } from "@/tasks/task-views";
+import { useTasks } from "@/tasks/use-tasks";
 import { useProjectDisplayName } from "@/stores/session-store-hooks";
 import { buildKanbansRoute } from "@/utils/host-routes";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -30,6 +33,8 @@ const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedMessagesSquare = withUnistyles(MessagesSquare);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
+
+const NEW_PLAN_ACTIONS: readonly KeyboardActionId[] = ["kanban.plan.new"];
 
 export function KanbanBoardScreen({ kanbanId }: { kanbanId: string }): ReactElement {
   const { t } = useTranslation();
@@ -95,6 +100,7 @@ function LoadedKanbanBoardScreen({
   const isCompact = useIsCompactFormFactor();
   const { provisionOrchestrator } = useKanbanMutations({ serverId });
   const [isProvisioning, setIsProvisioning] = useState(false);
+  const [isCreatingPlan, setIsCreatingPlan] = useState(false);
   // Wide layouts have room to keep the conversation open beside the board;
   // a compact one borrows the whole screen for it, so it starts closed.
   const [isOrchestratorPaneOpen, setIsOrchestratorPaneOpen] = useState(() => !isCompact);
@@ -112,16 +118,30 @@ function LoadedKanbanBoardScreen({
     [],
   );
   const handleCloseOrchestratorPane = useCallback(() => setIsOrchestratorPaneOpen(false), []);
+  const handleOpenCreatePlan = useCallback(() => setIsCreatingPlan(true), []);
+  const handleCloseCreatePlan = useCallback(() => setIsCreatingPlan(false), []);
+  const handleNewPlanShortcut = useCallback(() => {
+    setIsCreatingPlan(true);
+    return true;
+  }, []);
+
+  useKeyboardActionHandler({
+    handlerId: `kanban-plan-new-${kanbanId}`,
+    actions: NEW_PLAN_ACTIONS,
+    enabled: !isCreatingPlan,
+    priority: 0,
+    handle: handleNewPlanShortcut,
+  });
+
   const orchestratorSheetHeader = useMemo(
     () => ({ title: t("kanban.orchestrator.rail.heading") }),
     [t],
   );
-  const { kanban: detail, isLoading, isError, error, refetch } = useKanban({ serverId, kanbanId });
-  const draftOrder = useKanbanDraftOrder(kanbanId);
   const projectName = useProjectDisplayName(serverId, summary.projectId);
+  const { snapshot } = useTasks(serverId);
   const totalCount = useMemo(
-    () => (detail ? deriveBoard(detail, draftOrder).totalCount : 0),
-    [detail, draftOrder],
+    () => selectProjectBoard(snapshot, summary.projectId).tasks.length,
+    [snapshot, summary.projectId],
   );
 
   return (
@@ -139,7 +159,7 @@ function LoadedKanbanBoardScreen({
           {t("kanban.screen.backToOverview")}
         </Button>
         <View style={styles.subHeaderTrailing}>
-          <Text style={styles.count}>{t("kanban.screen.planCount", { count: totalCount })}</Text>
+          <Text style={styles.count}>{t("tasks.screen.taskCount", { count: totalCount })}</Text>
           <Button
             variant="ghost"
             size="xs"
@@ -172,6 +192,12 @@ function LoadedKanbanBoardScreen({
               testID={`kanban-board-menu-content-${kanbanId}`}
             >
               <DropdownMenuItem
+                testID={`kanban-new-plan-${kanbanId}`}
+                onSelect={handleOpenCreatePlan}
+              >
+                {t("kanban.column.addPlan")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 testID={`kanban-create-orchestrator-${kanbanId}`}
                 onSelect={handleProvisionOrchestrator}
                 disabled={isProvisioning}
@@ -188,14 +214,10 @@ function LoadedKanbanBoardScreen({
           contentContainerStyle={styles.scrollContent}
           testID={`kanban-board-${kanbanId}`}
         >
-          <KanbanBoardSurface
+          <TaskBoardSurface
             serverId={serverId}
-            kanbanId={kanbanId}
-            detail={detail}
-            isLoading={isLoading}
-            isError={isError}
-            error={error}
-            onRetry={refetch}
+            paseoProjectId={summary.projectId}
+            projectDisplayName={projectName ?? summary.name}
           />
         </ScrollView>
         {isOrchestratorPaneOpen && !isCompact ? (
@@ -213,6 +235,15 @@ function LoadedKanbanBoardScreen({
         >
           <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
         </AdaptiveModalSheet>
+      ) : null}
+      {isCreatingPlan ? (
+        <KanbanPlanFormSheet
+          serverId={serverId}
+          kanbanId={kanbanId}
+          parentPlanId={null}
+          visible
+          onClose={handleCloseCreatePlan}
+        />
       ) : null}
     </View>
   );

@@ -956,6 +956,11 @@ export const ko: TranslationResources = {
       done: "완료",
       canceled: "취소됨",
     },
+    board: {
+      emptyColumn: "여기엔 아무것도 없습니다",
+      changeStatus: "상태 변경",
+      addTask: "새 태스크",
+    },
     form: {
       title: "새 태스크",
       submit: "만들기",

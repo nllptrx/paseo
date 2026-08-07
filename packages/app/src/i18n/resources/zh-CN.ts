@@ -941,6 +941,11 @@ export const zhCN: TranslationResources = {
       done: "已完成",
       canceled: "已取消",
     },
+    board: {
+      emptyColumn: "这里什么都没有",
+      changeStatus: "更改状态",
+      addTask: "新建任务",
+    },
     form: {
       title: "新建任务",
       submit: "创建",

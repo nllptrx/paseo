@@ -959,6 +959,11 @@ export const en = {
       done: "Done",
       canceled: "Canceled",
     },
+    board: {
+      emptyColumn: "Nothing here",
+      changeStatus: "Change status",
+      addTask: "New task",
+    },
     form: {
       title: "New task",
       submit: "Create",
