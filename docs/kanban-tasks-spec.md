@@ -108,9 +108,10 @@ one-move undo is what prevents it.
 - CLI: `paseo task ls|create|move`, by key (`PSE-42`) or id.
 - **[SHIPPED]** `create_plan` is replaced by `add_task_workflow`,
   `get_task_workflow` and `run_task_step`. The kanban and orchestrator-mesh
-  tools are gone. **[PROPOSED]** tools for subtasks and dependencies follow the
-  same shape, and board events reach agents through the feed room rather than
-  per-agent prompts (§6.1).
+  tools are gone. `create_task` takes a `parentTaskId`, and
+  `add_task_dependency` / `remove_task_dependency` / `list_task_blockers`,
+  `delegate_task` / `list_task_presets` and `read_board_feed` cover the rest.
+  Board events reach agents through the feed, not per-agent prompts (§6.1).
 
 ## 5. Surfaces
 
@@ -135,10 +136,10 @@ one-move undo is what prevents it.
 - **Drag** writes `tasks.move`; the optimistic paint uses the daemon's own
   position arithmetic. Menu move covers platforms without drag. Every column
   is hand-sortable, because order is stored.
-- **Sidebar** [PROPOSED]: full-height right sidebar in the explorer shape —
-  panel-store width, viewport clamp, `SidebarResizeHandle`, open state
-  persisted on desktop, sheet on compact. Its content is the feed, so it
-  lands with §6; the panel-store keys survived the mesh retirement for it.
+- **Sidebar**: full-height right sidebar in the explorer shape — panel-store
+  width, viewport clamp, `SidebarResizeHandle`, open state persisted on
+  desktop, sheet on compact. Its content is the feed (§6); it reuses the
+  panel-store keys the orchestrator pane left behind.
 
 **[DECIDED] menu changes**: "Add plan" → "Add workflow"; "Require review"
 becomes a checkmark toggle per [docs/menus.md](menus.md) rather than a menu
@@ -150,9 +151,9 @@ item with a swapping label; "Create Orchestrator" goes (§6.1).
   same `TaskBoardSurface` for the workspace's project. Entry points: "Kanban"
   in the tab row's ⌄ menu (pinnable) and a default pinned launcher before the
   terminal. Splittable and draggable like any tab.
-- **Explorer sidebar** [PROPOSED]: gains a **Feed** tab beside Changes/Files/PR
-  when the project has a board, following the PR-tab fallback rule. The
-  orchestrator tab that stood there is gone (§6.1); the Feed replaces it.
+- **Explorer sidebar**: has a **Feed** tab beside Changes/Files/PR when the
+  workspace's project has a board, following the PR-tab fallback rule. It
+  replaced the orchestrator tab that stood there (§6.1).
 
 ### 5.3 Overview `/kanbans` [SHIPPED]
 
