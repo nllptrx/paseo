@@ -124,9 +124,11 @@ one-move undo is what prevents it.
   flex 264–360 wide with horizontal scroll; compact shows one column behind a
   scrollable segmented picker.
 - **Card**: key, priority label (colour-coded urgent/high), live
-  `StatusBucketDot` from attached agents, title, label chips. Kebab and
-  right-click context menu carry the same list: Approve/Reject when in review,
-  Add workflow, Open agent per attachment, move-to-status, Delete.
+  `StatusBucketDot` from attached agents, title, label chips. A press opens the
+  detail sheet (§5.4). Kebab and right-click context menu carry the same list:
+  Details, Approve/Reject when in review, Add workflow, Open agent per
+  attachment, move-to-status, Delete. Subtasks indent under their parent when
+  the parent is in the same column.
 - **Capture**: every column's "+" opens the minimal sheet — title only. The
   first capture also creates the tracker project, prefilled and linked. Form
   model per [docs/forms.md](forms.md), unit-tested.
@@ -161,7 +163,7 @@ without a tracker are skipped rather than asked and failed.
 The route is `/kanbans/<taskProjectId>`: a board is a tracker project, so the
 same id addresses the column and the board it opens.
 
-### 5.4 Task detail sheet [DECIDED]
+### 5.4 Task detail sheet [SHIPPED]
 
 Description, comments, labels, due date, subtasks, dependencies and
 attachments are wire-complete with no surface. Build one sheet that shows
@@ -172,7 +174,7 @@ them, opened by pressing a card. That also settles what a card press does:
   row. Today's behaviour — open the chat when exactly one agent is attached,
   silently do nothing otherwise — has no rule a user can learn.
 
-### 5.5 Presets and delegate [SHIPPED server-side]
+### 5.5 Presets and delegate [SHIPPED]
 
 A preset is the one-step workflow you do not have to author: pick one on a
 card and an agent starts, already attached, in the environment the preset asks
@@ -183,7 +185,9 @@ exists rather than after one is running.
 workspace an agent on it is using. A card nobody is on gets a worktree like the
 other mode; the project root is not a workspace the daemon can attach to.
 
-**[PROPOSED]** the picker itself, on the detail sheet.
+The picker is on the detail sheet: one press per preset, disabled while the
+card has open blockers — the daemon would refuse anyway, and a button that
+throws when pressed is worse than one that says why it cannot be.
 
 ## 6. Board feed [SHIPPED]
 
@@ -263,8 +267,7 @@ and the board e2e.
    `comment_task` mirroring, composer with mention fanout, mesh retirement,
    Feed tab.
 4. **Hierarchy and rules** (§2.3, §6.1, §6.2). **Done.**
-5. **Detail sheet and delegate** (§5.4, §5.5). Delegate done server-side; the
-   sheet and the preset picker are the remaining UI.
+5. **Detail sheet and delegate** (§5.4, §5.5). **Done.**
 
 ## 8. Invariants
 
