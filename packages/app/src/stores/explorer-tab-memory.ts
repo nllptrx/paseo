@@ -1,7 +1,7 @@
-export type ExplorerTab = "changes" | "files" | "pr";
+export type ExplorerTab = "changes" | "files" | "pr" | "orchestrator";
 
 export function isExplorerTab(value: unknown): value is ExplorerTab {
-  return value === "changes" || value === "files" || value === "pr";
+  return value === "changes" || value === "files" || value === "pr" || value === "orchestrator";
 }
 
 export function buildExplorerCheckoutKey(serverId: string, cwd: string): string | null {
