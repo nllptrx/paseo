@@ -11,6 +11,12 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { KanbanPlan, NestedPlan } from "@getpaseo/protocol/kanban/types";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -54,6 +60,11 @@ export interface KanbanCardProps {
   isDragSource?: boolean;
 }
 
+/**
+ * A card is a press target and, on web, a right-click target for the same
+ * actions its kebab offers. The two wrappers differ only in that, so the card
+ * itself is one body rendered inside whichever applies.
+ */
 export function KanbanCard({
   serverId,
   plan,
@@ -62,6 +73,67 @@ export function KanbanCard({
   isOverlay = false,
   isDragSource = false,
 }: KanbanCardProps): ReactElement {
+  const cardStyle = [
+    styles.card,
+    isOverlay && styles.cardOverlay,
+    isDragSource && styles.cardDragSource,
+  ];
+  const body = (
+    <KanbanCardBody serverId={serverId} plan={plan} actions={actions} isOverlay={isOverlay} />
+  );
+
+  if (isOverlay || actions.length === 0) {
+    return (
+      <Pressable
+        onPress={isOverlay ? undefined : onPress}
+        style={cardStyle}
+        testID={`kanban-card-${plan.id}`}
+        accessibilityRole="button"
+      >
+        {body}
+      </Pressable>
+    );
+  }
+
+  // Long press is left alone: on a touch board it is how a card is picked up,
+  // and the kebab is always visible there anyway.
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        onPress={onPress}
+        style={cardStyle}
+        testID={`kanban-card-${plan.id}`}
+        accessibilityRole="button"
+        enabledOnMobile={false}
+      >
+        {body}
+      </ContextMenuTrigger>
+      <ContextMenuContent align="start" width={220} testID={`kanban-card-context-menu-${plan.id}`}>
+        {actions.map((action) => (
+          <ContextMenuItem
+            key={action.key}
+            testID={`kanban-card-context-action-${plan.id}-${action.key}`}
+            onSelect={action.onSelect}
+          >
+            {action.label}
+          </ContextMenuItem>
+        ))}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function KanbanCardBody({
+  serverId,
+  plan,
+  actions,
+  isOverlay,
+}: {
+  serverId: string;
+  plan: KanbanPlan | NestedPlan;
+  actions: KanbanCardAction[];
+  isOverlay: boolean;
+}): ReactElement {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -94,12 +166,7 @@ export function KanbanCard({
   }, [plan, t]);
 
   return (
-    <Pressable
-      onPress={isOverlay ? undefined : onPress}
-      style={[styles.card, isOverlay && styles.cardOverlay, isDragSource && styles.cardDragSource]}
-      testID={`kanban-card-${plan.id}`}
-      accessibilityRole="button"
-    >
+    <>
       <View style={styles.header}>
         {plan.body.type === "nested_kanban" ? (
           <ThemedFolderKanban size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
@@ -181,7 +248,7 @@ export function KanbanCard({
       {prHint || serviceSummary ? (
         <WorkspaceMetaRow hostBadge={null} prHint={prHint} serviceSummary={serviceSummary} />
       ) : null}
-    </Pressable>
+    </>
   );
 }
 

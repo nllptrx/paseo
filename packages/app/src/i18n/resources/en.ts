@@ -1019,6 +1019,10 @@ export const en = {
         cancel: "Cancel",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}} is not available on this host",
+      providerUnavailableWithReason: "{{provider}} is not available on this host: {{reason}}",
+    },
     planSheet: {
       noSteps: "This plan has no steps yet.",
       noRuns: "Not run yet",
@@ -2102,6 +2106,7 @@ export const en = {
         openProject: "Open project",
         newWorkspace: "New workspace",
         newWorktree: "New worktree",
+        newKanbanPlan: "New plan",
         archiveWorkspace: "Archive workspace",
         newTab: "New tab",
         closeCurrentTab: "Close current tab",

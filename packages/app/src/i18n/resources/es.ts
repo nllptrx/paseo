@@ -1040,6 +1040,10 @@ export const es: TranslationResources = {
         cancel: "Cancelar",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}} no está disponible en este host",
+      providerUnavailableWithReason: "{{provider}} no está disponible en este host: {{reason}}",
+    },
     planSheet: {
       noSteps: "Este plan aún no tiene pasos.",
       noRuns: "Aún no se ha ejecutado",
@@ -2140,6 +2144,7 @@ export const es: TranslationResources = {
         openProject: "Abrir proyecto",
         newWorkspace: "Nuevo espacio de trabajo",
         newWorktree: "Nuevo árbol de trabajo",
+        newKanbanPlan: "Nuevo plan",
         archiveWorkspace: "Archivar espacio de trabajo",
         newTab: "Nueva pestaña",
         closeCurrentTab: "Cerrar pestaña actual",

@@ -6,7 +6,12 @@ import type {
   StepRunStatus,
   StoredKanban,
 } from "@getpaseo/protocol/kanban/types";
-import { deriveBoard, resolveBoardDrop } from "./derive-board";
+import {
+  applyOptimisticDispatch,
+  deriveBoard,
+  resolveBoardDrop,
+  retainPendingDispatches,
+} from "./derive-board";
 
 function run(status: StepRunStatus): StepRun {
   return {
@@ -149,5 +154,53 @@ describe("resolveBoardDrop", () => {
     expect(
       resolveBoardDrop({ board, activePlanId: "r1", targetColumn: "draft", overPlanId: "d1" }),
     ).toEqual({ kind: "none" });
+  });
+});
+
+describe("applyOptimisticDispatch", () => {
+  const board = deriveBoard(
+    kanban([
+      plan("d1", [step("a", [])]),
+      plan("d2", [step("b", [])]),
+      plan("r1", [step("c", [run("running")])]),
+    ]),
+    ["d1", "d2"],
+  );
+
+  function idsIn(target: ReturnType<typeof deriveBoard>, key: string): string[] {
+    return (target.columns.find((column) => column.key === key)?.plans ?? []).map(
+      (entry) => entry.id,
+    );
+  }
+
+  it("moves a pending draft to the head of the running column", () => {
+    const optimistic = applyOptimisticDispatch(board, ["d2"]);
+
+    expect(idsIn(optimistic, "draft")).toEqual(["d1"]);
+    expect(idsIn(optimistic, "inProgress")).toEqual(["d2", "r1"]);
+  });
+
+  it("returns the board untouched when nothing is pending or the id is unknown", () => {
+    expect(applyOptimisticDispatch(board, [])).toBe(board);
+    expect(applyOptimisticDispatch(board, ["nope"])).toBe(board);
+  });
+
+  it("leaves the count alone — the plan moved, it was not duplicated", () => {
+    expect(applyOptimisticDispatch(board, ["d1", "d2"]).totalCount).toBe(board.totalCount);
+  });
+});
+
+describe("retainPendingDispatches", () => {
+  const board = deriveBoard(
+    kanban([plan("d1", [step("a", [])]), plan("r1", [step("c", [run("running")])])]),
+    ["d1"],
+  );
+
+  it("keeps an id whose plan is still a draft", () => {
+    expect(retainPendingDispatches(board, ["d1"])).toEqual(["d1"]);
+  });
+
+  it("drops an id whose plan has started, or gone", () => {
+    expect(retainPendingDispatches(board, ["r1", "gone"])).toEqual([]);
   });
 });

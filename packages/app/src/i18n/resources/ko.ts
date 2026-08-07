@@ -1016,6 +1016,11 @@ export const ko: TranslationResources = {
         cancel: "취소",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}}은(는) 이 호스트에서 사용할 수 없습니다",
+      providerUnavailableWithReason:
+        "{{provider}}은(는) 이 호스트에서 사용할 수 없습니다: {{reason}}",
+    },
     planSheet: {
       noSteps: "이 플랜에는 아직 단계가 없습니다.",
       noRuns: "아직 실행되지 않음",
@@ -2103,6 +2108,7 @@ export const ko: TranslationResources = {
         openProject: "프로젝트 열기",
         newWorkspace: "새 워크스페이스",
         newWorktree: "새 워크트리",
+        newKanbanPlan: "새 플랜",
         archiveWorkspace: "워크스페이스 보관",
         newTab: "새 탭",
         closeCurrentTab: "현재 탭 닫기",

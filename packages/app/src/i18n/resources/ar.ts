@@ -1008,6 +1008,10 @@ export const ar: TranslationResources = {
         cancel: "إلغاء",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}} غير متاح على هذا المضيف",
+      providerUnavailableWithReason: "{{provider}} غير متاح على هذا المضيف: {{reason}}",
+    },
     planSheet: {
       noSteps: "لا توجد خطوات في هذه الخطة بعد.",
       noRuns: "لم يُنفَّذ بعد",
@@ -2091,6 +2095,7 @@ export const ar: TranslationResources = {
         openProject: "مشروع مفتوح",
         newWorkspace: "مساحة عمل جديدة",
         newWorktree: "شجرة عمل جديدة",
+        newKanbanPlan: "خطة جديدة",
         archiveWorkspace: "أرشفة مساحة العمل",
         newTab: "علامة تبويب جديدة",
         closeCurrentTab: "إغلاق علامة التبويب الحالية",

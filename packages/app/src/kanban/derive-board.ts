@@ -72,6 +72,64 @@ export function deriveBoard(kanban: StoredKanban, draftOrder: readonly string[])
   };
 }
 
+/**
+ * Shows a dropped draft where it is going before the daemon has confirmed it.
+ * The column is derived from runs, and the run does not exist until the dispatch
+ * lands, so without this the card sits in Draft for a round trip after a gesture
+ * that plainly moved it. The overlay is display-only: it never invents a run, so
+ * a dispatch that fails reverts by dropping the id.
+ */
+export function applyOptimisticDispatch(
+  board: DerivedBoard,
+  pendingPlanIds: readonly string[],
+): DerivedBoard {
+  if (pendingPlanIds.length === 0) {
+    return board;
+  }
+  const pending = new Set(pendingPlanIds);
+  const moved: KanbanPlan[] = [];
+  const columns = board.columns.map((column) => {
+    if (column.key !== "draft") {
+      return column;
+    }
+    const kept: KanbanPlan[] = [];
+    for (const plan of column.plans) {
+      if (pending.has(plan.id)) {
+        moved.push(plan);
+      } else {
+        kept.push(plan);
+      }
+    }
+    return { key: column.key, plans: kept };
+  });
+  if (moved.length === 0) {
+    return board;
+  }
+  return {
+    ...board,
+    columns: columns.map((column) =>
+      column.key === "inProgress"
+        ? { key: column.key, plans: [...moved, ...column.plans] }
+        : column,
+    ),
+  };
+}
+
+/**
+ * The dispatches still worth showing, against a board derived from what the
+ * daemon actually holds. A plan that has left Draft has a run of its own now and
+ * no longer needs the overlay; one that is gone entirely never will.
+ */
+export function retainPendingDispatches(
+  board: DerivedBoard,
+  pendingPlanIds: readonly string[],
+): string[] {
+  const draftIds = new Set(
+    (board.columns.find((column) => column.key === "draft")?.plans ?? []).map((plan) => plan.id),
+  );
+  return pendingPlanIds.filter((planId) => draftIds.has(planId));
+}
+
 /** Moving a draft into the running column is a request to run it; every other
  * cross-column drop would be asking the board to contradict what actually ran. */
 export type BoardDropAction =

@@ -1000,6 +1000,10 @@ export const zhCN: TranslationResources = {
         cancel: "取消",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}} 在此主机上不可用",
+      providerUnavailableWithReason: "{{provider}} 在此主机上不可用：{{reason}}",
+    },
     planSheet: {
       noSteps: "此计划尚无步骤。",
       noRuns: "尚未运行",
@@ -2069,6 +2073,7 @@ export const zhCN: TranslationResources = {
         openProject: "打开项目",
         newWorkspace: "新建 workspace",
         newWorktree: "新建 worktree",
+        newKanbanPlan: "新建计划",
         archiveWorkspace: "归档工作区",
         newTab: "新建标签",
         closeCurrentTab: "关闭当前标签",

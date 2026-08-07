@@ -1,15 +1,24 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
-import type { KanbanPlan, StoredKanban } from "@getpaseo/protocol/kanban/types";
+import type { KanbanPlan, Step, StoredKanban } from "@getpaseo/protocol/kanban/types";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
-import { deriveBoard } from "@/kanban/derive-board";
+import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
+import {
+  applyOptimisticDispatch,
+  deriveBoard,
+  retainPendingDispatches,
+} from "@/kanban/derive-board";
+import { resolveStepDispatchBlock } from "@/kanban/dispatch-guard";
 import { resolvePlanOpenTarget } from "@/kanban/plan-open-target";
 import { resolveNextRunnableStepId } from "@/kanban/run-plan";
+import { resolveProviderLabel } from "@/kanban/step-detail";
+import { useKanbanAvailableProviders } from "@/kanban/use-kanban-available-providers";
+import type { KeyboardActionId } from "@/keyboard/keyboard-action-dispatcher";
 import { useKanbanDraftOrder, useKanbanDraftOrderStore } from "@/stores/kanban-draft-order-store";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -26,6 +35,15 @@ export interface KanbanBoardSurfaceProps {
   isError: boolean;
   error: Error | null;
   onRetry: () => void;
+}
+
+const NEW_PLAN_ACTIONS: readonly KeyboardActionId[] = ["kanban.plan.new"];
+
+function findStep(plan: KanbanPlan, stepId: string): Step | null {
+  if (plan.body.type !== "workflow") {
+    return null;
+  }
+  return plan.body.steps.find((step) => step.id === stepId) ?? null;
 }
 
 /**
@@ -45,26 +63,71 @@ export function KanbanBoardSurface({
   const { t } = useTranslation();
   const toast = useToast();
   const { runStep, archivePlan } = useKanbanMutations({ serverId });
+  const { providers } = useKanbanAvailableProviders(serverId);
   const [openPlanId, setOpenPlanId] = useState<string | null>(null);
   const [isCreatingPlan, setIsCreatingPlan] = useState(false);
+  const [pendingDispatchIds, setPendingDispatchIds] = useState<string[]>([]);
   const draftOrder = useKanbanDraftOrder(kanbanId);
   const setDraftOrder = useKanbanDraftOrderStore((state) => state.setDraftOrder);
 
-  const board = useMemo(
+  const settledBoard = useMemo(
     () => (detail ? deriveBoard(detail, draftOrder) : null),
     [detail, draftOrder],
   );
+  const board = useMemo(
+    () => (settledBoard ? applyOptimisticDispatch(settledBoard, pendingDispatchIds) : null),
+    [pendingDispatchIds, settledBoard],
+  );
+
+  // Reconciled against what the daemon holds, never against the overlay, so a
+  // plan whose run has landed stops being pending and the two agree.
+  useEffect(() => {
+    if (!settledBoard || pendingDispatchIds.length === 0) {
+      return;
+    }
+    const retained = retainPendingDispatches(settledBoard, pendingDispatchIds);
+    if (retained.length !== pendingDispatchIds.length) {
+      setPendingDispatchIds(retained);
+    }
+  }, [pendingDispatchIds, settledBoard]);
+
+  const clearPendingDispatch = useCallback((planId: string) => {
+    setPendingDispatchIds((current) => current.filter((entry) => entry !== planId));
+  }, []);
 
   const handleRunPlan = useCallback(
     (planId: string) => {
       const plan = detail?.plans[planId];
       const stepId = plan ? resolveNextRunnableStepId(plan) : null;
-      if (stepId === null) {
+      if (!plan || stepId === null) {
         return;
       }
-      void runStep({ kanbanId, parentPlanId: null, planId, stepId });
+      // A drag that started before the board re-derived can land twice; the
+      // second drop must not queue another turn.
+      if (pendingDispatchIds.includes(planId)) {
+        return;
+      }
+      const step = findStep(plan, stepId);
+      const block = step ? resolveStepDispatchBlock({ step, providers }) : null;
+      if (block) {
+        const provider = resolveProviderLabel(block.provider);
+        toast.show(
+          block.reason
+            ? t("kanban.dispatch.providerUnavailableWithReason", {
+                provider,
+                reason: block.reason,
+              })
+            : t("kanban.dispatch.providerUnavailable", { provider }),
+        );
+        return;
+      }
+      setPendingDispatchIds((current) => [...current, planId]);
+      void runStep({ kanbanId, parentPlanId: null, planId, stepId }).catch((dispatchError) => {
+        clearPendingDispatch(planId);
+        toast.show(toErrorMessage(dispatchError));
+      });
     },
-    [detail, kanbanId, runStep],
+    [clearPendingDispatch, detail, kanbanId, pendingDispatchIds, providers, runStep, t, toast],
   );
 
   const handleReorderDrafts = useCallback(
@@ -122,6 +185,19 @@ export function KanbanBoardSurface({
   const handleClosePlan = useCallback(() => setOpenPlanId(null), []);
   const handleOpenCreatePlan = useCallback(() => setIsCreatingPlan(true), []);
   const handleCloseCreatePlan = useCallback(() => setIsCreatingPlan(false), []);
+
+  const handleNewPlanShortcut = useCallback(() => {
+    setIsCreatingPlan(true);
+    return true;
+  }, []);
+
+  useKeyboardActionHandler({
+    handlerId: `kanban-plan-new-${kanbanId}`,
+    actions: NEW_PLAN_ACTIONS,
+    enabled: detail !== null && !isCreatingPlan,
+    priority: 0,
+    handle: handleNewPlanShortcut,
+  });
 
   if (isLoading && !detail) {
     return (

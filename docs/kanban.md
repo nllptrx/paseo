@@ -65,6 +65,25 @@ unfinished step. Dropping on Done says so and does nothing. Draft order is the
 only hand-set ordering, and it is a client-side view preference
 (`kanban-draft-order-store`); the other columns order by recency.
 
+The dropped card moves at once, before the daemon answers. `applyOptimisticDispatch`
+lays the pending ids over the derived board for display only — it never invents a
+run, so a dispatch that fails reverts by dropping the id and says why. Pending
+ids are reconciled against the board derived from what the daemon holds, never
+against the overlay, or the two would agree with each other and drift from the
+runs. A second drop while an id is pending is ignored rather than queuing another
+turn.
+
+A dispatch is checked against `list_available_providers` first
+(`resolveStepDispatchBlock`), so a step whose agent the host cannot run says which
+provider and why instead of failing somewhere inside the run. A host that has not
+answered yet does not block anything — the daemon still decides.
+
+A card's actions are reachable three ways, all the same list: the kebab, right
+click (web only; long press stays free because that is how a touch board picks a
+card up), and dragging for the run. ⌘⌥P / Ctrl+Alt+P opens the New plan form
+wherever a board is mounted, registered through the shared keybindings in
+`src/keyboard/` — not a listener of its own.
+
 The one automation left is `archiveWorkspacesOnDone`, per kanban and off by
 default: once a plan's last step settles, the worktrees its steps created are
 archived. Shared and pre-existing workspaces are never touched.

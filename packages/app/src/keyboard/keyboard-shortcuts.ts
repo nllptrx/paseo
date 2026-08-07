@@ -204,6 +204,7 @@ const SHORTCUT_HELP_LABEL_KEYS: Record<string, string> = {
   "new-workspace": "settings.shortcuts.help.newWorkspace",
   "switch-project": "settings.shortcuts.help.switchProject",
   "archive-workspace": "settings.shortcuts.help.archiveWorkspace",
+  "kanban-plan-new": "settings.shortcuts.help.newKanbanPlan",
   "workspace-tab-new": "settings.shortcuts.help.newTab",
   "workspace-tab-close-current": "settings.shortcuts.help.closeCurrentTab",
   "workspace-jump-index": "settings.shortcuts.help.jumpToWorkspace",
@@ -373,6 +374,34 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
       id: "pin-workspace",
       section: "workspaces",
       label: "Pin chat",
+    },
+  },
+
+  // --- New kanban plan ---
+  // Alt+P joins Cmd+P (Switch project) rather than borrowing Cmd+T, which the
+  // board would otherwise take away from New tab for as long as it is open.
+  {
+    id: "kanban-plan-new-cmd-alt-p-mac",
+    action: "kanban.plan.new",
+    combo: "Cmd+Alt+P",
+    when: { mac: true, commandCenter: false, editable: false },
+    help: {
+      id: "kanban-plan-new",
+      section: "projects",
+      label: "New plan",
+      keys: ["mod", "alt", "P"],
+    },
+  },
+  {
+    id: "kanban-plan-new-ctrl-alt-p-non-mac",
+    action: "kanban.plan.new",
+    combo: "Ctrl+Alt+P",
+    when: { mac: false, commandCenter: false, editable: false, terminal: false },
+    help: {
+      id: "kanban-plan-new",
+      section: "projects",
+      label: "New plan",
+      keys: ["mod", "alt", "P"],
     },
   },
 

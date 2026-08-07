@@ -1020,6 +1020,10 @@ export const ja: TranslationResources = {
         cancel: "キャンセル",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}} はこのホストで利用できません",
+      providerUnavailableWithReason: "{{provider}} はこのホストで利用できません: {{reason}}",
+    },
     planSheet: {
       noSteps: "このプランにはまだステップがありません。",
       noRuns: "未実行",
@@ -2108,6 +2112,7 @@ export const ja: TranslationResources = {
         openProject: "プロジェクトを開く",
         newWorkspace: "新しいワークスペース",
         newWorktree: "新しいワークツリー",
+        newKanbanPlan: "新しいプラン",
         archiveWorkspace: "ワークスペースをアーカイブ",
         newTab: "新しいタブ",
         closeCurrentTab: "現在のタブを閉じる",

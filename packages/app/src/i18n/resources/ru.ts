@@ -1031,6 +1031,10 @@ export const ru: TranslationResources = {
         cancel: "Отменить",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}} недоступен на этом хосте",
+      providerUnavailableWithReason: "{{provider}} недоступен на этом хосте: {{reason}}",
+    },
     planSheet: {
       noSteps: "В этом плане пока нет шагов.",
       noRuns: "Ещё не запускался",
@@ -2130,6 +2134,7 @@ export const ru: TranslationResources = {
         openProject: "Открыть проект",
         newWorkspace: "Новое рабочее пространство",
         newWorktree: "Новое рабочее дерево",
+        newKanbanPlan: "Новый план",
         archiveWorkspace: "Архивировать рабочее пространство",
         newTab: "Новая вкладка",
         closeCurrentTab: "Закрыть текущую вкладку",

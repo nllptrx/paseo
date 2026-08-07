@@ -1031,6 +1031,10 @@ export const ptBR: TranslationResources = {
         cancel: "Cancelar",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}} não está disponível neste host",
+      providerUnavailableWithReason: "{{provider}} não está disponível neste host: {{reason}}",
+    },
     planSheet: {
       noSteps: "Este plano ainda não tem etapas.",
       noRuns: "Ainda não executado",
@@ -2123,6 +2127,7 @@ export const ptBR: TranslationResources = {
         openProject: "Abrir projeto",
         newWorkspace: "Novo workspace",
         newWorktree: "Novo worktree",
+        newKanbanPlan: "Novo plano",
         archiveWorkspace: "Arquivar workspace",
         newTab: "Nova aba",
         closeCurrentTab: "Fechar aba atual",

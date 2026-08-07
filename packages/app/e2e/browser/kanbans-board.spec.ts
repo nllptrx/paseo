@@ -251,6 +251,38 @@ test.describe("Kanbans board", () => {
     await expect(page.getByTestId(`kanban-step-chat-${stepId}`)).toHaveCount(0);
   });
 
+  test("right click and the new-plan shortcut reach the same actions as the buttons", async ({
+    page,
+  }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-shortcuts-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const planTitle = `Menu plan ${Date.now()}`;
+    const seeded = await seedKanbanWithPlan(workspace, planTitle);
+    cleanupTasks.push(() => archiveKanban(workspace, seeded.kanbanId));
+
+    await openBoard(page, seeded.kanbanId);
+    const card = page.getByTestId(`kanban-card-${seeded.planId}`);
+    await expect(card).toBeVisible({ timeout: 30_000 });
+
+    // Right click offers what the kebab offers, so a card is reachable the way
+    // any other list row on this platform is.
+    await card.click({ button: "right" });
+    const contextMenu = page.getByTestId(`kanban-card-context-menu-${seeded.planId}`);
+    await expect(contextMenu).toBeVisible({ timeout: 10_000 });
+    await expect(
+      contextMenu.getByTestId(`kanban-card-context-action-${seeded.planId}-run`),
+    ).toBeVisible();
+    await expect(
+      contextMenu.getByTestId(`kanban-card-context-action-${seeded.planId}-archive`),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(contextMenu).toHaveCount(0);
+
+    const modifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${modifier}+Alt+p`);
+    await expect(page.getByTestId("kanban-plan-form-sheet")).toBeVisible({ timeout: 10_000 });
+  });
+
   test("dragging a draft onto the running column runs its first step", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-dnd-" });
     cleanupTasks.push(() => workspace.cleanup());
@@ -267,11 +299,18 @@ test.describe("Kanbans board", () => {
 
     await dragCardOntoColumn(page, card, target);
 
+    // The card follows the gesture rather than the round trip, so it is in the
+    // running column before the daemon has been asked anything.
+    await expect(target.getByTestId(`kanban-card-${seeded.planId}`)).toBeVisible({
+      timeout: 5_000,
+    });
+
     // The drop is a run request, so the proof is a step run on the daemon: the
-    // card only leaves Draft because that run exists.
+    // card only stays out of Draft because that run exists.
     await expect
       .poll(() => planHasStepRun(workspace, seeded.kanbanId, seeded.planId), { timeout: 30_000 })
       .toBe(true);
+    await expect(target.getByTestId(`kanban-card-${seeded.planId}`)).toBeVisible();
   });
 });
 

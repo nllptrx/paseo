@@ -1039,6 +1039,10 @@ export const fr: TranslationResources = {
         cancel: "Annuler",
       },
     },
+    dispatch: {
+      providerUnavailable: "{{provider}} n'est pas disponible sur cet hôte",
+      providerUnavailableWithReason: "{{provider}} n'est pas disponible sur cet hôte : {{reason}}",
+    },
     planSheet: {
       noSteps: "Ce plan n'a encore aucune étape.",
       noRuns: "Pas encore exécuté",
@@ -2143,6 +2147,7 @@ export const fr: TranslationResources = {
         openProject: "Projet ouvert",
         newWorkspace: "Nouvel espace de travail",
         newWorktree: "Nouvel arbre de travail",
+        newKanbanPlan: "Nouveau plan",
         archiveWorkspace: "Archiver l’espace de travail",
         newTab: "Nouvel onglet",
         closeCurrentTab: "Fermer l'onglet actuel",
