@@ -27,7 +27,11 @@ function createFakeAgentManager() {
         bucket.delete(listener);
       };
     },
-    getAgent: () => null,
+    snapshots: new Map<string, ManagedAgent["lifecycle"]>(),
+    getAgent(agentId: string) {
+      const lifecycle = this.snapshots.get(agentId);
+      return lifecycle ? ({ lifecycle } as ManagedAgent) : null;
+    },
     emitLifecycle(agentId: string, lifecycle: ManagedAgent["lifecycle"]) {
       for (const listener of listeners.get(agentId) ?? []) {
         listener({ type: "agent_state", agent: { lifecycle } });
@@ -199,6 +203,33 @@ describe("TaskTransitionEngine", () => {
     expect(feed[0].kind).toBe("system");
     expect(feed[0].body).toContain("stopped on an error");
     expect(feed[0].agentId).toBe("agt_1");
+    expect((await service.getTask(task.id))?.status).toBe("in_progress");
+  });
+  /** A daemon restart re-arms the observer, but the agent it watches may have
+   * been mid-run: it will reach idle without this observer having seen it run,
+   * and the settle that moves the card would never fire. */
+  it("settles an agent that was already running when the observer was armed", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask();
+    agentManager.snapshots.set("agt_1", "running");
+
+    engine.observeAttachment({ taskId: task.id, agentId: "agt_1" });
+    agentManager.emitLifecycle("agt_1", "idle");
+
+    await vi.waitFor(async () => {
+      expect((await service.getTask(task.id))?.status).toBe("done");
+    });
+    void projectId;
+  });
+
+  /** An attached agent waiting between turns is the ordinary state, not a
+   * finish: arming an observer on it must move nothing. */
+  it("leaves a task alone when the agent it re-arms on is merely idle", async () => {
+    const { task, engine, agentManager } = await seedTask();
+    agentManager.snapshots.set("agt_1", "idle");
+
+    engine.observeAttachment({ taskId: task.id, agentId: "agt_1" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
     expect((await service.getTask(task.id))?.status).toBe("in_progress");
   });
 });

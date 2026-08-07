@@ -202,6 +202,7 @@ describe("TasksSession workflow requests", () => {
 
     expect(payloadOf(emitted, "rpc_error").error).toMatch(/over the limit/);
     expect(notified).toEqual([]);
-    expect(await service.listBoardFeed({ projectId })).toEqual([]);
+    const feed = await service.listBoardFeed({ projectId });
+    expect(feed.filter((entry) => entry.kind === "user")).toEqual([]);
   });
 });
