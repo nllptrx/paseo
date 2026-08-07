@@ -40,6 +40,29 @@ export function selectProjectBoard(
   };
 }
 
+/** One tracker project's board, addressed directly. The board screen routes by
+ * tracker project, so it does not go through the Paseo project at all. */
+export function selectTrackerProjectBoard(
+  snapshot: TaskSnapshot | null,
+  trackerProjectId: string,
+): ProjectBoardSelection {
+  if (!snapshot) {
+    return { projects: [], tasks: [], labels: [] };
+  }
+  const project = snapshot.projects.find((entry) => entry.id === trackerProjectId);
+  if (!project) {
+    return { projects: [], tasks: [], labels: [] };
+  }
+  return {
+    projects: [project],
+    tasks: sortTasks(
+      snapshot.tasks.filter((task) => task.projectId === project.id),
+      "manual",
+    ),
+    labels: snapshot.labels.filter((label) => label.projectId === project.id),
+  };
+}
+
 /**
  * Columns the board always shows. `canceled` is not one of them: a board is
  * where work is going, and a permanently visible column of abandoned work is
@@ -250,4 +273,41 @@ export function resolveTaskDropNeighbours(
     beforePosition: clamped === 0 ? null : (columnTasks[clamped - 1]?.position ?? null),
     afterPosition: clamped >= columnTasks.length ? null : (columnTasks[clamped]?.position ?? null),
   };
+}
+
+/** The overview is a way in, not the board: past this many cards the answer is
+ * to open the board, which is one press away. */
+export const OVERVIEW_RENDER_CAP = 20;
+
+const OVERVIEW_STATUS_ORDER: readonly TaskStatus[] = [
+  "in_progress",
+  "in_review",
+  "todo",
+  "backlog",
+  "done",
+  "canceled",
+];
+
+export interface TaskOverviewSelection {
+  tasks: Task[];
+  totalCount: number;
+  hiddenCount: number;
+}
+
+/**
+ * What a project's column shows at a glance: work in flight first, then what is
+ * queued, then what is finished — the order someone scanning several projects
+ * reads in. Capped, with the remainder counted rather than dropped silently.
+ */
+export function selectOverviewTasks(
+  tasks: readonly Task[],
+  cap: number = OVERVIEW_RENDER_CAP,
+): TaskOverviewSelection {
+  const ranked = [...tasks].sort((left, right) => {
+    const byStatus =
+      OVERVIEW_STATUS_ORDER.indexOf(left.status) - OVERVIEW_STATUS_ORDER.indexOf(right.status);
+    return byStatus !== 0 ? byStatus : left.position - right.position;
+  });
+  const visible = ranked.slice(0, cap);
+  return { tasks: visible, totalCount: tasks.length, hiddenCount: tasks.length - visible.length };
 }

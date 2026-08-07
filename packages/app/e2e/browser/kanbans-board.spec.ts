@@ -5,15 +5,6 @@ import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
 import { buildKanbansRoute } from "../../src/utils/host-routes";
 
 interface TrackerSeedClient {
-  kanbanCreate(input: { projectId: string }): Promise<{
-    kanban: { id: string; name: string; review?: { enabled: boolean } } | null;
-    error: string | null;
-  }>;
-  kanbanGet(kanbanId: string): Promise<{
-    kanban: { id: string; review?: { enabled: boolean } } | null;
-    error: string | null;
-  }>;
-  kanbanArchive(input: { kanbanId: string }): Promise<{ error: string | null }>;
   tasksProjectCreate(input: {
     name: string;
     prefix: string;
@@ -38,16 +29,6 @@ const DRAG_ACTIVATION_DISTANCE_PX = 6;
 
 function trackerClient(workspace: SeededWorkspace): TrackerSeedClient {
   return workspace.client as unknown as TrackerSeedClient;
-}
-
-async function seedKanban(workspace: SeededWorkspace): Promise<string> {
-  const created = await trackerClient(workspace).kanbanCreate({
-    projectId: workspace.projectId,
-  });
-  if (!created.kanban) {
-    throw new Error(created.error ?? "Failed to create kanban");
-  }
-  return created.kanban.id;
 }
 
 let seededProjectCount = 0;
@@ -93,13 +74,6 @@ async function readBoardReviewEnabled(
   return project?.board?.reviewEnabled ?? false;
 }
 
-async function archiveKanban(workspace: SeededWorkspace, kanbanId: string): Promise<void> {
-  const result = await trackerClient(workspace).kanbanArchive({ kanbanId });
-  if (result.error) {
-    throw new Error(`Failed to archive kanban ${kanbanId}: ${result.error}`);
-  }
-}
-
 /**
  * dnd-kit's MouseSensor needs a mousedown, then movement past its activation
  * distance, before it starts tracking collisions. Playwright's dragTo() emits a
@@ -131,13 +105,14 @@ async function openKanbans(page: Page): Promise<void> {
   await waitForSidebarHydration(page);
 }
 
-/** The overview is the way in; the board itself lives one press deeper. */
-async function openBoard(page: Page, kanbanId: string): Promise<void> {
+/** The overview is the way in; the board itself lives one press deeper. A board
+ * is a tracker project, so that project's id addresses both. */
+async function openBoard(page: Page, projectId: string): Promise<void> {
   await openKanbans(page);
-  const entry = page.getByTestId(`kanban-overview-open-${kanbanId}`);
+  const entry = page.getByTestId(`task-board-overview-open-${projectId}`);
   await expect(entry).toBeVisible({ timeout: 30_000 });
   await entry.click();
-  await expect(page.getByTestId(`kanban-board-${kanbanId}`)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId(`kanban-board-${projectId}`)).toBeVisible({ timeout: 30_000 });
 }
 
 test.describe("Kanbans board", () => {
@@ -164,13 +139,11 @@ test.describe("Kanbans board", () => {
   test("shows the project's tasks by status and captures a new one", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-tasks-" });
     cleanupTasks.push(() => workspace.cleanup());
-    const kanbanId = await seedKanban(workspace);
-    cleanupTasks.push(() => archiveKanban(workspace, kanbanId));
     const seededTitle = `Seeded task ${Date.now()}`;
     const seeded = await seedTrackerTask(workspace, seededTitle);
 
-    await openBoard(page, kanbanId);
-    const board = page.getByTestId(`kanban-board-${kanbanId}`);
+    await openBoard(page, seeded.projectId);
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
     const card = board.getByTestId(`task-card-${seeded.taskId}`);
     await expect(card).toBeVisible({ timeout: 30_000 });
     await expect(card).toContainText(seededTitle);
@@ -196,13 +169,11 @@ test.describe("Kanbans board", () => {
   test("dragging a card onto another column writes the status through", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-task-dnd-" });
     cleanupTasks.push(() => workspace.cleanup());
-    const kanbanId = await seedKanban(workspace);
-    cleanupTasks.push(() => archiveKanban(workspace, kanbanId));
     const title = `Drag task ${Date.now()}`;
     const seeded = await seedTrackerTask(workspace, title);
 
-    await openBoard(page, kanbanId);
-    const board = page.getByTestId(`kanban-board-${kanbanId}`);
+    await openBoard(page, seeded.projectId);
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
     const card = board.getByTestId(`task-card-${seeded.taskId}`);
     await expect(card).toBeVisible({ timeout: 30_000 });
     const target = board.getByTestId("task-column-body-in_progress");
@@ -223,13 +194,11 @@ test.describe("Kanbans board", () => {
   test("the card menu moves a task without a drag", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-task-menu-" });
     cleanupTasks.push(() => workspace.cleanup());
-    const kanbanId = await seedKanban(workspace);
-    cleanupTasks.push(() => archiveKanban(workspace, kanbanId));
     const title = `Menu task ${Date.now()}`;
     const seeded = await seedTrackerTask(workspace, title);
 
-    await openBoard(page, kanbanId);
-    const board = page.getByTestId(`kanban-board-${kanbanId}`);
+    await openBoard(page, seeded.projectId);
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
     await expect(board.getByTestId(`task-card-${seeded.taskId}`)).toBeVisible({
       timeout: 30_000,
     });
@@ -248,12 +217,10 @@ test.describe("Kanbans board", () => {
   }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-verdict-" });
     cleanupTasks.push(() => workspace.cleanup());
-    const kanbanId = await seedKanban(workspace);
-    cleanupTasks.push(() => archiveKanban(workspace, kanbanId));
     const approved = await seedTrackerTask(workspace, `Approve me ${Date.now()}`, "in_review");
 
-    await openBoard(page, kanbanId);
-    const board = page.getByTestId(`kanban-board-${kanbanId}`);
+    await openBoard(page, approved.projectId);
+    const board = page.getByTestId(`kanban-board-${approved.projectId}`);
     await expect(board.getByTestId(`task-card-${approved.taskId}`)).toBeVisible({
       timeout: 30_000,
     });
@@ -286,22 +253,20 @@ test.describe("Kanbans board", () => {
   test("the board menu toggles review, and a card authors a workflow", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-review-" });
     cleanupTasks.push(() => workspace.cleanup());
-    const kanbanId = await seedKanban(workspace);
-    cleanupTasks.push(() => archiveKanban(workspace, kanbanId));
 
     // Review is board config, and the board is the tracker project — so the
     // toggle needs one to exist.
     const { projectId, taskId } = await seedTrackerTask(workspace, `Review seed ${Date.now()}`);
-    await openBoard(page, kanbanId);
+    await openBoard(page, projectId);
 
-    await page.getByTestId(`kanban-board-menu-${kanbanId}`).click();
-    await page.getByTestId(`kanban-review-toggle-${kanbanId}`).click();
+    await page.getByTestId(`kanban-board-menu-${projectId}`).click();
+    await page.getByTestId(`kanban-review-toggle-${projectId}`).click();
     await expect
       .poll(async () => readBoardReviewEnabled(workspace, projectId), { timeout: 30_000 })
       .toBe(true);
 
     // A workflow belongs to a card, so it is authored from the card's menu.
-    const board = page.getByTestId(`kanban-board-${kanbanId}`);
+    const board = page.getByTestId(`kanban-board-${projectId}`);
     await board.getByTestId(`task-card-status-${taskId}`).click();
     await page.getByTestId(`task-card-add-workflow-${taskId}`).click();
     await expect(page.getByTestId("task-workflow-form-sheet")).toBeVisible({ timeout: 10_000 });
@@ -311,27 +276,26 @@ test.describe("Kanbans board", () => {
 test.describe("Kanbans overview", () => {
   test("lists a project column and drills into its task board", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-overview-" });
-    const kanbanId = await seedKanban(workspace);
     const title = `Overview task ${Date.now()}`;
 
     try {
-      await seedTrackerTask(workspace, title);
+      const { projectId } = await seedTrackerTask(workspace, title);
       await openKanbans(page);
-      const column = page.getByTestId(`kanban-overview-${kanbanId}`);
+      const column = page.getByTestId(`task-board-overview-${projectId}`);
       await expect(column).toBeVisible({ timeout: 30_000 });
+      await expect(column).toContainText(title);
 
-      await page.getByTestId(`kanban-overview-open-${kanbanId}`).click();
-      await expect(page).toHaveURL(new RegExp(`/kanbans/${kanbanId}$`));
-      const board = page.getByTestId(`kanban-board-${kanbanId}`);
+      await page.getByTestId(`task-board-overview-open-${projectId}`).click();
+      await expect(page).toHaveURL(new RegExp(`/kanbans/${projectId}$`));
+      const board = page.getByTestId(`kanban-board-${projectId}`);
       await expect(board.getByTestId("task-column-backlog")).toBeVisible({ timeout: 30_000 });
       await expect(board.getByTestId("task-column-in_progress")).toBeVisible();
       await expect(board.getByTestId("task-column-backlog")).toContainText(title);
 
       await page.getByTestId("sidebar-kanbans").click();
       await expect(page).toHaveURL(/\/kanbans$/);
-      await expect(page.getByTestId(`kanban-overview-${kanbanId}`)).toBeVisible();
+      await expect(page.getByTestId(`task-board-overview-${projectId}`)).toBeVisible();
     } finally {
-      await archiveKanban(workspace, kanbanId);
       await workspace.cleanup();
     }
   });

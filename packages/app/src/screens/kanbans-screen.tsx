@@ -8,10 +8,10 @@ import { useTranslation } from "react-i18next";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { HostFilter } from "@/components/hosts/host-filter";
 import { ALL_HOSTS_OPTION_ID } from "@/components/hosts/host-picker";
-import { KanbanOverviewColumn } from "@/components/kanban/kanban-overview-column";
+import { TaskBoardOverviewColumn } from "@/components/tasks/task-board-overview-column";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useKanbans, type AggregatedKanban } from "@/hooks/use-kanbans";
+import { useTaskBoards, type AggregatedTaskBoard } from "@/hooks/use-task-boards";
 import { useHosts } from "@/runtime/host-runtime";
 import { buildKanbanBoardRoute } from "@/utils/host-routes";
 import { resolveKanbansScreenBodyState } from "./kanbans-screen-state";
@@ -26,29 +26,29 @@ export function KanbansScreen(): ReactElement {
   return <KanbansScreenContent />;
 }
 
-const EMPTY_KANBANS: AggregatedKanban[] = [];
+const EMPTY_BOARDS: AggregatedTaskBoard[] = [];
 
 function KanbansScreenContent(): ReactElement {
   const { t } = useTranslation();
   const router = useRouter();
-  const { loadState, hostErrors, isError, refetch } = useKanbans();
-  const kanbans = loadState.status === "loaded" ? loadState.data : EMPTY_KANBANS;
+  const { loadState, hostErrors, isError, refetch } = useTaskBoards();
+  const boards = loadState.status === "loaded" ? loadState.data : EMPTY_BOARDS;
   const hosts = useHosts();
   const [selectedHost, setSelectedHost] = useState(ALL_HOSTS_OPTION_ID);
 
-  const visibleKanbans = useMemo(
+  const visibleBoards = useMemo(
     () =>
-      kanbans.filter(
-        (kanban) => selectedHost === ALL_HOSTS_OPTION_ID || kanban.serverId === selectedHost,
+      boards.filter(
+        (board) => selectedHost === ALL_HOSTS_OPTION_ID || board.serverId === selectedHost,
       ),
-    [kanbans, selectedHost],
+    [boards, selectedHost],
   );
 
   const showHostFilter = hosts.length > 1;
   const showLoadError = isError && loadState.status !== "loaded";
 
   const handleOpenBoard = useCallback(
-    (kanban: AggregatedKanban) => router.push(buildKanbanBoardRoute(kanban.id)),
+    (board: AggregatedTaskBoard) => router.push(buildKanbanBoardRoute(board.project.id)),
     [router],
   );
 
@@ -56,7 +56,7 @@ function KanbansScreenContent(): ReactElement {
     <View style={styles.container}>
       <MenuHeader title={t("kanban.screen.title")} />
       <KanbansScreenBody
-        kanbans={visibleKanbans}
+        boards={visibleBoards}
         loadState={loadState}
         hostErrors={hostErrors}
         showLoadError={showLoadError}
@@ -73,7 +73,7 @@ function KanbansScreenContent(): ReactElement {
 }
 
 function KanbansScreenBody({
-  kanbans,
+  boards,
   loadState,
   hostErrors,
   showLoadError,
@@ -85,9 +85,9 @@ function KanbansScreenBody({
   multiHost,
   onOpenBoard,
 }: {
-  kanbans: AggregatedKanban[];
-  loadState: ReturnType<typeof useKanbans>["loadState"];
-  hostErrors: ReturnType<typeof useKanbans>["hostErrors"];
+  boards: AggregatedTaskBoard[];
+  loadState: ReturnType<typeof useTaskBoards>["loadState"];
+  hostErrors: ReturnType<typeof useTaskBoards>["hostErrors"];
   showLoadError: boolean;
   showHostFilter: boolean;
   hosts: ReturnType<typeof useHosts>;
@@ -95,12 +95,12 @@ function KanbansScreenBody({
   onSelectHost: (serverId: string) => void;
   onRetry: () => void;
   multiHost: boolean;
-  onOpenBoard: (kanban: AggregatedKanban) => void;
+  onOpenBoard: (board: AggregatedTaskBoard) => void;
 }): ReactElement {
   const { t } = useTranslation();
   const bodyState = resolveKanbansScreenBodyState({
     loadState,
-    visibleCount: kanbans.length,
+    visibleCount: boards.length,
     showLoadError,
   });
 
@@ -153,13 +153,12 @@ function KanbansScreenBody({
         showsHorizontalScrollIndicator={false}
         testID="kanbans-list"
       >
-        {kanbans.map((kanban) => (
-          <KanbanOverviewColumn
-            key={`${kanban.serverId}:${kanban.id}`}
-            kanban={kanban}
+        {boards.map((board) => (
+          <TaskBoardOverviewColumn
+            key={`${board.serverId}:${board.project.id}`}
+            board={board}
             showHostBadge={multiHost}
             onOpenBoard={onOpenBoard}
-            onOpenPlan={onOpenBoard}
           />
         ))}
       </ScrollView>
@@ -170,7 +169,7 @@ function KanbansScreenBody({
 function KanbansHostErrorsBanner({
   errors,
 }: {
-  errors: ReturnType<typeof useKanbans>["hostErrors"];
+  errors: ReturnType<typeof useTaskBoards>["hostErrors"];
 }): ReactElement {
   const { t } = useTranslation();
   return (

@@ -1,4 +1,4 @@
-import type { AggregateLoadState, AggregatedKanban } from "@/kanban/aggregated-kanbans";
+import type { TaskBoardsLoadState } from "@/hooks/use-task-boards";
 
 export type KanbansScreenBodyState =
   | { kind: "loading" }
@@ -7,7 +7,7 @@ export type KanbansScreenBodyState =
   | { kind: "content" };
 
 export function resolveKanbansScreenBodyState(input: {
-  loadState: AggregateLoadState<AggregatedKanban>;
+  loadState: TaskBoardsLoadState;
   visibleCount: number;
   showLoadError: boolean;
 }): KanbansScreenBodyState {

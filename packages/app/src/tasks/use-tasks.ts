@@ -35,7 +35,7 @@ export function useTasks(serverId: string): UseTasksResult {
   const query = useFetchQuery({
     queryKey: tasksQueryKey(serverId),
     enabled,
-    meta: tasksPushRoute({ enabled, serverId }),
+    meta: tasksPushRoute({ enabled, serverIds: [serverId] }),
     dataShape: "value",
     staleTimeMs: 2_000,
     queryFn: async (): Promise<TaskSnapshot | null> => {

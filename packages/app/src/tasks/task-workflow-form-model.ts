@@ -4,7 +4,7 @@ import type {
   StepTrigger,
   StepWorkspaceStrategy,
 } from "@getpaseo/protocol/tasks/workflow";
-import { resolveProviderLabel } from "@/kanban/step-detail";
+import { resolveProviderLabel } from "@/tasks/use-task-available-providers";
 
 export interface TaskWorkflowFormDisplay {
   label: string;

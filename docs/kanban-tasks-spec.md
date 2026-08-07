@@ -150,10 +150,14 @@ item with a swapping label; "Create Orchestrator" goes (§6.1).
   has a board; the unavailable-tab fallback follows the PR-tab rule.
   **[DECIDED]** the tab is named **Feed** and renders the board channel.
 
-### 5.3 Overview `/kanbans` [DECIDED]
+### 5.3 Overview `/kanbans` [SHIPPED]
 
-Renders tasks per project. With plans gone there is no second vocabulary to
-reconcile; this falls out of §2.1 and §2.2 rather than being its own build.
+Renders tasks per project. Each column is a tracker project — its cards are
+read-only, because acting on a task belongs to the board one press away. Hosts
+without a tracker are skipped rather than asked and failed.
+
+The route is `/kanbans/<taskProjectId>`: a board is a tracker project, so the
+same id addresses the column and the board it opens.
 
 ### 5.4 Task detail sheet [DECIDED]
 

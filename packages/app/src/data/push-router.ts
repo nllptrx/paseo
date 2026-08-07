@@ -82,7 +82,7 @@ interface KanbanRoute {
 interface TasksRoute {
   domain: "tasks";
   enabled: boolean;
-  serverId: string;
+  serverIds: readonly string[];
 }
 
 type ServerDataRoute = CheckoutDiffRoute | WorkspaceTerminalsRoute | KanbanRoute | TasksRoute;
@@ -234,12 +234,15 @@ export function kanbanPushRoute(input: {
   };
 }
 
-export function tasksPushRoute(input: { enabled: boolean; serverId: string }): ServerDataQueryMeta {
+export function tasksPushRoute(input: {
+  enabled: boolean;
+  serverIds: readonly string[];
+}): ServerDataQueryMeta {
   return {
     serverData: {
       domain: "tasks",
       enabled: input.enabled,
-      serverId: input.serverId,
+      serverIds: [...input.serverIds],
     },
   };
 }
@@ -811,7 +814,7 @@ function getActiveServerDataRoute(
   }
   const route = getServerDataRoute(query);
   if (route) {
-    if (route.domain === "kanban") {
+    if (route.domain === "kanban" || route.domain === "tasks") {
       return route.enabled && route.serverIds.includes(serverId) ? route : null;
     }
     return route.enabled && route.serverId === serverId ? route : null;
@@ -886,7 +889,7 @@ function shouldReconcileSubscriptionsForCacheEvent(
     return false;
   }
   const route = getServerDataRoute(event.query);
-  if (route?.domain === "kanban") {
+  if (route?.domain === "kanban" || route?.domain === "tasks") {
     return route.enabled && route.serverIds.includes(serverId);
   }
   if (route?.serverId === serverId) {
@@ -926,7 +929,7 @@ function readServerDataRoute(value: Record<string, unknown>): ServerDataRoute | 
     return null;
   }
 
-  if (domain === "kanban") {
+  if (domain === "kanban" || domain === "tasks") {
     const serverIds = value.serverIds;
     if (!Array.isArray(serverIds) || !serverIds.every((id) => typeof id === "string")) {
       return null;
@@ -935,12 +938,6 @@ function readServerDataRoute(value: Record<string, unknown>): ServerDataRoute | 
   }
 
   const serverId = value.serverId;
-  if (domain === "tasks") {
-    if (typeof serverId !== "string") {
-      return null;
-    }
-    return { domain, enabled, serverId };
-  }
 
   const cwd = value.cwd;
   if (typeof serverId !== "string" || typeof cwd !== "string") {

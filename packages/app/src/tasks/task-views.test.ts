@@ -11,6 +11,7 @@ import {
   sortTasks,
   taskLabelFilterOptions,
   visibleBoardStatuses,
+  selectOverviewTasks,
 } from "./task-views";
 
 function task(overrides: Partial<Task> = {}): Task {
@@ -254,5 +255,57 @@ describe("status coverage", () => {
   it("keeps the board's column list a subset of the protocol's statuses", () => {
     const statuses: TaskStatus[] = [...BOARD_STATUSES];
     expect(statuses).not.toContain("canceled");
+  });
+});
+
+describe("selectOverviewTasks", () => {
+  function taskAt(id: string, status: TaskStatus, position: number): Task {
+    return {
+      id,
+      projectId: "p1",
+      number: 1,
+      title: id,
+      description: "",
+      status,
+      priority: "none",
+      dueDate: null,
+      parentTaskId: null,
+      position,
+      labelIds: [],
+      agents: [],
+      attachments: [],
+      commentCount: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+  }
+
+  it("puts work in flight before what is queued and what is finished", () => {
+    const selection = selectOverviewTasks([
+      taskAt("done", "done", 1),
+      taskAt("backlog", "backlog", 1),
+      taskAt("running", "in_progress", 2),
+      taskAt("review", "in_review", 1),
+      taskAt("todo", "todo", 1),
+    ]);
+
+    expect(selection.tasks.map((entry) => entry.id)).toEqual([
+      "running",
+      "review",
+      "todo",
+      "backlog",
+      "done",
+    ]);
+    expect(selection.hiddenCount).toBe(0);
+  });
+
+  /** The remainder is counted, not dropped: a column that silently shows 20 of
+   * 60 reads as a project with 20 tasks. */
+  it("counts what the cap left out", () => {
+    const tasks = Array.from({ length: 25 }, (_, index) => taskAt(`t${index}`, "todo", index));
+    const selection = selectOverviewTasks(tasks, 20);
+    expect(selection.tasks).toHaveLength(20);
+    expect(selection.totalCount).toBe(25);
+    expect(selection.hiddenCount).toBe(5);
   });
 });

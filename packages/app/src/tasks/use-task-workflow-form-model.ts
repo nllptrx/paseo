@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useKanbanAvailableProviders } from "@/kanban/use-kanban-available-providers";
+import { useTaskAvailableProviders } from "@/tasks/use-task-available-providers";
 import {
   openTaskWorkflowForm,
   type TaskWorkflowFormModel,
@@ -17,7 +17,7 @@ export function useTaskWorkflowFormModel(
     };
   }, [model]);
 
-  const { providers } = useKanbanAvailableProviders(snapshot.serverId);
+  const { providers } = useTaskAvailableProviders(snapshot.serverId);
 
   useEffect(() => {
     if (!providers) {

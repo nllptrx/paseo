@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
-import { selectProjectBoard } from "@/tasks/task-views";
+import { selectProjectBoard, selectTrackerProjectBoard } from "@/tasks/task-views";
 import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
 import { NewTaskSheet } from "./new-task-sheet";
@@ -16,8 +16,11 @@ import { TaskBoard, type TaskBoardMove } from "./task-board";
 export interface TaskBoardSurfaceProps {
   serverId: string;
   /** The Paseo project this board belongs to; tasks come from the tracker
-   * projects linked to it. */
+   * projects linked to it. Ignored when `trackerProjectId` names one directly. */
   paseoProjectId: string;
+  /** The board itself, when the caller already knows which tracker project it
+   * is — a board can exist before any checkout does. */
+  trackerProjectId?: string | undefined;
   /** Prefills the tracker project the first capture creates. */
   projectDisplayName: string;
   /** Offered on every card when the host screen can author a plan for a task. */
@@ -31,6 +34,7 @@ export interface TaskBoardSurfaceProps {
 export function TaskBoardSurface({
   serverId,
   paseoProjectId,
+  trackerProjectId,
   projectDisplayName,
   onCreateWorkflowForTask,
 }: TaskBoardSurfaceProps): ReactElement {
@@ -43,8 +47,11 @@ export function TaskBoardSurface({
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
 
   const board = useMemo(
-    () => selectProjectBoard(snapshot, paseoProjectId),
-    [paseoProjectId, snapshot],
+    () =>
+      trackerProjectId
+        ? selectTrackerProjectBoard(snapshot, trackerProjectId)
+        : selectProjectBoard(snapshot, paseoProjectId),
+    [paseoProjectId, snapshot, trackerProjectId],
   );
   const projectsById = useMemo(
     () => new Map(board.projects.map((project) => [project.id, project])),

@@ -1,57 +1,43 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { ScrollView, Text, View, useWindowDimensions } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
-import { Gesture } from "react-native-gesture-handler";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
-import { Ellipsis, MessagesSquare } from "lucide-react-native";
+import { Ellipsis } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { ScreenHeader } from "@/components/headers/screen-header";
 import { ScreenTitle } from "@/components/headers/screen-title";
 import { SidebarMenuToggle } from "@/components/headers/menu-header";
-import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
-import { resolveDesktopOrchestratorWidth } from "@/components/desktop-sidebar-layout";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { KanbanOrchestratorPane } from "@/components/kanban/kanban-orchestrator-pane";
 import { TaskWorkflowFormSheet } from "@/components/tasks/task-workflow-form-sheet";
 import { TaskBoardSurface } from "@/components/tasks/task-board-surface";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useIsCompactFormFactor } from "@/constants/layout";
-import { useKanbans } from "@/hooks/use-kanbans";
-import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
-import { usePanelStore } from "@/stores/panel-store";
-import { selectProjectBoard } from "@/tasks/task-views";
-import { useTaskMutations, useTasks } from "@/tasks/use-tasks";
-import { useProjectDisplayName } from "@/stores/session-store-hooks";
+import { useTaskBoards, type AggregatedTaskBoard } from "@/hooks/use-task-boards";
+import { findBoardById } from "@/tasks/aggregated-task-boards";
+import { useTaskMutations } from "@/tasks/use-tasks";
 import { buildKanbansRoute } from "@/utils/host-routes";
-import { ICON_SIZE, type Theme } from "@/styles/theme";
+import type { Theme } from "@/styles/theme";
 
 const ThemedEllipsis = withUnistyles(Ellipsis);
-const ThemedMessagesSquare = withUnistyles(MessagesSquare);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 
-export function KanbanBoardScreen({ kanbanId }: { kanbanId: string }): ReactElement {
+export function KanbanBoardScreen({ boardId }: { boardId: string }): ReactElement {
   const { t } = useTranslation();
   const router = useRouter();
-  const { loadState } = useKanbans();
+  const { loadState } = useTaskBoards();
 
-  // The board route only carries the kanban id; the host it belongs to comes from
-  // the loaded list, which is also what tells a stale id from one still loading.
-  const summary = useMemo(() => {
-    if (loadState.status !== "loaded") {
-      return null;
-    }
-    return loadState.data.find((kanban) => kanban.id === kanbanId) ?? null;
-  }, [kanbanId, loadState]);
+  // The route carries the tracker project; the host it belongs to comes from the
+  // loaded list, which is also what tells a stale id from one still loading.
+  const board = useMemo(
+    () => (loadState.status === "loaded" ? findBoardById(loadState.data, boardId) : null),
+    [boardId, loadState],
+  );
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
@@ -80,7 +66,7 @@ export function KanbanBoardScreen({ kanbanId }: { kanbanId: string }): ReactElem
     );
   }
 
-  if (!summary) {
+  if (!board) {
     return (
       <View style={styles.container}>
         <ScreenHeader
@@ -102,84 +88,40 @@ export function KanbanBoardScreen({ kanbanId }: { kanbanId: string }): ReactElem
     );
   }
 
-  return <LoadedKanbanBoardScreen kanbanId={kanbanId} summary={summary} />;
+  return <LoadedKanbanBoardScreen board={board} />;
 }
 
-function LoadedKanbanBoardScreen({
-  kanbanId,
-  summary,
-}: {
-  kanbanId: string;
-  summary: { serverId: string; projectId: string; name: string };
-}): ReactElement {
+function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): ReactElement {
   const { t } = useTranslation();
-  const { serverId } = summary;
-  const isCompact = useIsCompactFormFactor();
-  const { provisionOrchestrator } = useKanbanMutations({ serverId });
+  const { serverId, project } = board;
+  const boardId = project.id;
   const { configureBoard } = useTaskMutations(serverId);
-  const [isProvisioning, setIsProvisioning] = useState(false);
   const [workflowTaskId, setWorkflowTaskId] = useState<string | null>(null);
-  // Desktop remembers the pane like the explorer sidebar does; compact borrows
-  // the whole screen for it, so it is a sheet you summon, never a default.
-  const orchestratorOpenDesktop = usePanelStore((state) => state.orchestratorPanelOpen);
-  const toggleOrchestratorPanel = usePanelStore((state) => state.toggleOrchestratorPanel);
-  const [isOrchestratorSheetOpen, setIsOrchestratorSheetOpen] = useState(false);
-  const isOrchestratorOpen = isCompact ? isOrchestratorSheetOpen : orchestratorOpenDesktop;
 
-  const handleProvisionOrchestrator = useCallback(async () => {
-    setIsProvisioning(true);
-    try {
-      await provisionOrchestrator(kanbanId);
-    } finally {
-      setIsProvisioning(false);
-    }
-  }, [kanbanId, provisionOrchestrator]);
-  const handleToggleOrchestrator = useCallback(() => {
-    if (isCompact) {
-      setIsOrchestratorSheetOpen((open) => !open);
-      return;
-    }
-    toggleOrchestratorPanel();
-  }, [isCompact, toggleOrchestratorPanel]);
-  const handleCloseOrchestratorSheet = useCallback(() => setIsOrchestratorSheetOpen(false), []);
   const handleCreateWorkflowForTask = useCallback(
     (taskId: string) => setWorkflowTaskId(taskId),
     [],
   );
   const handleCloseWorkflowForm = useCallback(() => setWorkflowTaskId(null), []);
 
-  const orchestratorSheetHeader = useMemo(
-    () => ({ title: t("kanban.orchestrator.rail.heading") }),
-    [t],
-  );
-  const projectName = useProjectDisplayName(serverId, summary.projectId);
-  const { snapshot } = useTasks(serverId);
-  const board = useMemo(
-    () => selectProjectBoard(snapshot, summary.projectId),
-    [snapshot, summary.projectId],
-  );
   const totalCount = board.tasks.length;
 
   // The review flag routes a green settle to In Review instead of Done, and it
   // is a property of the board — which is the tracker project.
-  const trackerProject = board.projects[0] ?? null;
-  const reviewEnabled = trackerProject?.board?.reviewEnabled === true;
+  const reviewEnabled = project.board?.reviewEnabled === true;
   const handleToggleReview = useCallback(() => {
-    if (!trackerProject) {
-      return;
-    }
-    void configureBoard({ projectId: trackerProject.id, reviewEnabled: !reviewEnabled });
-  }, [configureBoard, reviewEnabled, trackerProject]);
+    void configureBoard({ projectId: project.id, reviewEnabled: !reviewEnabled });
+  }, [configureBoard, project.id, reviewEnabled]);
 
   const headerLeft = useMemo(
     () => (
       <>
         <SidebarMenuToggle />
-        <ScreenTitle>{projectName ?? summary.name}</ScreenTitle>
+        <ScreenTitle>{project.name}</ScreenTitle>
         <DropdownMenu compactMode="sheet">
           <DropdownMenuTrigger
             style={styles.menuTrigger}
-            testID={`kanban-board-menu-${kanbanId}`}
+            testID={`kanban-board-menu-${boardId}`}
             accessibilityRole="button"
             accessibilityLabel={t("kanban.board.menu")}
           >
@@ -193,59 +135,25 @@ function LoadedKanbanBoardScreen({
           <DropdownMenuContent
             align="start"
             width={220}
-            testID={`kanban-board-menu-content-${kanbanId}`}
+            testID={`kanban-board-menu-content-${boardId}`}
             sheetTitle={t("kanban.board.menu")}
           >
             <DropdownMenuItem
-              testID={`kanban-review-toggle-${kanbanId}`}
+              testID={`kanban-review-toggle-${boardId}`}
               onSelect={handleToggleReview}
-              disabled={trackerProject === null}
             >
               {t(reviewEnabled ? "kanban.board.reviewDisable" : "kanban.board.reviewEnable")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              testID={`kanban-create-orchestrator-${kanbanId}`}
-              onSelect={handleProvisionOrchestrator}
-              disabled={isProvisioning}
-            >
-              {t("kanban.board.createOrchestrator")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </>
     ),
-    [
-      handleProvisionOrchestrator,
-      handleToggleReview,
-      isProvisioning,
-      kanbanId,
-      projectName,
-      reviewEnabled,
-      summary.name,
-      trackerProject,
-      t,
-    ],
+    [handleToggleReview, boardId, project.name, reviewEnabled, t],
   );
 
   const headerRight = useMemo(
-    () => (
-      <View style={styles.headerTrailing}>
-        <Text style={styles.count}>{t("tasks.screen.taskCount", { count: totalCount })}</Text>
-        <Button
-          variant="ghost"
-          size="xs"
-          onPress={handleToggleOrchestrator}
-          accessibilityLabel={t("kanban.orchestrator.pane.toggle")}
-          testID="kanban-orchestrator-pane-toggle"
-        >
-          <ThemedMessagesSquare
-            size={ICON_SIZE.sm}
-            uniProps={isOrchestratorOpen ? foregroundIconMapping : mutedIconMapping}
-          />
-        </Button>
-      </View>
-    ),
-    [handleToggleOrchestrator, isOrchestratorOpen, t, totalCount],
+    () => <Text style={styles.count}>{t("tasks.screen.taskCount", { count: totalCount })}</Text>,
+    [t, totalCount],
   );
 
   return (
@@ -256,30 +164,18 @@ function LoadedKanbanBoardScreen({
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
-            testID={`kanban-board-${kanbanId}`}
+            testID={`kanban-board-${boardId}`}
           >
             <TaskBoardSurface
               serverId={serverId}
-              paseoProjectId={summary.projectId}
-              projectDisplayName={projectName ?? summary.name}
+              paseoProjectId={project.paseoProjectId ?? ""}
+              trackerProjectId={project.id}
+              projectDisplayName={project.name}
               onCreateWorkflowForTask={handleCreateWorkflowForTask}
             />
           </ScrollView>
         </View>
-        {!isCompact && orchestratorOpenDesktop ? (
-          <OrchestratorSidebar serverId={serverId} kanbanId={kanbanId} />
-        ) : null}
       </View>
-      {isCompact ? (
-        <AdaptiveModalSheet
-          header={orchestratorSheetHeader}
-          visible={isOrchestratorSheetOpen}
-          onClose={handleCloseOrchestratorSheet}
-          testID="kanban-orchestrator-sheet"
-        >
-          <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
-        </AdaptiveModalSheet>
-      ) : null}
       {workflowTaskId ? (
         <TaskWorkflowFormSheet
           serverId={serverId}
@@ -289,73 +185,6 @@ function LoadedKanbanBoardScreen({
         />
       ) : null}
     </View>
-  );
-}
-
-/**
- * The explorer sidebar's shape, for the board: width owned by the panel store,
- * clamped against the viewport, resized by the same edge gesture. Mounted only
- * while open, so reopening refetches what the conversation shows.
- */
-function OrchestratorSidebar({
-  serverId,
-  kanbanId,
-}: {
-  serverId: string;
-  kanbanId: string;
-}): ReactElement {
-  const insets = useSafeAreaInsets();
-  const orchestratorWidth = usePanelStore((state) => state.orchestratorWidth);
-  const setOrchestratorWidth = usePanelStore((state) => state.setOrchestratorWidth);
-  const { width: viewportWidth } = useWindowDimensions();
-  const visibleWidth = resolveDesktopOrchestratorWidth({
-    requestedWidth: orchestratorWidth,
-    viewportWidth,
-  });
-  const startWidthRef = useRef(visibleWidth);
-  const resizeWidth = useSharedValue(visibleWidth);
-
-  useEffect(() => {
-    resizeWidth.value = visibleWidth;
-  }, [resizeWidth, visibleWidth]);
-
-  const resizeGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(true)
-        .hitSlop({ left: 8, right: 8, top: 0, bottom: 0 })
-        .onStart(() => {
-          startWidthRef.current = visibleWidth;
-          resizeWidth.value = visibleWidth;
-        })
-        .onUpdate((event) => {
-          const newWidth = startWidthRef.current - event.translationX;
-          resizeWidth.value = resolveDesktopOrchestratorWidth({
-            requestedWidth: newWidth,
-            viewportWidth,
-          });
-        })
-        .onEnd(() => {
-          runOnJS(setOrchestratorWidth)(resizeWidth.value);
-        }),
-    [resizeWidth, setOrchestratorWidth, viewportWidth, visibleWidth],
-  );
-
-  const resizeAnimatedStyle = useAnimatedStyle(() => ({
-    width: resizeWidth.value,
-  }));
-
-  return (
-    <Animated.View
-      style={[styles.orchestratorPane, resizeAnimatedStyle, { paddingTop: insets.top }]}
-    >
-      <SidebarResizeHandle
-        edge="left"
-        gesture={resizeGesture}
-        testID="kanban-orchestrator-resize-handle"
-      />
-      <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
-    </Animated.View>
   );
 }
 

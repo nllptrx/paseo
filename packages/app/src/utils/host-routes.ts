@@ -432,8 +432,9 @@ export function buildKanbansRoute() {
   return "/kanbans" as const;
 }
 
-export function buildKanbanBoardRoute(kanbanId: string) {
-  return `/kanbans/${encodeURIComponent(kanbanId)}` as const;
+/** A board is a tracker project, so its id is what addresses the route. */
+export function buildKanbanBoardRoute(boardId: string) {
+  return `/kanbans/${encodeURIComponent(boardId)}` as const;
 }
 
 export function buildOpenProjectRoute() {
