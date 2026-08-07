@@ -225,12 +225,14 @@ overwritten outputs, ~75x the tokens).
 Each phase leaves the branch green — typecheck, lint, the touched unit tests,
 and the board e2e.
 
-1. **Board is the task project** (§2.1). Config onto `task_projects`,
-   `StoredKanban` out of the data path, routes and overview resolving on the
-   project. The most invasive phase: kanban engine, RPCs, and the e2e specs
-   that still speak "plan".
-2. **Workflow on task** (§2.2). Steps re-homed, plans and `derivePlanColumn`
-   deleted, the form and card menu renamed.
+1. **Workflow on task** (§2.2) — _first, not second_. The kanban record cannot
+   leave the data path while it still holds the plans, so the steps move out
+   before the record does. New tracker storage, `TaskWorkflowEngine`, the
+   `tasks.workflow.*` and `tasks.step.*` RPCs, the agent tools, and the
+   workflow form.
+2. **Board is the task project** (§2.1). With the record down to config, fold
+   it into `task_projects`, delete the kanban store, service, engine, RPCs and
+   plan UI, and resolve routes and the overview on the project.
 3. **Event bus and feed** (§2.4, §6). Single emission point, room per board,
    `comment_task` mirroring, composer with mention fanout, mesh retirement,
    Feed tab.
