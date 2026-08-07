@@ -210,6 +210,7 @@ import { LoopService } from "./loop-service.js";
 import { ScheduleService } from "./schedule/service.js";
 import type { KanbanService } from "./kanban/service.js";
 import type { KanbanEngine } from "./kanban/engine.js";
+import type { TaskWorkflowEngine } from "./tasks/workflow-engine.js";
 import type { TaskService } from "./tasks/service.js";
 import { TaskTransitionEngine } from "./tasks/transitions.js";
 import { KanbanSession } from "./session/kanban/kanban-session.js";
@@ -463,6 +464,7 @@ export interface SessionOptions {
   kanbanEngine: KanbanEngine;
   taskService?: TaskService;
   taskTransitions?: TaskTransitionEngine;
+  taskWorkflowEngine?: TaskWorkflowEngine;
   loopService: LoopService;
   checkoutDiffManager: CheckoutDiffManager;
   github?: ForgeService;
@@ -615,6 +617,7 @@ function describeRegistryTransition(record: ArchivedRecordSnapshot | null): Regi
 function createTasksSession(input: {
   taskService: TaskService | undefined;
   transitions: TaskTransitionEngine | undefined;
+  workflowEngine: TaskWorkflowEngine | undefined;
   kanbanService: KanbanService;
   agentManager: AgentManager;
   host: { emit: (msg: SessionOutboundMessage) => void };
@@ -636,6 +639,7 @@ function createTasksSession(input: {
     host: input.host,
     taskService: input.taskService,
     transitions,
+    ...(input.workflowEngine ? { workflowEngine: input.workflowEngine } : {}),
     logger: input.logger,
   });
 }
@@ -756,6 +760,7 @@ export class Session {
       kanbanEngine,
       taskService,
       taskTransitions,
+      taskWorkflowEngine,
       loopService,
       checkoutDiffManager,
       github,
@@ -908,6 +913,7 @@ export class Session {
     this.tasksSession = createTasksSession({
       taskService,
       transitions: taskTransitions,
+      workflowEngine: taskWorkflowEngine,
       kanbanService,
       agentManager,
       host: { emit: (msg) => this.emit(msg) },
@@ -2473,6 +2479,20 @@ export class Session {
         return session.handleCommentCreateRequest(msg);
       case "tasks.review.request":
         return session.handleReviewRequest(msg);
+      case "tasks.board.configure.request":
+        return session.handleBoardConfigureRequest(msg);
+      case "tasks.workflow.set.request":
+        return session.handleWorkflowSetRequest(msg);
+      case "tasks.workflow.clear.request":
+        return session.handleWorkflowClearRequest(msg);
+      case "tasks.step.run.request":
+        return session.handleStepRunRequest(msg);
+      case "tasks.step.retry.request":
+        return session.handleStepRetryRequest(msg);
+      case "tasks.step.skip.request":
+        return session.handleStepSkipRequest(msg);
+      case "tasks.step.cancel.request":
+        return session.handleStepCancelRequest(msg);
       case "tasks.subscribe.request":
         session.handleSubscribeRequest(msg);
         return Promise.resolve();

@@ -1,7 +1,10 @@
+import { randomBytes } from "node:crypto";
 import type pino from "pino";
+import type { Step, StepInput } from "@getpaseo/protocol/tasks/workflow";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../../messages.js";
 import type { TaskService } from "../../tasks/service.js";
 import type { TaskTransitionEngine } from "../../tasks/transitions.js";
+import type { TaskStepIdentifier, TaskWorkflowEngine } from "../../tasks/workflow-engine.js";
 
 export interface TasksSessionHost {
   emit(msg: SessionOutboundMessage): void;
@@ -11,10 +14,23 @@ export interface TasksSessionOptions {
   host: TasksSessionHost;
   taskService: TaskService;
   transitions: TaskTransitionEngine;
+  /** Absent on hosts that never dispatch work; the workflow requests then fail
+   * with a reason rather than silently doing nothing. */
+  workflowEngine?: TaskWorkflowEngine;
   logger: pino.Logger;
 }
 
 type Inbound<T extends SessionInboundMessage["type"]> = Extract<SessionInboundMessage, { type: T }>;
+
+/** Steps arrive without identity: the client describes what to run, the daemon
+ * decides what to call each one and starts its run history empty. */
+function stampSteps(steps: readonly StepInput[]): Step[] {
+  return steps.map((step) => ({
+    ...step,
+    id: `stp_${randomBytes(4).toString("hex")}`,
+    runs: [],
+  }));
+}
 
 /**
  * A client's tracker request surface.
@@ -28,6 +44,7 @@ export class TasksSession {
   private readonly host: TasksSessionHost;
   private readonly taskService: TaskService;
   private readonly transitions: TaskTransitionEngine;
+  private readonly workflowEngine: TaskWorkflowEngine | null;
   private readonly logger: pino.Logger;
   private unsubscribe: (() => void) | null = null;
 
@@ -35,6 +52,7 @@ export class TasksSession {
     this.host = options.host;
     this.taskService = options.taskService;
     this.transitions = options.transitions;
+    this.workflowEngine = options.workflowEngine ?? null;
     this.logger = options.logger;
   }
 
@@ -231,6 +249,106 @@ export class TasksSession {
       this.host.emit({
         type: "tasks.review.response",
         payload: { requestId: request.requestId, task, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleBoardConfigureRequest(
+    request: Inbound<"tasks.board.configure.request">,
+  ): Promise<void> {
+    try {
+      const project = await this.taskService.configureBoard({
+        projectId: request.projectId,
+        ...(request.reviewEnabled !== undefined ? { reviewEnabled: request.reviewEnabled } : {}),
+        ...(request.reviewOnReject !== undefined ? { reviewOnReject: request.reviewOnReject } : {}),
+        ...(request.archiveWorkspacesOnDone !== undefined
+          ? { archiveWorkspacesOnDone: request.archiveWorkspacesOnDone }
+          : {}),
+      });
+      this.host.emit({
+        type: "tasks.board.configure.response",
+        payload: { requestId: request.requestId, project, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleWorkflowSetRequest(request: Inbound<"tasks.workflow.set.request">): Promise<void> {
+    try {
+      const workflow = await this.taskService.setWorkflow({
+        taskId: request.taskId,
+        steps: stampSteps(request.steps),
+      });
+      this.host.emit({
+        type: "tasks.workflow.set.response",
+        payload: { requestId: request.requestId, workflow, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleWorkflowClearRequest(
+    request: Inbound<"tasks.workflow.clear.request">,
+  ): Promise<void> {
+    try {
+      await this.taskService.clearWorkflow(request.taskId);
+      this.host.emit({
+        type: "tasks.workflow.clear.response",
+        payload: { requestId: request.requestId, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleStepRunRequest(request: Inbound<"tasks.step.run.request">): Promise<void> {
+    await this.runStepCommand(request, "tasks.step.run.response", (engine, identifier) =>
+      engine.runStep(identifier),
+    );
+  }
+
+  async handleStepRetryRequest(request: Inbound<"tasks.step.retry.request">): Promise<void> {
+    await this.runStepCommand(request, "tasks.step.retry.response", (engine, identifier) =>
+      engine.retryStep(identifier),
+    );
+  }
+
+  async handleStepSkipRequest(request: Inbound<"tasks.step.skip.request">): Promise<void> {
+    await this.runStepCommand(request, "tasks.step.skip.response", (engine, identifier) =>
+      engine.skipStep(identifier),
+    );
+  }
+
+  async handleStepCancelRequest(request: Inbound<"tasks.step.cancel.request">): Promise<void> {
+    await this.runStepCommand(request, "tasks.step.cancel.response", (engine, identifier) =>
+      engine.cancelStep(identifier),
+    );
+  }
+
+  private async runStepCommand(
+    request: { requestId: string; type: string; taskId: string; stepId: string },
+    responseType:
+      | "tasks.step.run.response"
+      | "tasks.step.retry.response"
+      | "tasks.step.skip.response"
+      | "tasks.step.cancel.response",
+    command: (engine: TaskWorkflowEngine, identifier: TaskStepIdentifier) => Promise<Step>,
+  ): Promise<void> {
+    try {
+      if (!this.workflowEngine) {
+        throw new Error("This host does not run task workflows");
+      }
+      const step = await command(this.workflowEngine, {
+        taskId: request.taskId,
+        stepId: request.stepId,
+      });
+      this.host.emit({
+        type: responseType,
+        payload: { requestId: request.requestId, step, error: null },
       });
     } catch (error) {
       this.emitError(request, error);

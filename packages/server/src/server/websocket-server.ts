@@ -15,6 +15,7 @@ import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
 import type { KanbanEngine } from "./kanban/engine.js";
+import type { TaskWorkflowEngine } from "./tasks/workflow-engine.js";
 import type { TaskService } from "./tasks/service.js";
 import type { TaskTransitionEngine } from "./tasks/transitions.js";
 import type { KanbanService } from "./kanban/service.js";
@@ -572,6 +573,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly kanbanEngine: KanbanEngine;
   private readonly taskService: TaskService | null;
   private readonly taskTransitions: TaskTransitionEngine | null;
+  private readonly taskWorkflowEngine: TaskWorkflowEngine | null;
   private readonly checkoutDiffManager: CheckoutDiffManager;
   private readonly github: ForgeService;
   private readonly workspaceGitService: WorkspaceGitService;
@@ -670,9 +672,11 @@ export class VoiceAssistantWebSocketServer {
     kanbanEngine?: KanbanEngine,
     taskService?: TaskService,
     taskTransitions?: TaskTransitionEngine,
+    taskWorkflowEngine?: TaskWorkflowEngine,
   ) {
     this.taskService = taskService ?? null;
     this.taskTransitions = taskTransitions ?? null;
+    this.taskWorkflowEngine = taskWorkflowEngine ?? null;
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
     this.advertiseDaemonStatusRpc = wsConfig.daemonStatusRpc !== false;
@@ -1408,6 +1412,7 @@ export class VoiceAssistantWebSocketServer {
       kanbanEngine: this.kanbanEngine,
       ...(this.taskService ? { taskService: this.taskService } : {}),
       ...(this.taskTransitions ? { taskTransitions: this.taskTransitions } : {}),
+      ...(this.taskWorkflowEngine ? { taskWorkflowEngine: this.taskWorkflowEngine } : {}),
       checkoutDiffManager: this.checkoutDiffManager,
       github: this.github,
       workspaceGitService: this.workspaceGitService,
