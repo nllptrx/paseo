@@ -81,6 +81,37 @@ A **Plan** is the third way, and the only one that is more than a single
 dispatch: an ordered, gated workflow. It attaches to a task like any other work.
 The tracker does not gain workflow semantics; the plan keeps them.
 
+## Surfaces
+
+Two views over the same tasks, and the difference is what you came to do. The
+**list** groups by status and is for reading a lot at once; the **board** is for
+moving things. Both read `task-views.ts`, so neither invents an ordering.
+
+The board always shows five columns and adds **Canceled** only once something is
+in it. A board is where work is going; a permanent column of abandoned work is
+dead width.
+
+A **row** is one line: priority, key, status, title, then a right-hand rail of
+label chips, attachment and comment counts. The rail is capped — two chips, one
+when narrow, the rest collapsing into a count that names them on hover — because
+a task with nine labels must not push its own title off the row.
+
+Status and priority are editable from the row without opening the task. They are
+the two fields you change in a sweep, and making a sweep cost one navigation each
+is what makes people stop grooming a backlog.
+
+Sorting defaults to **manual**, the order you dragged things into, because every
+other sort throws that away. Sorting by due date puts undated tasks last: no date
+is not an early date.
+
+Label filters collapse by name, so selecting "bug" across projects matches every
+project's own "bug" rather than asking which one you meant.
+
+The live-activity chip sits in the rail next to the labels: same shape, green,
+pulsing. That placement is the whole argument of this doc in one glance — what
+you intend on the left, what is happening on the right, neither pretending to be
+the other.
+
 ## Not built
 
 - Folders for grouping task projects. The sidebar groups by project.
