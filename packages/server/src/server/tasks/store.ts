@@ -690,6 +690,22 @@ export class TaskStore {
   }
 
   /** Every attachment on the host, for re-arming completion observers at boot. */
+  /** Every agent working a card on this board — who a feed mention can reach. */
+  listBoardAgentIds(projectId: string): string[] {
+    const rows = selectAll(
+      this.db.prepare(
+        `SELECT a.* FROM task_agents a
+         JOIN tasks t ON t.id = a.task_id
+         WHERE t.project_id = ?
+         ORDER BY a.attached_at, a.agent_id`,
+      ),
+      TaskAgentRowSchema,
+      "task_agents",
+      [projectId],
+    );
+    return [...new Set(rows.map((row) => row.agent_id))];
+  }
+
   listAgentLinks(): Array<{ taskId: string; agentId: string; workspaceId: string }> {
     return selectAll(
       this.db.prepare("SELECT * FROM task_agents ORDER BY attached_at, agent_id"),

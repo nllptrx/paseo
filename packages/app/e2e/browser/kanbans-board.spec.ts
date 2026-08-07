@@ -16,6 +16,11 @@ interface TrackerSeedClient {
     title: string;
     status?: string;
   }): Promise<{ task: { id: string; status: string } | null; error: string | null }>;
+  tasksAgentAttach(input: {
+    taskId: string;
+    agentId: string;
+    workspaceId: string;
+  }): Promise<{ error: string | null }>;
   tasksSnapshot(): Promise<{
     snapshot: {
       tasks: Array<{ id: string; title: string; status: string }>;
@@ -58,6 +63,21 @@ async function seedTrackerTask(
     throw new Error(task.error ?? "Failed to create task");
   }
   return { projectId: project.project.id, taskId: task.task.id };
+}
+
+async function attachAgentToTask(
+  workspace: SeededWorkspace,
+  taskId: string,
+  agentId: string,
+): Promise<void> {
+  const result = await trackerClient(workspace).tasksAgentAttach({
+    taskId,
+    agentId,
+    workspaceId: workspace.workspaceId,
+  });
+  if (result.error) {
+    throw new Error(`Failed to attach ${agentId}: ${result.error}`);
+  }
 }
 
 async function readTaskStatus(workspace: SeededWorkspace, taskId: string): Promise<string | null> {
@@ -270,6 +290,34 @@ test.describe("Kanbans board", () => {
     await board.getByTestId(`task-card-status-${taskId}`).click();
     await page.getByTestId(`task-card-add-workflow-${taskId}`).click();
     await expect(page.getByTestId("task-workflow-form-sheet")).toBeVisible({ timeout: 10_000 });
+  });
+
+  /** A mention has to be pickable: nobody types an agent id from memory, so the
+   * composer offers the agents on this board by the card each is working. */
+  test("the feed composer offers the board's agents to mention", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-mention-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `Mention task ${Date.now()}`);
+    // The daemon's agent subscription validates the id, so a fake agent still
+    // has to look like one.
+    const agentId = "11111111-2222-4333-8444-555555555555";
+    await attachAgentToTask(workspace, seeded.taskId, agentId);
+
+    await openBoard(page, seeded.projectId);
+    const feed = page.getByTestId("board-feed-pane");
+    if (!(await feed.isVisible())) {
+      await page.getByTestId("board-feed-toggle").click();
+    }
+    await expect(feed).toBeVisible({ timeout: 10_000 });
+
+    await page.getByTestId("board-feed-composer-input").fill("ping @");
+    const option = page.getByTestId(`board-feed-mention-${agentId}`);
+    await expect(option).toBeVisible({ timeout: 10_000 });
+    await option.click();
+
+    await expect(page.getByTestId("board-feed-composer-input")).toHaveValue(
+      new RegExp(`@${agentId}`),
+    );
   });
 
   /** A press always opens the card, whatever is attached to it. The old rule —

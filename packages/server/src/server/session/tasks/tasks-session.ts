@@ -5,6 +5,7 @@ import type { SessionInboundMessage, SessionOutboundMessage } from "../../messag
 import type { TaskService } from "../../tasks/service.js";
 import type { TaskTransitionEngine } from "../../tasks/transitions.js";
 import type { TaskStepIdentifier, TaskWorkflowEngine } from "../../tasks/workflow-engine.js";
+import { formatFeedMentionNotification, resolveFeedMentions } from "../../tasks/feed-mentions.js";
 
 export interface TasksSessionHost {
   emit(msg: SessionOutboundMessage): void;
@@ -17,6 +18,9 @@ export interface TasksSessionOptions {
   /** Absent on hosts that never dispatch work; the workflow requests then fail
    * with a reason rather than silently doing nothing. */
   workflowEngine?: TaskWorkflowEngine;
+  /** Delivers a feed mention to the agent it named. Absent on hosts that only
+   * read the tracker; mentions then post without waking anyone. */
+  notifyAgent?: (input: { agentId: string; text: string }) => Promise<void>;
   logger: pino.Logger;
 }
 
@@ -45,6 +49,9 @@ export class TasksSession {
   private readonly taskService: TaskService;
   private readonly transitions: TaskTransitionEngine;
   private readonly workflowEngine: TaskWorkflowEngine | null;
+  private readonly notifyAgent:
+    | ((input: { agentId: string; text: string }) => Promise<void>)
+    | null;
   private readonly logger: pino.Logger;
   private unsubscribe: (() => void) | null = null;
 
@@ -53,6 +60,7 @@ export class TasksSession {
     this.taskService = options.taskService;
     this.transitions = options.transitions;
     this.workflowEngine = options.workflowEngine ?? null;
+    this.notifyAgent = options.notifyAgent ?? null;
     this.logger = options.logger;
   }
 
@@ -372,6 +380,14 @@ export class TasksSession {
 
   async handleFeedPostRequest(request: Inbound<"tasks.feed.post.request">): Promise<void> {
     try {
+      const mentions = resolveFeedMentions({
+        body: request.body,
+        boardAgentIds: await this.taskService.listBoardAgentIds(request.projectId),
+      });
+      if (!mentions.ok) {
+        throw new Error(mentions.error);
+      }
+
       const entry = await this.taskService.createComment({
         projectId: request.projectId,
         taskId: request.taskId ?? null,
@@ -379,6 +395,14 @@ export class TasksSession {
         authorName: "user",
         body: request.body,
       });
+
+      await this.notifyMentionedAgents({
+        projectId: request.projectId,
+        taskId: request.taskId ?? null,
+        body: request.body,
+        agentIds: mentions.agentIds,
+      });
+
       this.host.emit({
         type: "tasks.feed.post.response",
         payload: { requestId: request.requestId, entry, error: null },
@@ -386,6 +410,41 @@ export class TasksSession {
     } catch (error) {
       this.emitError(request, error);
     }
+  }
+
+  /**
+   * A mention wakes the agent it names. The note is already in the feed by the
+   * time this runs, so a prompt that fails to send leaves a board you can read
+   * rather than a post that never happened.
+   */
+  private async notifyMentionedAgents(input: {
+    projectId: string;
+    taskId: string | null;
+    body: string;
+    agentIds: readonly string[];
+  }): Promise<void> {
+    if (input.agentIds.length === 0 || !this.notifyAgent) {
+      return;
+    }
+    const project = await this.taskService.getProject(input.projectId);
+    if (!project) {
+      return;
+    }
+    const task = input.taskId ? await this.taskService.getTask(input.taskId) : null;
+    const text = formatFeedMentionNotification({ project, task, body: input.body });
+
+    await Promise.all(
+      input.agentIds.map(async (agentId) => {
+        try {
+          await this.notifyAgent?.({ agentId, text });
+        } catch (error) {
+          this.logger.warn(
+            { err: error, agentId },
+            "Could not deliver a feed mention to the agent it named",
+          );
+        }
+      }),
+    );
   }
 
   async handleDependencyAddRequest(

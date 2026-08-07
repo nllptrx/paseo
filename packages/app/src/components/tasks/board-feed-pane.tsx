@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { SendHorizontal } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
@@ -9,6 +9,13 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { formatTaskKey } from "@/tasks/task-views";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
+import {
+  applyMention,
+  collectMentionCandidates,
+  filterMentionCandidates,
+  findActiveMention,
+  type FeedMentionCandidate,
+} from "@/tasks/feed-mention-model";
 import { toErrorMessage } from "@/utils/error-messages";
 import { BoardFeedEntryRow } from "./board-feed-entry";
 
@@ -40,6 +47,7 @@ export function BoardFeedPane({
   });
   const { post, isPosting } = useBoardFeedComposer({ serverId, projectId: project.id });
   const [draft, setDraft] = useState("");
+  const [caret, setCaret] = useState(0);
 
   const keyByTaskId = useMemo(() => {
     const byId = new Map<string, string>();
@@ -48,6 +56,38 @@ export function BoardFeedPane({
     }
     return byId;
   }, [project, tasks]);
+
+  const mentionCandidates = useMemo(
+    () => collectMentionCandidates({ tasks, taskKeyById: keyByTaskId }),
+    [keyByTaskId, tasks],
+  );
+  const activeMention = useMemo(() => findActiveMention(draft, caret), [caret, draft]);
+  const mentionMatches = useMemo(
+    () => (activeMention ? filterMentionCandidates(mentionCandidates, activeMention.term) : []),
+    [activeMention, mentionCandidates],
+  );
+
+  const handleSelectionChange = useCallback(
+    (event: { nativeEvent: { selection: { start: number } } }) => {
+      setCaret(event.nativeEvent.selection.start);
+    },
+    [],
+  );
+  const handleChangeDraft = useCallback((value: string) => {
+    setDraft(value);
+    setCaret(value.length);
+  }, []);
+  const handlePickMention = useCallback(
+    (agentId: string) => {
+      if (!activeMention) {
+        return;
+      }
+      const next = applyMention({ body: draft, mention: activeMention, agentId });
+      setDraft(next.body);
+      setCaret(next.caret);
+    },
+    [activeMention, draft],
+  );
 
   const handleSend = useCallback(() => {
     const body = draft.trim();
@@ -92,10 +132,23 @@ export function BoardFeedPane({
         ))}
       </ScrollView>
 
+      {activeMention && mentionMatches.length > 0 ? (
+        <View style={styles.mentions} testID="board-feed-mentions">
+          {mentionMatches.map((candidate) => (
+            <MentionOption
+              key={candidate.agentId}
+              candidate={candidate}
+              onPick={handlePickMention}
+            />
+          ))}
+        </View>
+      ) : null}
+
       <View style={styles.composer}>
         <TextInput
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={handleChangeDraft}
+          onSelectionChange={handleSelectionChange}
           onSubmitEditing={handleSend}
           placeholder={t("tasks.feed.composerPlaceholder")}
           placeholderTextColor={styles.placeholder.color}
@@ -117,7 +170,54 @@ export function BoardFeedPane({
   );
 }
 
+/** An agent is named by the card it is on: two hex ids on one board tell you
+ * nothing, and what someone is working is what you meant to pick. */
+function MentionOption({
+  candidate,
+  onPick,
+}: {
+  candidate: FeedMentionCandidate;
+  onPick: (agentId: string) => void;
+}): ReactElement {
+  const handlePress = useCallback(() => onPick(candidate.agentId), [candidate.agentId, onPick]);
+  return (
+    <Pressable
+      onPress={handlePress}
+      style={styles.mentionOption}
+      accessibilityRole="button"
+      testID={`board-feed-mention-${candidate.agentId}`}
+    >
+      <Text style={styles.mentionKey}>{candidate.taskKey}</Text>
+      <Text style={styles.mentionTitle} numberOfLines={1}>
+        {candidate.taskTitle}
+      </Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create((theme) => ({
+  mentions: {
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+    paddingVertical: theme.spacing[1],
+  },
+  mentionOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+  },
+  mentionKey: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+  },
+  mentionTitle: {
+    flex: 1,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
   pane: {
     flex: 1,
     minHeight: 0,

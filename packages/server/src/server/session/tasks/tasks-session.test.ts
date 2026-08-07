@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionOutboundMessage } from "../../messages.js";
 import { TaskService } from "../../tasks/service.js";
 import { TaskTransitionEngine } from "../../tasks/transitions.js";
+import { FEED_MENTION_FANOUT_LIMIT } from "../../tasks/feed-mentions.js";
 import { TasksSession } from "./tasks-session.js";
 
 const logger = pino({ level: "silent" });
@@ -26,11 +27,13 @@ describe("TasksSession workflow requests", () => {
   let service: TaskService;
   let emitted: SessionOutboundMessage[];
   let session: TasksSession;
+  let notified: Array<{ agentId: string; text: string }>;
 
   beforeEach(() => {
     directory = mkdtempSync(join(tmpdir(), "paseo-tasks-session-"));
     service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
     emitted = [];
+    notified = [];
     session = new TasksSession({
       host: { emit: (msg) => emitted.push(msg) },
       taskService: service,
@@ -39,6 +42,9 @@ describe("TasksSession workflow requests", () => {
         agentManager: { subscribe: () => () => {}, getAgent: () => null },
         logger,
       }),
+      notifyAgent: async (input) => {
+        notified.push(input);
+      },
       logger,
     });
   });
@@ -139,5 +145,63 @@ describe("TasksSession workflow requests", () => {
     });
 
     expect(payloadOf(emitted, "rpc_error").error).toMatch(/does not run task workflows/);
+  });
+  /** A mention wakes the agent it names, and only when that agent is actually
+   * working this board. */
+  it("wakes a mentioned agent that works this board", async () => {
+    const { projectId, taskId } = await seedTask();
+    await service.attachAgent({ taskId, agentId: "agt_1", workspaceId: "ws_1" });
+
+    await session.handleFeedPostRequest({
+      type: "tasks.feed.post.request",
+      requestId: "r1",
+      projectId,
+      taskId,
+      body: "@agt_1 can you take this",
+    });
+
+    expect(payloadOf(emitted, "tasks.feed.post.response").error).toBeNull();
+    expect(notified).toHaveLength(1);
+    expect(notified[0].agentId).toBe("agt_1");
+    expect(notified[0].text).toContain("You were mentioned on PSE-1");
+    expect(notified[0].text).toContain("can you take this");
+  });
+
+  /** Typing a name that is not on this board is a sentence, not a failure: the
+   * note still posts. */
+  it("posts a note whose mention matches nobody", async () => {
+    const { projectId } = await seedTask();
+
+    await session.handleFeedPostRequest({
+      type: "tasks.feed.post.request",
+      requestId: "r1",
+      projectId,
+      body: "ask @someone-else about it",
+    });
+
+    expect(payloadOf(emitted, "tasks.feed.post.response").entry?.body).toBe(
+      "ask @someone-else about it",
+    );
+    expect(notified).toEqual([]);
+  });
+
+  /** The note is refused before it posts: waking eleven agents cannot be taken
+   * back, so it must not happen as a side effect of a note that stands. */
+  it("refuses an everyone that would wake more agents than the limit", async () => {
+    const { projectId, taskId } = await seedTask();
+    for (let index = 0; index <= FEED_MENTION_FANOUT_LIMIT; index++) {
+      await service.attachAgent({ taskId, agentId: `agt_${index}`, workspaceId: "ws_1" });
+    }
+
+    await session.handleFeedPostRequest({
+      type: "tasks.feed.post.request",
+      requestId: "r1",
+      projectId,
+      body: "@everyone standup",
+    });
+
+    expect(payloadOf(emitted, "rpc_error").error).toMatch(/over the limit/);
+    expect(notified).toEqual([]);
+    expect(await service.listBoardFeed({ projectId })).toEqual([]);
   });
 });

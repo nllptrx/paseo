@@ -338,6 +338,10 @@ export class TaskService {
     this.announce(store);
   }
 
+  async listBoardAgentIds(projectId: string): Promise<string[]> {
+    return (await this.require()).listBoardAgentIds(projectId);
+  }
+
   async listTaskAgents(taskId: string): Promise<TaskAgentLink[]> {
     return (await this.require()).listTaskAgents(taskId);
   }

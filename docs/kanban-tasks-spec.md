@@ -213,8 +213,14 @@ not.
   **Feed** tab in the explorer sidebar when the workspace's project has a
   board. RPCs `tasks.feed.read`/`tasks.feed.post`; agents read it with
   `read_board_feed`.
-- **[PROPOSED]** `@mention` fanout from the composer, so a note can prompt a
-  named agent.
+- `@mention` wakes the agent it names. Targets come from the agents attached to
+  this board's cards and nowhere else — a board is not a directory of the host,
+  and a note here must not be able to page a stranger. The composer offers them
+  by the card each is working, because nobody types an agent id from memory.
+  `@everyone` means the board's agents, capped at 10: a prompt sent to eleven
+  agents cannot be taken back, so it is refused before the note posts rather
+  than delivered as a side effect of one that stands. A mention matching nobody
+  is a sentence, not an error, and the note still posts.
 
 ### 6.1 No standing team-lead agent — daemon rules instead [DECIDED]
 

@@ -652,6 +652,7 @@ function createTasksSession(input: {
   transitions: TaskTransitionEngine | undefined;
   workflowEngine: TaskWorkflowEngine | undefined;
   agentManager: AgentManager;
+  notifyAgent: (input: { agentId: string; text: string }) => Promise<void>;
   host: { emit: (msg: SessionOutboundMessage) => void };
   logger: pino.Logger;
 }): TasksSession | null {
@@ -672,6 +673,7 @@ function createTasksSession(input: {
     taskService: input.taskService,
     transitions,
     ...(input.workflowEngine ? { workflowEngine: input.workflowEngine } : {}),
+    notifyAgent: input.notifyAgent,
     logger: input.logger,
   });
 }
@@ -944,6 +946,16 @@ export class Session {
       transitions: taskTransitions,
       workflowEngine: taskWorkflowEngine,
       agentManager,
+      notifyAgent: async ({ agentId, text }) => {
+        await sendPromptToAgent({
+          agentManager: this.agentManager,
+          agentStorage: this.agentStorage,
+          agentId,
+          prompt: formatSystemNotificationPrompt(text),
+          unarchive: false,
+          logger: this.sessionLogger,
+        });
+      },
       host: { emit: (msg) => this.emit(msg) },
       logger: this.sessionLogger,
     });
