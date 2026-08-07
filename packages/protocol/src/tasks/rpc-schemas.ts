@@ -7,6 +7,7 @@ import {
   TaskSnapshotSchema,
   TaskStatusSchema,
 } from "./types.js";
+import { StepInputSchema, StepSchema, TaskWorkflowSchema } from "./workflow.js";
 
 export const TasksSnapshotRequestSchema = z.object({
   type: z.literal("tasks.snapshot.request"),
@@ -237,4 +238,100 @@ export const TasksUpdatePushSchema = z.object({
   payload: z.object({
     revision: z.number().int().nonnegative(),
   }),
+});
+
+export const TasksBoardConfigureRequestSchema = z.object({
+  type: z.literal("tasks.board.configure.request"),
+  requestId: z.string(),
+  projectId: z.string(),
+  reviewEnabled: z.boolean().optional(),
+  reviewOnReject: z.enum(["in_progress", "todo", "backlog"]).optional(),
+  archiveWorkspacesOnDone: z.boolean().optional(),
+});
+
+export const TasksBoardConfigureResponseSchema = z.object({
+  type: z.literal("tasks.board.configure.response"),
+  payload: z.object({
+    requestId: z.string(),
+    project: TaskProjectSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksWorkflowSetRequestSchema = z.object({
+  type: z.literal("tasks.workflow.set.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+  steps: z.array(StepInputSchema).min(1),
+});
+
+export const TasksWorkflowSetResponseSchema = z.object({
+  type: z.literal("tasks.workflow.set.response"),
+  payload: z.object({
+    requestId: z.string(),
+    workflow: TaskWorkflowSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksWorkflowClearRequestSchema = z.object({
+  type: z.literal("tasks.workflow.clear.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+});
+
+export const TasksWorkflowClearResponseSchema = z.object({
+  type: z.literal("tasks.workflow.clear.response"),
+  payload: z.object({
+    requestId: z.string(),
+    error: z.string().nullable(),
+  }),
+});
+
+const TaskStepTargetSchema = z.object({
+  requestId: z.string(),
+  taskId: z.string(),
+  stepId: z.string(),
+});
+
+const TaskStepResultSchema = z.object({
+  requestId: z.string(),
+  step: StepSchema.nullable(),
+  error: z.string().nullable(),
+});
+
+export const TasksStepRunRequestSchema = TaskStepTargetSchema.extend({
+  type: z.literal("tasks.step.run.request"),
+});
+
+export const TasksStepRunResponseSchema = z.object({
+  type: z.literal("tasks.step.run.response"),
+  payload: TaskStepResultSchema,
+});
+
+export const TasksStepRetryRequestSchema = TaskStepTargetSchema.extend({
+  type: z.literal("tasks.step.retry.request"),
+});
+
+export const TasksStepRetryResponseSchema = z.object({
+  type: z.literal("tasks.step.retry.response"),
+  payload: TaskStepResultSchema,
+});
+
+export const TasksStepSkipRequestSchema = TaskStepTargetSchema.extend({
+  type: z.literal("tasks.step.skip.request"),
+});
+
+export const TasksStepSkipResponseSchema = z.object({
+  type: z.literal("tasks.step.skip.response"),
+  payload: TaskStepResultSchema,
+});
+
+export const TasksStepCancelRequestSchema = TaskStepTargetSchema.extend({
+  type: z.literal("tasks.step.cancel.request"),
+});
+
+export const TasksStepCancelResponseSchema = z.object({
+  type: z.literal("tasks.step.cancel.response"),
+  payload: TaskStepResultSchema,
 });

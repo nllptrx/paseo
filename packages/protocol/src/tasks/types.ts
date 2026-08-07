@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentProviderSchema } from "../provider-manifest.js";
+import { TaskWorkflowSchema } from "./workflow.js";
 
 /**
  * What you intend, not what is happening. Nothing derives `backlog` or
@@ -30,6 +31,19 @@ export type TaskPriority = z.infer<typeof TaskPrioritySchema>;
 
 export const TASK_PRIORITIES: readonly TaskPriority[] = ["urgent", "high", "medium", "low", "none"];
 
+/**
+ * How a board behaves when work finishes. `reviewEnabled` routes a settled task
+ * to `in_review` instead of `done`; `reviewOnReject` is where a rejected review
+ * sends it back to; `archiveWorkspacesOnDone` tears down the worktrees a
+ * workflow created once its last step settles.
+ */
+export const TaskBoardConfigSchema = z.object({
+  reviewEnabled: z.boolean(),
+  reviewOnReject: z.enum(["in_progress", "todo", "backlog"]),
+  archiveWorkspacesOnDone: z.boolean(),
+});
+export type TaskBoardConfig = z.infer<typeof TaskBoardConfigSchema>;
+
 export const TaskProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -39,6 +53,9 @@ export const TaskProjectSchema = z.object({
   /** The Paseo project whose checkout this tracker's work happens in, when there
    * is one. A task can exist before any code does. */
   paseoProjectId: z.string().nullable(),
+  /** The project is the board, so board behaviour is configured here. Optional
+   * on the wire: a project without it reviews nothing and archives nothing. */
+  board: TaskBoardConfigSchema.optional(),
   createdAt: z.string(),
 });
 export type TaskProject = z.infer<typeof TaskProjectSchema>;
@@ -128,5 +145,7 @@ export const TaskSnapshotSchema = z.object({
   projects: z.array(TaskProjectSchema),
   labels: z.array(TaskLabelSchema),
   tasks: z.array(TaskSchema),
+  /** Only for tasks that have one; a board is mostly cards without workflows. */
+  workflows: z.array(TaskWorkflowSchema).optional(),
 });
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>;
