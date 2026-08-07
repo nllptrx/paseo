@@ -6,6 +6,7 @@ import { StyleSheet } from "react-native-unistyles";
 import type {
   Task,
   TaskLabel,
+  TaskPreset,
   TaskPriority,
   TaskProject,
   TaskStatus,
@@ -18,7 +19,13 @@ import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
 import { useToast } from "@/contexts/toast-context";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
-import { formatTaskKey, resolveTaskLabels } from "@/tasks/task-views";
+import {
+  formatTaskKey,
+  resolveTaskLabels,
+  selectBlockers,
+  type TaskDependencyEdge,
+} from "@/tasks/task-views";
+import { useTaskDelegate, useTaskPresets } from "@/tasks/use-task-delegate";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import { useTaskMutations } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -37,6 +44,7 @@ export interface TaskDetailSheetProps {
   tasks: readonly Task[];
   labels: readonly TaskLabel[];
   projectsById: ReadonlyMap<string, TaskProject>;
+  dependencies: readonly TaskDependencyEdge[];
   onClose: () => void;
 }
 
@@ -51,6 +59,7 @@ export function TaskDetailSheet({
   tasks,
   labels,
   projectsById,
+  dependencies,
   onClose,
 }: TaskDetailSheetProps): ReactElement | null {
   const task = taskId ? tasks.find((entry) => entry.id === taskId) : undefined;
@@ -63,6 +72,9 @@ export function TaskDetailSheet({
       serverId={serverId}
       task={task}
       project={projectsById.get(task.projectId)}
+      projectsById={projectsById}
+      tasks={tasks}
+      dependencies={dependencies}
       labels={labels}
       onClose={onClose}
     />
@@ -73,12 +85,18 @@ function OpenTaskDetailSheet({
   serverId,
   task,
   project,
+  projectsById,
+  tasks,
+  dependencies,
   labels,
   onClose,
 }: {
   serverId: string;
   task: Task;
   project: TaskProject | undefined;
+  projectsById: ReadonlyMap<string, TaskProject>;
+  tasks: readonly Task[];
+  dependencies: readonly TaskDependencyEdge[];
   labels: readonly TaskLabel[];
   onClose: () => void;
 }): ReactElement {
@@ -88,6 +106,21 @@ function OpenTaskDetailSheet({
   const { entries } = useBoardFeed({ serverId, projectId: task.projectId });
   const { post, isPosting } = useBoardFeedComposer({ serverId, projectId: task.projectId });
   const [draft, setDraft] = useState("");
+
+  const { presets } = useTaskPresets(serverId);
+  const { delegate, isDelegating } = useTaskDelegate(serverId);
+  const blockers = useMemo(
+    () => selectBlockers({ taskId: task.id, tasks, dependencies }),
+    [dependencies, task.id, tasks],
+  );
+  const handleDelegate = useCallback(
+    (presetId: string) => {
+      void delegate({ taskId: task.id, presetId }).catch((error) => {
+        toast.show(toErrorMessage(error));
+      });
+    },
+    [delegate, task.id, toast],
+  );
 
   const taskLabels = useMemo(() => resolveTaskLabels(task, labels), [task, labels]);
   const comments = useMemo(
@@ -191,6 +224,33 @@ function OpenTaskDetailSheet({
           <Text style={styles.dueDate}>{t("tasks.detail.due", { date: task.dueDate })}</Text>
         ) : null}
 
+        {blockers.length > 0 ? (
+          <View style={styles.section} testID="task-detail-blockers">
+            <Text style={styles.sectionHeading}>{t("tasks.detail.blockedHeading")}</Text>
+            {blockers.map((blocker) => (
+              <Text key={blocker.id} style={styles.blocker}>
+                {formatTaskKey(projectsById.get(blocker.projectId), blocker)} {blocker.title}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+
+        {presets.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>{t("tasks.detail.startHeading")}</Text>
+            <View style={styles.presetRow}>
+              {presets.map((preset) => (
+                <PresetButton
+                  key={preset.id}
+                  preset={preset}
+                  disabled={blockers.length > 0 || isDelegating}
+                  onStart={handleDelegate}
+                />
+              ))}
+            </View>
+          </View>
+        ) : null}
+
         {task.agents.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionHeading}>{t("tasks.detail.agentsHeading")}</Text>
@@ -238,6 +298,30 @@ function OpenTaskDetailSheet({
         </View>
       </View>
     </AdaptiveModalSheet>
+  );
+}
+
+/** One preset, one press: it starts an agent already attached to the card. */
+function PresetButton({
+  preset,
+  disabled,
+  onStart,
+}: {
+  preset: TaskPreset;
+  disabled: boolean;
+  onStart: (presetId: string) => void;
+}): ReactElement {
+  const handlePress = useCallback(() => onStart(preset.id), [onStart, preset.id]);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onPress={handlePress}
+      disabled={disabled}
+      testID={`task-detail-preset-${preset.id}`}
+    >
+      {preset.name}
+    </Button>
   );
 }
 
@@ -317,6 +401,15 @@ function AgentRow({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  blocker: {
+    color: theme.colors.statusWarning,
+    fontSize: theme.fontSize.sm,
+  },
+  presetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing[2],
+  },
   body: {
     gap: theme.spacing[4],
     paddingHorizontal: theme.spacing[4],

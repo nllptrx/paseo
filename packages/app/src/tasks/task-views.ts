@@ -311,3 +311,62 @@ export function selectOverviewTasks(
   const visible = ranked.slice(0, cap);
   return { tasks: visible, totalCount: tasks.length, hiddenCount: tasks.length - visible.length };
 }
+
+export interface TaskDependencyEdge {
+  taskId: string;
+  dependsOnTaskId: string;
+}
+
+/**
+ * The tasks a card is still waiting on. A blocker that is done or canceled
+ * stops blocking — canceled work is never going to arrive, and holding the
+ * dependent forever would strand it.
+ */
+export function selectBlockers(input: {
+  taskId: string;
+  tasks: readonly Task[];
+  dependencies: readonly TaskDependencyEdge[];
+}): Task[] {
+  const byId = new Map(input.tasks.map((task) => [task.id, task]));
+  return input.dependencies
+    .filter((edge) => edge.taskId === input.taskId)
+    .flatMap((edge) => {
+      const blocker = byId.get(edge.dependsOnTaskId);
+      if (!blocker || blocker.status === "done" || blocker.status === "canceled") {
+        return [];
+      }
+      return [blocker];
+    });
+}
+
+/** Subtasks render under their parent, so a column orders parents and hands
+ * each its children rather than scattering them by position. */
+export function groupSubtasksUnderParents(tasks: readonly Task[]): Array<{
+  task: Task;
+  depth: number;
+}> {
+  const childrenByParent = new Map<string, Task[]>();
+  const roots: Task[] = [];
+  const present = new Set(tasks.map((task) => task.id));
+  for (const task of tasks) {
+    if (task.parentTaskId && present.has(task.parentTaskId)) {
+      const bucket = childrenByParent.get(task.parentTaskId) ?? [];
+      bucket.push(task);
+      childrenByParent.set(task.parentTaskId, bucket);
+      continue;
+    }
+    roots.push(task);
+  }
+
+  const rows: Array<{ task: Task; depth: number }> = [];
+  const visit = (task: Task, depth: number): void => {
+    rows.push({ task, depth });
+    for (const child of childrenByParent.get(task.id) ?? []) {
+      visit(child, depth + 1);
+    }
+  };
+  for (const root of roots) {
+    visit(root, 0);
+  }
+  return rows;
+}

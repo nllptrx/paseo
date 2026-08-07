@@ -12,6 +12,8 @@ import {
   taskLabelFilterOptions,
   visibleBoardStatuses,
   selectOverviewTasks,
+  selectBlockers,
+  groupSubtasksUnderParents,
 } from "./task-views";
 
 function task(overrides: Partial<Task> = {}): Task {
@@ -307,5 +309,91 @@ describe("selectOverviewTasks", () => {
     expect(selection.tasks).toHaveLength(20);
     expect(selection.totalCount).toBe(25);
     expect(selection.hiddenCount).toBe(5);
+  });
+});
+
+describe("selectBlockers", () => {
+  function taskWith(id: string, status: TaskStatus): Task {
+    return {
+      id,
+      projectId: "p1",
+      number: 1,
+      title: id,
+      description: "",
+      status,
+      priority: "none",
+      dueDate: null,
+      parentTaskId: null,
+      position: 1024,
+      labelIds: [],
+      agents: [],
+      attachments: [],
+      commentCount: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+  }
+
+  it("ignores blockers that are done or canceled", () => {
+    const blockers = selectBlockers({
+      taskId: "blocked",
+      tasks: [
+        taskWith("blocked", "todo"),
+        taskWith("open", "in_progress"),
+        taskWith("finished", "done"),
+        taskWith("dropped", "canceled"),
+      ],
+      dependencies: [
+        { taskId: "blocked", dependsOnTaskId: "open" },
+        { taskId: "blocked", dependsOnTaskId: "finished" },
+        { taskId: "blocked", dependsOnTaskId: "dropped" },
+      ],
+    });
+    expect(blockers.map((entry) => entry.id)).toEqual(["open"]);
+  });
+});
+
+describe("groupSubtasksUnderParents", () => {
+  function child(id: string, parentTaskId: string | null): Task {
+    return {
+      id,
+      projectId: "p1",
+      number: 1,
+      title: id,
+      description: "",
+      status: "todo",
+      priority: "none",
+      dueDate: null,
+      parentTaskId,
+      position: 1024,
+      labelIds: [],
+      agents: [],
+      attachments: [],
+      commentCount: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+  }
+
+  it("puts children under their parent and nests deeper ones", () => {
+    const rows = groupSubtasksUnderParents([
+      child("parent", null),
+      child("child", "parent"),
+      child("grandchild", "child"),
+      child("other", null),
+    ]);
+    expect(rows.map((row) => [row.task.id, row.depth])).toEqual([
+      ["parent", 0],
+      ["child", 1],
+      ["grandchild", 2],
+      ["other", 0],
+    ]);
+  });
+
+  /** A column shows one status, so a child often sits in a column its parent is
+   * not in. It has to render as a row of its own there, not disappear. */
+  it("treats a child whose parent is not in the column as a root", () => {
+    const rows = groupSubtasksUnderParents([child("child", "parent-elsewhere")]);
+    expect(rows).toEqual([{ task: rows[0].task, depth: 0 }]);
   });
 });

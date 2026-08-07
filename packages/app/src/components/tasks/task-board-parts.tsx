@@ -26,7 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { StatusBucketDot } from "@/components/status-bucket-dot";
 import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
-import { formatTaskKey, resolveTaskLabels } from "@/tasks/task-views";
+import { formatTaskKey, groupSubtasksUnderParents, resolveTaskLabels } from "@/tasks/task-views";
 import { aggregateSidebarStateBuckets, type SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 
@@ -95,6 +95,9 @@ export interface TaskBoardProps {
   selectedColumn: TaskStatus;
   onSelectColumn: (status: TaskStatus) => void;
 }
+
+/** Enough to read as "under", not so much that a deep card runs out of width. */
+const SUBTASK_INDENT = 12;
 
 export function groupBoardTasks(
   statuses: readonly TaskStatus[],
@@ -185,12 +188,13 @@ export function TaskColumn({
         style={[styles.columnBody, isOver && styles.columnBodyOver]}
         testID={`task-column-body-${status}`}
       >
-        {tasks.map((task) => {
+        {groupSubtasksUnderParents(tasks).map(({ task, depth }) => {
           const card = (
             <TaskCard
               key={task.id}
               serverId={serverId}
               task={task}
+              depth={depth}
               project={projectsById.get(task.projectId)}
               labels={labels}
               onMoveToStatus={onMoveToStatus}
@@ -224,11 +228,15 @@ export function TaskCard({
   onReviewTask,
   onDeleteTask,
   onCreateWorkflowForTask,
+  depth = 0,
   isOverlay = false,
   isDragSource = false,
 }: {
   serverId: string;
   task: Task;
+  /** How far under its parent this card sits, when the parent is in the same
+   * column. Indent only — a subtask is a task in every other respect. */
+  depth?: number;
   project: TaskProject | undefined;
   labels: readonly TaskLabel[];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
@@ -387,6 +395,7 @@ export function TaskCard({
 
   const cardStyle = [
     styles.card,
+    depth > 0 && { marginLeft: depth * SUBTASK_INDENT },
     isOverlay && styles.cardOverlay,
     isDragSource && styles.cardDragSource,
   ];

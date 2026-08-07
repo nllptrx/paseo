@@ -1031,6 +1031,9 @@ export const en = {
       },
     },
     detail: {
+      blockedHeading: "Waiting on",
+      startHeading: "Start work",
+      blockedBadge: "Blocked",
       menuLabel: "Details",
       statusLabel: "Status",
       priorityLabel: "Priority",

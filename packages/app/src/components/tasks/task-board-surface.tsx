@@ -7,12 +7,18 @@ import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
-import { selectProjectBoard, selectTrackerProjectBoard } from "@/tasks/task-views";
+import {
+  selectProjectBoard,
+  selectTrackerProjectBoard,
+  type TaskDependencyEdge,
+} from "@/tasks/task-views";
 import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
 import { NewTaskSheet } from "./new-task-sheet";
 import { TaskBoard, type TaskBoardMove } from "./task-board";
 import { TaskDetailSheet } from "./task-detail-sheet";
+
+const EMPTY_DEPENDENCIES: TaskDependencyEdge[] = [];
 
 export interface TaskBoardSurfaceProps {
   serverId: string;
@@ -165,6 +171,7 @@ export function TaskBoardSurface({
         tasks={board.tasks}
         labels={board.labels}
         projectsById={projectsById}
+        dependencies={snapshot?.dependencies ?? EMPTY_DEPENDENCIES}
         onClose={handleCloseTask}
       />
     </>
