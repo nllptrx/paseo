@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { KanbanSummary } from "@getpaseo/protocol/kanban/types";
+import type { TaskBoardConfig } from "@getpaseo/protocol/tasks/types";
 import type { ManagedAgent } from "../agent/agent-manager.js";
 import { TaskService } from "./service.js";
 import { TaskTransitionEngine } from "./transitions.js";
@@ -39,23 +39,6 @@ function createFakeAgentManager() {
   };
 }
 
-function boardSummary(input: {
-  projectId: string;
-  review?: KanbanSummary["review"];
-  archivedAt?: string | null;
-}): KanbanSummary {
-  return {
-    id: `kb_${input.projectId}`,
-    projectId: input.projectId,
-    name: "Board",
-    archiveWorkspacesOnDone: false,
-    ...(input.review ? { review: input.review } : {}),
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    archivedAt: input.archivedAt ?? null,
-  };
-}
-
 describe("TaskTransitionEngine", () => {
   let directory: string;
   let service: TaskService;
@@ -70,7 +53,7 @@ describe("TaskTransitionEngine", () => {
     rmSync(directory, { recursive: true, force: true });
   });
 
-  async function seedTask(input?: { review?: KanbanSummary["review"] }) {
+  async function seedTask(input?: { review?: TaskBoardConfig }) {
     const boardNotes: string[] = [];
     const project = await service.createProject({
       name: "Paseo",
@@ -83,11 +66,12 @@ describe("TaskTransitionEngine", () => {
       title: "Ship it",
       status: "in_progress",
     });
-    const kanbans = [boardSummary({ projectId: "proj-1", review: input?.review })];
+    if (input?.review) {
+      await service.configureBoard({ projectId: project.id, ...input.review });
+    }
     const agentManager = createFakeAgentManager();
     const engine = new TaskTransitionEngine({
       taskService: service,
-      listKanbans: async () => kanbans,
       agentManager,
       notifyBoard: ({ note }) => {
         boardNotes.push(note);
@@ -108,7 +92,11 @@ describe("TaskTransitionEngine", () => {
 
   it("moves a task to in_review when the board reviews", async () => {
     const { task, engine } = await seedTask({
-      review: { enabled: true, onReject: "in_progress" },
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
     });
     await engine.onWorkSettled(task.id);
     expect((await service.getTask(task.id))?.status).toBe("in_review");
@@ -122,7 +110,9 @@ describe("TaskTransitionEngine", () => {
   });
 
   it("approves a review to done and rejects it back to the configured status", async () => {
-    const { task, engine } = await seedTask({ review: { enabled: true, onReject: "todo" } });
+    const { task, engine } = await seedTask({
+      review: { reviewEnabled: true, reviewOnReject: "todo", archiveWorkspacesOnDone: false },
+    });
     await service.updateTask({ taskId: task.id, status: "in_review" });
 
     const rejected = await engine.applyReviewVerdict({ taskId: task.id, verdict: "reject" });

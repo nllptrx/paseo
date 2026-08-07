@@ -1251,7 +1251,6 @@ export async function createPaseoDaemon(
   });
   const taskTransitions = new TaskTransitionEngine({
     taskService,
-    listKanbans: () => kanbanService.list(),
     agentManager,
     notifyBoard: ({ paseoProjectId, note }) => {
       void (async () => {

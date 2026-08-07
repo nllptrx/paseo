@@ -629,7 +629,6 @@ function createTasksSession(input: {
     input.transitions ??
     new TaskTransitionEngine({
       taskService: input.taskService,
-      listKanbans: () => input.kanbanService.list(),
       agentManager: input.agentManager,
       logger: input.logger,
     });

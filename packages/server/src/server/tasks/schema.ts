@@ -151,6 +151,57 @@ const MIGRATIONS: readonly string[] = [
       UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
     END;
   `,
+  `
+    -- The project is the board, so board behaviour lives on it rather than in a
+    -- separate kanban record.
+    ALTER TABLE task_projects ADD COLUMN review_enabled INTEGER NOT NULL DEFAULT 0
+      CHECK (review_enabled IN (0, 1));
+    ALTER TABLE task_projects ADD COLUMN review_on_reject TEXT NOT NULL DEFAULT 'in_progress'
+      CHECK (review_on_reject IN ('in_progress', 'todo', 'backlog'));
+    ALTER TABLE task_projects ADD COLUMN archive_workspaces_on_done INTEGER NOT NULL DEFAULT 0
+      CHECK (archive_workspaces_on_done IN (0, 1));
+
+    -- Steps stay a document: they are read and rewritten whole on every run, and
+    -- the shape (agent specs, trigger, run history) is validated by one schema.
+    CREATE TABLE task_workflows (
+      task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+      steps TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE task_dependencies (
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      depends_on_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      PRIMARY KEY (task_id, depends_on_task_id),
+      CHECK (task_id <> depends_on_task_id)
+    );
+
+    CREATE INDEX idx_task_dependencies_reverse
+      ON task_dependencies(depends_on_task_id, task_id);
+
+    CREATE TRIGGER task_revision_workflows_insert AFTER INSERT ON task_workflows BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+    CREATE TRIGGER task_revision_workflows_update AFTER UPDATE ON task_workflows BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+    CREATE TRIGGER task_revision_workflows_delete AFTER DELETE ON task_workflows BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+    CREATE TRIGGER task_revision_deps_insert AFTER INSERT ON task_dependencies BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+    CREATE TRIGGER task_revision_deps_delete AFTER DELETE ON task_dependencies BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+    CREATE TRIGGER task_revision_board_update
+      AFTER UPDATE OF review_enabled, review_on_reject, archive_workspaces_on_done
+      ON task_projects
+    BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

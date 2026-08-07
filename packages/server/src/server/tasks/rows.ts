@@ -23,9 +23,26 @@ export const TaskProjectRowSchema = z.object({
   next_task_number: z.number(),
   color: z.string(),
   paseo_project_id: z.string().nullable(),
+  review_enabled: BooleanColumn,
+  review_on_reject: z.enum(["in_progress", "todo", "backlog"]),
+  archive_workspaces_on_done: BooleanColumn,
   created_at: z.string(),
 });
 export type TaskProjectRow = z.infer<typeof TaskProjectRowSchema>;
+
+export const TaskWorkflowRowSchema = z.object({
+  task_id: z.string(),
+  steps: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type TaskWorkflowRow = z.infer<typeof TaskWorkflowRowSchema>;
+
+export const TaskDependencyRowSchema = z.object({
+  task_id: z.string(),
+  depends_on_task_id: z.string(),
+});
+export type TaskDependencyRow = z.infer<typeof TaskDependencyRowSchema>;
 
 export const TaskRowSchema = z.object({
   id: z.string(),

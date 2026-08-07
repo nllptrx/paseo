@@ -2,9 +2,12 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
+import { StepSchema, type Step, type TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import type {
   Task,
   TaskAgentLink,
+  TaskBoardConfig,
   TaskAttachment,
   TaskComment,
   TaskLabel,
@@ -27,8 +30,10 @@ import {
   TaskIdRowSchema,
   TaskLabelRowSchema,
   TaskPresetRowSchema,
+  TaskDependencyRowSchema,
   TaskProjectRowSchema,
   TaskRowSchema,
+  TaskWorkflowRowSchema,
   selectAll,
   selectOne,
   type TaskAttachmentRow,
@@ -36,6 +41,7 @@ import {
   type TaskPresetRow,
   type TaskProjectRow,
   type TaskRow,
+  type TaskWorkflowRow,
 } from "./rows.js";
 import { migrateTasksDatabase } from "./schema.js";
 
@@ -113,7 +119,21 @@ function toProject(row: TaskProjectRow): TaskProject {
     prefix: row.prefix,
     color: row.color,
     paseoProjectId: row.paseo_project_id,
+    board: {
+      reviewEnabled: row.review_enabled === 1,
+      reviewOnReject: row.review_on_reject,
+      archiveWorkspacesOnDone: row.archive_workspaces_on_done === 1,
+    },
     createdAt: row.created_at,
+  };
+}
+
+function toWorkflow(row: TaskWorkflowRow): TaskWorkflow {
+  return {
+    taskId: row.task_id,
+    steps: z.array(StepSchema).parse(JSON.parse(row.steps)),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -229,6 +249,11 @@ export class TaskStore {
       prefix,
       color: input.color,
       paseoProjectId: input.paseoProjectId ?? null,
+      board: {
+        reviewEnabled: false,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
       createdAt,
     };
   }
@@ -239,6 +264,61 @@ export class TaskStore {
       TaskProjectRowSchema,
       "task_projects",
     ).map(toProject);
+  }
+
+  getProject(projectId: string): TaskProject | null {
+    const row = selectOne(
+      this.db.prepare("SELECT * FROM task_projects WHERE id = ?"),
+      TaskProjectRowSchema,
+      "task_projects",
+      [projectId],
+    );
+    return row ? toProject(row) : null;
+  }
+
+  findProjectByPaseoProjectId(paseoProjectId: string): TaskProject | null {
+    const row = selectOne(
+      this.db.prepare("SELECT * FROM task_projects WHERE paseo_project_id = ? ORDER BY id LIMIT 1"),
+      TaskProjectRowSchema,
+      "task_projects",
+      [paseoProjectId],
+    );
+    return row ? toProject(row) : null;
+  }
+
+  configureBoard(input: {
+    projectId: string;
+    reviewEnabled?: boolean;
+    reviewOnReject?: TaskBoardConfig["reviewOnReject"];
+    archiveWorkspacesOnDone?: boolean;
+  }): TaskProject {
+    const current = this.getProject(input.projectId);
+    if (!current) {
+      throw new Error(`Task project not found: ${input.projectId}`);
+    }
+    const board = current.board ?? {
+      reviewEnabled: false,
+      reviewOnReject: "in_progress" as const,
+      archiveWorkspacesOnDone: false,
+    };
+    const next: TaskBoardConfig = {
+      reviewEnabled: input.reviewEnabled ?? board.reviewEnabled,
+      reviewOnReject: input.reviewOnReject ?? board.reviewOnReject,
+      archiveWorkspacesOnDone: input.archiveWorkspacesOnDone ?? board.archiveWorkspacesOnDone,
+    };
+    this.db
+      .prepare(
+        `UPDATE task_projects
+         SET review_enabled = ?, review_on_reject = ?, archive_workspaces_on_done = ?
+         WHERE id = ?`,
+      )
+      .run(
+        next.reviewEnabled ? 1 : 0,
+        next.reviewOnReject,
+        next.archiveWorkspacesOnDone ? 1 : 0,
+        input.projectId,
+      );
+    return { ...current, board: next };
   }
 
   // --- Labels ---
@@ -473,7 +553,90 @@ export class TaskStore {
       projects: this.listProjects(),
       labels: this.listLabels(),
       tasks,
+      workflows: this.listWorkflows(),
     };
+  }
+
+  // --- Workflows ---
+
+  getWorkflow(taskId: string): TaskWorkflow | null {
+    const row = selectOne(
+      this.db.prepare("SELECT * FROM task_workflows WHERE task_id = ?"),
+      TaskWorkflowRowSchema,
+      "task_workflows",
+      [taskId],
+    );
+    return row ? toWorkflow(row) : null;
+  }
+
+  listWorkflows(): TaskWorkflow[] {
+    return selectAll(
+      this.db.prepare("SELECT * FROM task_workflows ORDER BY task_id"),
+      TaskWorkflowRowSchema,
+      "task_workflows",
+    ).map(toWorkflow);
+  }
+
+  setWorkflow(input: { taskId: string; steps: readonly Step[] }): TaskWorkflow {
+    const now = this.timestamp();
+    const serialized = JSON.stringify(input.steps);
+    this.db
+      .prepare(
+        `INSERT INTO task_workflows (task_id, steps, created_at, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (task_id) DO UPDATE SET steps = excluded.steps, updated_at = excluded.updated_at`,
+      )
+      .run(input.taskId, serialized, now, now);
+    const stored = this.getWorkflow(input.taskId);
+    if (!stored) {
+      throw new Error(`Workflow write did not persist for task: ${input.taskId}`);
+    }
+    return stored;
+  }
+
+  clearWorkflow(taskId: string): void {
+    this.db.prepare("DELETE FROM task_workflows WHERE task_id = ?").run(taskId);
+  }
+
+  // --- Dependencies ---
+
+  addDependency(input: { taskId: string; dependsOnTaskId: string }): void {
+    this.db
+      .prepare(
+        `INSERT INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)
+         ON CONFLICT DO NOTHING`,
+      )
+      .run(input.taskId, input.dependsOnTaskId);
+  }
+
+  removeDependency(input: { taskId: string; dependsOnTaskId: string }): void {
+    this.db
+      .prepare("DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_task_id = ?")
+      .run(input.taskId, input.dependsOnTaskId);
+  }
+
+  listDependencies(): Array<{ taskId: string; dependsOnTaskId: string }> {
+    return selectAll(
+      this.db.prepare("SELECT * FROM task_dependencies ORDER BY task_id, depends_on_task_id"),
+      TaskDependencyRowSchema,
+      "task_dependencies",
+    ).map((row) => ({ taskId: row.task_id, dependsOnTaskId: row.depends_on_task_id }));
+  }
+
+  /** The tasks blocking this one that have not reached a terminal status. */
+  listUnmetDependencies(taskId: string): string[] {
+    return selectAll(
+      this.db.prepare(
+        `SELECT d.depends_on_task_id AS task_id
+         FROM task_dependencies d
+         JOIN tasks t ON t.id = d.depends_on_task_id
+         WHERE d.task_id = ? AND t.status NOT IN ('done', 'canceled')
+         ORDER BY t.id`,
+      ),
+      TaskIdRowSchema,
+      "task_dependencies",
+      [taskId],
+    ).map((row) => row.task_id);
   }
 
   // --- Agents ---

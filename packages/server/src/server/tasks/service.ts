@@ -1,10 +1,12 @@
 import type {
   Task,
+  TaskBoardConfig,
   TaskComment,
   TaskProject,
   TaskSnapshot,
   TaskStatus,
 } from "@getpaseo/protocol/tasks/types";
+import type { Step, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import type pino from "pino";
 import {
   openTaskStore,
@@ -116,8 +118,95 @@ export class TaskService {
   }
 
   async getProject(projectId: string): Promise<TaskProject | null> {
+    return (await this.require()).getProject(projectId);
+  }
+
+  /** The board for a Paseo project, when its checkout has a tracker. */
+  async findProjectByPaseoProjectId(paseoProjectId: string): Promise<TaskProject | null> {
+    return (await this.require()).findProjectByPaseoProjectId(paseoProjectId);
+  }
+
+  async configureBoard(input: {
+    projectId: string;
+    reviewEnabled?: boolean;
+    reviewOnReject?: TaskBoardConfig["reviewOnReject"];
+    archiveWorkspacesOnDone?: boolean;
+  }): Promise<TaskProject> {
     const store = await this.require();
-    return store.listProjects().find((project) => project.id === projectId) ?? null;
+    const project = store.configureBoard(input);
+    this.announce(store);
+    return project;
+  }
+
+  // --- Workflows ---
+
+  async getWorkflow(taskId: string): Promise<TaskWorkflow | null> {
+    return (await this.require()).getWorkflow(taskId);
+  }
+
+  async setWorkflow(input: { taskId: string; steps: readonly Step[] }): Promise<TaskWorkflow> {
+    const store = await this.require();
+    const workflow = store.setWorkflow(input);
+    this.announce(store);
+    return workflow;
+  }
+
+  async clearWorkflow(taskId: string): Promise<void> {
+    const store = await this.require();
+    store.clearWorkflow(taskId);
+    this.announce(store);
+  }
+
+  async listWorkflows(): Promise<TaskWorkflow[]> {
+    return (await this.require()).listWorkflows();
+  }
+
+  /**
+   * Replaces one step inside a task's workflow. Every run, retry, skip and
+   * cancel goes through here, so two writers cannot lose each other's step: the
+   * read, the mutation and the write are one call rather than three.
+   */
+  async mutateStep(input: {
+    taskId: string;
+    stepId: string;
+    mutate: (step: Step, context: { steps: Step[]; stepIndex: number }) => Step;
+  }): Promise<{ workflow: TaskWorkflow; step: Step; steps: Step[]; stepIndex: number }> {
+    const store = await this.require();
+    const current = store.getWorkflow(input.taskId);
+    if (!current) {
+      throw new Error(`Task has no workflow: ${input.taskId}`);
+    }
+    const stepIndex = current.steps.findIndex((step) => step.id === input.stepId);
+    if (stepIndex === -1) {
+      throw new Error(`Step not found: ${input.stepId}`);
+    }
+    const nextStep = input.mutate(current.steps[stepIndex], {
+      steps: current.steps,
+      stepIndex,
+    });
+    const steps = current.steps.map((step, index) => (index === stepIndex ? nextStep : step));
+    const workflow = store.setWorkflow({ taskId: input.taskId, steps });
+    this.announce(store);
+    return { workflow, step: nextStep, steps, stepIndex };
+  }
+
+  // --- Dependencies ---
+
+  async addDependency(input: { taskId: string; dependsOnTaskId: string }): Promise<void> {
+    const store = await this.require();
+    store.addDependency(input);
+    this.announce(store);
+  }
+
+  async removeDependency(input: { taskId: string; dependsOnTaskId: string }): Promise<void> {
+    const store = await this.require();
+    store.removeDependency(input);
+    this.announce(store);
+  }
+
+  /** Empty when the task is free to be worked; the blockers otherwise. */
+  async listUnmetDependencies(taskId: string): Promise<string[]> {
+    return (await this.require()).listUnmetDependencies(taskId);
   }
 
   async createProject(input: CreateTaskProjectInput): Promise<TaskProject> {

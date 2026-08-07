@@ -288,4 +288,115 @@ describe("TaskStore row shape", () => {
       second.close();
     }
   });
+  it("defaults a new project's board to no review and no archiving", async () => {
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    try {
+      const project = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" });
+      expect(project.board).toEqual({
+        reviewEnabled: false,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      });
+      expect(store.getProject(project.id)?.board).toEqual(project.board);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("keeps board settings the caller did not touch", async () => {
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    try {
+      const project = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" });
+      store.configureBoard({ projectId: project.id, reviewOnReject: "backlog" });
+      const configured = store.configureBoard({ projectId: project.id, reviewEnabled: true });
+      expect(configured.board).toEqual({
+        reviewEnabled: true,
+        reviewOnReject: "backlog",
+        archiveWorkspacesOnDone: false,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("replaces a task's workflow rather than accumulating them", async () => {
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    try {
+      const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
+      const task = store.createTask({ projectId, title: "Ship it" });
+      const step = {
+        id: "stp_1",
+        name: "Implement",
+        prompt: "do the thing",
+        agents: [{ provider: "claude" as const }],
+        completion: "all" as const,
+        workspace: { mode: "worktree" as const },
+        trigger: { type: "immediate" as const },
+        runs: [],
+      };
+      store.setWorkflow({ taskId: task.id, steps: [step] });
+      store.setWorkflow({ taskId: task.id, steps: [step, { ...step, id: "stp_2" }] });
+
+      expect(store.getWorkflow(task.id)?.steps).toHaveLength(2);
+      expect(store.listWorkflows()).toHaveLength(1);
+
+      store.clearWorkflow(task.id);
+      expect(store.getWorkflow(task.id)).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  it("deletes a task's workflow with the task", async () => {
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    try {
+      const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
+      const task = store.createTask({ projectId, title: "Ship it" });
+      store.setWorkflow({
+        taskId: task.id,
+        steps: [
+          {
+            id: "stp_1",
+            name: "Implement",
+            prompt: "do the thing",
+            agents: [{ provider: "claude" }],
+            completion: "all",
+            workspace: { mode: "worktree" },
+            trigger: { type: "immediate" },
+            runs: [],
+          },
+        ],
+      });
+      store.deleteTask(task.id);
+      expect(store.listWorkflows()).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
+  /** The gate reads intent, so a blocker that was canceled stops blocking — it is
+   * never going to be done, and leaving it to block would strand the dependent. */
+  it("counts only unfinished blockers as unmet dependencies", async () => {
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    try {
+      const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
+      const blocked = store.createTask({ projectId, title: "Depends" });
+      const open = store.createTask({ projectId, title: "Open blocker" });
+      const finished = store.createTask({ projectId, title: "Finished blocker" });
+      const dropped = store.createTask({ projectId, title: "Canceled blocker" });
+      store.updateTask({ taskId: finished.id, status: "done" });
+      store.updateTask({ taskId: dropped.id, status: "canceled" });
+
+      for (const blocker of [open, finished, dropped]) {
+        store.addDependency({ taskId: blocked.id, dependsOnTaskId: blocker.id });
+      }
+
+      expect(store.listUnmetDependencies(blocked.id)).toEqual([open.id]);
+
+      store.removeDependency({ taskId: blocked.id, dependsOnTaskId: open.id });
+      expect(store.listUnmetDependencies(blocked.id)).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
 });
