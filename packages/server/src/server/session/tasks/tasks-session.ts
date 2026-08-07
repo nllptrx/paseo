@@ -396,11 +396,18 @@ export class TasksSession {
         body: request.body,
       });
 
+      const recipients = new Set(mentions.agentIds);
+      if (request.notifyTaskAgents && request.taskId) {
+        for (const agentId of await this.taskService.listTaskAgentIds(request.taskId)) {
+          recipients.add(agentId);
+        }
+      }
+
       await this.notifyMentionedAgents({
         projectId: request.projectId,
         taskId: request.taskId ?? null,
         body: request.body,
-        agentIds: mentions.agentIds,
+        agentIds: [...recipients],
       });
 
       this.host.emit({

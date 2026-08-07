@@ -338,6 +338,11 @@ export class TaskService {
     this.announce(store);
   }
 
+  /** The agents working one card — who a comment on it can be sent to. */
+  async listTaskAgentIds(taskId: string): Promise<string[]> {
+    return (await this.require()).listTaskAgents(taskId).map((link) => link.agentId);
+  }
+
   async listBoardAgentIds(projectId: string): Promise<string[]> {
     return (await this.require()).listBoardAgentIds(projectId);
   }

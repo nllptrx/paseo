@@ -966,6 +966,7 @@ export const zhCN: TranslationResources = {
       low: "低",
     },
     form: {
+      submitWithWorkflow: "Add workflow",
       title: "新建任务",
       submit: "创建",
       taskTitleLabel: "标题",
@@ -1013,6 +1014,24 @@ export const zhCN: TranslationResources = {
       },
     },
     detail: {
+      workflowHeading: "Workflow",
+      workflowAdd: "Add workflow",
+      workflowEdit: "Edit workflow",
+      stepStatus: {
+        pending: "Not started",
+        running: "Running",
+        succeeded: "Done",
+        failed: "Failed",
+        skipped: "Skipped",
+      },
+      stepAction: {
+        run: "Run",
+        retry: "Retry",
+        skip: "Skip",
+        cancel: "Cancel",
+      },
+      commentNotify_one: "Send to agent",
+      commentNotify_other: "Send to {{count}} agents",
       blockedHeading: "Waiting on",
       startHeading: "Start work",
       blockedBadge: "Blocked",

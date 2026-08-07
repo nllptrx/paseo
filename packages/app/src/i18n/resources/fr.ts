@@ -1004,6 +1004,7 @@ export const fr: TranslationResources = {
       low: "Basse",
     },
     form: {
+      submitWithWorkflow: "Add workflow",
       title: "Nouvelle tâche",
       submit: "Créer",
       taskTitleLabel: "Titre",
@@ -1052,6 +1053,24 @@ export const fr: TranslationResources = {
       },
     },
     detail: {
+      workflowHeading: "Workflow",
+      workflowAdd: "Add workflow",
+      workflowEdit: "Edit workflow",
+      stepStatus: {
+        pending: "Not started",
+        running: "Running",
+        succeeded: "Done",
+        failed: "Failed",
+        skipped: "Skipped",
+      },
+      stepAction: {
+        run: "Run",
+        retry: "Retry",
+        skip: "Skip",
+        cancel: "Cancel",
+      },
+      commentNotify_one: "Send to agent",
+      commentNotify_other: "Send to {{count}} agents",
       blockedHeading: "Waiting on",
       startHeading: "Start work",
       blockedBadge: "Blocked",

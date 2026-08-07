@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Kanban } from "lucide-react-native";
@@ -7,6 +7,7 @@ import invariant from "tiny-invariant";
 import { TaskBoardSurface } from "@/components/tasks/task-board-surface";
 import { TaskWorkflowFormSheet } from "@/components/tasks/task-workflow-form-sheet";
 import { usePaneContext } from "@/panels/pane-context";
+import { useTasks } from "@/tasks/use-tasks";
 import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 
@@ -51,6 +52,14 @@ function KanbanPanel(): ReactElement {
     [],
   );
   const handleCloseWorkflowForm = useCallback(() => setWorkflowTaskId(null), []);
+  const { snapshot } = useTasks(serverId);
+  const workflowSteps = useMemo(
+    () =>
+      workflowTaskId
+        ? snapshot?.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps
+        : undefined,
+    [snapshot?.workflows, workflowTaskId],
+  );
 
   if (!workspace) {
     return (
@@ -74,6 +83,7 @@ function KanbanPanel(): ReactElement {
         <TaskWorkflowFormSheet
           serverId={serverId}
           taskId={workflowTaskId}
+          existingSteps={workflowSteps}
           visible
           onClose={handleCloseWorkflowForm}
         />

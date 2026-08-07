@@ -361,6 +361,9 @@ export const TasksFeedPostRequestSchema = z.object({
   projectId: z.string(),
   taskId: z.string().nullable().optional(),
   body: z.string().trim().min(1),
+  /** Also deliver this to the agents working the named card. A note is history
+   * by default; sending it is a separate thing to have asked for. */
+  notifyTaskAgents: z.boolean().optional(),
 });
 
 export const TasksFeedPostResponseSchema = z.object({

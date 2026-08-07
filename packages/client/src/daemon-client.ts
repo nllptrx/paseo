@@ -5567,7 +5567,12 @@ export class DaemonClient {
   }
 
   async tasksFeedPost(
-    options: { projectId: string; taskId?: string | null; body: string },
+    options: {
+      projectId: string;
+      taskId?: string | null;
+      body: string;
+      notifyTaskAgents?: boolean;
+    },
     requestId?: string,
   ): Promise<TasksFeedPostPayload> {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.feed.post.response">({

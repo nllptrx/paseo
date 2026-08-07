@@ -11,6 +11,7 @@ import type {
   TaskProject,
   TaskStatus,
 } from "@getpaseo/protocol/tasks/types";
+import type { Step, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,11 @@ import {
   type TaskDependencyEdge,
 } from "@/tasks/task-views";
 import { useTaskDelegate, useTaskPresets } from "@/tasks/use-task-delegate";
+import {
+  resolveStepState,
+  useTaskStepActions,
+  type TaskStepAction,
+} from "@/tasks/use-task-workflow";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import { useTaskMutations } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -45,6 +51,9 @@ export interface TaskDetailSheetProps {
   labels: readonly TaskLabel[];
   projectsById: ReadonlyMap<string, TaskProject>;
   dependencies: readonly TaskDependencyEdge[];
+  workflows: readonly TaskWorkflow[];
+  /** Opens the workflow editor for this task; the board owns that sheet. */
+  onEditWorkflow: (taskId: string) => void;
   onClose: () => void;
 }
 
@@ -60,6 +69,8 @@ export function TaskDetailSheet({
   labels,
   projectsById,
   dependencies,
+  workflows,
+  onEditWorkflow,
   onClose,
 }: TaskDetailSheetProps): ReactElement | null {
   const task = taskId ? tasks.find((entry) => entry.id === taskId) : undefined;
@@ -75,6 +86,8 @@ export function TaskDetailSheet({
       projectsById={projectsById}
       tasks={tasks}
       dependencies={dependencies}
+      workflow={workflows.find((entry) => entry.taskId === task.id) ?? null}
+      onEditWorkflow={onEditWorkflow}
       labels={labels}
       onClose={onClose}
     />
@@ -88,6 +101,8 @@ function OpenTaskDetailSheet({
   projectsById,
   tasks,
   dependencies,
+  workflow,
+  onEditWorkflow,
   labels,
   onClose,
 }: {
@@ -97,6 +112,8 @@ function OpenTaskDetailSheet({
   projectsById: ReadonlyMap<string, TaskProject>;
   tasks: readonly Task[];
   dependencies: readonly TaskDependencyEdge[];
+  workflow: TaskWorkflow | null;
+  onEditWorkflow: (taskId: string) => void;
   labels: readonly TaskLabel[];
   onClose: () => void;
 }): ReactElement {
@@ -121,6 +138,17 @@ function OpenTaskDetailSheet({
     },
     [delegate, task.id, toast],
   );
+
+  const { act, isActing } = useTaskStepActions(serverId);
+  const handleStepAction = useCallback(
+    (stepId: string, action: TaskStepAction) => {
+      void act({ taskId: task.id, stepId, action }).catch((error) => {
+        toast.show(toErrorMessage(error));
+      });
+    },
+    [act, task.id, toast],
+  );
+  const handleEditWorkflow = useCallback(() => onEditWorkflow(task.id), [onEditWorkflow, task.id]);
 
   const taskLabels = useMemo(() => resolveTaskLabels(task, labels), [task, labels]);
   const comments = useMemo(
@@ -157,17 +185,22 @@ function OpenTaskDetailSheet({
     [serverId],
   );
 
-  const handleSend = useCallback(() => {
-    const body = draft.trim();
-    if (body.length === 0 || isPosting) {
-      return;
-    }
-    setDraft("");
-    void post({ body, taskId: task.id }).catch((error) => {
-      setDraft(body);
-      toast.show(toErrorMessage(error));
-    });
-  }, [draft, isPosting, post, task.id, toast]);
+  const submitComment = useCallback(
+    (notifyTaskAgents: boolean) => {
+      const body = draft.trim();
+      if (body.length === 0 || isPosting) {
+        return;
+      }
+      setDraft("");
+      void post({ body, taskId: task.id, notifyTaskAgents }).catch((error) => {
+        setDraft(body);
+        toast.show(toErrorMessage(error));
+      });
+    },
+    [draft, isPosting, post, task.id, toast],
+  );
+  const handleComment = useCallback(() => submitComment(false), [submitComment]);
+  const handleCommentAndSend = useCallback(() => submitComment(true), [submitComment]);
 
   const header = useMemo(
     () => ({ title: formatTaskKey(project, task), subtitle: task.title }),
@@ -224,6 +257,40 @@ function OpenTaskDetailSheet({
           <Text style={styles.dueDate}>{t("tasks.detail.due", { date: task.dueDate })}</Text>
         ) : null}
 
+        <View style={styles.section} testID="task-detail-workflow">
+          <Text style={styles.sectionHeading}>{t("tasks.detail.workflowHeading")}</Text>
+          {workflow && workflow.steps.length > 0 ? (
+            <>
+              {workflow.steps.map((step, index) => (
+                <WorkflowStepRow
+                  key={step.id}
+                  step={step}
+                  index={index}
+                  disabled={isActing}
+                  onAct={handleStepAction}
+                />
+              ))}
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={handleEditWorkflow}
+                testID="task-detail-workflow-edit"
+              >
+                {t("tasks.detail.workflowEdit")}
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onPress={handleEditWorkflow}
+              testID="task-detail-workflow-add"
+            >
+              {t("tasks.detail.workflowAdd")}
+            </Button>
+          )}
+        </View>
+
         {blockers.length > 0 ? (
           <View style={styles.section} testID="task-detail-blockers">
             <Text style={styles.sectionHeading}>{t("tasks.detail.blockedHeading")}</Text>
@@ -279,7 +346,7 @@ function OpenTaskDetailSheet({
           <TextInput
             value={draft}
             onChangeText={setDraft}
-            onSubmitEditing={handleSend}
+            onSubmitEditing={handleComment}
             placeholder={t("tasks.detail.commentPlaceholder")}
             placeholderTextColor={styles.placeholder.color}
             style={styles.input}
@@ -289,12 +356,24 @@ function OpenTaskDetailSheet({
           <Button
             variant="ghost"
             size="sm"
-            leftIcon={SendHorizontal}
-            onPress={handleSend}
+            onPress={handleComment}
             disabled={draft.trim().length === 0 || isPosting}
-            accessibilityLabel={t("tasks.detail.commentSend")}
             testID="task-detail-comment-send"
-          />
+          >
+            {t("tasks.detail.commentSend")}
+          </Button>
+          {task.agents.length > 0 ? (
+            <Button
+              variant="default"
+              size="sm"
+              leftIcon={SendHorizontal}
+              onPress={handleCommentAndSend}
+              disabled={draft.trim().length === 0 || isPosting}
+              testID="task-detail-comment-notify"
+            >
+              {t("tasks.detail.commentNotify", { count: task.agents.length })}
+            </Button>
+          ) : null}
         </View>
       </View>
     </AdaptiveModalSheet>
@@ -321,6 +400,66 @@ function PresetButton({
       testID={`task-detail-preset-${preset.id}`}
     >
       {preset.name}
+    </Button>
+  );
+}
+
+/** A step reads as one line: what it is, what its last run said, and the only
+ * actions that run says are possible. */
+function WorkflowStepRow({
+  step,
+  index,
+  disabled,
+  onAct,
+}: {
+  step: Step;
+  index: number;
+  disabled: boolean;
+  onAct: (stepId: string, action: TaskStepAction) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const { status, actions } = resolveStepState(step);
+  return (
+    <View style={styles.stepRow} testID={`task-detail-step-${step.id}`}>
+      <Text style={styles.stepName} numberOfLines={1}>
+        {index + 1}. {step.name}
+      </Text>
+      <Text style={styles.stepStatus}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
+      {actions.map((action) => (
+        <StepActionButton
+          key={action}
+          stepId={step.id}
+          action={action}
+          disabled={disabled}
+          onAct={onAct}
+        />
+      ))}
+    </View>
+  );
+}
+
+function StepActionButton({
+  stepId,
+  action,
+  disabled,
+  onAct,
+}: {
+  stepId: string;
+  action: TaskStepAction;
+  disabled: boolean;
+  onAct: (stepId: string, action: TaskStepAction) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const handlePress = useCallback(() => onAct(stepId, action), [action, onAct, stepId]);
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      onPress={handlePress}
+      disabled={disabled}
+      testID={`task-detail-step-${stepId}-${action}`}
+    >
+      {t(`tasks.detail.stepAction.${action}`)}
     </Button>
   );
 }
@@ -401,6 +540,20 @@ function AgentRow({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  stepRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  stepName: {
+    flex: 1,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+  stepStatus: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
   blocker: {
     color: theme.colors.statusWarning,
     fontSize: theme.fontSize.sm,

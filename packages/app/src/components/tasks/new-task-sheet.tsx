@@ -19,6 +19,9 @@ export interface NewTaskSheetProps {
   paseoProjectId: string | null;
   suggestedProjectName: string;
   initialStatus: TaskStatus;
+  /** Called instead of closing empty-handed when the capture asked to plan the
+   * work: the board opens the workflow editor on the task just made. */
+  onCreated?: (taskId: string) => void;
   onClose: () => void;
 }
 
@@ -42,6 +45,7 @@ function OpenNewTaskSheet({
   paseoProjectId,
   suggestedProjectName,
   initialStatus,
+  onCreated,
   onClose,
 }: NewTaskSheetProps): ReactElement {
   const { t } = useTranslation();
@@ -53,53 +57,75 @@ function OpenNewTaskSheet({
   const model = useNewTaskFormModel(snapshot);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
 
-  const handleSubmit = useCallback(async () => {
-    const current = model.getState();
-    if (!current.canSubmit) {
-      return;
-    }
-    model.setSubmitting(true);
-    try {
-      // The id comes back from the create rather than from the snapshot: the
-      // snapshot has not refetched yet, so reading it here would find nothing
-      // and silently drop the task.
-      const projectId =
-        current.projectId ??
-        (await createProject({
-          name: current.projectName.trim(),
-          prefix: current.prefix.trim().toUpperCase(),
-          color: DEFAULT_PROJECT_COLOR,
-          paseoProjectId: current.paseoProjectId,
-        }));
-      await createTask({
-        projectId,
-        title: current.title.trim(),
-        status: current.initialStatus,
-      });
-      onClose();
-    } catch (error) {
-      model.setSubmitError(toErrorMessage(error));
-    }
-  }, [createProject, createTask, model, onClose]);
+  const handleSubmit = useCallback(
+    async (thenAddWorkflow: boolean) => {
+      const current = model.getState();
+      if (!current.canSubmit) {
+        return;
+      }
+      model.setSubmitting(true);
+      try {
+        // The id comes back from the create rather than from the snapshot: the
+        // snapshot has not refetched yet, so reading it here would find nothing
+        // and silently drop the task.
+        const projectId =
+          current.projectId ??
+          (await createProject({
+            name: current.projectName.trim(),
+            prefix: current.prefix.trim().toUpperCase(),
+            color: DEFAULT_PROJECT_COLOR,
+            paseoProjectId: current.paseoProjectId,
+          }));
+        const taskId = await createTask({
+          projectId,
+          title: current.title.trim(),
+          status: current.initialStatus,
+        });
+        onClose();
+        if (thenAddWorkflow) {
+          onCreated?.(taskId);
+        }
+      } catch (error) {
+        model.setSubmitError(toErrorMessage(error));
+      }
+    },
+    [createProject, createTask, model, onClose, onCreated],
+  );
 
-  const handleSubmitPress = useCallback(() => {
-    void handleSubmit();
+  const handleCapturePress = useCallback(() => {
+    void handleSubmit(false);
+  }, [handleSubmit]);
+  const handleCaptureAndPlanPress = useCallback(() => {
+    void handleSubmit(true);
   }, [handleSubmit]);
 
   const header = useMemo(() => ({ title: t("tasks.form.title") }), [t]);
+  // Two buttons rather than a wizard step: the choice to plan the work now is
+  // made once, where the task is named, and neither path is a dead end.
   const footer = useMemo(
     () => (
-      <Button
-        variant="default"
-        onPress={handleSubmitPress}
-        disabled={!state.canSubmit}
-        loading={state.isSubmitting}
-        testID="tasks-form-submit"
-      >
-        {t("tasks.form.submit")}
-      </Button>
+      <View style={styles.footer}>
+        <Button
+          variant="ghost"
+          onPress={handleCapturePress}
+          disabled={!state.canSubmit}
+          loading={state.isSubmitting}
+          testID="tasks-form-submit"
+        >
+          {t("tasks.form.submit")}
+        </Button>
+        <Button
+          variant="default"
+          onPress={handleCaptureAndPlanPress}
+          disabled={!state.canSubmit}
+          loading={state.isSubmitting}
+          testID="tasks-form-submit-with-workflow"
+        >
+          {t("tasks.form.submitWithWorkflow")}
+        </Button>
+      </View>
     ),
-    [handleSubmitPress, state.canSubmit, state.isSubmitting, t],
+    [handleCaptureAndPlanPress, handleCapturePress, state.canSubmit, state.isSubmitting, t],
   );
 
   return (
@@ -152,6 +178,11 @@ function OpenNewTaskSheet({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  footer: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: theme.spacing[2],
+  },
   form: {
     gap: theme.spacing[4],
     paddingHorizontal: theme.spacing[4],

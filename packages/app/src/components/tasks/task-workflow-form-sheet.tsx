@@ -5,6 +5,7 @@ import { Plus } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
+import type { Step } from "@getpaseo/protocol/tasks/workflow";
 import { useTaskMutations } from "@/tasks/use-tasks";
 import { buildTaskWorkflowSteps } from "@/tasks/task-workflow-form-model";
 import { useTaskWorkflowFormModel } from "@/tasks/use-task-workflow-form-model";
@@ -14,6 +15,8 @@ import { TaskWorkflowStepEditor } from "./task-workflow-step-editor";
 export interface TaskWorkflowFormSheetProps {
   serverId: string;
   taskId: string;
+  /** The workflow already on the task, so editing starts from it. */
+  existingSteps?: readonly Step[];
   visible: boolean;
   onClose: () => void;
 }
@@ -32,12 +35,16 @@ export function TaskWorkflowFormSheet(props: TaskWorkflowFormSheetProps): ReactE
 function OpenTaskWorkflowFormSheet({
   serverId,
   taskId,
+  existingSteps,
   visible,
   onClose,
 }: TaskWorkflowFormSheetProps): ReactElement {
   const { t } = useTranslation();
   const { setWorkflow, isBusy } = useTaskMutations(serverId);
-  const snapshot = useMemo(() => ({ serverId, taskId }), [serverId, taskId]);
+  const snapshot = useMemo(
+    () => ({ serverId, taskId, ...(existingSteps ? { existingSteps } : {}) }),
+    [existingSteps, serverId, taskId],
+  );
   const model = useTaskWorkflowFormModel(snapshot);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const canSubmit = state.canSubmit && !isBusy;

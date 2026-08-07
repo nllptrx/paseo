@@ -981,6 +981,7 @@ export const ko: TranslationResources = {
       low: "낮음",
     },
     form: {
+      submitWithWorkflow: "Add workflow",
       title: "새 태스크",
       submit: "만들기",
       taskTitleLabel: "제목",
@@ -1028,6 +1029,24 @@ export const ko: TranslationResources = {
       },
     },
     detail: {
+      workflowHeading: "Workflow",
+      workflowAdd: "Add workflow",
+      workflowEdit: "Edit workflow",
+      stepStatus: {
+        pending: "Not started",
+        running: "Running",
+        succeeded: "Done",
+        failed: "Failed",
+        skipped: "Skipped",
+      },
+      stepAction: {
+        run: "Run",
+        retry: "Retry",
+        skip: "Skip",
+        cancel: "Cancel",
+      },
+      commentNotify_one: "Send to agent",
+      commentNotify_other: "Send to {{count}} agents",
       blockedHeading: "Waiting on",
       startHeading: "Start work",
       blockedBadge: "Blocked",

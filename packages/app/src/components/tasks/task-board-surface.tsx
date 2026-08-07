@@ -14,11 +14,13 @@ import {
 } from "@/tasks/task-views";
 import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
+import type { TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { NewTaskSheet } from "./new-task-sheet";
 import { TaskBoard, type TaskBoardMove } from "./task-board";
 import { TaskDetailSheet } from "./task-detail-sheet";
 
 const EMPTY_DEPENDENCIES: TaskDependencyEdge[] = [];
+const EMPTY_WORKFLOWS: TaskWorkflow[] = [];
 
 export interface TaskBoardSurfaceProps {
   serverId: string;
@@ -108,6 +110,15 @@ export function TaskBoardSurface({
     [serverId],
   );
   const handleCloseCapture = useCallback(() => setCapturingStatus(null), []);
+  // Editing a workflow closes the card it belongs to: the editor is a sheet of
+  // its own, and two stacked sheets leave no obvious way back.
+  const handleEditWorkflow = useCallback(
+    (taskId: string) => {
+      setOpenTaskId(null);
+      onCreateWorkflowForTask?.(taskId);
+    },
+    [onCreateWorkflowForTask],
+  );
   const handleOpenTask = useCallback((taskId: string) => setOpenTaskId(taskId), []);
   const handleCloseTask = useCallback(() => setOpenTaskId(null), []);
 
@@ -162,6 +173,7 @@ export function TaskBoardSurface({
           paseoProjectId={paseoProjectId}
           suggestedProjectName={projectDisplayName}
           initialStatus={capturingStatus}
+          onCreated={onCreateWorkflowForTask}
           onClose={handleCloseCapture}
         />
       ) : null}
@@ -172,6 +184,8 @@ export function TaskBoardSurface({
         labels={board.labels}
         projectsById={projectsById}
         dependencies={snapshot?.dependencies ?? EMPTY_DEPENDENCIES}
+        workflows={snapshot?.workflows ?? EMPTY_WORKFLOWS}
+        onEditWorkflow={handleEditWorkflow}
         onClose={handleCloseTask}
       />
     </>

@@ -100,12 +100,14 @@ export interface UseTaskMutationsResult {
     color: string;
     paseoProjectId?: string | null;
   }) => Promise<string>;
+  /** Resolves with the new task's id: the snapshot has not refetched yet, so a
+   * caller that needs to act on the task cannot read it back from there. */
   createTask: (input: {
     projectId: string;
     title: string;
     description?: string;
     status?: TaskStatus;
-  }) => Promise<void>;
+  }) => Promise<string>;
   moveTask: (input: TaskMovePatch) => Promise<void>;
   reviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => Promise<void>;
   configureBoard: (input: {
@@ -166,9 +168,10 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
       status?: TaskStatus;
     }) => {
       const payload = await require().tasksCreate(input);
-      if (payload.error) {
-        throw new Error(payload.error);
+      if (payload.error || !payload.task) {
+        throw new Error(payload.error ?? "The host created no task");
       }
+      return payload.task.id;
     },
     onSettled: invalidate,
   });

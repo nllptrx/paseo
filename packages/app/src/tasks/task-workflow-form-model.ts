@@ -1,5 +1,6 @@
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import type {
+  Step,
   StepInput,
   StepTrigger,
   StepWorkspaceStrategy,
@@ -18,6 +19,9 @@ export interface TaskWorkflowFormProviderOption {
 export interface TaskWorkflowFormSnapshot {
   serverId: string;
   taskId: string;
+  /** The workflow already on the task. Editing has to start from what is there
+   * rather than from an empty step, or saving would silently replace it. */
+  existingSteps?: readonly Step[];
   availableProviders?: readonly TaskWorkflowFormProviderOption[];
 }
 
@@ -156,6 +160,32 @@ function createStep(input: {
   };
 }
 
+/** A stored step read back into the form. Anything the form cannot express —
+ * an `existing` workspace, a scheduled trigger — falls back to what it can, so
+ * editing never silently drops a setting it did not show. */
+function toFormStep(input: {
+  key: string;
+  step: Step;
+  fallbackProvider: AgentProvider | null;
+}): TaskWorkflowFormStep {
+  const spec = input.step.agents[0];
+  const workspaceMode = TASK_WORKFLOW_WORKSPACE_MODES.includes(input.step.workspace.mode)
+    ? input.step.workspace.mode
+    : "worktree";
+  const trigger = TASK_WORKFLOW_TRIGGER_TYPES.includes(input.step.trigger.type)
+    ? input.step.trigger.type
+    : "manual";
+  return {
+    key: input.key,
+    name: input.step.name,
+    prompt: input.step.prompt,
+    provider: spec?.provider ?? input.fallbackProvider,
+    model: spec?.model ?? null,
+    workspaceMode,
+    trigger,
+  };
+}
+
 export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWorkflowFormModel {
   const listeners = new Set<() => void>();
   let closed = false;
@@ -163,10 +193,16 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
   const initialProviderOptions = buildProviderChoices(snapshot.availableProviders ?? []);
   const initialProvider = initialProviderOptions[0]?.value ?? null;
 
+  const existing = snapshot.existingSteps ?? [];
   let state: TaskWorkflowFormState = {
     serverId: snapshot.serverId,
     taskId: snapshot.taskId,
-    steps: [createStep({ key: `step-${nextStepKey++}`, name: "", provider: initialProvider })],
+    steps:
+      existing.length > 0
+        ? existing.map((step) =>
+            toFormStep({ key: `step-${nextStepKey++}`, step, fallbackProvider: initialProvider }),
+          )
+        : [createStep({ key: `step-${nextStepKey++}`, name: "", provider: initialProvider })],
     providerOptions: initialProviderOptions,
     providerResolutionStatus: snapshot.availableProviders ? "complete" : "pending",
     canSubmit: false,

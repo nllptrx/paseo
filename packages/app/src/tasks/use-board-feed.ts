@@ -64,7 +64,11 @@ export function useBoardFeed(input: {
 }
 
 export interface UseBoardFeedComposerResult {
-  post: (input: { body: string; taskId?: string | null }) => Promise<void>;
+  post: (input: {
+    body: string;
+    taskId?: string | null;
+    notifyTaskAgents?: boolean;
+  }) => Promise<void>;
   isPosting: boolean;
 }
 
@@ -84,7 +88,11 @@ export function useBoardFeedComposer(input: {
   }, [projectId, queryClient, serverId]);
 
   const mutation = useMutation({
-    mutationFn: async (entry: { body: string; taskId?: string | null }) => {
+    mutationFn: async (entry: {
+      body: string;
+      taskId?: string | null;
+      notifyTaskAgents?: boolean;
+    }) => {
       if (!client || !projectId) {
         throw new Error(t("common.errors.daemonClientUnavailable"));
       }
@@ -92,6 +100,9 @@ export function useBoardFeedComposer(input: {
         projectId,
         body: entry.body,
         ...(entry.taskId !== undefined ? { taskId: entry.taskId } : {}),
+        ...(entry.notifyTaskAgents !== undefined
+          ? { notifyTaskAgents: entry.notifyTaskAgents }
+          : {}),
       });
       if (payload.error) {
         throw new Error(payload.error);

@@ -30,7 +30,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useTaskBoards, type AggregatedTaskBoard } from "@/hooks/use-task-boards";
 import { findBoardById } from "@/tasks/aggregated-task-boards";
-import { useTaskMutations } from "@/tasks/use-tasks";
+import { useTaskMutations, useTasks } from "@/tasks/use-tasks";
 import { buildKanbansRoute } from "@/utils/host-routes";
 import type { Theme } from "@/styles/theme";
 
@@ -131,6 +131,14 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
     [],
   );
   const handleCloseWorkflowForm = useCallback(() => setWorkflowTaskId(null), []);
+  const { snapshot } = useTasks(serverId);
+  const workflowSteps = useMemo(
+    () =>
+      workflowTaskId
+        ? snapshot?.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps
+        : undefined,
+    [snapshot?.workflows, workflowTaskId],
+  );
 
   const totalCount = board.tasks.length;
 
@@ -239,6 +247,7 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
         <TaskWorkflowFormSheet
           serverId={serverId}
           taskId={workflowTaskId}
+          existingSteps={workflowSteps}
           visible
           onClose={handleCloseWorkflowForm}
         />
