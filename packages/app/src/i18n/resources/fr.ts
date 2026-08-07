@@ -984,6 +984,15 @@ export const fr: TranslationResources = {
       changeStatus: "Changer le statut",
       addTask: "Nouvelle tâche",
       openAgent: "Ouvrir l’agent",
+      approve: "Approuver",
+      reject: "Rejeter",
+      delete: "Supprimer",
+    },
+    priority: {
+      urgent: "Urgent",
+      high: "Haute",
+      medium: "Moyenne",
+      low: "Basse",
     },
     form: {
       title: "Nouvelle tâche",

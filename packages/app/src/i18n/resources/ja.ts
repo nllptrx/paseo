@@ -965,6 +965,15 @@ export const ja: TranslationResources = {
       changeStatus: "ステータスを変更",
       addTask: "新しいタスク",
       openAgent: "エージェントを開く",
+      approve: "承認",
+      reject: "却下",
+      delete: "削除",
+    },
+    priority: {
+      urgent: "緊急",
+      high: "高",
+      medium: "中",
+      low: "低",
     },
     form: {
       title: "新しいタスク",

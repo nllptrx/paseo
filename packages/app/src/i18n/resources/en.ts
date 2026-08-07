@@ -964,6 +964,15 @@ export const en = {
       changeStatus: "Change status",
       addTask: "New task",
       openAgent: "Open agent",
+      approve: "Approve",
+      reject: "Reject",
+      delete: "Delete",
+    },
+    priority: {
+      urgent: "Urgent",
+      high: "High",
+      medium: "Medium",
+      low: "Low",
     },
     form: {
       title: "New task",

@@ -946,6 +946,15 @@ export const zhCN: TranslationResources = {
       changeStatus: "更改状态",
       addTask: "新建任务",
       openAgent: "打开智能体",
+      approve: "批准",
+      reject: "拒绝",
+      delete: "删除",
+    },
+    priority: {
+      urgent: "紧急",
+      high: "高",
+      medium: "中",
+      low: "低",
     },
     form: {
       title: "新建任务",

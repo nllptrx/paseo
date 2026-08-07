@@ -108,6 +108,8 @@ export function TaskBoard({
   onMoveTask,
   onCreateTask,
   onOpenAgent,
+  onReviewTask,
+  onDeleteTask,
   onCreatePlanForTask,
   selectedColumn,
   onSelectColumn,
@@ -143,6 +145,16 @@ export function TaskBoard({
       }
     },
     [onSelectColumn],
+  );
+
+  const handleOpenAgent = useCallback(
+    (input: { workspaceId: string; agentId: string }) => {
+      if (suppressClickRef.current) {
+        return;
+      }
+      onOpenAgent(input);
+    },
+    [onOpenAgent],
   );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -212,16 +224,18 @@ export function TaskBoard({
     const active = statuses.includes(selectedColumn) ? selectedColumn : statuses[0];
     return (
       <View style={styles.compact} testID="task-board">
-        <SegmentedControl
-          size="sm"
-          value={active ?? "backlog"}
-          onValueChange={handleSelectColumn}
-          options={statuses.map((status) => ({
-            value: status,
-            label: t(TASK_STATUS_LABEL_KEYS[status]),
-          }))}
-          testID="task-board-column-picker"
-        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <SegmentedControl
+            size="sm"
+            value={active ?? "backlog"}
+            onValueChange={handleSelectColumn}
+            options={statuses.map((status) => ({
+              value: status,
+              label: t(TASK_STATUS_LABEL_KEYS[status]),
+            }))}
+            testID="task-board-column-picker"
+          />
+        </ScrollView>
         {active ? (
           <TaskColumn
             serverId={serverId}
@@ -232,6 +246,8 @@ export function TaskBoard({
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
             onOpenAgent={onOpenAgent}
+            onReviewTask={onReviewTask}
+            onDeleteTask={onDeleteTask}
             onCreatePlanForTask={onCreatePlanForTask}
           />
         ) : null}
@@ -258,7 +274,9 @@ export function TaskBoard({
             projectsById={projectsById}
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
-            onOpenAgent={onOpenAgent}
+            onOpenAgent={handleOpenAgent}
+            onReviewTask={onReviewTask}
+            onDeleteTask={onDeleteTask}
             onCreatePlanForTask={onCreatePlanForTask}
             activeTaskId={activeTaskId}
           />
@@ -272,7 +290,9 @@ export function TaskBoard({
             project={projectsById.get(activeTask.projectId)}
             labels={labels}
             onMoveToStatus={handleMoveToStatus}
-            onOpenAgent={onOpenAgent}
+            onOpenAgent={handleOpenAgent}
+            onReviewTask={onReviewTask}
+            onDeleteTask={onDeleteTask}
             isOverlay
           />
         ) : null}
@@ -281,6 +301,11 @@ export function TaskBoard({
   );
 }
 
+/**
+ * Every column is sortable, unlike the plan board where only Draft is: a task's
+ * order is stored (`position`), so hand-ordering any column is a real write,
+ * not a fight with a derived ordering.
+ */
 function DroppableTaskColumn({
   serverId,
   status,
@@ -290,6 +315,8 @@ function DroppableTaskColumn({
   onMoveToStatus,
   onCreateTask,
   onOpenAgent,
+  onReviewTask,
+  onDeleteTask,
   onCreatePlanForTask,
   activeTaskId,
 }: {
@@ -301,6 +328,8 @@ function DroppableTaskColumn({
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onCreateTask: (status: TaskStatus) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
+  onDeleteTask: (taskId: string) => void;
   onCreatePlanForTask?: ((taskId: string) => void) | undefined;
   activeTaskId: string | null;
 }): ReactElement {
@@ -327,6 +356,8 @@ function DroppableTaskColumn({
         onMoveToStatus={onMoveToStatus}
         onCreateTask={onCreateTask}
         onOpenAgent={onOpenAgent}
+        onReviewTask={onReviewTask}
+        onDeleteTask={onDeleteTask}
         onCreatePlanForTask={onCreatePlanForTask}
         isOver={isOver}
         renderCard={renderCard}

@@ -976,6 +976,15 @@ export const ptBR: TranslationResources = {
       changeStatus: "Alterar status",
       addTask: "Nova tarefa",
       openAgent: "Abrir agente",
+      approve: "Aprovar",
+      reject: "Rejeitar",
+      delete: "Excluir",
+    },
+    priority: {
+      urgent: "Urgente",
+      high: "Alta",
+      medium: "Média",
+      low: "Baixa",
     },
     form: {
       title: "Nova tarefa",

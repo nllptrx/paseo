@@ -38,7 +38,7 @@ export function TaskBoardSurface({
   const toast = useToast();
   const supported = useTasksSupported(serverId);
   const { snapshot, isLoading, isError, error, refetch } = useTasks(serverId);
-  const { moveTask } = useTaskMutations(serverId);
+  const { moveTask, reviewTask, deleteTask } = useTaskMutations(serverId);
   const [selectedColumn, setSelectedColumn] = useState<TaskStatus>("backlog");
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
 
@@ -63,6 +63,24 @@ export function TaskBoardSurface({
   const handleCreateTask = useCallback((status: TaskStatus) => {
     setCapturingStatus(status);
   }, []);
+
+  const handleReviewTask = useCallback(
+    (input: { taskId: string; verdict: "approve" | "reject" }) => {
+      void reviewTask(input).catch((reviewError) => {
+        toast.show(toErrorMessage(reviewError));
+      });
+    },
+    [reviewTask, toast],
+  );
+
+  const handleDeleteTask = useCallback(
+    (taskId: string) => {
+      void deleteTask(taskId).catch((deleteError) => {
+        toast.show(toErrorMessage(deleteError));
+      });
+    },
+    [deleteTask, toast],
+  );
 
   const handleOpenAgent = useCallback(
     (input: { workspaceId: string; agentId: string }) => {
@@ -113,6 +131,8 @@ export function TaskBoardSurface({
         onMoveTask={handleMoveTask}
         onCreateTask={handleCreateTask}
         onOpenAgent={handleOpenAgent}
+        onReviewTask={handleReviewTask}
+        onDeleteTask={handleDeleteTask}
         onCreatePlanForTask={onCreatePlanForTask}
         selectedColumn={selectedColumn}
         onSelectColumn={setSelectedColumn}

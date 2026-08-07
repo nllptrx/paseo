@@ -976,6 +976,15 @@ export const ru: TranslationResources = {
       changeStatus: "Изменить статус",
       addTask: "Новая задача",
       openAgent: "Открыть агента",
+      approve: "Одобрить",
+      reject: "Отклонить",
+      delete: "Удалить",
+    },
+    priority: {
+      urgent: "Срочно",
+      high: "Высокий",
+      medium: "Средний",
+      low: "Низкий",
     },
     form: {
       title: "Новая задача",

@@ -35,6 +35,8 @@ export function TaskBoard({
   onMoveTask,
   onCreateTask,
   onOpenAgent,
+  onReviewTask,
+  onDeleteTask,
   onCreatePlanForTask,
   selectedColumn,
   onSelectColumn,
@@ -68,13 +70,15 @@ export function TaskBoard({
     const active = statuses.includes(selectedColumn) ? selectedColumn : statuses[0];
     return (
       <View style={styles.compact} testID="task-board">
-        <SegmentedControl
-          size="sm"
-          value={active ?? "backlog"}
-          onValueChange={handleSelectColumn}
-          options={options}
-          testID="task-board-column-picker"
-        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <SegmentedControl
+            size="sm"
+            value={active ?? "backlog"}
+            onValueChange={handleSelectColumn}
+            options={options}
+            testID="task-board-column-picker"
+          />
+        </ScrollView>
         {active ? (
           <TaskColumn
             serverId={serverId}
@@ -85,6 +89,8 @@ export function TaskBoard({
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
             onOpenAgent={onOpenAgent}
+            onReviewTask={onReviewTask}
+            onDeleteTask={onDeleteTask}
             onCreatePlanForTask={onCreatePlanForTask}
           />
         ) : null}
@@ -105,6 +111,8 @@ export function TaskBoard({
           onMoveToStatus={handleMoveToStatus}
           onCreateTask={onCreateTask}
           onOpenAgent={onOpenAgent}
+          onReviewTask={onReviewTask}
+          onDeleteTask={onDeleteTask}
           onCreatePlanForTask={onCreatePlanForTask}
         />
       ))}

@@ -961,6 +961,15 @@ export const ko: TranslationResources = {
       changeStatus: "상태 변경",
       addTask: "새 태스크",
       openAgent: "에이전트 열기",
+      approve: "승인",
+      reject: "반려",
+      delete: "삭제",
+    },
+    priority: {
+      urgent: "긴급",
+      high: "높음",
+      medium: "중간",
+      low: "낮음",
     },
     form: {
       title: "새 태스크",

@@ -954,6 +954,15 @@ export const ar: TranslationResources = {
       changeStatus: "تغيير الحالة",
       addTask: "مهمة جديدة",
       openAgent: "فتح الوكيل",
+      approve: "الموافقة",
+      reject: "رفض",
+      delete: "حذف",
+    },
+    priority: {
+      urgent: "عاجل",
+      high: "مرتفع",
+      medium: "متوسط",
+      low: "منخفض",
     },
     form: {
       title: "مهمة جديدة",

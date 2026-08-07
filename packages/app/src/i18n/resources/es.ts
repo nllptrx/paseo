@@ -985,6 +985,15 @@ export const es: TranslationResources = {
       changeStatus: "Cambiar estado",
       addTask: "Nueva tarea",
       openAgent: "Abrir agente",
+      approve: "Aprobar",
+      reject: "Rechazar",
+      delete: "Eliminar",
+    },
+    priority: {
+      urgent: "Urgente",
+      high: "Alta",
+      medium: "Media",
+      low: "Baja",
     },
     form: {
       title: "Nueva tarea",

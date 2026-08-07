@@ -233,6 +233,46 @@ test.describe("Kanbans board", () => {
     await expect(board.getByTestId("task-column-done")).toContainText(title);
   });
 
+  test("an In Review card offers a verdict: approve to done, reject back to work", async ({
+    page,
+  }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-verdict-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const kanbanId = await seedKanban(workspace);
+    cleanupTasks.push(() => archiveKanban(workspace, kanbanId));
+    const approved = await seedTrackerTask(workspace, `Approve me ${Date.now()}`, "in_review");
+
+    await openBoard(page, kanbanId);
+    const board = page.getByTestId(`kanban-board-${kanbanId}`);
+    await expect(board.getByTestId(`task-card-${approved.taskId}`)).toBeVisible({
+      timeout: 30_000,
+    });
+
+    await page.getByTestId(`task-card-status-${approved.taskId}`).click();
+    await page.getByTestId(`task-card-approve-${approved.taskId}`).click();
+    await expect
+      .poll(() => readTaskStatus(workspace, approved.taskId), { timeout: 30_000 })
+      .toBe("done");
+
+    const rejected = await trackerClient(workspace).tasksCreate({
+      projectId: approved.projectId,
+      title: `Reject me ${Date.now()}`,
+      status: "in_review",
+    });
+    if (!rejected.task) {
+      throw new Error(rejected.error ?? "Failed to seed the rejected task");
+    }
+    const rejectedTaskId = rejected.task.id;
+    const rejectedCard = board.getByTestId(`task-card-${rejectedTaskId}`);
+    await expect(rejectedCard).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId(`task-card-status-${rejectedTaskId}`).click();
+    await page.getByTestId(`task-card-reject-${rejectedTaskId}`).click();
+    // No review config on this board, so reject falls back to in_progress.
+    await expect
+      .poll(() => readTaskStatus(workspace, rejectedTaskId), { timeout: 30_000 })
+      .toBe("in_progress");
+  });
+
   test("the board menu toggles review and the new-plan shortcut still works", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-review-" });
     cleanupTasks.push(() => workspace.cleanup());

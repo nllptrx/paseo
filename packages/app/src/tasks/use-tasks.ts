@@ -67,9 +67,6 @@ export interface TaskMovePatch {
   afterPosition: number | null;
 }
 
-/** The optimistic guess for where the daemon will put the task. It uses the
- * midpoint the daemon would pick from the same neighbours, so the board settles
- * without a jump when the write lands. */
 /** Mirrors the daemon's `POSITION_STEP` arithmetic in the tasks store, so the
  * optimistic paint and the settled write agree and the card does not jump. */
 const POSITION_STEP = 1024;
@@ -109,6 +106,7 @@ export interface UseTaskMutationsResult {
     status?: TaskStatus;
   }) => Promise<void>;
   moveTask: (input: TaskMovePatch) => Promise<void>;
+  reviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => Promise<void>;
   setStatus: (input: { taskId: string; status: TaskStatus }) => Promise<void>;
   setPriority: (input: {
     taskId: string;
@@ -203,10 +201,21 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
     onSettled: invalidate,
   });
 
+  const review = useMutation({
+    mutationFn: async (input: { taskId: string; verdict: "approve" | "reject" }) => {
+      const payload = await require().tasksReview(input);
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+    },
+    onSettled: invalidate,
+  });
+
   return {
     createProject: (input) => createProject.mutateAsync(input),
     createTask: (input) => createTask.mutateAsync(input),
     moveTask: (input) => move.mutateAsync(input),
+    reviewTask: (input) => review.mutateAsync(input),
     setStatus: (input) => update.mutateAsync({ taskId: input.taskId, status: input.status }),
     setPriority: (input) => update.mutateAsync({ taskId: input.taskId, priority: input.priority }),
     deleteTask: (taskId) => remove.mutateAsync(taskId),
@@ -215,6 +224,7 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
       createTask.isPending ||
       update.isPending ||
       move.isPending ||
+      review.isPending ||
       remove.isPending,
   };
 }

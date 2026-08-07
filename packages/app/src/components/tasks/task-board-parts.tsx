@@ -3,7 +3,13 @@ import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { MoreVertical, Plus } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import type { Task, TaskLabel, TaskProject, TaskStatus } from "@getpaseo/protocol/tasks/types";
+import type {
+  Task,
+  TaskLabel,
+  TaskPriority,
+  TaskProject,
+  TaskStatus,
+} from "@getpaseo/protocol/tasks/types";
 import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
 import {
   ContextMenu,
@@ -35,6 +41,21 @@ interface TaskCardAction {
   onSelect: () => void;
 }
 
+export const TASK_PRIORITY_LABEL_KEYS: Record<Exclude<TaskPriority, "none">, string> = {
+  urgent: "tasks.priority.urgent",
+  high: "tasks.priority.high",
+  medium: "tasks.priority.medium",
+  low: "tasks.priority.low",
+};
+
+/** Urgency reads as color; the two calm tiers stay muted so the title wins. */
+const PRIORITY_STYLE_KEYS: Record<Exclude<TaskPriority, "none">, "danger" | "warning" | "muted"> = {
+  urgent: "danger",
+  high: "warning",
+  medium: "muted",
+  low: "muted",
+};
+
 export const TASK_STATUS_LABEL_KEYS: Record<TaskStatus, string> = {
   backlog: "tasks.status.backlog",
   todo: "tasks.status.todo",
@@ -63,6 +84,10 @@ export interface TaskBoardProps {
   onCreateTask: (status: TaskStatus) => void;
   /** A card with work attached opens the conversation doing it. */
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  /** The verdict on an In Review card — distinct from a status move, because
+   * reject routes through the board's review.onReject. */
+  onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
+  onDeleteTask: (taskId: string) => void;
   /** Authors a plan already attached to the task, when the surface offers one. */
   onCreatePlanForTask?: (taskId: string) => void;
   selectedColumn: TaskStatus;
@@ -109,6 +134,8 @@ export function TaskColumn({
   onMoveToStatus,
   onCreateTask,
   onOpenAgent,
+  onReviewTask,
+  onDeleteTask,
   onCreatePlanForTask,
   isOver = false,
   renderCard,
@@ -122,6 +149,8 @@ export function TaskColumn({
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onCreateTask: (status: TaskStatus) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
+  onDeleteTask: (taskId: string) => void;
   onCreatePlanForTask?: ((taskId: string) => void) | undefined;
   isOver?: boolean;
   /** Lets the web board wrap each card in a sortable without forking the column. */
@@ -162,6 +191,8 @@ export function TaskColumn({
               labels={labels}
               onMoveToStatus={onMoveToStatus}
               onOpenAgent={onOpenAgent}
+              onReviewTask={onReviewTask}
+              onDeleteTask={onDeleteTask}
               onCreatePlanForTask={onCreatePlanForTask}
             />
           );
@@ -184,6 +215,8 @@ export function TaskCard({
   labels,
   onMoveToStatus,
   onOpenAgent,
+  onReviewTask,
+  onDeleteTask,
   onCreatePlanForTask,
   isOverlay = false,
   isDragSource = false,
@@ -194,6 +227,8 @@ export function TaskCard({
   labels: readonly TaskLabel[];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
+  onDeleteTask: (taskId: string) => void;
   onCreatePlanForTask?: ((taskId: string) => void) | undefined;
   /** Rendered inside the drag overlay: lifted, non-interactive. */
   isOverlay?: boolean;
@@ -222,6 +257,22 @@ export function TaskCard({
   // the way any other card on this platform is.
   const actions = useMemo<TaskCardAction[]>(() => {
     const entries: TaskCardAction[] = [];
+    if (task.status === "in_review") {
+      entries.push(
+        {
+          key: "approve",
+          label: t("tasks.board.approve"),
+          testID: `task-card-approve-${task.id}`,
+          onSelect: () => onReviewTask({ taskId: task.id, verdict: "approve" }),
+        },
+        {
+          key: "reject",
+          label: t("tasks.board.reject"),
+          testID: `task-card-reject-${task.id}`,
+          onSelect: () => onReviewTask({ taskId: task.id, verdict: "reject" }),
+        },
+      );
+    }
     if (onCreatePlanForTask) {
       entries.push({
         key: "add-plan",
@@ -249,13 +300,40 @@ export function TaskCard({
         onSelect: () => onMoveToStatus({ taskId: task.id, status }),
       });
     }
+    entries.push({
+      key: "delete",
+      label: t("tasks.board.delete"),
+      testID: `task-card-delete-${task.id}`,
+      onSelect: () => onDeleteTask(task.id),
+    });
     return entries;
-  }, [onCreatePlanForTask, onMoveToStatus, onOpenAgent, t, task.agents, task.id, task.status]);
+  }, [
+    onCreatePlanForTask,
+    onDeleteTask,
+    onMoveToStatus,
+    onOpenAgent,
+    onReviewTask,
+    t,
+    task.agents,
+    task.id,
+    task.status,
+  ]);
 
   const body = (
     <>
       <View style={styles.cardHeader}>
         <Text style={styles.cardKey}>{formatTaskKey(project, task)}</Text>
+        {task.priority !== "none" ? (
+          <Text
+            style={[
+              styles.priority,
+              PRIORITY_STYLE_KEYS[task.priority] === "danger" && styles.priorityDanger,
+              PRIORITY_STYLE_KEYS[task.priority] === "warning" && styles.priorityWarning,
+            ]}
+          >
+            {t(TASK_PRIORITY_LABEL_KEYS[task.priority])}
+          </Text>
+        ) : null}
         {bucket ? <StatusBucketDot bucket={bucket} /> : null}
         {isOverlay ? null : (
           <DropdownMenu>
@@ -427,6 +505,17 @@ const styles = StyleSheet.create((theme) => ({
     height: 24,
     alignItems: "center",
     justifyContent: "center",
+  },
+  priority: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    flexShrink: 0,
+  },
+  priorityDanger: {
+    color: theme.colors.statusDanger,
+  },
+  priorityWarning: {
+    color: theme.colors.statusWarning,
   },
   cardTitle: {
     color: theme.colors.foreground,
