@@ -960,6 +960,7 @@ export const ko: TranslationResources = {
       emptyColumn: "여기엔 아무것도 없습니다",
       changeStatus: "상태 변경",
       addTask: "새 태스크",
+      openAgent: "에이전트 열기",
     },
     form: {
       title: "새 태스크",
@@ -1014,6 +1015,8 @@ export const ko: TranslationResources = {
       },
     },
     board: {
+      reviewEnable: "리뷰 필수로 설정",
+      reviewDisable: "리뷰 필수 해제",
       menu: "보드 작업",
       createOrchestrator: "오케스트레이터 생성",
     },

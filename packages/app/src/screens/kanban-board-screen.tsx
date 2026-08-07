@@ -18,7 +18,7 @@ import { TaskBoardSurface } from "@/components/tasks/task-board-surface";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { useKanbans } from "@/hooks/use-kanbans";
+import { useKanban, useKanbans } from "@/hooks/use-kanbans";
 import { useKanbanMutations } from "@/hooks/use-kanban-mutations";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionId } from "@/keyboard/keyboard-action-dispatcher";
@@ -98,9 +98,10 @@ function LoadedKanbanBoardScreen({
   const { t } = useTranslation();
   const { serverId } = summary;
   const isCompact = useIsCompactFormFactor();
-  const { provisionOrchestrator } = useKanbanMutations({ serverId });
+  const { provisionOrchestrator, updateKanban } = useKanbanMutations({ serverId });
+  const { kanban: detail } = useKanban({ serverId, kanbanId });
   const [isProvisioning, setIsProvisioning] = useState(false);
-  const [isCreatingPlan, setIsCreatingPlan] = useState(false);
+  const [planForm, setPlanForm] = useState<{ taskId: string | null } | null>(null);
   // Wide layouts have room to keep the conversation open beside the board;
   // a compact one borrows the whole screen for it, so it starts closed.
   const [isOrchestratorPaneOpen, setIsOrchestratorPaneOpen] = useState(() => !isCompact);
@@ -118,17 +119,30 @@ function LoadedKanbanBoardScreen({
     [],
   );
   const handleCloseOrchestratorPane = useCallback(() => setIsOrchestratorPaneOpen(false), []);
-  const handleOpenCreatePlan = useCallback(() => setIsCreatingPlan(true), []);
-  const handleCloseCreatePlan = useCallback(() => setIsCreatingPlan(false), []);
+  const handleOpenCreatePlan = useCallback(() => setPlanForm({ taskId: null }), []);
+  const handleCreatePlanForTask = useCallback((taskId: string) => setPlanForm({ taskId }), []);
+  const handleCloseCreatePlan = useCallback(() => setPlanForm(null), []);
   const handleNewPlanShortcut = useCallback(() => {
-    setIsCreatingPlan(true);
+    setPlanForm({ taskId: null });
     return true;
   }, []);
+  // The review flag routes a green settle to In Review instead of Done —
+  // docs/tasks.md, "Automatic transitions".
+  const reviewEnabled = detail?.review?.enabled === true;
+  const handleToggleReview = useCallback(() => {
+    void updateKanban({
+      kanbanId,
+      review: {
+        enabled: !reviewEnabled,
+        onReject: detail?.review?.onReject ?? "in_progress",
+      },
+    });
+  }, [detail?.review?.onReject, kanbanId, reviewEnabled, updateKanban]);
 
   useKeyboardActionHandler({
     handlerId: `kanban-plan-new-${kanbanId}`,
     actions: NEW_PLAN_ACTIONS,
-    enabled: !isCreatingPlan,
+    enabled: planForm === null,
     priority: 0,
     handle: handleNewPlanShortcut,
   });
@@ -198,6 +212,12 @@ function LoadedKanbanBoardScreen({
                 {t("kanban.column.addPlan")}
               </DropdownMenuItem>
               <DropdownMenuItem
+                testID={`kanban-review-toggle-${kanbanId}`}
+                onSelect={handleToggleReview}
+              >
+                {t(reviewEnabled ? "kanban.board.reviewDisable" : "kanban.board.reviewEnable")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 testID={`kanban-create-orchestrator-${kanbanId}`}
                 onSelect={handleProvisionOrchestrator}
                 disabled={isProvisioning}
@@ -218,6 +238,7 @@ function LoadedKanbanBoardScreen({
             serverId={serverId}
             paseoProjectId={summary.projectId}
             projectDisplayName={projectName ?? summary.name}
+            onCreatePlanForTask={handleCreatePlanForTask}
           />
         </ScrollView>
         {isOrchestratorPaneOpen && !isCompact ? (
@@ -236,11 +257,12 @@ function LoadedKanbanBoardScreen({
           <KanbanOrchestratorPane serverId={serverId} kanbanId={kanbanId} />
         </AdaptiveModalSheet>
       ) : null}
-      {isCreatingPlan ? (
+      {planForm ? (
         <KanbanPlanFormSheet
           serverId={serverId}
           kanbanId={kanbanId}
           parentPlanId={null}
+          taskId={planForm.taskId}
           visible
           onClose={handleCloseCreatePlan}
         />

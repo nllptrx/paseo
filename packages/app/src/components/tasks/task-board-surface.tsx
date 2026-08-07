@@ -6,6 +6,7 @@ import type { TaskStatus } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { selectProjectBoard } from "@/tasks/task-views";
 import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -19,6 +20,8 @@ export interface TaskBoardSurfaceProps {
   paseoProjectId: string;
   /** Prefills the tracker project the first capture creates. */
   projectDisplayName: string;
+  /** Offered on every card when the host screen can author a plan for a task. */
+  onCreatePlanForTask?: (taskId: string) => void;
 }
 
 /**
@@ -29,6 +32,7 @@ export function TaskBoardSurface({
   serverId,
   paseoProjectId,
   projectDisplayName,
+  onCreatePlanForTask,
 }: TaskBoardSurfaceProps): ReactElement {
   const { t } = useTranslation();
   const toast = useToast();
@@ -59,6 +63,17 @@ export function TaskBoardSurface({
   const handleCreateTask = useCallback((status: TaskStatus) => {
     setCapturingStatus(status);
   }, []);
+
+  const handleOpenAgent = useCallback(
+    (input: { workspaceId: string; agentId: string }) => {
+      navigateToWorkspace({
+        serverId,
+        workspaceId: input.workspaceId,
+        target: { kind: "agent", agentId: input.agentId },
+      });
+    },
+    [serverId],
+  );
   const handleCloseCapture = useCallback(() => setCapturingStatus(null), []);
 
   if (!supported) {
@@ -91,11 +106,14 @@ export function TaskBoardSurface({
   return (
     <>
       <TaskBoard
+        serverId={serverId}
         tasks={board.tasks}
         labels={board.labels}
         projectsById={projectsById}
         onMoveTask={handleMoveTask}
         onCreateTask={handleCreateTask}
+        onOpenAgent={handleOpenAgent}
+        onCreatePlanForTask={onCreatePlanForTask}
         selectedColumn={selectedColumn}
         onSelectColumn={setSelectedColumn}
       />

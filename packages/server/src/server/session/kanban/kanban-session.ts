@@ -115,6 +115,7 @@ export class KanbanSession {
       const kanban = await this.kanbanService.update(request.kanbanId, {
         name: request.name,
         archiveWorkspacesOnDone: request.archiveWorkspacesOnDone,
+        review: request.review,
       });
       this.host.emit({
         type: "kanban.update.response",
@@ -148,6 +149,7 @@ export class KanbanSession {
         parentPlanId: request.parentPlanId,
         title: request.title,
         description: request.description,
+        taskId: request.taskId,
         body: request.body,
       });
       this.host.emit({

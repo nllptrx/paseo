@@ -211,6 +211,7 @@ import { ScheduleService } from "./schedule/service.js";
 import type { KanbanService } from "./kanban/service.js";
 import type { KanbanEngine } from "./kanban/engine.js";
 import type { TaskService } from "./tasks/service.js";
+import { TaskTransitionEngine } from "./tasks/transitions.js";
 import { KanbanSession } from "./session/kanban/kanban-session.js";
 import { TasksSession } from "./session/tasks/tasks-session.js";
 import {
@@ -461,6 +462,7 @@ export interface SessionOptions {
   kanbanService: KanbanService;
   kanbanEngine: KanbanEngine;
   taskService?: TaskService;
+  taskTransitions?: TaskTransitionEngine;
   loopService: LoopService;
   checkoutDiffManager: CheckoutDiffManager;
   github?: ForgeService;
@@ -612,15 +614,29 @@ function describeRegistryTransition(record: ArchivedRecordSnapshot | null): Regi
  */
 function createTasksSession(input: {
   taskService: TaskService | undefined;
+  transitions: TaskTransitionEngine | undefined;
+  kanbanService: KanbanService;
+  agentManager: AgentManager;
   host: { emit: (msg: SessionOutboundMessage) => void };
   logger: pino.Logger;
 }): TasksSession | null {
   if (!input.taskService) {
     return null;
   }
+  // The daemon wires one engine for the whole host; building one here is the
+  // fallback for harnesses that construct a Session directly.
+  const transitions =
+    input.transitions ??
+    new TaskTransitionEngine({
+      taskService: input.taskService,
+      listKanbans: () => input.kanbanService.list(),
+      agentManager: input.agentManager,
+      logger: input.logger,
+    });
   return new TasksSession({
     host: input.host,
     taskService: input.taskService,
+    transitions,
     logger: input.logger,
   });
 }
@@ -740,6 +756,7 @@ export class Session {
       kanbanService,
       kanbanEngine,
       taskService,
+      taskTransitions,
       loopService,
       checkoutDiffManager,
       github,
@@ -891,6 +908,9 @@ export class Session {
     });
     this.tasksSession = createTasksSession({
       taskService,
+      transitions: taskTransitions,
+      kanbanService,
+      agentManager,
       host: { emit: (msg) => this.emit(msg) },
       logger: this.sessionLogger,
     });
@@ -2446,6 +2466,14 @@ export class Session {
         return session.handleMoveRequest(msg);
       case "tasks.delete.request":
         return session.handleDeleteRequest(msg);
+      case "tasks.agent.attach.request":
+        return session.handleAgentAttachRequest(msg);
+      case "tasks.agent.detach.request":
+        return session.handleAgentDetachRequest(msg);
+      case "tasks.comment.create.request":
+        return session.handleCommentCreateRequest(msg);
+      case "tasks.review.request":
+        return session.handleReviewRequest(msg);
       case "tasks.subscribe.request":
         session.handleSubscribeRequest(msg);
         return Promise.resolve();

@@ -963,6 +963,7 @@ export const en = {
       emptyColumn: "Nothing here",
       changeStatus: "Change status",
       addTask: "New task",
+      openAgent: "Open agent",
     },
     form: {
       title: "New task",
@@ -1017,6 +1018,8 @@ export const en = {
       },
     },
     board: {
+      reviewEnable: "Require review",
+      reviewDisable: "Don't require review",
       menu: "Board actions",
       createOrchestrator: "Create Orchestrator",
     },

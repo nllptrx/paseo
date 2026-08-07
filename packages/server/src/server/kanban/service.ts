@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type pino from "pino";
 import type {
   KanbanPlan,
+  KanbanReviewConfig,
   KanbanSummary,
   NestedPlan,
   Step,
@@ -161,18 +162,27 @@ export class KanbanService {
 
   async update(
     id: string,
-    patch: { name?: string; archiveWorkspacesOnDone?: boolean },
+    patch: {
+      name?: string;
+      archiveWorkspacesOnDone?: boolean;
+      review?: KanbanReviewConfig | null;
+    },
   ): Promise<StoredKanban> {
     const updated = await this.store.update(id, (kanban) => {
       requireActiveKanban(kanban, id);
-      return {
+      const next = {
         ...kanban,
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         ...(patch.archiveWorkspacesOnDone !== undefined
           ? { archiveWorkspacesOnDone: patch.archiveWorkspacesOnDone }
           : {}),
+        ...(patch.review !== undefined && patch.review !== null ? { review: patch.review } : {}),
         updatedAt: new Date().toISOString(),
       };
+      if (patch.review === null) {
+        delete next.review;
+      }
+      return next;
     });
     const result = requireKanban(updated, id);
     this.notifyUpsert(result);
@@ -194,6 +204,7 @@ export class KanbanService {
     parentPlanId?: string | null;
     title: string;
     description?: string | null;
+    taskId?: string | null;
     body: KanbanPlanCreateBody;
   }): Promise<KanbanPlan> {
     if (input.parentPlanId && input.body.type !== "workflow") {
@@ -216,6 +227,7 @@ export class KanbanService {
         id: planId,
         title: input.title,
         description: input.description ?? null,
+        taskId: input.taskId ?? null,
         createdAt: now,
         updatedAt: now,
         archivedAt: null,

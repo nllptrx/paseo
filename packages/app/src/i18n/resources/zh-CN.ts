@@ -945,6 +945,7 @@ export const zhCN: TranslationResources = {
       emptyColumn: "这里什么都没有",
       changeStatus: "更改状态",
       addTask: "新建任务",
+      openAgent: "打开智能体",
     },
     form: {
       title: "新建任务",
@@ -998,6 +999,8 @@ export const zhCN: TranslationResources = {
       },
     },
     board: {
+      reviewEnable: "需要审查",
+      reviewDisable: "不需要审查",
       menu: "看板操作",
       createOrchestrator: "创建编排器",
     },

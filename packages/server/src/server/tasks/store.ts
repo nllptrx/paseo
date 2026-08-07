@@ -519,6 +519,19 @@ export class TaskStore {
     }));
   }
 
+  /** Every attachment on the host, for re-arming completion observers at boot. */
+  listAgentLinks(): Array<{ taskId: string; agentId: string; workspaceId: string }> {
+    return selectAll(
+      this.db.prepare("SELECT * FROM task_agents ORDER BY attached_at, agent_id"),
+      TaskAgentRowSchema,
+      "task_agents",
+    ).map((row) => ({
+      taskId: row.task_id,
+      agentId: row.agent_id,
+      workspaceId: row.workspace_id,
+    }));
+  }
+
   findTasksByAgent(agentId: string): string[] {
     return selectAll(
       this.db.prepare("SELECT task_id FROM task_agents WHERE agent_id = ?"),

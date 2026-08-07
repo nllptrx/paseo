@@ -70,17 +70,21 @@ export interface TaskMovePatch {
 /** The optimistic guess for where the daemon will put the task. It uses the
  * midpoint the daemon would pick from the same neighbours, so the board settles
  * without a jump when the write lands. */
+/** Mirrors the daemon's `POSITION_STEP` arithmetic in the tasks store, so the
+ * optimistic paint and the settled write agree and the card does not jump. */
+const POSITION_STEP = 1024;
+
 function guessMovePosition(before: number | null, after: number | null): number {
   if (before !== null && after !== null) {
     return (before + after) / 2;
   }
   if (before !== null) {
-    return before + 1;
+    return before + POSITION_STEP;
   }
   if (after !== null) {
-    return after - 1;
+    return after - POSITION_STEP;
   }
-  return 0;
+  return POSITION_STEP;
 }
 
 function applyMoveToSnapshot(snapshot: TaskSnapshot, move: TaskMovePatch): TaskSnapshot {

@@ -152,6 +152,7 @@ import { KanbanStore } from "./kanban/store.js";
 import { KanbanService } from "./kanban/service.js";
 import { KanbanEngine } from "./kanban/engine.js";
 import { TaskService } from "./tasks/service.js";
+import { TaskTransitionEngine } from "./tasks/transitions.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
@@ -1243,11 +1244,22 @@ export async function createPaseoDaemon(
     agentManager,
     agentStorage,
   });
+  const taskService = new TaskService({
+    databasePath: path.join(config.paseoHome, "tasks.db"),
+    logger,
+  });
+  const taskTransitions = new TaskTransitionEngine({
+    taskService,
+    listKanbans: () => kanbanService.list(),
+    agentManager,
+    logger,
+  });
   const kanbanEngine = new KanbanEngine({
     kanbanService,
     agentManager,
     createAgent,
     scheduleService,
+    attachTaskAgent: (input) => taskService.attachAgent(input),
     getWorkspace: (workspaceId) => workspaceRegistry.get(workspaceId),
     getProjectRootCwd: async (projectId) => {
       const project = await projectRegistry.get(projectId);
@@ -1262,14 +1274,16 @@ export async function createPaseoDaemon(
   });
   await kanbanEngine.recoverInterruptedRuns();
 
-  const taskService = new TaskService({
-    databasePath: path.join(config.paseoHome, "tasks.db"),
-    logger,
+  kanbanEngine.setOnPlanSettled((taskId) => {
+    void taskTransitions.onWorkSettled(taskId).catch((error) => {
+      logger.error({ err: error, taskId }, "Failed to move a task after its plan settled");
+    });
   });
   // Warmed here so `server_info` can answer synchronously at connect time. The
   // probe opens the store, and a store that will not open leaves the tracker
-  // switched off rather than taking the daemon down with it.
-  void taskService.isAvailable();
+  // switched off rather than taking the daemon down with it. The same warm-up
+  // re-arms the attachment observers a restart dropped.
+  void taskService.isAvailable().then(() => taskTransitions.start());
   logger.info({ elapsed: elapsed() }, "Kanban workflow engine initialized");
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");
   const persistedRecords = await agentStorage.list();
@@ -1615,6 +1629,7 @@ export async function createPaseoDaemon(
               workspaceSetupRuntime,
               kanbanEngine,
               taskService,
+              taskTransitions,
             );
             relayRuntime = createRelayRuntime({
               config: {

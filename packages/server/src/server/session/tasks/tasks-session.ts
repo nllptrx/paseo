@@ -1,6 +1,7 @@
 import type pino from "pino";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../../messages.js";
 import type { TaskService } from "../../tasks/service.js";
+import type { TaskTransitionEngine } from "../../tasks/transitions.js";
 
 export interface TasksSessionHost {
   emit(msg: SessionOutboundMessage): void;
@@ -9,6 +10,7 @@ export interface TasksSessionHost {
 export interface TasksSessionOptions {
   host: TasksSessionHost;
   taskService: TaskService;
+  transitions: TaskTransitionEngine;
   logger: pino.Logger;
 }
 
@@ -25,12 +27,14 @@ type Inbound<T extends SessionInboundMessage["type"]> = Extract<SessionInboundMe
 export class TasksSession {
   private readonly host: TasksSessionHost;
   private readonly taskService: TaskService;
+  private readonly transitions: TaskTransitionEngine;
   private readonly logger: pino.Logger;
   private unsubscribe: (() => void) | null = null;
 
   constructor(options: TasksSessionOptions) {
     this.host = options.host;
     this.taskService = options.taskService;
+    this.transitions = options.transitions;
     this.logger = options.logger;
   }
 
@@ -160,6 +164,73 @@ export class TasksSession {
       this.host.emit({
         type: "tasks.delete.response",
         payload: { requestId: request.requestId, taskId: request.taskId, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleAgentAttachRequest(request: Inbound<"tasks.agent.attach.request">): Promise<void> {
+    try {
+      await this.taskService.attachAgent({
+        taskId: request.taskId,
+        agentId: request.agentId,
+        workspaceId: request.workspaceId,
+        presetId: request.presetId ?? null,
+      });
+      this.transitions.observeAttachment({ taskId: request.taskId, agentId: request.agentId });
+      const task = await this.taskService.getTask(request.taskId);
+      this.host.emit({
+        type: "tasks.agent.attach.response",
+        payload: { requestId: request.requestId, task, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleAgentDetachRequest(request: Inbound<"tasks.agent.detach.request">): Promise<void> {
+    try {
+      await this.taskService.detachAgent({ taskId: request.taskId, agentId: request.agentId });
+      this.transitions.unobserveAttachment({ taskId: request.taskId, agentId: request.agentId });
+      const task = await this.taskService.getTask(request.taskId);
+      this.host.emit({
+        type: "tasks.agent.detach.response",
+        payload: { requestId: request.requestId, task, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleCommentCreateRequest(
+    request: Inbound<"tasks.comment.create.request">,
+  ): Promise<void> {
+    try {
+      const comment = await this.taskService.createComment({
+        taskId: request.taskId,
+        kind: "user",
+        authorName: "user",
+        body: request.body,
+      });
+      this.host.emit({
+        type: "tasks.comment.create.response",
+        payload: { requestId: request.requestId, comment, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleReviewRequest(request: Inbound<"tasks.review.request">): Promise<void> {
+    try {
+      const task = await this.transitions.applyReviewVerdict({
+        taskId: request.taskId,
+        verdict: request.verdict,
+      });
+      this.host.emit({
+        type: "tasks.review.response",
+        payload: { requestId: request.requestId, task, error: null },
       });
     } catch (error) {
       this.emitError(request, error);

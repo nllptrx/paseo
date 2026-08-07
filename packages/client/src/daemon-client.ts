@@ -145,6 +145,7 @@ import type {
   BrowserAutomationExecuteResponse,
 } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import type { KanbanPlanCreateBody } from "@getpaseo/protocol/kanban/rpc-schemas";
+import type { KanbanReviewConfig } from "@getpaseo/protocol/kanban/types";
 
 export interface Logger {
   debug(obj: object, msg?: string): void;
@@ -578,6 +579,22 @@ type TasksDeletePayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.delete.response" }
 >["payload"];
+type TasksAgentAttachPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.agent.attach.response" }
+>["payload"];
+type TasksAgentDetachPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.agent.detach.response" }
+>["payload"];
+type TasksCommentCreatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.comment.create.response" }
+>["payload"];
+type TasksReviewPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.review.response" }
+>["payload"];
 type TasksSubscribePayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.subscribe.response" }
@@ -935,6 +952,7 @@ export interface UpdateKanbanOptions {
   kanbanId: string;
   name?: string;
   archiveWorkspacesOnDone?: boolean;
+  review?: KanbanReviewConfig | null;
   requestId?: string;
 }
 export interface CreateKanbanPlanOptions {
@@ -942,6 +960,7 @@ export interface CreateKanbanPlanOptions {
   parentPlanId?: string | null;
   title: string;
   description?: string | null;
+  taskId?: string | null;
   body: KanbanPlanCreateBody;
   requestId?: string;
 }
@@ -5527,6 +5546,51 @@ export class DaemonClient {
     });
   }
 
+  async tasksAgentAttach(
+    options: {
+      taskId: string;
+      agentId: string;
+      workspaceId: string;
+      presetId?: string | null;
+    },
+    requestId?: string,
+  ): Promise<TasksAgentAttachPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.agent.attach.response">({
+      requestId,
+      message: { type: "tasks.agent.attach.request", ...options },
+    });
+  }
+
+  async tasksAgentDetach(
+    options: { taskId: string; agentId: string },
+    requestId?: string,
+  ): Promise<TasksAgentDetachPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.agent.detach.response">({
+      requestId,
+      message: { type: "tasks.agent.detach.request", ...options },
+    });
+  }
+
+  async tasksCommentCreate(
+    options: { taskId: string; body: string },
+    requestId?: string,
+  ): Promise<TasksCommentCreatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.comment.create.response">({
+      requestId,
+      message: { type: "tasks.comment.create.request", ...options },
+    });
+  }
+
+  async tasksReview(
+    options: { taskId: string; verdict: "approve" | "reject" },
+    requestId?: string,
+  ): Promise<TasksReviewPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.review.response">({
+      requestId,
+      message: { type: "tasks.review.request", ...options },
+    });
+  }
+
   async tasksSubscribe(requestId?: string): Promise<TasksSubscribePayload> {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.subscribe.response">({
       requestId,
@@ -5576,6 +5640,7 @@ export class DaemonClient {
         ...(options.archiveWorkspacesOnDone !== undefined
           ? { archiveWorkspacesOnDone: options.archiveWorkspacesOnDone }
           : {}),
+        ...(options.review !== undefined ? { review: options.review } : {}),
       },
     });
   }
@@ -5597,6 +5662,7 @@ export class DaemonClient {
         body: options.body,
         ...(options.parentPlanId !== undefined ? { parentPlanId: options.parentPlanId } : {}),
         ...(options.description !== undefined ? { description: options.description } : {}),
+        ...(options.taskId !== undefined ? { taskId: options.taskId } : {}),
       },
     });
   }

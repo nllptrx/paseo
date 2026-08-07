@@ -975,6 +975,7 @@ export const ru: TranslationResources = {
       emptyColumn: "Здесь пусто",
       changeStatus: "Изменить статус",
       addTask: "Новая задача",
+      openAgent: "Открыть агента",
     },
     form: {
       title: "Новая задача",
@@ -1029,6 +1030,8 @@ export const ru: TranslationResources = {
       },
     },
     board: {
+      reviewEnable: "Требовать ревью",
+      reviewDisable: "Не требовать ревью",
       menu: "Действия доски",
       createOrchestrator: "Создать оркестратор",
     },

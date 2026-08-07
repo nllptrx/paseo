@@ -16,6 +16,8 @@ export interface KanbanPlanFormSheetProps {
   serverId: string;
   kanbanId: string;
   parentPlanId: string | null;
+  /** The task this plan will be execution for, when opened from a task card. */
+  taskId?: string | null;
   visible: boolean;
   onClose: () => void;
 }
@@ -35,6 +37,7 @@ function OpenKanbanPlanFormSheet({
   serverId,
   kanbanId,
   parentPlanId,
+  taskId,
   visible,
   onClose,
 }: KanbanPlanFormSheetProps): ReactElement {
@@ -63,13 +66,14 @@ function OpenKanbanPlanFormSheet({
         parentPlanId: state.parentPlanId,
         title: state.title.trim(),
         description: state.description.trim().length > 0 ? state.description.trim() : null,
+        taskId: taskId ?? null,
         body,
       });
       onClose();
     } catch (submitError) {
       model.setSubmitError(toErrorMessage(submitError));
     }
-  }, [canSubmit, createPlan, model, onClose, state]);
+  }, [canSubmit, createPlan, model, onClose, state, taskId]);
 
   const handleSubmitPress = useCallback(() => {
     void handleSubmit();

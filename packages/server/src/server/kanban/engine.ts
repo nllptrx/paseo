@@ -47,6 +47,14 @@ export interface KanbanEngineDeps {
     input: WorktreeWorkspaceInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   archiveWorkspace: (workspaceId: string) => Promise<void>;
+  /** Records a dispatched agent on the plan's task, when the plan has one. The
+   * attachment carries no completion observer — for plan work the run settling
+   * is the signal, not each agent's turn. */
+  attachTaskAgent?: (input: {
+    taskId: string;
+    agentId: string;
+    workspaceId: string;
+  }) => Promise<void>;
   logger: Logger;
   now?: () => Date;
 }
@@ -122,7 +130,11 @@ export class KanbanEngine {
   private readonly archiveWorkspace: (workspaceId: string) => Promise<void>;
   private readonly logger: Logger;
   private readonly now: () => Date;
+  private readonly attachTaskAgent:
+    | ((input: { taskId: string; agentId: string; workspaceId: string }) => Promise<void>)
+    | null;
   private readonly runTrackers = new Map<string, RunTracker>();
+  private onPlanSettled: ((taskId: string) => void) | null = null;
 
   constructor(deps: KanbanEngineDeps) {
     this.kanbanService = deps.kanbanService;
@@ -135,6 +147,7 @@ export class KanbanEngine {
     this.archiveWorkspace = deps.archiveWorkspace;
     this.logger = deps.logger.child({ module: "kanban-engine" });
     this.now = deps.now ?? (() => new Date());
+    this.attachTaskAgent = deps.attachTaskAgent ?? null;
   }
 
   // Boot recovery: any step run still "running" when the daemon went down
@@ -625,15 +638,42 @@ export class KanbanEngine {
       }),
     });
 
-    if (stepIndex === 0 && agentIds.length > 0) {
-    }
-
     if (agentIds.length === 0) {
       return updatedStep;
     }
 
+    await this.attachRunAgentsToPlanTask(identifier, agentIds, targets);
     this.trackRun(identifier, runId, agentIds, creationError);
     return updatedStep;
+  }
+
+  private async attachRunAgentsToPlanTask(
+    identifier: StepIdentifier,
+    agentIds: string[],
+    targets: AgentTarget[],
+  ): Promise<void> {
+    if (!this.attachTaskAgent) {
+      return;
+    }
+    try {
+      const { plan } = await this.kanbanService.getPlan(identifier);
+      if (!plan.taskId) {
+        return;
+      }
+      for (let i = 0; i < agentIds.length; i++) {
+        const target = targets.length === 1 ? targets[0] : targets[i];
+        await this.attachTaskAgent({
+          taskId: plan.taskId,
+          agentId: agentIds[i],
+          workspaceId: target.workspaceId,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        { err: error, planId: identifier.planId },
+        "Failed to attach step-run agents to the plan's task",
+      );
+    }
   }
 
   private trackRun(
@@ -765,6 +805,33 @@ export class KanbanEngine {
     this.runTrackers.delete(runId);
   }
 
+  /** Fired when a plan's last step settles green — the tracker moves the plan's
+   * task off it. The engine only reports; the transition rules live with tasks. */
+  setOnPlanSettled(listener: (taskId: string) => void): void {
+    this.onPlanSettled = listener;
+  }
+
+  private async notifyPlanSettled(identifier: {
+    kanbanId: string;
+    parentPlanId?: string | null;
+    planId: string;
+  }): Promise<void> {
+    if (!this.onPlanSettled) {
+      return;
+    }
+    try {
+      const { plan } = await this.kanbanService.getPlan(identifier);
+      if (plan.taskId) {
+        this.onPlanSettled(plan.taskId);
+      }
+    } catch (error) {
+      this.logger.error(
+        { err: error, planId: identifier.planId },
+        "Failed to resolve a settled plan's task",
+      );
+    }
+  }
+
   private async afterStepSettled(
     identifier: { kanbanId: string; parentPlanId?: string | null; planId: string },
     steps: Step[],
@@ -773,6 +840,7 @@ export class KanbanEngine {
     const isLastStep = stepIndex === steps.length - 1;
     if (isLastStep) {
       await this.archiveWorkspacesIfConfigured(identifier);
+      await this.notifyPlanSettled(identifier);
       return;
     }
     const nextIndex = stepIndex + 1;

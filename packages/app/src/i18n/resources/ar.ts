@@ -953,6 +953,7 @@ export const ar: TranslationResources = {
       emptyColumn: "لا شيء هنا",
       changeStatus: "تغيير الحالة",
       addTask: "مهمة جديدة",
+      openAgent: "فتح الوكيل",
     },
     form: {
       title: "مهمة جديدة",
@@ -1006,6 +1007,8 @@ export const ar: TranslationResources = {
       },
     },
     board: {
+      reviewEnable: "طلب المراجعة",
+      reviewDisable: "عدم طلب المراجعة",
       menu: "إجراءات اللوحة",
       createOrchestrator: "إنشاء المنسق",
     },

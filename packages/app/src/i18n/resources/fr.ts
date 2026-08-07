@@ -983,6 +983,7 @@ export const fr: TranslationResources = {
       emptyColumn: "Rien ici",
       changeStatus: "Changer le statut",
       addTask: "Nouvelle tâche",
+      openAgent: "Ouvrir l’agent",
     },
     form: {
       title: "Nouvelle tâche",
@@ -1038,6 +1039,8 @@ export const fr: TranslationResources = {
       },
     },
     board: {
+      reviewEnable: "Exiger une revue",
+      reviewDisable: "Ne pas exiger de revue",
       menu: "Actions du tableau",
       createOrchestrator: "Créer un orchestrateur",
     },

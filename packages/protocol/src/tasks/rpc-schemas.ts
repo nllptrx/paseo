@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  TaskCommentSchema,
   TaskPrioritySchema,
   TaskProjectSchema,
   TaskSchema,
@@ -131,6 +132,74 @@ export const TasksDeleteResponseSchema = z.object({
   payload: z.object({
     requestId: z.string(),
     taskId: z.string(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksAgentAttachRequestSchema = z.object({
+  type: z.literal("tasks.agent.attach.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+  agentId: z.string(),
+  workspaceId: z.string(),
+  presetId: z.string().nullable().optional(),
+});
+
+export const TasksAgentAttachResponseSchema = z.object({
+  type: z.literal("tasks.agent.attach.response"),
+  payload: z.object({
+    requestId: z.string(),
+    task: TaskSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksAgentDetachRequestSchema = z.object({
+  type: z.literal("tasks.agent.detach.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+  agentId: z.string(),
+});
+
+export const TasksAgentDetachResponseSchema = z.object({
+  type: z.literal("tasks.agent.detach.response"),
+  payload: z.object({
+    requestId: z.string(),
+    task: TaskSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksCommentCreateRequestSchema = z.object({
+  type: z.literal("tasks.comment.create.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+  body: z.string().trim().min(1),
+});
+
+export const TasksCommentCreateResponseSchema = z.object({
+  type: z.literal("tasks.comment.create.response"),
+  payload: z.object({
+    requestId: z.string(),
+    comment: TaskCommentSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+/** A review verdict. Approve sends the task to done; reject sends it back to
+ * the board's `review.onReject` (default in_progress). */
+export const TasksReviewRequestSchema = z.object({
+  type: z.literal("tasks.review.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+  verdict: z.enum(["approve", "reject"]),
+});
+
+export const TasksReviewResponseSchema = z.object({
+  type: z.literal("tasks.review.response"),
+  payload: z.object({
+    requestId: z.string(),
+    task: TaskSchema.nullable(),
     error: z.string().nullable(),
   }),
 });

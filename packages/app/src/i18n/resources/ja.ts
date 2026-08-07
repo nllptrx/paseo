@@ -964,6 +964,7 @@ export const ja: TranslationResources = {
       emptyColumn: "ここには何もありません",
       changeStatus: "ステータスを変更",
       addTask: "新しいタスク",
+      openAgent: "エージェントを開く",
     },
     form: {
       title: "新しいタスク",
@@ -1018,6 +1019,8 @@ export const ja: TranslationResources = {
       },
     },
     board: {
+      reviewEnable: "レビューを必須にする",
+      reviewDisable: "レビューを必須にしない",
       menu: "ボードの操作",
       createOrchestrator: "オーケストレーターを作成",
     },

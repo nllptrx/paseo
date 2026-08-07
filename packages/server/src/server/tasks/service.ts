@@ -1,7 +1,14 @@
-import type { Task, TaskProject, TaskSnapshot, TaskStatus } from "@getpaseo/protocol/tasks/types";
+import type {
+  Task,
+  TaskComment,
+  TaskProject,
+  TaskSnapshot,
+  TaskStatus,
+} from "@getpaseo/protocol/tasks/types";
 import type pino from "pino";
 import {
   openTaskStore,
+  type CreateTaskCommentInput,
   type CreateTaskInput,
   type CreateTaskProjectInput,
   type TaskStore,
@@ -104,6 +111,15 @@ export class TaskService {
     return (await this.require()).snapshot();
   }
 
+  async getTask(taskId: string): Promise<Task | null> {
+    return (await this.require()).getTask(taskId);
+  }
+
+  async getProject(projectId: string): Promise<TaskProject | null> {
+    const store = await this.require();
+    return store.listProjects().find((project) => project.id === projectId) ?? null;
+  }
+
   async createProject(input: CreateTaskProjectInput): Promise<TaskProject> {
     const store = await this.require();
     const project = store.createProject(input);
@@ -167,6 +183,21 @@ export class TaskService {
     const store = await this.require();
     store.detachAgent(input);
     this.announce(store);
+  }
+
+  async listAgentLinks(): Promise<Array<{ taskId: string; agentId: string; workspaceId: string }>> {
+    return (await this.require()).listAgentLinks();
+  }
+
+  async findTasksByAgent(agentId: string): Promise<string[]> {
+    return (await this.require()).findTasksByAgent(agentId);
+  }
+
+  async createComment(input: CreateTaskCommentInput): Promise<TaskComment> {
+    const store = await this.require();
+    const comment = store.createComment(input);
+    this.announce(store);
+    return comment;
   }
 
   async close(): Promise<void> {

@@ -975,6 +975,7 @@ export const ptBR: TranslationResources = {
       emptyColumn: "Nada aqui",
       changeStatus: "Alterar status",
       addTask: "Nova tarefa",
+      openAgent: "Abrir agente",
     },
     form: {
       title: "Nova tarefa",
@@ -1029,6 +1030,8 @@ export const ptBR: TranslationResources = {
       },
     },
     board: {
+      reviewEnable: "Exigir revisão",
+      reviewDisable: "Não exigir revisão",
       menu: "Ações do quadro",
       createOrchestrator: "Criar orquestrador",
     },

@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { KanbanPlanSchema, KanbanSummarySchema, StepSchema, StoredKanbanSchema } from "./types.js";
+import {
+  KanbanPlanSchema,
+  KanbanReviewConfigSchema,
+  KanbanSummarySchema,
+  StepSchema,
+  StoredKanbanSchema,
+} from "./types.js";
 
 export const StepInputSchema = StepSchema.omit({ id: true, runs: true });
 export type StepInput = z.infer<typeof StepInputSchema>;
@@ -61,6 +67,7 @@ export const KanbanUpdateRequestSchema = z.object({
   kanbanId: z.string(),
   name: z.string().trim().min(1).optional(),
   archiveWorkspacesOnDone: z.boolean().optional(),
+  review: KanbanReviewConfigSchema.nullable().optional(),
 });
 
 export const KanbanUpdateResponseSchema = z.object({
@@ -94,6 +101,7 @@ export const KanbanPlanCreateRequestSchema = z.object({
   parentPlanId: z.string().nullable().optional(),
   title: z.string().trim().min(1),
   description: z.string().trim().min(1).nullable().optional(),
+  taskId: z.string().trim().min(1).nullable().optional(),
   body: KanbanPlanCreateBodySchema,
 });
 

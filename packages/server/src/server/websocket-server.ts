@@ -16,6 +16,7 @@ import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
 import type { KanbanEngine } from "./kanban/engine.js";
 import type { TaskService } from "./tasks/service.js";
+import type { TaskTransitionEngine } from "./tasks/transitions.js";
 import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager, CheckoutDiffMetrics } from "./checkout-diff-manager.js";
 import type { DaemonConfigStore, MutableDaemonConfig } from "./daemon-config-store.js";
@@ -570,6 +571,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly kanbanService: KanbanService;
   private readonly kanbanEngine: KanbanEngine;
   private readonly taskService: TaskService | null;
+  private readonly taskTransitions: TaskTransitionEngine | null;
   private readonly checkoutDiffManager: CheckoutDiffManager;
   private readonly github: ForgeService;
   private readonly workspaceGitService: WorkspaceGitService;
@@ -667,8 +669,10 @@ export class VoiceAssistantWebSocketServer {
     workspaceSetupRuntime: WorkspaceSetupRuntime = new WorkspaceSetupRuntime(),
     kanbanEngine?: KanbanEngine,
     taskService?: TaskService,
+    taskTransitions?: TaskTransitionEngine,
   ) {
     this.taskService = taskService ?? null;
+    this.taskTransitions = taskTransitions ?? null;
     this.logger = logger.child({ module: "websocket-server" });
     this.workspaceSetupRuntime = workspaceSetupRuntime;
     this.advertiseDaemonStatusRpc = wsConfig.daemonStatusRpc !== false;
@@ -1403,6 +1407,7 @@ export class VoiceAssistantWebSocketServer {
       kanbanService: this.kanbanService,
       kanbanEngine: this.kanbanEngine,
       ...(this.taskService ? { taskService: this.taskService } : {}),
+      ...(this.taskTransitions ? { taskTransitions: this.taskTransitions } : {}),
       checkoutDiffManager: this.checkoutDiffManager,
       github: this.github,
       workspaceGitService: this.workspaceGitService,

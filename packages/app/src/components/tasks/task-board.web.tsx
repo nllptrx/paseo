@@ -97,11 +97,14 @@ export function resolveTaskBoardDrop(input: {
 }
 
 export function TaskBoard({
+  serverId,
   tasks,
   labels,
   projectsById,
   onMoveTask,
   onCreateTask,
+  onOpenAgent,
+  onCreatePlanForTask,
   selectedColumn,
   onSelectColumn,
 }: TaskBoardProps): ReactElement {
@@ -217,12 +220,15 @@ export function TaskBoard({
         />
         {active ? (
           <TaskColumn
+            serverId={serverId}
             status={active}
             tasks={byStatus.get(active) ?? []}
             labels={labels}
             projectsById={projectsById}
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
+            onOpenAgent={onOpenAgent}
+            onCreatePlanForTask={onCreatePlanForTask}
           />
         ) : null}
       </View>
@@ -241,12 +247,15 @@ export function TaskBoard({
         {statuses.map((status) => (
           <DroppableTaskColumn
             key={status}
+            serverId={serverId}
             status={status}
             tasks={byStatus.get(status) ?? []}
             labels={labels}
             projectsById={projectsById}
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
+            onOpenAgent={onOpenAgent}
+            onCreatePlanForTask={onCreatePlanForTask}
             activeTaskId={activeTaskId}
           />
         ))}
@@ -254,10 +263,12 @@ export function TaskBoard({
       <DragOverlay dropAnimation={null}>
         {activeTask ? (
           <TaskCard
+            serverId={serverId}
             task={activeTask}
             project={projectsById.get(activeTask.projectId)}
             labels={labels}
             onMoveToStatus={handleMoveToStatus}
+            onOpenAgent={onOpenAgent}
             isOverlay
           />
         ) : null}
@@ -267,20 +278,26 @@ export function TaskBoard({
 }
 
 function DroppableTaskColumn({
+  serverId,
   status,
   tasks,
   labels,
   projectsById,
   onMoveToStatus,
   onCreateTask,
+  onOpenAgent,
+  onCreatePlanForTask,
   activeTaskId,
 }: {
+  serverId: string;
   status: TaskStatus;
   tasks: readonly Task[];
   labels: TaskBoardProps["labels"];
   projectsById: TaskBoardProps["projectsById"];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onCreateTask: (status: TaskStatus) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onCreatePlanForTask?: ((taskId: string) => void) | undefined;
   activeTaskId: string | null;
 }): ReactElement {
   const { isOver, setNodeRef } = useDroppable({ id: columnDropId(status) });
@@ -298,12 +315,15 @@ function DroppableTaskColumn({
   return (
     <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
       <TaskColumn
+        serverId={serverId}
         status={status}
         tasks={tasks}
         labels={labels}
         projectsById={projectsById}
         onMoveToStatus={onMoveToStatus}
         onCreateTask={onCreateTask}
+        onOpenAgent={onOpenAgent}
+        onCreatePlanForTask={onCreatePlanForTask}
         isOver={isOver}
         renderCard={renderCard}
         bodyRef={setNodeRef}
