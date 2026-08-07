@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { MoreVertical, Plus } from "lucide-react-native";
+import { MessageSquare, MoreVertical, Paperclip, Plus } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type {
   Task,
@@ -31,6 +31,8 @@ import { aggregateSidebarStateBuckets, type SidebarStateBucket } from "@/utils/s
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 
 const ThemedMoreVertical = withUnistyles(MoreVertical);
+const ThemedMessageSquare = withUnistyles(MessageSquare);
+const ThemedPaperclip = withUnistyles(Paperclip);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 
@@ -390,6 +392,7 @@ export function TaskCard({
         {task.title}
       </Text>
       <TaskLabelChips labels={taskLabels} />
+      <TaskCardCounts task={task} />
     </>
   );
 
@@ -436,6 +439,31 @@ export function TaskCard({
 
 /** The card's label row, reused by the detail sheet so a task's labels look
  * the same wherever they show up. */
+/** Comments and attachments, counted on the card. A card that has been argued
+ * over for twenty messages looks different from one nobody has touched, and
+ * that difference is worth a glance rather than a click. */
+function TaskCardCounts({ task }: { task: Task }): ReactElement | null {
+  if (task.commentCount === 0 && task.attachments.length === 0) {
+    return null;
+  }
+  return (
+    <View style={styles.counts} testID={`task-card-counts-${task.id}`}>
+      {task.commentCount > 0 ? (
+        <View style={styles.count}>
+          <ThemedMessageSquare size={12} uniProps={mutedIconMapping} />
+          <Text style={styles.countText}>{task.commentCount}</Text>
+        </View>
+      ) : null}
+      {task.attachments.length > 0 ? (
+        <View style={styles.count}>
+          <ThemedPaperclip size={12} uniProps={mutedIconMapping} />
+          <Text style={styles.countText}>{task.attachments.length}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function TaskLabelChips({ labels }: { labels: readonly TaskLabel[] }): ReactElement | null {
   if (labels.length === 0) {
     return null;
@@ -548,6 +576,20 @@ const styles = StyleSheet.create((theme) => ({
   },
   priorityWarning: {
     color: theme.colors.statusWarning,
+  },
+  counts: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+  },
+  count: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  countText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
   },
   cardTitle: {
     color: theme.colors.foreground,
