@@ -35,7 +35,7 @@ function invalidateKanbanCaches(
 /**
  * Get-or-create a project's kanban and drop a single-step workflow Plan wrapping this
  * workspace into its first column — the "Add to Kanban" discovery seam
- * (`docs/kanban-workflow-stacking-plan.md` §4). A kanban is one-per-project in v1, so this
+ * (docs/kanban-tasks-spec.md). A kanban is one-per-project in v1, so this
  * reuses whichever one the project already has instead of creating a second.
  *
  * Before creating a plan, it scans every non-archived plan on that kanban for a step that

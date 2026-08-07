@@ -69,7 +69,7 @@ const PlanBaseSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable(),
   /** The task this plan is execution for, when the tracker holds one. A plan
-   * settling green is what moves that task — see docs/tasks.md, "Automatic
+   * settling green is what moves that task — see docs/kanban-tasks-spec.md §3, "Automatic
    * transitions". Optional on the wire: records written before the field are
    * plans that simply move nothing. */
   taskId: z.string().nullable().optional(),

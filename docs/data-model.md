@@ -370,11 +370,11 @@ atomic writes, per-id mutation serialization). Step runs are capped (most recent
 20 per step). No migrations: optional fields with defaults.
 
 Columns are not stored. A plan's column is derived from its step runs, so the
-file holds only what actually happened — see [kanban.md](kanban.md).
+file holds only what actually happened — see [kanban-tasks-spec.md](kanban-tasks-spec.md).
 
 Wire schemas: `packages/protocol/src/kanban/types.ts`. Store:
 `packages/server/src/server/kanban/store.ts`. Product layering and hard-outs:
-[kanban.md](kanban.md).
+[kanban-tasks-spec.md](kanban-tasks-spec.md).
 
 New-agent schedule targets may carry optional `workspaceId` and `labels` so a
 timed kanban step can materialize a real Schedule without a second cron engine.

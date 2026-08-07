@@ -154,7 +154,7 @@ function LoadedKanbanBoardScreen({
     return true;
   }, []);
   // The review flag routes a green settle to In Review instead of Done —
-  // docs/tasks.md, "Automatic transitions".
+  // docs/kanban-tasks-spec.md §3.
   const reviewEnabled = detail?.review?.enabled === true;
   const handleToggleReview = useCallback(() => {
     void updateKanban({

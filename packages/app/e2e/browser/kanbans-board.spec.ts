@@ -281,7 +281,7 @@ test.describe("Kanbans board", () => {
 
     await openBoard(page, kanbanId);
 
-    // Review is board config: the settle target of a green run — see docs/tasks.md.
+    // Review is board config: the settle target of a green run — docs/kanban-tasks-spec.md §3.
     await page.getByTestId(`kanban-board-menu-${kanbanId}`).click();
     await page.getByTestId(`kanban-review-toggle-${kanbanId}`).click();
     await expect

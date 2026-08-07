@@ -28,7 +28,7 @@ At the start of non-trivial work, list `docs/` and skim anything relevant to the
 | [docs/agent-lifecycle.md](docs/agent-lifecycle.md)                 | Agent states, parent/child relationships, archive semantics, tabs vs archive, subagents track                                  |
 | [docs/data-model.md](docs/data-model.md)                           | File-based JSON persistence, Zod schemas, atomic writes, no migrations                                                         |
 | [docs/glossary.md](docs/glossary.md)                               | Authoritative terminology — UI label wins, no synonyms                                                                         |
-| [docs/kanban.md](docs/kanban.md)                                   | Kanban overlay — layering, progressive disclosure, soft columns / hard steps, Orchestrator mesh                                |
+| [docs/kanban-tasks-spec.md](docs/kanban-tasks-spec.md)             | Tracker + kanban working spec — shipped state, board feed in progress, open decisions; docs of record return after the redesign |
 | [docs/coding-standards.md](docs/coding-standards.md)               | Type hygiene, error handling, state design, React patterns, file organization                                                  |
 | [docs/design.md](docs/design.md)                                   | Design system — tokens, buttons, hierarchy, density, alignment rails, states, what's forbidden                                 |
 | [docs/forms.md](docs/forms.md)                                     | Form architecture — non-React form model, form kit, load-state gating; the schedule form is the golden example                 |
@@ -58,8 +58,6 @@ At the start of non-trivial work, list `docs/` and skim anything relevant to the
 | [docs/docker.md](docs/docker.md)                                   | Running the daemon and bundled web UI in Docker, volumes, agent images, security                                               |
 | [docs/release.md](docs/release.md)                                 | Release playbook, draft releases, completion checklist                                                                         |
 | [docs/terminal-activity.md](docs/terminal-activity.md)             | Terminal activity indicators — source-agnostic tracker, agent hook reporting, adding a new hook provider                       |
-| [docs/tasks.md](docs/tasks.md)                                     | The tracker — stored intent vs derived execution, SQLite store, identity, list and board surfaces                              |
-| [docs/kanban-workflow-stacking-plan.md](docs/kanban-workflow-stacking-plan.md) | Plan for the Kanban/Workflow orchestration layer — Plans, Steps, Orchestrator mesh, execution semantics, protocol              |
 | [SECURITY.md](SECURITY.md)                                         | Relay threat model, E2E encryption, DNS rebinding, agent auth                                                                  |
 | [public-docs/hub/security.md](public-docs/hub/security.md)         | Public Hub guide — trust boundaries, untrusted triggers, provider controls, and output authority                               |
 

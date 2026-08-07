@@ -877,7 +877,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     return schedule;
   }
 
-  // Kanban permission scoping (docs/kanban-workflow-stacking-plan.md §5/§6): no
+  // Kanban permission scoping (docs/kanban-tasks-spec.md): no
   // callerAgentId means a top-level session (app/CLI), trusted like the user. An
   // agent-scoped caller is only trusted for kanban writes when its labels mark it as
   // the Orchestrator for the kanban in question.

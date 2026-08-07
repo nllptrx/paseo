@@ -4,7 +4,7 @@ import { AgentProviderSchema } from "../provider-manifest.js";
 /**
  * What you intend, not what is happening. Nothing derives `backlog` or
  * `in_review`, which is why these are stored while a plan's column is not —
- * see docs/tasks.md.
+ * see docs/kanban-tasks-spec.md.
  */
 export const TaskStatusSchema = z.enum([
   "backlog",
