@@ -115,6 +115,7 @@ export interface UseTaskMutationsResult {
     reviewEnabled?: boolean;
     reviewOnReject?: "in_progress" | "todo" | "backlog";
     archiveWorkspacesOnDone?: boolean;
+    reviewerPresetId?: string | null;
   }) => Promise<void>;
   setWorkflow: (input: { taskId: string; steps: StepInput[] }) => Promise<void>;
   clearWorkflow: (taskId: string) => Promise<void>;
@@ -230,6 +231,7 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
       reviewEnabled?: boolean;
       reviewOnReject?: "in_progress" | "todo" | "backlog";
       archiveWorkspacesOnDone?: boolean;
+      reviewerPresetId?: string | null;
     }) => {
       const payload = await require().tasksBoardConfigure(input);
       if (payload.error) {

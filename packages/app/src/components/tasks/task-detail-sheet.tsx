@@ -327,6 +327,7 @@ function OpenTaskDetailSheet({
                 serverId={serverId}
                 workspaceId={link.workspaceId}
                 agentId={link.agentId}
+                role={link.role ?? "worker"}
                 onOpenAgent={handleOpenAgent}
               />
             ))}
@@ -418,22 +419,29 @@ function WorkflowStepRow({
   onAct: (stepId: string, action: TaskStepAction) => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const { status, actions } = resolveStepState(step);
+  const { status, actions, error } = resolveStepState(step);
   return (
-    <View style={styles.stepRow} testID={`task-detail-step-${step.id}`}>
-      <Text style={styles.stepName} numberOfLines={1}>
-        {index + 1}. {step.name}
-      </Text>
-      <Text style={styles.stepStatus}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
-      {actions.map((action) => (
-        <StepActionButton
-          key={action}
-          stepId={step.id}
-          action={action}
-          disabled={disabled}
-          onAct={onAct}
-        />
-      ))}
+    <View style={styles.step} testID={`task-detail-step-${step.id}`}>
+      <View style={styles.stepRow}>
+        <Text style={styles.stepName} numberOfLines={1}>
+          {index + 1}. {step.name}
+        </Text>
+        <Text style={styles.stepStatus}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
+        {actions.map((action) => (
+          <StepActionButton
+            key={action}
+            stepId={step.id}
+            action={action}
+            disabled={disabled}
+            onAct={onAct}
+          />
+        ))}
+      </View>
+      {error ? (
+        <Text style={styles.stepError} testID={`task-detail-step-${step.id}-error`}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -508,19 +516,25 @@ function PriorityMenuItem({
   );
 }
 
+/** A reviewer is named as one: it is on the card to judge the work, not to have
+ * done it, and reading the list without that is reading it wrong. */
 function AgentRow({
   serverId,
   workspaceId,
   agentId,
+  role,
   onOpenAgent,
 }: {
   serverId: string;
   workspaceId: string;
   agentId: string;
+  role: "worker" | "reviewer";
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
 }): ReactElement {
+  const { t } = useTranslation();
   const workspace = useWorkspace(serverId, workspaceId);
-  const label = workspace?.title ?? workspace?.name ?? workspaceId;
+  const name = workspace?.title ?? workspace?.name ?? workspaceId;
+  const label = role === "reviewer" ? `${name} · ${t("tasks.detail.reviewerBadge")}` : name;
   const handlePress = useCallback(
     () => onOpenAgent({ workspaceId, agentId }),
     [agentId, onOpenAgent, workspaceId],
@@ -540,6 +554,13 @@ function AgentRow({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  step: {
+    gap: theme.spacing[1],
+  },
+  stepError: {
+    color: theme.colors.statusDanger,
+    fontSize: theme.fontSize.xs,
+  },
   stepRow: {
     flexDirection: "row",
     alignItems: "center",

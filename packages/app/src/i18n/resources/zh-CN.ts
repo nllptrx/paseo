@@ -1020,10 +1020,17 @@ export const zhCN: TranslationResources = {
       },
     },
     detail: {
+      reviewerBadge: "reviewer",
+      reviewerHeading: "Review",
+      reviewerNone: "A person reviews",
+      reviewerPick: "Reviewed by",
       workflowHeading: "Workflow",
       workflowAdd: "Add workflow",
       workflowEdit: "Edit workflow",
       stepStatus: {
+        queued: "Waiting for a slot",
+        interrupted: "Interrupted",
+        canceled: "Canceled",
         pending: "Not started",
         running: "Running",
         succeeded: "Done",

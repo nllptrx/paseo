@@ -8,26 +8,48 @@ import { tasksQueryKey } from "@/tasks/task-query-keys";
 
 export type TaskStepAction = "run" | "retry" | "skip" | "cancel";
 
-/** What the latest run says about a step, which is all a reader needs to know
- * whether it can be started, retried, or is already going. */
+export type TaskStepDisplayStatus =
+  | "pending"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "interrupted"
+  | "canceled"
+  | "skipped";
+
+const STEP_DISPLAY_STATES: Record<TaskStepDisplayStatus, { actions: TaskStepAction[] }> = {
+  pending: { actions: ["run", "skip"] },
+  // Waiting for a slot, not stuck: offering Retry would restart something that
+  // has not started, and cancel is the only thing there is to want.
+  queued: { actions: ["cancel"] },
+  running: { actions: ["cancel"] },
+  succeeded: { actions: [] },
+  // Named apart from a failure on purpose: nothing went wrong, the daemon went
+  // away, and the answer is to run it again rather than to read an error.
+  interrupted: { actions: ["retry", "skip"] },
+  canceled: { actions: ["retry", "skip"] },
+  failed: { actions: ["retry", "skip"] },
+  skipped: { actions: [] },
+};
+
+/**
+ * What the latest run says about a step: whether it can be started, retried, or
+ * is already going, and why it stopped when it did.
+ */
 export function resolveStepState(step: Step): {
-  status: "pending" | "running" | "succeeded" | "failed" | "skipped";
+  status: TaskStepDisplayStatus;
   actions: TaskStepAction[];
+  /** What the run recorded when it ended — the failing command's output, the
+   * timeout, the missing evidence. Null while nothing has gone wrong. */
+  error: string | null;
 } {
   const latest = step.runs.at(-1);
   if (!latest) {
-    return { status: "pending", actions: ["run", "skip"] };
+    return { status: "pending", ...STEP_DISPLAY_STATES.pending, error: null };
   }
-  if (latest.status === "running") {
-    return { status: "running", actions: ["cancel"] };
-  }
-  if (latest.status === "succeeded") {
-    return { status: "succeeded", actions: [] };
-  }
-  if (latest.status === "skipped") {
-    return { status: "skipped", actions: [] };
-  }
-  return { status: "failed", actions: ["retry", "skip"] };
+  const status: TaskStepDisplayStatus = latest.status;
+  return { status, ...STEP_DISPLAY_STATES[status], error: latest.error ?? null };
 }
 
 const STEP_ACTION_SENDERS: Record<

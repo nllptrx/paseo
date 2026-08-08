@@ -290,6 +290,28 @@ export class TaskWorkflowEngine {
     const steps = await this.requireSteps(identifier.taskId);
     const stepIndex = requireStepIndex(steps, identifier.stepId);
     const latest = latestRunOf(steps[stepIndex]);
+    if (latest?.status === "queued") {
+      // Nothing has started, so there is nothing to stop: the run is withdrawn
+      // rather than recorded as a cancellation of work that never happened.
+      const now = this.now().toISOString();
+      const { step: withdrawn } = await this.taskService.mutateStep({
+        ...identifier,
+        mutate: (current) => ({
+          ...current,
+          runs: current.runs.map((run) =>
+            run.id === latest.id
+              ? {
+                  ...run,
+                  status: "canceled" as const,
+                  endedAt: now,
+                  error: "Withdrawn from the queue",
+                }
+              : run,
+          ),
+        }),
+      });
+      return withdrawn;
+    }
     if (!latest || latest.status !== "running") {
       throw new Error(`Step ${identifier.stepId} has no run in progress to cancel`);
     }

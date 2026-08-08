@@ -31,6 +31,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useTaskBoards, type AggregatedTaskBoard } from "@/hooks/use-task-boards";
 import { findBoardById } from "@/tasks/aggregated-task-boards";
 import { useTaskMutations, useTasks } from "@/tasks/use-tasks";
+import { useTaskPresets } from "@/tasks/use-task-delegate";
 import { buildKanbansRoute } from "@/utils/host-routes";
 import type { Theme } from "@/styles/theme";
 
@@ -145,6 +146,14 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
   // The review flag routes a green settle to In Review instead of Done, and it
   // is a property of the board — which is the tracker project.
   const reviewEnabled = project.board?.reviewEnabled === true;
+  const { presets } = useTaskPresets(serverId);
+  const handleSelectReviewer = useCallback(
+    (presetId: string | null) => {
+      void configureBoard({ projectId: project.id, reviewerPresetId: presetId });
+    },
+    [configureBoard, project.id],
+  );
+
   const handleToggleReview = useCallback(() => {
     void configureBoard({ projectId: project.id, reviewEnabled: !reviewEnabled });
   }, [configureBoard, project.id, reviewEnabled]);
@@ -180,11 +189,41 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
             >
               {t(reviewEnabled ? "kanban.board.reviewDisable" : "kanban.board.reviewEnable")}
             </DropdownMenuItem>
+            {reviewEnabled ? (
+              <>
+                <ReviewerMenuItem
+                  boardId={boardId}
+                  presetId={null}
+                  label={t("tasks.detail.reviewerNone")}
+                  selected={project.board?.reviewerPresetId == null}
+                  onSelect={handleSelectReviewer}
+                />
+                {presets.map((preset) => (
+                  <ReviewerMenuItem
+                    key={preset.id}
+                    boardId={boardId}
+                    presetId={preset.id}
+                    label={preset.name}
+                    selected={project.board?.reviewerPresetId === preset.id}
+                    onSelect={handleSelectReviewer}
+                  />
+                ))}
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </>
     ),
-    [handleToggleReview, boardId, project.name, reviewEnabled, t],
+    [
+      boardId,
+      handleSelectReviewer,
+      handleToggleReview,
+      presets,
+      project.board?.reviewerPresetId,
+      project.name,
+      reviewEnabled,
+      t,
+    ],
   );
 
   const headerRight = useMemo(
@@ -253,6 +292,31 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
         />
       ) : null}
     </View>
+  );
+}
+
+/** Which agent reads the work when a card reaches review, or nobody. */
+function ReviewerMenuItem({
+  boardId,
+  presetId,
+  label,
+  selected,
+  onSelect,
+}: {
+  boardId: string;
+  presetId: string | null;
+  label: string;
+  selected: boolean;
+  onSelect: (presetId: string | null) => void;
+}): ReactElement {
+  const handleSelect = useCallback(() => onSelect(presetId), [onSelect, presetId]);
+  return (
+    <DropdownMenuItem
+      testID={`kanban-reviewer-${boardId}-${presetId ?? "none"}`}
+      onSelect={handleSelect}
+    >
+      {selected ? `✓ ${label}` : label}
+    </DropdownMenuItem>
   );
 }
 
