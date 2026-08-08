@@ -1,12 +1,18 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TaskPreset } from "@getpaseo/protocol/tasks/types";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
+import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
+import { Field, FormTextInput } from "@/components/ui/form-field";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SelectField } from "@/components/ui/select-field";
 import { useToast } from "@/contexts/toast-context";
+import { confirmDialog } from "@/utils/confirm-dialog";
 import {
   resolveProviderLabel,
   useTaskAvailableProviders,
@@ -51,11 +57,12 @@ function OpenTaskPresetsSheet({
 }): ReactElement {
   const { t } = useTranslation();
   const toast = useToast();
-  const { presets } = useTaskPresets(serverId);
+  const { presets, isLoading } = useTaskPresets(serverId);
   const { createPreset, deletePreset, isBusy } = useTaskPresetMutations(serverId);
   const { providers } = useTaskAvailableProviders(serverId);
 
   const [name, setName] = useState("");
+  const [model, setModel] = useState("");
   const [instructions, setInstructions] = useState("");
   const [provider, setProvider] = useState<string | null>(null);
   const [environmentKind, setEnvironmentKind] = useState<EnvironmentKind>("new_worktree");
@@ -64,8 +71,28 @@ function OpenTaskPresetsSheet({
     () =>
       (providers ?? [])
         .filter((entry) => entry.available)
-        .map((entry) => ({ value: entry.provider, label: resolveProviderLabel(entry.provider) })),
+        .map((entry) => ({
+          id: entry.provider,
+          value: entry.provider,
+          label: resolveProviderLabel(entry.provider),
+          testID: `task-presets-provider-${entry.provider}`,
+        })),
     [providers],
+  );
+  const environmentOptions = useMemo(
+    () => [
+      {
+        value: "new_worktree" as const,
+        label: t("tasks.presets.newWorktree"),
+        testID: "task-presets-env-new_worktree",
+      },
+      {
+        value: "project_default" as const,
+        label: t("tasks.presets.projectDefault"),
+        testID: "task-presets-env-project_default",
+      },
+    ],
+    [t],
   );
   const selectedProvider =
     providerChoices.find((choice) => choice.value === provider)?.value ??
@@ -82,24 +109,45 @@ function OpenTaskPresetsSheet({
         await createPreset({
           name: name.trim(),
           provider: selectedProvider,
+          model: model.trim() || null,
           instructions: instructions.trim(),
           environmentKind,
         });
         setName("");
+        setModel("");
         setInstructions("");
       } catch (error) {
         toast.show(toErrorMessage(error));
       }
     })();
-  }, [canSave, createPreset, environmentKind, instructions, name, selectedProvider, toast]);
+  }, [canSave, createPreset, environmentKind, instructions, model, name, selectedProvider, toast]);
 
   const handleDelete = useCallback(
-    (presetId: string) => {
-      void deletePreset(presetId).catch((error) => {
-        toast.show(toErrorMessage(error));
-      });
+    (preset: TaskPreset) => {
+      void (async () => {
+        const confirmed = await confirmDialog({
+          title: t("tasks.presets.confirmDeleteTitle"),
+          message: t("tasks.presets.confirmDeleteMessage", { name: preset.name }),
+          confirmLabel: t("common.actions.delete"),
+          destructive: true,
+        });
+        if (!confirmed) {
+          return;
+        }
+        try {
+          await deletePreset(preset.id);
+        } catch (error) {
+          toast.show(toErrorMessage(error));
+        }
+      })();
     },
-    [deletePreset, toast],
+    [deletePreset, t, toast],
+  );
+
+  const selectedProviderDisplay = useMemo(
+    () =>
+      selectedProvider ? { label: resolveProviderLabel(selectedProvider as AgentProvider) } : null,
+    [selectedProvider],
   );
 
   const header = useMemo(() => ({ title: t("tasks.presets.title") }), [t]);
@@ -107,61 +155,67 @@ function OpenTaskPresetsSheet({
   return (
     <AdaptiveModalSheet header={header} visible onClose={onClose} testID="task-presets-sheet">
       <View style={styles.body}>
-        {presets.length === 0 ? (
-          <Text style={styles.empty}>{t("tasks.presets.empty")}</Text>
-        ) : (
-          presets.map((preset) => (
-            <PresetRow key={preset.id} preset={preset} disabled={isBusy} onDelete={handleDelete} />
-          ))
-        )}
+        <PresetList
+          presets={presets}
+          isLoading={isLoading}
+          disabled={isBusy}
+          onDelete={handleDelete}
+        />
 
         <View style={styles.form}>
           <Text style={styles.formHeading}>{t("tasks.presets.newHeading")}</Text>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder={t("tasks.presets.namePlaceholder")}
-            placeholderTextColor={styles.placeholder.color}
-            style={styles.input}
-            testID="task-presets-name-input"
-          />
-          <View style={styles.choices}>
-            {providerChoices.map((choice) => (
-              <ChoiceButton
-                key={choice.value}
-                value={choice.value}
-                label={choice.label}
-                selected={choice.value === selectedProvider}
-                onSelect={setProvider}
-                testID={`task-presets-provider-${choice.value}`}
-              />
-            ))}
-          </View>
-          <View style={styles.choices}>
-            <ChoiceButton
-              value="new_worktree"
-              label={t("tasks.presets.newWorktree")}
-              selected={environmentKind === "new_worktree"}
-              onSelect={setEnvironmentKind}
-              testID="task-presets-env-new_worktree"
+          <Field label={t("tasks.presets.nameLabel")} testID="task-presets-name">
+            <FormTextInput
+              value={name}
+              onChangeText={setName}
+              placeholder={t("tasks.presets.namePlaceholder")}
+              testID="task-presets-name-input"
             />
-            <ChoiceButton
-              value="project_default"
-              label={t("tasks.presets.projectDefault")}
-              selected={environmentKind === "project_default"}
-              onSelect={setEnvironmentKind}
-              testID="task-presets-env-project_default"
-            />
-          </View>
-          <TextInput
-            value={instructions}
-            onChangeText={setInstructions}
-            placeholder={t("tasks.presets.instructionsPlaceholder")}
-            placeholderTextColor={styles.placeholder.color}
-            style={[styles.input, styles.instructions]}
-            multiline
-            testID="task-presets-instructions-input"
+          </Field>
+          <SelectField
+            label={t("tasks.presets.providerLabel")}
+            value={selectedProvider}
+            selectedDisplay={selectedProviderDisplay}
+            options={providerChoices}
+            onChange={setProvider}
+            placeholder={t("tasks.presets.providerPlaceholder")}
+            emptyText={t("tasks.presets.providerEmpty")}
+            loading={providers === null}
+            testID="task-presets-provider"
+            triggerTestID="task-presets-provider-trigger"
           />
+          <Field
+            label={t("tasks.presets.modelLabel")}
+            hint={t("tasks.presets.modelHint")}
+            testID="task-presets-model"
+          >
+            <FormTextInput
+              value={model}
+              onChangeText={setModel}
+              placeholder={t("tasks.presets.modelPlaceholder")}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="task-presets-model-input"
+            />
+          </Field>
+          <Field label={t("tasks.presets.environmentLabel")} testID="task-presets-environment">
+            <SegmentedControl
+              options={environmentOptions}
+              value={environmentKind}
+              onValueChange={setEnvironmentKind}
+              testID="task-presets-environment-control"
+            />
+          </Field>
+          <Field label={t("tasks.presets.instructionsLabel")} testID="task-presets-instructions">
+            <FormTextInput
+              value={instructions}
+              onChangeText={setInstructions}
+              placeholder={t("tasks.presets.instructionsPlaceholder")}
+              style={styles.instructions}
+              multiline
+              testID="task-presets-instructions-input"
+            />
+          </Field>
           <Button
             variant="default"
             onPress={handleSave}
@@ -176,6 +230,35 @@ function OpenTaskPresetsSheet({
   );
 }
 
+/** Loading is not emptiness: a host that has not answered yet must not read as
+ * a host with nothing saved. */
+function PresetList({
+  presets,
+  isLoading,
+  disabled,
+  onDelete,
+}: {
+  presets: readonly TaskPreset[];
+  isLoading: boolean;
+  disabled: boolean;
+  onDelete: (preset: TaskPreset) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  if (isLoading) {
+    return <LoadingSpinner size="small" color={styles.placeholder.color} />;
+  }
+  if (presets.length === 0) {
+    return <Text style={styles.empty}>{t("tasks.presets.empty")}</Text>;
+  }
+  return (
+    <>
+      {presets.map((preset) => (
+        <PresetRow key={preset.id} preset={preset} disabled={disabled} onDelete={onDelete} />
+      ))}
+    </>
+  );
+}
+
 function PresetRow({
   preset,
   disabled,
@@ -183,10 +266,10 @@ function PresetRow({
 }: {
   preset: TaskPreset;
   disabled: boolean;
-  onDelete: (presetId: string) => void;
+  onDelete: (preset: TaskPreset) => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const handleDelete = useCallback(() => onDelete(preset.id), [onDelete, preset.id]);
+  const handleDelete = useCallback(() => onDelete(preset), [onDelete, preset]);
   const environment =
     preset.environmentKind === "new_worktree"
       ? t("tasks.presets.newWorktree")
@@ -214,32 +297,6 @@ function PresetRow({
         <ThemedTrash size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
       </Button>
     </View>
-  );
-}
-
-function ChoiceButton<T extends string>({
-  value,
-  label,
-  selected,
-  onSelect,
-  testID,
-}: {
-  value: T;
-  label: string;
-  selected: boolean;
-  onSelect: (value: T) => void;
-  testID: string;
-}): ReactElement {
-  const handlePress = useCallback(() => onSelect(value), [onSelect, value]);
-  return (
-    <Button
-      variant={selected ? "default" : "outline"}
-      size="sm"
-      onPress={handlePress}
-      testID={testID}
-    >
-      {label}
-    </Button>
   );
 }
 

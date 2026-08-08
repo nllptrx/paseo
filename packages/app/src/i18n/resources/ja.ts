@@ -945,6 +945,17 @@ export const ja: TranslationResources = {
   },
   tasks: {
     presets: {
+      nameLabel: "名前",
+      providerLabel: "プロバイダー",
+      providerPlaceholder: "プロバイダーを選択",
+      providerEmpty: "利用できるプロバイダーがありません",
+      modelLabel: "モデル",
+      modelHint: "任意。空の場合はプロバイダーの既定モデルを使います。",
+      modelPlaceholder: "opus",
+      environmentLabel: "実行場所",
+      instructionsLabel: "指示",
+      confirmDeleteTitle: "プリセットを削除",
+      confirmDeleteMessage: "「{{name}}」を削除しますか？これで始めた作業はそのまま続きます。",
       title: "プリセット",
       empty: "プリセットがまだありません。プリセットはカードの進め方を保存したものです。",
       newHeading: "新しいプリセット",
@@ -956,6 +967,7 @@ export const ja: TranslationResources = {
       menu: "プリセット",
     },
     start: {
+      blocked: "{{titles}} にブロックされています。先にそちらを終えてください。",
       adhocHeading: "または一度だけ実行",
       noProviders: "このホストに利用できるプロバイダーがありません。",
       title: "作業を開始",
@@ -989,6 +1001,8 @@ export const ja: TranslationResources = {
       canceled: "キャンセル",
     },
     board: {
+      confirmDeleteTitle: "タスクを削除",
+      confirmDeleteMessage: "「{{title}}」を削除しますか？この操作は取り消せません。",
       emptyColumn: "ここには何もありません",
       changeStatus: "ステータスを変更",
       addTask: "新しいタスク",

@@ -926,6 +926,17 @@ export const zhCN: TranslationResources = {
   },
   tasks: {
     presets: {
+      nameLabel: "名称",
+      providerLabel: "提供方",
+      providerPlaceholder: "选择提供方",
+      providerEmpty: "没有可用的提供方",
+      modelLabel: "模型",
+      modelHint: "可选。留空则使用提供方的默认模型。",
+      modelPlaceholder: "opus",
+      environmentLabel: "运行于",
+      instructionsLabel: "说明",
+      confirmDeleteTitle: "删除预设",
+      confirmDeleteMessage: "删除“{{name}}”？已用它开始的工作会继续运行。",
       title: "预设",
       empty: "还没有预设。预设是保存下来的卡片处理方式。",
       newHeading: "新建预设",
@@ -937,6 +948,7 @@ export const zhCN: TranslationResources = {
       menu: "预设",
     },
     start: {
+      blocked: "被 {{titles}} 阻塞。请先完成它。",
       adhocHeading: "或用以下方式运行一次",
       noProviders: "此主机上没有可用的提供方。",
       title: "开始工作",
@@ -970,6 +982,8 @@ export const zhCN: TranslationResources = {
       canceled: "已取消",
     },
     board: {
+      confirmDeleteTitle: "删除任务",
+      confirmDeleteMessage: "删除“{{title}}”？此操作无法撤销。",
       emptyColumn: "这里什么都没有",
       changeStatus: "更改状态",
       addTask: "新建任务",

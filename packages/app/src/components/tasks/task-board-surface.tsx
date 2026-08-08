@@ -8,6 +8,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import {
+  selectBlockers,
   selectProjectBoard,
   selectTrackerProjectBoard,
   type TaskDependencyEdge,
@@ -18,6 +19,7 @@ import type { TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { NewTaskSheet } from "./new-task-sheet";
 import { StartWorkSheet } from "./start-work-sheet";
 import { TaskBoard, type TaskBoardMove } from "./task-board";
+import { confirmDialog } from "@/utils/confirm-dialog";
 import { TaskDetailSheet } from "./task-detail-sheet";
 
 const EMPTY_DEPENDENCIES: TaskDependencyEdge[] = [];
@@ -106,6 +108,18 @@ export function TaskBoardSurface({
   );
   const handleCloseStartWork = useCallback(() => setStartingTaskId(null), []);
 
+  const startingTaskBlockers = useMemo(
+    () =>
+      startingTaskId
+        ? selectBlockers({
+            taskId: startingTaskId,
+            tasks: board.tasks,
+            dependencies: snapshot?.dependencies ?? EMPTY_DEPENDENCIES,
+          })
+        : [],
+    [board.tasks, snapshot?.dependencies, startingTaskId],
+  );
+
   const handleCreateTask = useCallback((status: TaskStatus) => {
     setCapturingStatus(status);
   }, []);
@@ -121,11 +135,27 @@ export function TaskBoardSurface({
 
   const handleDeleteTask = useCallback(
     (taskId: string) => {
-      void deleteTask(taskId).catch((deleteError) => {
-        toast.show(toErrorMessage(deleteError));
-      });
+      const task = board.tasks.find((entry) => entry.id === taskId);
+      void (async () => {
+        const confirmed = await confirmDialog({
+          title: t("tasks.board.confirmDeleteTitle"),
+          message: t("tasks.board.confirmDeleteMessage", {
+            title: task?.title ?? "",
+          }),
+          confirmLabel: t("common.actions.delete"),
+          destructive: true,
+        });
+        if (!confirmed) {
+          return;
+        }
+        try {
+          await deleteTask(taskId);
+        } catch (deleteError) {
+          toast.show(toErrorMessage(deleteError));
+        }
+      })();
     },
-    [deleteTask, toast],
+    [board.tasks, deleteTask, t, toast],
   );
 
   const handleOpenAgent = useCallback(
@@ -222,6 +252,7 @@ export function TaskBoardSurface({
             (entry) => entry.taskId === startingTaskId,
           ) ?? null
         }
+        blockers={startingTaskBlockers}
         onClose={handleCloseStartWork}
       />
       <TaskDetailSheet

@@ -7,6 +7,7 @@ import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
 import { SelectField } from "@/components/ui/select-field";
+import { Switch } from "@/components/ui/switch";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import {
   TASK_WORKFLOW_TRIGGER_LABEL_KEYS,
@@ -90,9 +91,9 @@ export function TaskWorkflowStepEditor({
     () => ({ label: t(TASK_WORKFLOW_WORKSPACE_LABEL_KEYS[step.workspaceMode]) }),
     [step.workspaceMode, t],
   );
-  const handleToggleRequireChanges = useCallback(
-    () => model.setStepRequireChanges(key, !step.requireChanges),
-    [key, model, step.requireChanges],
+  const handleRequireChanges = useCallback(
+    (value: boolean) => model.setStepRequireChanges(key, value),
+    [key, model],
   );
   const handleVerifyCommand = useCallback(
     (value: string) => model.setStepVerifyCommand(key, value),
@@ -236,14 +237,15 @@ export function TaskWorkflowStepEditor({
         hint={t("tasks.workflow.evidenceHint")}
         testID={`task-workflow-form-step-evidence-${index}`}
       >
-        <Button
-          variant={step.requireChanges ? "default" : "outline"}
-          size="sm"
-          onPress={handleToggleRequireChanges}
-          testID={`task-workflow-form-step-require-changes-${index}`}
-        >
-          {t("tasks.workflow.requireChanges")}
-        </Button>
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>{t("tasks.workflow.requireChanges")}</Text>
+          <Switch
+            value={step.requireChanges}
+            onValueChange={handleRequireChanges}
+            accessibilityLabel={t("tasks.workflow.requireChanges")}
+            testID={`task-workflow-form-step-require-changes-${index}`}
+          />
+        </View>
       </Field>
 
       <Field
@@ -277,6 +279,17 @@ export function TaskWorkflowStepEditor({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+  },
+  toggleLabel: {
+    flex: 1,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
   step: {
     gap: theme.spacing[3],
     padding: theme.spacing[3],

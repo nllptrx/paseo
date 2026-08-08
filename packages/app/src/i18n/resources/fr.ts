@@ -964,6 +964,17 @@ export const fr: TranslationResources = {
   },
   tasks: {
     presets: {
+      nameLabel: "Nom",
+      providerLabel: "Fournisseur",
+      providerPlaceholder: "Choisir un fournisseur",
+      providerEmpty: "Aucun fournisseur disponible",
+      modelLabel: "Modèle",
+      modelHint: "Facultatif. Vide utilise le modèle par défaut du fournisseur.",
+      modelPlaceholder: "opus",
+      environmentLabel: "S'exécute dans",
+      instructionsLabel: "Instructions",
+      confirmDeleteTitle: "Supprimer le préréglage",
+      confirmDeleteMessage: "Supprimer « {{name}} » ? Le travail déjà lancé avec continue.",
       title: "Préréglages",
       empty:
         "Aucun préréglage. Un préréglage est une façon enregistrée de faire travailler une carte.",
@@ -976,6 +987,7 @@ export const fr: TranslationResources = {
       menu: "Préréglages",
     },
     start: {
+      blocked: "Bloquée par {{titles}}. Terminez cela d'abord.",
       adhocHeading: "Ou lancer une seule fois avec",
       noProviders: "Aucun fournisseur n'est disponible sur cet hôte.",
       title: "Démarrer le travail",
@@ -1009,6 +1021,8 @@ export const fr: TranslationResources = {
       canceled: "Annulé",
     },
     board: {
+      confirmDeleteTitle: "Supprimer la tâche",
+      confirmDeleteMessage: "Supprimer « {{title}} » ? Cette action est irréversible.",
       emptyColumn: "Rien ici",
       changeStatus: "Changer le statut",
       addTask: "Nouvelle tâche",

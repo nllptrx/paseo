@@ -934,6 +934,17 @@ export const ar: TranslationResources = {
   },
   tasks: {
     presets: {
+      nameLabel: "الاسم",
+      providerLabel: "المزوّد",
+      providerPlaceholder: "اختر مزوّدًا",
+      providerEmpty: "لا يوجد مزوّدون متاحون",
+      modelLabel: "النموذج",
+      modelHint: "اختياري. الفراغ يستخدم النموذج الافتراضي للمزوّد.",
+      modelPlaceholder: "opus",
+      environmentLabel: "يُنفّذ في",
+      instructionsLabel: "التعليمات",
+      confirmDeleteTitle: "حذف الإعداد",
+      confirmDeleteMessage: "حذف «{{name}}»؟ العمل الذي بدأ به يستمر.",
       title: "الإعدادات المحفوظة",
       empty: "لا توجد إعدادات محفوظة بعد. الإعداد المحفوظ هو طريقة مخزَّنة لتنفيذ العمل على بطاقة.",
       newHeading: "إعداد محفوظ جديد",
@@ -945,6 +956,7 @@ export const ar: TranslationResources = {
       menu: "الإعدادات المحفوظة",
     },
     start: {
+      blocked: "محجوبة بـ {{titles}}. أنهِ ذلك أولًا.",
       adhocHeading: "أو شغّل مرة واحدة عبر",
       noProviders: "لا يوجد مزوّد متاح على هذا المضيف.",
       title: "ابدأ العمل",
@@ -978,6 +990,8 @@ export const ar: TranslationResources = {
       canceled: "ملغى",
     },
     board: {
+      confirmDeleteTitle: "حذف المهمة",
+      confirmDeleteMessage: "حذف «{{title}}»؟ لا يمكن التراجع عن هذا.",
       emptyColumn: "لا شيء هنا",
       changeStatus: "تغيير الحالة",
       addTask: "مهمة جديدة",

@@ -6,6 +6,7 @@ import type { Task } from "@getpaseo/protocol/tasks/types";
 import type { TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { useTaskDelegate, useTaskPresets } from "@/tasks/use-task-delegate";
 import {
@@ -19,6 +20,10 @@ export interface StartWorkSheetProps {
   serverId: string;
   task: Task | null;
   workflow: TaskWorkflow | null;
+  /** Open blockers on this card. Starting is refused by the tracker while any
+   * exist, and offering the choice anyway means the refusal arrives as a toast
+   * after this sheet has closed. */
+  blockers: readonly Task[];
   onClose: () => void;
 }
 
@@ -32,6 +37,7 @@ export function StartWorkSheet({
   serverId,
   task,
   workflow,
+  blockers,
   onClose,
 }: StartWorkSheetProps): ReactElement | null {
   const { t } = useTranslation();
@@ -96,10 +102,17 @@ export function StartWorkSheet({
     return null;
   }
 
-  const busy = isDelegating || isActing;
+  const isBlocked = blockers.length > 0;
+  const busy = isDelegating || isActing || isBlocked;
   return (
     <AdaptiveModalSheet header={header} visible onClose={onClose} testID="task-start-work-sheet">
       <View style={styles.body}>
+        {isBlocked ? (
+          <Text style={styles.empty}>
+            {t("tasks.start.blocked", { titles: blockers.map((entry) => entry.title).join(", ") })}
+          </Text>
+        ) : null}
+
         {firstStepId ? (
           <Button
             variant="default"
@@ -134,7 +147,8 @@ export function StartWorkSheet({
               />
             ))}
           </View>
-          {providerChoices.length === 0 ? (
+          {providers === null ? <LoadingSpinner size="small" color={styles.empty.color} /> : null}
+          {providers !== null && providerChoices.length === 0 ? (
             <Text style={styles.empty}>{t("tasks.start.noProviders")}</Text>
           ) : null}
         </View>

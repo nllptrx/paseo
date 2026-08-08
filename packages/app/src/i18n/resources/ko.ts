@@ -941,6 +941,17 @@ export const ko: TranslationResources = {
   },
   tasks: {
     presets: {
+      nameLabel: "이름",
+      providerLabel: "제공자",
+      providerPlaceholder: "제공자 선택",
+      providerEmpty: "사용할 수 있는 제공자가 없습니다",
+      modelLabel: "모델",
+      modelHint: "선택 사항. 비우면 제공자 기본 모델을 쓰집니다.",
+      modelPlaceholder: "opus",
+      environmentLabel: "실행 위치",
+      instructionsLabel: "지침",
+      confirmDeleteTitle: "프리셋 삭제",
+      confirmDeleteMessage: "“{{name}}”을(를) 삭제할까요? 이미 시작된 작업은 계속됩니다.",
       title: "프리셋",
       empty: "아직 프리셋이 없습니다. 프리셋은 카드 작업 방식을 저장한 것입니다.",
       newHeading: "새 프리셋",
@@ -952,6 +963,7 @@ export const ko: TranslationResources = {
       menu: "프리셋",
     },
     start: {
+      blocked: "{{titles}}에 막혀 있습니다. 그것부터 끝내세요.",
       adhocHeading: "또는 한 번만 실행",
       noProviders: "이 호스트에 사용할 수 있는 제공자가 없습니다.",
       title: "작업 시작",
@@ -985,6 +997,8 @@ export const ko: TranslationResources = {
       canceled: "취소됨",
     },
     board: {
+      confirmDeleteTitle: "작업 삭제",
+      confirmDeleteMessage: "“{{title}}”을(를) 삭제할까요? 되돌릴 수 없습니다.",
       emptyColumn: "여기엔 아무것도 없습니다",
       changeStatus: "상태 변경",
       addTask: "새 태스크",

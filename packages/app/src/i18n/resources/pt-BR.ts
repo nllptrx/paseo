@@ -956,6 +956,17 @@ export const ptBR: TranslationResources = {
   },
   tasks: {
     presets: {
+      nameLabel: "Nome",
+      providerLabel: "Provedor",
+      providerPlaceholder: "Escolha um provedor",
+      providerEmpty: "Nenhum provedor disponível",
+      modelLabel: "Modelo",
+      modelHint: "Opcional. Vazio usa o modelo padrão do provedor.",
+      modelPlaceholder: "opus",
+      environmentLabel: "Executa em",
+      instructionsLabel: "Instruções",
+      confirmDeleteTitle: "Excluir predefinição",
+      confirmDeleteMessage: "Excluir “{{name}}”? O trabalho já iniciado com ele continua.",
       title: "Predefinições",
       empty: "Ainda sem predefinições. Uma predefinição é um jeito salvo de trabalhar um cartão.",
       newHeading: "Nova predefinição",
@@ -967,6 +978,7 @@ export const ptBR: TranslationResources = {
       menu: "Predefinições",
     },
     start: {
+      blocked: "Bloqueada por {{titles}}. Termine isso primeiro.",
       adhocHeading: "Ou executar uma vez com",
       noProviders: "Nenhum provedor está disponível neste host.",
       title: "Começar o trabalho",
@@ -1000,6 +1012,8 @@ export const ptBR: TranslationResources = {
       canceled: "Cancelado",
     },
     board: {
+      confirmDeleteTitle: "Excluir tarefa",
+      confirmDeleteMessage: "Excluir “{{title}}”? Isso não pode ser desfeito.",
       emptyColumn: "Nada aqui",
       changeStatus: "Alterar status",
       addTask: "Nova tarefa",

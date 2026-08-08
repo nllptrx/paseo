@@ -956,6 +956,17 @@ export const ru: TranslationResources = {
   },
   tasks: {
     presets: {
+      nameLabel: "Название",
+      providerLabel: "Провайдер",
+      providerPlaceholder: "Выберите провайдера",
+      providerEmpty: "Нет доступных провайдеров",
+      modelLabel: "Модель",
+      modelHint: "Необязательно. Пусто — модель провайдера по умолчанию.",
+      modelPlaceholder: "opus",
+      environmentLabel: "Где выполняется",
+      instructionsLabel: "Инструкции",
+      confirmDeleteTitle: "Удалить пресет",
+      confirmDeleteMessage: "Удалить «{{name}}»? Уже запущенная работа продолжится.",
       title: "Пресеты",
       empty: "Пока нет пресетов. Пресет — сохранённый способ вести работу по карточке.",
       newHeading: "Новый пресет",
@@ -967,6 +978,7 @@ export const ru: TranslationResources = {
       menu: "Пресеты",
     },
     start: {
+      blocked: "Заблокировано: {{titles}}. Сначала завершите это.",
       adhocHeading: "Или запустить один раз через",
       noProviders: "На этом хосте нет доступных провайдеров.",
       title: "Начать работу",
@@ -1000,6 +1012,8 @@ export const ru: TranslationResources = {
       canceled: "Отменено",
     },
     board: {
+      confirmDeleteTitle: "Удалить задачу",
+      confirmDeleteMessage: "Удалить «{{title}}»? Это действие нельзя отменить.",
       emptyColumn: "Здесь пусто",
       changeStatus: "Изменить статус",
       addTask: "Новая задача",

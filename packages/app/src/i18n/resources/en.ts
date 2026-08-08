@@ -944,6 +944,17 @@ export const en = {
   },
   tasks: {
     presets: {
+      nameLabel: "Name",
+      providerLabel: "Provider",
+      providerPlaceholder: "Choose a provider",
+      providerEmpty: "No available providers",
+      modelLabel: "Model",
+      modelHint: "Optional. Empty runs the provider's default.",
+      modelPlaceholder: "opus",
+      environmentLabel: "Runs in",
+      instructionsLabel: "Instructions",
+      confirmDeleteTitle: "Delete preset",
+      confirmDeleteMessage: "Delete “{{name}}”? Work already started with it keeps running.",
       title: "Presets",
       empty: "No preset yet. A preset is a saved way to run work on a card.",
       newHeading: "New preset",
@@ -955,6 +966,7 @@ export const en = {
       menu: "Presets",
     },
     start: {
+      blocked: "Blocked by {{titles}}. Finish that first.",
       adhocHeading: "Or start once with",
       noProviders: "No provider is available on this host.",
       title: "Start work",
@@ -988,6 +1000,8 @@ export const en = {
       canceled: "Canceled",
     },
     board: {
+      confirmDeleteTitle: "Delete task",
+      confirmDeleteMessage: "Delete “{{title}}”? This cannot be undone.",
       emptyColumn: "Nothing here",
       changeStatus: "Change status",
       addTask: "New task",

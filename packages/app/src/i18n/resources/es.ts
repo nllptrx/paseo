@@ -965,6 +965,17 @@ export const es: TranslationResources = {
   },
   tasks: {
     presets: {
+      nameLabel: "Nombre",
+      providerLabel: "Proveedor",
+      providerPlaceholder: "Elige un proveedor",
+      providerEmpty: "No hay proveedores disponibles",
+      modelLabel: "Modelo",
+      modelHint: "Opcional. Vacío usa el modelo por defecto del proveedor.",
+      modelPlaceholder: "opus",
+      environmentLabel: "Se ejecuta en",
+      instructionsLabel: "Instrucciones",
+      confirmDeleteTitle: "Eliminar ajuste",
+      confirmDeleteMessage: "¿Eliminar «{{name}}»? El trabajo ya iniciado con él sigue en curso.",
       title: "Ajustes",
       empty: "Aún no hay ajustes. Un ajuste es una forma guardada de trabajar una tarjeta.",
       newHeading: "Nuevo ajuste",
@@ -976,6 +987,7 @@ export const es: TranslationResources = {
       menu: "Ajustes",
     },
     start: {
+      blocked: "Bloqueada por {{titles}}. Termina eso primero.",
       adhocHeading: "O ejecutar una vez con",
       noProviders: "No hay ningún proveedor disponible en este host.",
       title: "Empezar a trabajar",
@@ -1009,6 +1021,8 @@ export const es: TranslationResources = {
       canceled: "Cancelado",
     },
     board: {
+      confirmDeleteTitle: "Eliminar tarea",
+      confirmDeleteMessage: "¿Eliminar «{{title}}»? Esto no se puede deshacer.",
       emptyColumn: "Nada aquí",
       changeStatus: "Cambiar estado",
       addTask: "Nueva tarea",
