@@ -8,6 +8,72 @@ import { useTasksSupported } from "@/tasks/use-tasks";
 
 const PRESETS_QUERY_ROOT = "task-presets";
 
+export interface CreateTaskPresetDraft {
+  name: string;
+  provider: string;
+  model?: string | null;
+  instructions?: string;
+  environmentKind: "project_default" | "new_worktree";
+}
+
+/** Saving and removing the named ways to run work. Presets are host-wide: a
+ * way of working is not a property of one board. */
+export function useTaskPresetMutations(serverId: string): {
+  createPreset: (draft: CreateTaskPresetDraft) => Promise<void>;
+  deletePreset: (presetId: string) => Promise<void>;
+  isBusy: boolean;
+} {
+  const { t } = useTranslation();
+  const client = useHostRuntimeClient(serverId);
+  const queryClient = useQueryClient();
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: [PRESETS_QUERY_ROOT, serverId] });
+  };
+
+  const create = useMutation({
+    mutationFn: async (draft: CreateTaskPresetDraft) => {
+      if (!client) {
+        throw new Error(t("common.errors.daemonClientUnavailable"));
+      }
+      const payload = await client.tasksPresetCreate({
+        name: draft.name,
+        provider: draft.provider,
+        model: draft.model ?? null,
+        instructions: draft.instructions ?? "",
+        environmentKind: draft.environmentKind,
+      });
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+    },
+    onSettled: invalidate,
+  });
+
+  const remove = useMutation({
+    mutationFn: async (presetId: string) => {
+      if (!client) {
+        throw new Error(t("common.errors.daemonClientUnavailable"));
+      }
+      const payload = await client.tasksPresetDelete(presetId);
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+    },
+    onSettled: invalidate,
+  });
+
+  return {
+    createPreset: async (draft) => {
+      await create.mutateAsync(draft);
+    },
+    deletePreset: async (presetId) => {
+      await remove.mutateAsync(presetId);
+    },
+    isBusy: create.isPending || remove.isPending,
+  };
+}
+
 export function useTaskPresets(serverId: string): { presets: TaskPreset[]; isLoading: boolean } {
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
@@ -40,8 +106,18 @@ export function useTaskPresets(serverId: string): { presets: TaskPreset[]; isLoa
  * has open blockers, so the error a caller shows is the tracker's own words
  * about which ones.
  */
+export interface TaskDelegateInput {
+  taskId: string;
+  presetId?: string;
+  agent?: {
+    provider: string;
+    model?: string | null;
+    environmentKind?: "project_default" | "new_worktree";
+  };
+}
+
 export function useTaskDelegate(serverId: string): {
-  delegate: (input: { taskId: string; presetId: string }) => Promise<void>;
+  delegate: (input: TaskDelegateInput) => Promise<void>;
   isDelegating: boolean;
 } {
   const { t } = useTranslation();
@@ -49,7 +125,7 @@ export function useTaskDelegate(serverId: string): {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: async (input: { taskId: string; presetId: string }) => {
+    mutationFn: async (input: TaskDelegateInput) => {
       if (!client) {
         throw new Error(t("common.errors.daemonClientUnavailable"));
       }

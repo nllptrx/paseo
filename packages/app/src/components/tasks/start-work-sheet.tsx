@@ -8,6 +8,10 @@ import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/contexts/toast-context";
 import { useTaskDelegate, useTaskPresets } from "@/tasks/use-task-delegate";
+import {
+  resolveProviderLabel,
+  useTaskAvailableProviders,
+} from "@/tasks/use-task-available-providers";
 import { useTaskStepActions } from "@/tasks/use-task-workflow";
 import { toErrorMessage } from "@/utils/error-messages";
 
@@ -33,6 +37,14 @@ export function StartWorkSheet({
   const { t } = useTranslation();
   const toast = useToast();
   const { presets } = useTaskPresets(serverId);
+  const { providers } = useTaskAvailableProviders(serverId);
+  const providerChoices = useMemo(
+    () =>
+      (providers ?? [])
+        .filter((entry) => entry.available)
+        .map((entry) => ({ value: entry.provider, label: resolveProviderLabel(entry.provider) })),
+    [providers],
+  );
   const { delegate, isDelegating } = useTaskDelegate(serverId);
   const { act, isActing } = useTaskStepActions(serverId);
 
@@ -46,6 +58,19 @@ export function StartWorkSheet({
       }
       onClose();
       void delegate({ taskId, presetId }).catch((error) => {
+        toast.show(toErrorMessage(error));
+      });
+    },
+    [delegate, onClose, taskId, toast],
+  );
+
+  const handleStartAdhoc = useCallback(
+    (provider: string) => {
+      if (!taskId) {
+        return;
+      }
+      onClose();
+      void delegate({ taskId, agent: { provider } }).catch((error) => {
         toast.show(toErrorMessage(error));
       });
     },
@@ -96,15 +121,56 @@ export function StartWorkSheet({
           />
         ))}
 
-        {presets.length === 0 && !firstStepId ? (
-          <Text style={styles.empty}>{t("tasks.start.nothingToRun")}</Text>
-        ) : null}
+        <View style={styles.adhoc}>
+          <Text style={styles.adhocHeading}>{t("tasks.start.adhocHeading")}</Text>
+          <View style={styles.adhocRow}>
+            {providerChoices.map((choice) => (
+              <ProviderButton
+                key={choice.value}
+                provider={choice.value}
+                label={choice.label}
+                disabled={busy}
+                onStart={handleStartAdhoc}
+              />
+            ))}
+          </View>
+          {providerChoices.length === 0 ? (
+            <Text style={styles.empty}>{t("tasks.start.noProviders")}</Text>
+          ) : null}
+        </View>
 
         <Button variant="ghost" onPress={onClose} testID="task-start-work-skip">
           {t("tasks.start.justMove")}
         </Button>
       </View>
     </AdaptiveModalSheet>
+  );
+}
+
+/** Starting once, without saving a way of working first. The preset list is
+ * the repeatable path; this is the one-off beside it. */
+function ProviderButton({
+  provider,
+  label,
+  disabled,
+  onStart,
+}: {
+  provider: string;
+  label: string;
+  disabled: boolean;
+  onStart: (provider: string) => void;
+}): ReactElement {
+  const handlePress = useCallback(() => onStart(provider), [onStart, provider]);
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onPress={handlePress}
+      disabled={disabled}
+      testID={`task-start-work-provider-${provider}`}
+    >
+      {label}
+    </Button>
   );
 }
 
@@ -138,6 +204,22 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[4],
     paddingTop: theme.spacing[2],
     paddingBottom: theme.spacing[4],
+  },
+  adhoc: {
+    gap: theme.spacing[2],
+    paddingTop: theme.spacing[2],
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+  },
+  adhocHeading: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+  },
+  adhocRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing[2],
   },
   empty: {
     color: theme.colors.foregroundMuted,

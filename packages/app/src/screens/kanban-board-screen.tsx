@@ -24,6 +24,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { TaskPresetsSheet } from "@/components/tasks/task-presets-sheet";
 import { TaskWorkflowFormSheet } from "@/components/tasks/task-workflow-form-sheet";
 import { TaskBoardSurface } from "@/components/tasks/task-board-surface";
 import { Button } from "@/components/ui/button";
@@ -147,6 +148,9 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
   // is a property of the board — which is the tracker project.
   const reviewEnabled = project.board?.reviewEnabled === true;
   const { presets } = useTaskPresets(serverId);
+  const [isPresetsOpen, setIsPresetsOpen] = useState(false);
+  const handleOpenPresets = useCallback(() => setIsPresetsOpen(true), []);
+  const handleClosePresets = useCallback(() => setIsPresetsOpen(false), []);
   const handleSelectReviewer = useCallback(
     (presetId: string | null) => {
       void configureBoard({ projectId: project.id, reviewerPresetId: presetId });
@@ -183,6 +187,9 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
             testID={`kanban-board-menu-content-${boardId}`}
             sheetTitle={t("kanban.board.menu")}
           >
+            <DropdownMenuItem testID={`kanban-presets-${boardId}`} onSelect={handleOpenPresets}>
+              {t("tasks.presets.menu")}
+            </DropdownMenuItem>
             <DropdownMenuItem
               testID={`kanban-review-toggle-${boardId}`}
               onSelect={handleToggleReview}
@@ -216,6 +223,7 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
     ),
     [
       boardId,
+      handleOpenPresets,
       handleSelectReviewer,
       handleToggleReview,
       presets,
@@ -282,6 +290,7 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
           <BoardFeedPane serverId={serverId} project={project} tasks={board.tasks} />
         </AdaptiveModalSheet>
       ) : null}
+      <TaskPresetsSheet serverId={serverId} visible={isPresetsOpen} onClose={handleClosePresets} />
       {workflowTaskId ? (
         <TaskWorkflowFormSheet
           serverId={serverId}

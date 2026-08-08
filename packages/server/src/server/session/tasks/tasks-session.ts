@@ -510,12 +510,46 @@ export class TasksSession {
       }
       const { agentId } = await this.workflowEngine.delegate({
         taskId: request.taskId,
-        presetId: request.presetId,
+        ...(request.presetId ? { presetId: request.presetId } : {}),
+        ...(request.agent ? { agent: request.agent } : {}),
       });
       this.transitions.observeAttachment({ taskId: request.taskId, agentId });
       this.host.emit({
         type: "tasks.delegate.response",
         payload: { requestId: request.requestId, agentId, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handlePresetCreateRequest(request: Inbound<"tasks.preset.create.request">): Promise<void> {
+    try {
+      const preset = await this.taskService.createPreset({
+        name: request.name,
+        provider: request.provider,
+        model: request.model ?? null,
+        modeId: request.modeId ?? null,
+        thinkingOptionId: request.thinkingOptionId ?? null,
+        instructions: request.instructions ?? "",
+        environmentKind: request.environmentKind,
+        baseBranch: request.baseBranch ?? null,
+      });
+      this.host.emit({
+        type: "tasks.preset.create.response",
+        payload: { requestId: request.requestId, preset, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handlePresetDeleteRequest(request: Inbound<"tasks.preset.delete.request">): Promise<void> {
+    try {
+      await this.taskService.deletePreset(request.presetId);
+      this.host.emit({
+        type: "tasks.preset.delete.response",
+        payload: { requestId: request.requestId, error: null },
       });
     } catch (error) {
       this.emitError(request, error);

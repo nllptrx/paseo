@@ -955,7 +955,20 @@ export const ru: TranslationResources = {
     },
   },
   tasks: {
+    presets: {
+      title: "Presets",
+      empty: "No preset yet. A preset is a saved way to run work on a card.",
+      newHeading: "New preset",
+      namePlaceholder: "Name",
+      instructionsPlaceholder: "Standing instructions (optional)",
+      newWorktree: "New worktree",
+      projectDefault: "Where the card is worked",
+      save: "Save preset",
+      menu: "Presets",
+    },
     start: {
+      adhocHeading: "Or start once with",
+      noProviders: "No provider is available on this host.",
       title: "Start work",
       runWorkflow: "Run the workflow",
       justMove: "Just move it",

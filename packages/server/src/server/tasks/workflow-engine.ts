@@ -24,6 +24,28 @@ const RETRYABLE_RUN_STATUSES: ReadonlySet<StepRunStatus> = new Set([
 
 /** A step is addressed by the task that owns the workflow. There is no plan and
  * no nesting, so this is the whole address. */
+/** A one-off way to run a task, described at the moment of starting it. */
+export interface TaskDelegateSpec {
+  provider: string;
+  model?: string | null;
+  modeId?: string | null;
+  thinkingOptionId?: string | null;
+  instructions?: string;
+  environmentKind?: "project_default" | "new_worktree";
+}
+
+/** What `delegate` runs as, whether it was saved or described in the moment. */
+interface ResolvedDelegateSpec {
+  id: string | null;
+  provider: string;
+  model: string | null;
+  modeId: string | null;
+  thinkingOptionId: string | null;
+  instructions: string;
+  environmentKind: "project_default" | "new_worktree";
+  baseBranch: string | null;
+}
+
 export interface TaskStepIdentifier {
   taskId: string;
   stepId: string;
@@ -474,11 +496,12 @@ export class TaskWorkflowEngine {
    * The attachment goes through the tracker, so a task whose blockers are still
    * open refuses it before an agent is created rather than after.
    */
-  async delegate(input: { taskId: string; presetId: string }): Promise<{ agentId: string }> {
-    const preset = await this.taskService.getPreset(input.presetId);
-    if (!preset) {
-      throw new Error(`Preset not found: ${input.presetId}`);
-    }
+  async delegate(input: {
+    taskId: string;
+    presetId?: string;
+    agent?: TaskDelegateSpec;
+  }): Promise<{ agentId: string }> {
+    const preset = await this.resolveDelegateSpec(input);
     const task = await this.taskService.getTask(input.taskId);
     if (!task) {
       throw new Error(`Task not found: ${input.taskId}`);
@@ -524,6 +547,37 @@ export class TaskWorkflowEngine {
    * mode: an agent has to run somewhere, and the project root is not a
    * workspace this daemon can attach to.
    */
+  /**
+   * A saved preset, or a one-off description of the same thing. Both end up as
+   * the same shape so the rest of the path cannot tell them apart — a run
+   * started ad hoc is not a lesser kind of run.
+   */
+  private async resolveDelegateSpec(input: {
+    presetId?: string;
+    agent?: TaskDelegateSpec;
+  }): Promise<ResolvedDelegateSpec> {
+    if (input.presetId) {
+      const preset = await this.taskService.getPreset(input.presetId);
+      if (!preset) {
+        throw new Error(`Preset not found: ${input.presetId}`);
+      }
+      return preset;
+    }
+    if (!input.agent) {
+      throw new Error("Starting work needs either a preset or an agent to run as");
+    }
+    return {
+      id: null,
+      provider: input.agent.provider,
+      model: input.agent.model ?? null,
+      modeId: input.agent.modeId ?? null,
+      thinkingOptionId: input.agent.thinkingOptionId ?? null,
+      instructions: input.agent.instructions ?? "",
+      environmentKind: input.agent.environmentKind ?? "new_worktree",
+      baseBranch: null,
+    };
+  }
+
   private async resolveDelegateTarget(
     taskId: string,
     preset: { environmentKind: "project_default" | "new_worktree"; baseBranch: string | null },

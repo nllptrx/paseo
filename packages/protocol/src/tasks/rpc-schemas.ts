@@ -419,11 +419,22 @@ export const TasksPresetListResponseSchema = z.object({
   }),
 });
 
+/** Either a saved preset or a one-off description of how to run this once. */
 export const TasksDelegateRequestSchema = z.object({
   type: z.literal("tasks.delegate.request"),
   requestId: z.string(),
   taskId: z.string(),
-  presetId: z.string(),
+  presetId: z.string().optional(),
+  agent: z
+    .object({
+      provider: z.string().trim().min(1),
+      model: z.string().trim().min(1).nullable().optional(),
+      modeId: z.string().trim().min(1).nullable().optional(),
+      thinkingOptionId: z.string().trim().min(1).nullable().optional(),
+      instructions: z.string().optional(),
+      environmentKind: z.enum(["project_default", "new_worktree"]).optional(),
+    })
+    .optional(),
 });
 
 export const TasksDelegateResponseSchema = z.object({
@@ -431,6 +442,42 @@ export const TasksDelegateResponseSchema = z.object({
   payload: z.object({
     requestId: z.string(),
     agentId: z.string().nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksPresetCreateRequestSchema = z.object({
+  type: z.literal("tasks.preset.create.request"),
+  requestId: z.string(),
+  name: z.string().trim().min(1),
+  provider: z.string().trim().min(1),
+  model: z.string().trim().min(1).nullable().optional(),
+  modeId: z.string().trim().min(1).nullable().optional(),
+  thinkingOptionId: z.string().trim().min(1).nullable().optional(),
+  instructions: z.string().optional(),
+  environmentKind: z.enum(["project_default", "new_worktree"]),
+  baseBranch: z.string().trim().min(1).nullable().optional(),
+});
+
+export const TasksPresetCreateResponseSchema = z.object({
+  type: z.literal("tasks.preset.create.response"),
+  payload: z.object({
+    requestId: z.string(),
+    preset: TaskPresetSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksPresetDeleteRequestSchema = z.object({
+  type: z.literal("tasks.preset.delete.request"),
+  requestId: z.string(),
+  presetId: z.string(),
+});
+
+export const TasksPresetDeleteResponseSchema = z.object({
+  type: z.literal("tasks.preset.delete.response"),
+  payload: z.object({
+    requestId: z.string(),
     error: z.string().nullable(),
   }),
 });

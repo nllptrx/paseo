@@ -628,6 +628,10 @@ function dispatchTaskWorkflowMessage(
       return session.handleDependencyRemoveRequest(msg);
     case "tasks.preset.list.request":
       return session.handlePresetListRequest(msg);
+    case "tasks.preset.create.request":
+      return session.handlePresetCreateRequest(msg);
+    case "tasks.preset.delete.request":
+      return session.handlePresetDeleteRequest(msg);
     case "tasks.delegate.request":
       return session.handleDelegateRequest(msg);
     case "tasks.workflow.set.request":

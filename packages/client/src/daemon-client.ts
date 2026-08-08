@@ -599,6 +599,14 @@ type TasksDependencyPayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.dependency.add.response" }
 >["payload"];
+type TasksPresetCreatePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.preset.create.response" }
+>["payload"];
+type TasksPresetDeletePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.preset.delete.response" }
+>["payload"];
 type TasksPresetListPayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.preset.list.response" }
@@ -5539,6 +5547,32 @@ export class DaemonClient {
     });
   }
 
+  async tasksPresetCreate(
+    options: {
+      name: string;
+      provider: string;
+      model?: string | null;
+      modeId?: string | null;
+      thinkingOptionId?: string | null;
+      instructions?: string;
+      environmentKind: "project_default" | "new_worktree";
+      baseBranch?: string | null;
+    },
+    requestId?: string,
+  ): Promise<TasksPresetCreatePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.preset.create.response">({
+      requestId,
+      message: { type: "tasks.preset.create.request", ...options },
+    });
+  }
+
+  async tasksPresetDelete(presetId: string, requestId?: string): Promise<TasksPresetDeletePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.preset.delete.response">({
+      requestId,
+      message: { type: "tasks.preset.delete.request", presetId },
+    });
+  }
+
   async tasksPresetList(requestId?: string): Promise<TasksPresetListPayload> {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.preset.list.response">({
       requestId,
@@ -5547,7 +5581,18 @@ export class DaemonClient {
   }
 
   async tasksDelegate(
-    options: { taskId: string; presetId: string },
+    options: {
+      taskId: string;
+      presetId?: string;
+      agent?: {
+        provider: string;
+        model?: string | null;
+        modeId?: string | null;
+        thinkingOptionId?: string | null;
+        instructions?: string;
+        environmentKind?: "project_default" | "new_worktree";
+      };
+    },
     requestId?: string,
   ): Promise<TasksDelegatePayload> {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.delegate.response">({

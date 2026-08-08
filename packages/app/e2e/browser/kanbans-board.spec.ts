@@ -292,6 +292,39 @@ test.describe("Kanbans board", () => {
     await expect(page.getByTestId("task-workflow-form-sheet")).toBeVisible({ timeout: 10_000 });
   });
 
+  /** A preset is what everything that starts work reads from — including
+   * review — so being unable to make one leaves all of it dead. */
+  test("creates a preset and offers it when a card lands in Working", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-preset-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `Preset task ${Date.now()}`);
+
+    await openBoard(page, seeded.projectId);
+    await page.getByTestId(`kanban-board-menu-${seeded.projectId}`).click();
+    await page.getByTestId(`kanban-presets-${seeded.projectId}`).click();
+
+    const sheet = page.getByTestId("task-presets-sheet");
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    const presetName = `Implementer ${Date.now()}`;
+    await page.getByTestId("task-presets-name-input").fill(presetName);
+    await page.getByTestId("task-presets-save").click();
+    await expect(sheet).toContainText(presetName, { timeout: 30_000 });
+    await page.keyboard.press("Escape");
+
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
+    await page.getByTestId(`task-card-status-${seeded.taskId}`).click();
+    await page.getByTestId(`task-card-status-${seeded.taskId}-in_progress`).click();
+
+    const startSheet = page.getByTestId("task-start-work-sheet");
+    await expect(startSheet).toBeVisible({ timeout: 10_000 });
+    await expect(startSheet).toContainText(presetName);
+    await page.getByTestId("task-start-work-skip").click();
+
+    await expect(board.getByTestId("task-column-in_progress")).toContainText(`Preset task`, {
+      timeout: 30_000,
+    });
+  });
+
   /** A mention has to be pickable: nobody types an agent id from memory, so the
    * composer offers the agents on this board by the card each is working. */
   test("the feed composer offers the board's agents to mention", async ({ page }) => {
