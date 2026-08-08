@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -35,6 +35,10 @@ export interface TaskBoardSurfaceProps {
   projectDisplayName: string;
   /** Offered on every card when the host screen can author a plan for a task. */
   onCreateWorkflowForTask?: (taskId: string) => void;
+  /** Lets a surface outside the board — the feed, which sits beside it — open a
+   * task here rather than mounting a second detail sheet of its own. */
+  requestedTaskId?: string | null | undefined;
+  onRequestedTaskHandled?: (() => void) | undefined;
 }
 
 /**
@@ -47,6 +51,8 @@ export function TaskBoardSurface({
   trackerProjectId,
   projectDisplayName,
   onCreateWorkflowForTask,
+  requestedTaskId,
+  onRequestedTaskHandled,
 }: TaskBoardSurfaceProps): ReactElement {
   const { t } = useTranslation();
   const toast = useToast();
@@ -70,21 +76,31 @@ export function TaskBoardSurface({
     [board.projects],
   );
 
-  // The move lands first and stays landed: someone who drags a card to In
-  // Progress has said where the work is, and that statement must not depend on
-  // what they answer next. The chooser only decides whether anything starts.
+  // The move lands first and stays landed: someone who drags a card to Working
+  // has said where the work is, and that statement must not depend on what they
+  // answer next. The chooser only decides whether anything starts, and only for
+  // a card that is arriving — reordering inside Working is not a new decision to
+  // start something.
   const handleMoveTask = useCallback(
     (move: TaskBoardMove) => {
-      void moveTask(move).catch((moveError) => {
-        toast.show(toErrorMessage(moveError));
-      });
-      if (move.status !== "in_progress") {
-        return;
-      }
       const moved = board.tasks.find((task) => task.id === move.taskId);
-      if (moved && moved.agents.length === 0) {
-        setStartingTaskId(move.taskId);
-      }
+      const arriving =
+        move.status === "in_progress" &&
+        moved !== undefined &&
+        moved.status !== "in_progress" &&
+        moved.agents.length === 0;
+      void moveTask(move)
+        .then(() => {
+          // Only once the move is written: a chooser for a status change that
+          // failed would start work the board never agreed to.
+          if (arriving) {
+            setStartingTaskId(move.taskId);
+          }
+          return undefined;
+        })
+        .catch((moveError) => {
+          toast.show(toErrorMessage(moveError));
+        });
     },
     [board.tasks, moveTask, toast],
   );
@@ -134,6 +150,14 @@ export function TaskBoardSurface({
   );
   const handleOpenTask = useCallback((taskId: string) => setOpenTaskId(taskId), []);
   const handleCloseTask = useCallback(() => setOpenTaskId(null), []);
+
+  useEffect(() => {
+    if (!requestedTaskId) {
+      return;
+    }
+    setOpenTaskId(requestedTaskId);
+    onRequestedTaskHandled?.();
+  }, [onRequestedTaskHandled, requestedTaskId]);
 
   if (!supported) {
     return (

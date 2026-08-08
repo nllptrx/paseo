@@ -78,14 +78,18 @@ describe("task workflow form model", () => {
     expect(model.getState().steps[0]?.model).toBe("gpt-5");
   });
 
-  it("falls back, and clears the model, when a step's provider drops out", () => {
+  /** A host that cannot run a provider right now has not made the author change
+   * their mind about it. Rewriting the step here would edit a workflow someone
+   * only opened to look at. */
+  it("keeps a step's provider when the host stops offering it", () => {
     const model = openTaskWorkflowForm({ ...SNAPSHOT, availableProviders: PROVIDERS });
     const key = firstStepKey(model);
     model.setStepAgent(key, { provider: "copilot", model: "gpt-5" });
     model.applyProviderSnapshot("host-a", [{ provider: "claude", available: true }]);
-    expect(model.getState().steps[0]?.provider).toBe("claude");
-    // A model id belongs to the provider that offered it.
-    expect(model.getState().steps[0]?.model).toBeNull();
+    expect(model.getState().steps[0]?.provider).toBe("copilot");
+    expect(model.getState().steps[0]?.model).toBe("gpt-5");
+    // Still listed, or the trigger would read as though nothing were chosen.
+    expect(model.getState().providerOptions.map((option) => option.value)).toContain("copilot");
   });
 
   it("requires every step complete before it can submit", () => {
@@ -241,5 +245,45 @@ describe("task workflow form model", () => {
     expect(step.verifyCommand).toBe("npm test");
     expect(step.timeoutMinutes).toBe("10");
     expect(step.requireChanges).toBe(true);
+  });
+
+  /** The form shows one agent, three workspace modes and two triggers. A step
+   * configured beyond that — a fan-out, an existing workspace, a cadence — must
+   * survive an edit that never offered to change it. */
+  it("saves back the settings the form cannot show", () => {
+    const model = openTaskWorkflowForm({
+      serverId: "srv",
+      taskId: "tsk",
+      availableProviders: PROVIDERS,
+      existingSteps: [
+        {
+          id: "stp_1",
+          name: "Build",
+          prompt: "do it",
+          agents: [
+            { provider: "claude", model: "opus", modeId: "plan", thinkingOptionId: "high" },
+            { provider: "codex" },
+          ],
+          completion: "all",
+          workspace: { mode: "existing", workspaceId: "wsp_7" },
+          trigger: { type: "schedule", cadence: { type: "every", everyMs: 1_800_000 } },
+          runs: [],
+        },
+      ],
+    });
+
+    const key = model.getState().steps[0]?.key ?? "";
+    model.setStepName(key, "Build it");
+
+    const [saved] = buildTaskWorkflowSteps(model.getState()) ?? [];
+    expect(saved.name).toBe("Build it");
+    expect(saved.agents).toHaveLength(2);
+    expect(saved.agents[0]).toMatchObject({ modeId: "plan", thinkingOptionId: "high" });
+    expect(saved.agents[1]).toEqual({ provider: "codex" });
+    expect(saved.workspace).toEqual({ mode: "existing", workspaceId: "wsp_7" });
+    expect(saved.trigger).toEqual({
+      type: "schedule",
+      cadence: { type: "every", everyMs: 1_800_000 },
+    });
   });
 });

@@ -83,6 +83,11 @@ export interface TaskWorkflowFormStep {
   model: string | null;
   workspaceMode: TaskWorkflowFormWorkspaceMode;
   trigger: TaskWorkflowFormTriggerType;
+  /** The stored step this one was read from, kept so saving can put back what
+   * the form never showed: the agents past the first, each agent's mode,
+   * thinking and feature settings, an `existing` workspace's id, and a
+   * schedule's cadence. Absent on a step the author just added. */
+  source?: Step;
 }
 
 export interface TaskWorkflowFormState {
@@ -134,6 +139,28 @@ function buildProviderChoices(
     }));
 }
 
+/** Adds any provider a step already uses to the list, so an unavailable one is
+ * still shown as the step's choice instead of reading as unset. */
+function withStepProviders(
+  choices: TaskWorkflowFormProviderChoice[],
+  steps: readonly TaskWorkflowFormStep[],
+): TaskWorkflowFormProviderChoice[] {
+  const listed = new Set(choices.map((choice) => choice.value));
+  const extra: TaskWorkflowFormProviderChoice[] = [];
+  for (const step of steps) {
+    if (step.provider && !listed.has(step.provider)) {
+      listed.add(step.provider);
+      extra.push({
+        id: step.provider,
+        value: step.provider,
+        label: resolveProviderLabel(step.provider),
+        testID: buildProviderOptionTestId(step.provider),
+      });
+    }
+  }
+  return [...choices, ...extra];
+}
+
 export function resolveProviderDisplay(
   choices: readonly TaskWorkflowFormProviderChoice[],
   provider: AgentProvider | null,
@@ -176,22 +203,24 @@ function createStep(input: {
   };
 }
 
-/** A stored step read back into the form. Anything the form cannot express —
- * an `existing` workspace, a scheduled trigger — falls back to what it can, so
- * editing never silently drops a setting it did not show. */
+/**
+ * A stored step read back into the form.
+ *
+ * Settings the form cannot author — an `existing` workspace, a scheduled
+ * trigger — are carried as they are rather than rewritten to something the
+ * form can draw. The author sees what the step actually does and changes it
+ * only by choosing something else.
+ */
 function toFormStep(input: {
   key: string;
   step: Step;
   fallbackProvider: AgentProvider | null;
 }): TaskWorkflowFormStep {
   const spec = input.step.agents[0];
-  const workspaceMode = TASK_WORKFLOW_WORKSPACE_MODES.includes(input.step.workspace.mode)
-    ? input.step.workspace.mode
-    : "worktree";
-  const trigger = TASK_WORKFLOW_TRIGGER_TYPES.includes(input.step.trigger.type)
-    ? input.step.trigger.type
-    : "manual";
+  const workspaceMode = input.step.workspace.mode;
+  const trigger = input.step.trigger.type;
   return {
+    source: input.step,
     key: input.key,
     name: input.step.name,
     prompt: input.step.prompt,
@@ -274,13 +303,14 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
       const fallback = providerOptions[0]?.value ?? null;
       publish({
         ...state,
-        providerOptions,
-        // A step whose provider vanished from the snapshot falls back rather than
-        // silently keeping a provider the host can no longer run.
-        steps: state.steps.map((step) => {
-          const keeps = providerOptions.some((choice) => choice.value === step.provider);
-          return keeps ? step : { ...step, provider: fallback, model: null };
-        }),
+        // A stored provider the host cannot currently run stays on the step and
+        // stays listed. Replacing it here would rewrite a workflow the author
+        // only opened to read, and the host being offline for a minute is not
+        // the author changing their mind.
+        providerOptions: withStepProviders(providerOptions, state.steps),
+        steps: state.steps.map((step) =>
+          step.provider ? step : { ...step, provider: fallback, model: null },
+        ),
         providerResolutionStatus: "complete",
       });
     },
@@ -371,6 +401,36 @@ function buildStepEvidence(step: TaskWorkflowFormStep): {
   };
 }
 
+/**
+ * The agents to save. The first is the one the form edits; the rest are put
+ * back untouched, as are the settings on the first that the form never asked
+ * about — a step configured with a mode or thinking option elsewhere keeps it
+ * through an edit here.
+ */
+function buildStepAgents(step: TaskWorkflowFormStep, provider: AgentProvider): StepInput["agents"] {
+  const [first, ...rest] = step.source?.agents ?? [];
+  const { provider: _provider, model: _model, ...carried } = first ?? { provider };
+  return [{ ...carried, provider, ...(step.model ? { model: step.model } : {}) }, ...rest];
+}
+
+/** Keeps a stored strategy the form cannot author, and only that one: any other
+ * mode is a choice the author made here. */
+function buildStepWorkspace(step: TaskWorkflowFormStep): StepWorkspaceStrategy {
+  const stored = step.source?.workspace;
+  if (step.workspaceMode === "existing") {
+    return stored?.mode === "existing" ? stored : { mode: "worktree" };
+  }
+  return { mode: step.workspaceMode };
+}
+
+function buildStepTrigger(step: TaskWorkflowFormStep): StepTrigger {
+  const stored = step.source?.trigger;
+  if (step.trigger === "schedule") {
+    return stored?.type === "schedule" ? stored : { type: "manual" };
+  }
+  return { type: step.trigger };
+}
+
 export function buildTaskWorkflowSteps(state: TaskWorkflowFormState): StepInput[] | null {
   if (!resolveCanSubmit(state)) {
     return null;
@@ -384,10 +444,10 @@ export function buildTaskWorkflowSteps(state: TaskWorkflowFormState): StepInput[
     steps.push({
       name: step.name.trim(),
       prompt: step.prompt.trim(),
-      agents: [{ provider, ...(step.model ? { model: step.model } : {}) }],
+      agents: buildStepAgents(step, provider),
       completion: "all",
-      workspace: { mode: step.workspaceMode } as StepWorkspaceStrategy,
-      trigger: { type: step.trigger } as StepTrigger,
+      workspace: buildStepWorkspace(step),
+      trigger: buildStepTrigger(step),
       requireChanges: step.requireChanges,
       ...buildStepEvidence(step),
     });

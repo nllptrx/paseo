@@ -257,6 +257,19 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
 
   const feedSheetHeader = useMemo(() => ({ title: t("tasks.feed.toggle") }), [t]);
 
+  const [feedTaskId, setFeedTaskId] = useState<string | null>(null);
+  const handleOpenFeedTask = useCallback((taskId: string) => setFeedTaskId(taskId), []);
+  const handleFeedTaskHandled = useCallback(() => setFeedTaskId(null), []);
+  // On a phone the feed is a sheet over the board, so it has to close before the
+  // task it names can be read.
+  const handleOpenFeedTaskFromSheet = useCallback(
+    (taskId: string) => {
+      handleCloseFeedSheet();
+      setFeedTaskId(taskId);
+    },
+    [handleCloseFeedSheet],
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.row}>
@@ -273,11 +286,18 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
               trackerProjectId={project.id}
               projectDisplayName={project.name}
               onCreateWorkflowForTask={handleCreateWorkflowForTask}
+              requestedTaskId={feedTaskId}
+              onRequestedTaskHandled={handleFeedTaskHandled}
             />
           </ScrollView>
         </View>
         {!isCompact && feedOpenDesktop ? (
-          <FeedSidebar serverId={serverId} project={project} tasks={board.tasks} />
+          <FeedSidebar
+            serverId={serverId}
+            project={project}
+            tasks={board.tasks}
+            onOpenTask={handleOpenFeedTask}
+          />
         ) : null}
       </View>
       {isCompact ? (
@@ -287,7 +307,12 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
           onClose={handleCloseFeedSheet}
           testID="board-feed-sheet"
         >
-          <BoardFeedPane serverId={serverId} project={project} tasks={board.tasks} />
+          <BoardFeedPane
+            serverId={serverId}
+            project={project}
+            tasks={board.tasks}
+            onOpenTask={handleOpenFeedTaskFromSheet}
+          />
         </AdaptiveModalSheet>
       ) : null}
       <TaskPresetsSheet serverId={serverId} visible={isPresetsOpen} onClose={handleClosePresets} />
@@ -338,10 +363,12 @@ function FeedSidebar({
   serverId,
   project,
   tasks,
+  onOpenTask,
 }: {
   serverId: string;
   project: TaskProject;
   tasks: readonly Task[];
+  onOpenTask: (taskId: string) => void;
 }): ReactElement {
   const insets = useSafeAreaInsets();
   const feedWidth = usePanelStore((state) => state.orchestratorWidth);
@@ -385,7 +412,7 @@ function FeedSidebar({
   return (
     <Animated.View style={[styles.feedPane, resizeAnimatedStyle, { paddingTop: insets.top }]}>
       <SidebarResizeHandle edge="left" gesture={resizeGesture} testID="board-feed-resize-handle" />
-      <BoardFeedPane serverId={serverId} project={project} tasks={tasks} />
+      <BoardFeedPane serverId={serverId} project={project} tasks={tasks} onOpenTask={onOpenTask} />
     </Animated.View>
   );
 }

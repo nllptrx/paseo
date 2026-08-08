@@ -70,16 +70,22 @@ export function TaskWorkflowStepEditor({
   const handleMoveUp = useCallback(() => model.moveStep(key, -1), [key, model]);
   const handleMoveDown = useCallback(() => model.moveStep(key, 1), [key, model]);
 
-  const workspaceOptions = useMemo(
-    () =>
-      TASK_WORKFLOW_WORKSPACE_MODES.map((mode) => ({
-        id: mode,
-        value: mode,
-        label: t(TASK_WORKFLOW_WORKSPACE_LABEL_KEYS[mode]),
-        testID: `task-workflow-form-workspace-option-${mode}`,
-      })),
-    [t],
-  );
+  // The first step has nothing before it, so the two choices that name a
+  // previous step are not offered there. A mode the form cannot author but the
+  // step already uses stays listed, or opening the editor would read as if the
+  // author had chosen something else.
+  const workspaceOptions = useMemo(() => {
+    const offered = TASK_WORKFLOW_WORKSPACE_MODES.filter(
+      (mode) => index > 0 || mode !== "reuse_previous",
+    );
+    const modes = offered.includes(step.workspaceMode) ? offered : [...offered, step.workspaceMode];
+    return modes.map((mode) => ({
+      id: mode,
+      value: mode,
+      label: t(TASK_WORKFLOW_WORKSPACE_LABEL_KEYS[mode]),
+      testID: `task-workflow-form-workspace-option-${mode}`,
+    }));
+  }, [index, step.workspaceMode, t]);
   const workspaceDisplay = useMemo(
     () => ({ label: t(TASK_WORKFLOW_WORKSPACE_LABEL_KEYS[step.workspaceMode]) }),
     [step.workspaceMode, t],
@@ -101,16 +107,20 @@ export function TaskWorkflowStepEditor({
     () => ({ label: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS[step.trigger]) }),
     [step.trigger, t],
   );
-  const triggerOptions = useMemo(
-    () =>
-      TASK_WORKFLOW_TRIGGER_TYPES.map((trigger) => ({
-        id: trigger,
-        value: trigger,
-        label: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS[trigger]),
-        testID: `task-workflow-form-trigger-option-${trigger}`,
-      })),
-    [t],
-  );
+  // "Immediately" means "when the step before this one finishes", which the
+  // first step cannot wait for.
+  const triggerOptions = useMemo(() => {
+    const offered = TASK_WORKFLOW_TRIGGER_TYPES.filter(
+      (trigger) => index > 0 || trigger !== "immediate",
+    );
+    const triggers = offered.includes(step.trigger) ? offered : [...offered, step.trigger];
+    return triggers.map((trigger) => ({
+      id: trigger,
+      value: trigger,
+      label: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS[trigger]),
+      testID: `task-workflow-form-trigger-option-${trigger}`,
+    }));
+  }, [index, step.trigger, t]);
 
   return (
     <View style={styles.step} testID={`task-workflow-form-step-${index}`}>
