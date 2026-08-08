@@ -388,18 +388,6 @@ describe("keyboard-shortcuts", () => {
       context: { isMac: true, isDesktop: false },
       action: "workspace.tab.close.current",
     },
-    {
-      name: "matches Cmd+Alt+P to a new kanban plan on macOS when Option substitutes event.key",
-      event: { key: "\u03C0", code: "KeyP", metaKey: true, altKey: true },
-      context: { isMac: true },
-      action: "kanban.plan.new",
-    },
-    {
-      name: "matches Ctrl+Alt+P to a new kanban plan off mac",
-      event: { key: "p", code: "KeyP", ctrlKey: true, altKey: true },
-      context: { isMac: false },
-      action: "kanban.plan.new",
-    },
   ];
 
   it.each(matchingCases)(

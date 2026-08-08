@@ -28,7 +28,7 @@ import { StatusBucketDot } from "@/components/status-bucket-dot";
 import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
 import { formatTaskKey, groupSubtasksUnderParents, resolveTaskLabels } from "@/tasks/task-views";
 import { aggregateSidebarStateBuckets, type SidebarStateBucket } from "@/utils/sidebar-agent-state";
-import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
 
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedMessageSquare = withUnistyles(MessageSquare);
@@ -99,7 +99,11 @@ export interface TaskBoardProps {
 }
 
 /** Enough to read as "under", not so much that a deep card runs out of width. */
-const SUBTASK_INDENT = 12;
+const SUBTASK_INDENT = SPACING[3];
+
+/** A label is a glance, not a read: past this it truncates rather than pushing
+ * the ones after it off the card. */
+const CHIP_MAX_WIDTH = 120;
 
 export function groupBoardTasks(
   statuses: readonly TaskStatus[],
@@ -603,8 +607,8 @@ const styles = StyleSheet.create((theme) => ({
   chip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    maxWidth: 120,
+    gap: theme.spacing[1],
+    maxWidth: CHIP_MAX_WIDTH,
     borderWidth: theme.borderWidth[1],
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.full,
@@ -612,9 +616,9 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: 1,
   },
   chipDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: theme.spacing[1.5],
+    height: theme.spacing[1.5],
+    borderRadius: theme.borderRadius.full,
   },
   chipText: {
     color: theme.colors.foregroundMuted,

@@ -141,7 +141,7 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.semibold,
+    fontWeight: theme.fontWeight.medium,
   },
   count: {
     color: theme.colors.foregroundMuted,

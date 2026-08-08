@@ -285,7 +285,7 @@ const styles = StyleSheet.create((theme) => ({
   rowName: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
+    fontWeight: theme.fontWeight.normal,
   },
   rowMeta: {
     color: theme.colors.foregroundMuted,

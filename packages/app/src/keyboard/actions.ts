@@ -49,7 +49,6 @@ export type KeyboardActionId =
   | "worktree.new"
   | "workspace.archive"
   | "workspace.pin"
-  | "kanban.plan.new"
   | "view.toggle.focus"
   | "theme.cycle"
   | "message-input.action";

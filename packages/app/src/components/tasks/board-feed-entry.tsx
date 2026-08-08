@@ -1,5 +1,5 @@
 import { useCallback, type ReactElement } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { TaskComment } from "@getpaseo/protocol/tasks/types";
 
@@ -17,6 +17,10 @@ export function formatEntryTime(createdAt: string): string {
  * board-wide feed pane and the task detail sheet's comments, which read the
  * same `TaskComment` rows filtered to one task.
  */
+/** An inline key is a small target for a thumb; the app widens these rather
+ * than padding the text out of the row it sits in. */
+const INLINE_HIT_SLOP = 8;
+
 export function BoardFeedEntryRow({
   entry,
   taskKey,
@@ -41,16 +45,11 @@ export function BoardFeedEntryRow({
         <Text style={[styles.author, isSystem && styles.authorSystem]} numberOfLines={1}>
           {entry.authorName}
         </Text>
-        {taskKey ? (
-          <Text
-            style={styles.taskKey}
-            onPress={canOpenTask ? handlePress : undefined}
-            accessibilityRole={canOpenTask ? "button" : undefined}
-            testID={`board-feed-entry-task-${entry.id}`}
-          >
-            {taskKey}
-          </Text>
-        ) : null}
+        <TaskKey
+          taskKey={taskKey}
+          testID={`board-feed-entry-task-${entry.id}`}
+          onPress={canOpenTask ? handlePress : undefined}
+        />
         <Text style={styles.time}>{formatEntryTime(entry.createdAt)}</Text>
       </View>
       <Text style={[styles.body, isSystem && styles.bodySystem]}>{entry.body}</Text>
@@ -58,7 +57,41 @@ export function BoardFeedEntryRow({
   );
 }
 
-export const styles = StyleSheet.create((theme) => ({
+export /** The card this entry is about. Pressable only when there is a board behind it
+ * to open — a key that looks like a link and does nothing is worse than plain
+ * text. */
+function TaskKey({
+  taskKey,
+  testID,
+  onPress,
+}: {
+  taskKey: string | undefined;
+  testID: string;
+  onPress: (() => void) | undefined;
+}): ReactElement | null {
+  if (!taskKey) {
+    return null;
+  }
+  if (!onPress) {
+    return (
+      <Text style={styles.taskKey} testID={testID}>
+        {taskKey}
+      </Text>
+    );
+  }
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      hitSlop={INLINE_HIT_SLOP}
+      testID={testID}
+    >
+      <Text style={styles.taskKey}>{taskKey}</Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create((theme) => ({
   entry: {
     gap: theme.spacing[1],
   },
@@ -70,7 +103,7 @@ export const styles = StyleSheet.create((theme) => ({
   author: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.semibold,
+    fontWeight: theme.fontWeight.normal,
   },
   authorSystem: {
     color: theme.colors.foregroundMuted,

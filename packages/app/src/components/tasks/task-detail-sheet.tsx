@@ -635,7 +635,7 @@ const styles = StyleSheet.create((theme) => ({
   fieldValue: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
+    fontWeight: theme.fontWeight.normal,
   },
   description: {
     color: theme.colors.foregroundMuted,

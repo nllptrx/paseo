@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { LayoutGrid } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { MenuHeader } from "@/components/headers/menu-header";
@@ -127,9 +126,7 @@ function KanbansScreenBody({
   if (bodyState.kind === "empty") {
     return (
       <View style={styles.centered}>
-        <LayoutGrid size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
-        <Text style={styles.emptyTitle}>{t("kanban.screen.emptyTitle")}</Text>
-        <Text style={styles.emptyDescription}>{t("kanban.screen.emptyDescription")}</Text>
+        <Text style={styles.message}>{t("kanban.screen.emptyTitle")}</Text>
       </View>
     );
   }
@@ -232,20 +229,5 @@ const styles = StyleSheet.create((theme) => ({
   },
   spinner: {
     color: theme.colors.foregroundMuted,
-  },
-  emptyIcon: {
-    color: theme.colors.foregroundMuted,
-    width: theme.iconSize.lg,
-  },
-  emptyTitle: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
-    textAlign: "center",
-  },
-  emptyDescription: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    textAlign: "center",
-    maxWidth: 320,
   },
 }));
