@@ -92,6 +92,24 @@ describe("task workflow form model", () => {
     expect(model.getState().providerOptions.map((option) => option.value)).toContain("copilot");
   });
 
+  /** The daemon refuses a first step that waits for a step before it, so the
+   * form must not be able to author one by reordering. */
+  it("drops previous-step choices from a step moved to the front", () => {
+    const model = openTaskWorkflowForm({ ...SNAPSHOT, availableProviders: PROVIDERS });
+    completeFirstStep(model);
+    model.addStep();
+    const second = model.getState().steps[1]?.key ?? "";
+    model.setStepWorkspaceMode(second, "reuse_previous");
+    model.setStepTrigger(second, "immediate");
+
+    model.moveStep(second, -1);
+
+    const moved = model.getState().steps[0];
+    expect(moved?.key).toBe(second);
+    expect(moved?.workspaceMode).toBe("worktree");
+    expect(moved?.trigger).toBe("manual");
+  });
+
   it("requires every step complete before it can submit", () => {
     const model = openTaskWorkflowForm({ ...SNAPSHOT, availableProviders: PROVIDERS });
     const key = completeFirstStep(model);

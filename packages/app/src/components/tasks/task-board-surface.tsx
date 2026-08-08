@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -73,6 +73,11 @@ export function TaskBoardSurface({
         : selectProjectBoard(snapshot, paseoProjectId),
     [paseoProjectId, snapshot, trackerProjectId],
   );
+  // The board as it is now, for continuations that resolve after a request and
+  // must not act on the state that started it.
+  const tasksRef = useRef(board.tasks);
+  tasksRef.current = board.tasks;
+
   const projectsById = useMemo(
     () => new Map(board.projects.map((project) => [project.id, project])),
     [board.projects],
@@ -85,17 +90,18 @@ export function TaskBoardSurface({
   // start something.
   const handleMoveTask = useCallback(
     (move: TaskBoardMove) => {
-      const moved = board.tasks.find((task) => task.id === move.taskId);
+      const before = tasksRef.current.find((task) => task.id === move.taskId);
       const arriving =
-        move.status === "in_progress" &&
-        moved !== undefined &&
-        moved.status !== "in_progress" &&
-        moved.agents.length === 0;
+        move.status === "in_progress" && before !== undefined && before.status !== "in_progress";
       void moveTask(move)
         .then(() => {
-          // Only once the move is written: a chooser for a status change that
-          // failed would start work the board never agreed to.
-          if (arriving) {
+          // Read the card again, not the copy from before the request: moves are
+          // not serialised, so by the time this one lands another may have taken
+          // the card back out of Working or something may have been started on
+          // it. A chooser for a state that no longer holds is a chooser for
+          // nothing.
+          const after = tasksRef.current.find((task) => task.id === move.taskId);
+          if (arriving && after?.status === "in_progress" && after.agents.length === 0) {
             setStartingTaskId(move.taskId);
           }
           return undefined;
@@ -104,7 +110,7 @@ export function TaskBoardSurface({
           toast.show(toErrorMessage(moveError));
         });
     },
-    [board.tasks, moveTask, toast],
+    [moveTask, toast],
   );
   const handleCloseStartWork = useCallback(() => setStartingTaskId(null), []);
 

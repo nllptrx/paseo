@@ -149,13 +149,18 @@ function LoadedKanbanBoardScreen({
   );
   const handleCloseWorkflowForm = useCallback(() => setWorkflowTaskId(null), []);
   const { snapshot } = useTasks(serverId);
+  // A snapshot that has not arrived and a task with no workflow both read as
+  // "no steps", and the editor cannot tell them apart: it builds its form once,
+  // so opening it too early gives an empty create form that would replace the
+  // workflow already on the card.
   const workflowSteps = useMemo(
     () =>
-      workflowTaskId
-        ? snapshot?.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps
+      workflowTaskId && snapshot
+        ? (snapshot.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps ?? [])
         : undefined,
-    [snapshot?.workflows, workflowTaskId],
+    [snapshot, workflowTaskId],
   );
+  const canEditWorkflow = workflowTaskId !== null && snapshot !== undefined;
 
   const toast = useToast();
   const totalCount = board.tasks.length;
@@ -361,7 +366,7 @@ function LoadedKanbanBoardScreen({
         </AdaptiveModalSheet>
       ) : null}
       <TaskPresetsSheet serverId={serverId} visible={isPresetsOpen} onClose={handleClosePresets} />
-      {workflowTaskId ? (
+      {canEditWorkflow && workflowTaskId ? (
         <TaskWorkflowFormSheet
           serverId={serverId}
           taskId={workflowTaskId}

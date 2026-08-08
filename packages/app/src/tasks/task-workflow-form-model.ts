@@ -172,6 +172,23 @@ export function resolveProviderDisplay(
   return { label: choice?.label ?? resolveProviderLabel(provider) };
 }
 
+/**
+ * A step's workspace and trigger can name the step before it, which the first
+ * step does not have. Reordering can put such a step first, and the daemon
+ * refuses to run it — so the choice is corrected here, where the author can see
+ * it change, rather than at dispatch.
+ */
+function withPositionValidChoices(step: TaskWorkflowFormStep, index: number): TaskWorkflowFormStep {
+  if (index > 0) {
+    return step;
+  }
+  const workspaceMode = step.workspaceMode === "reuse_previous" ? "worktree" : step.workspaceMode;
+  const trigger = step.trigger === "immediate" ? "manual" : step.trigger;
+  return workspaceMode === step.workspaceMode && trigger === step.trigger
+    ? step
+    : { ...step, workspaceMode, trigger };
+}
+
 function isStepComplete(step: TaskWorkflowFormStep): boolean {
   return step.name.trim().length > 0 && step.prompt.trim().length > 0 && step.provider !== null;
 }
@@ -355,7 +372,7 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
         return;
       }
       steps.splice(target, 0, moved);
-      publish({ ...state, steps });
+      publish({ ...state, steps: steps.map(withPositionValidChoices) });
     },
     setStepName(key, value) {
       updateStep(key, (step) => ({ ...step, name: value }));

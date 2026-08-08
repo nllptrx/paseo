@@ -53,12 +53,15 @@ function KanbanPanel(): ReactElement {
   );
   const handleCloseWorkflowForm = useCallback(() => setWorkflowTaskId(null), []);
   const { snapshot } = useTasks(serverId);
+  // Waiting for the snapshot is not the same as having no workflow, and the
+  // editor builds its form once — opening it early offers an empty create form
+  // that would replace whatever the card already has.
   const workflowSteps = useMemo(
     () =>
-      workflowTaskId
-        ? snapshot?.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps
+      workflowTaskId && snapshot
+        ? (snapshot.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps ?? [])
         : undefined,
-    [snapshot?.workflows, workflowTaskId],
+    [snapshot, workflowTaskId],
   );
 
   if (!workspace) {
@@ -79,7 +82,7 @@ function KanbanPanel(): ReactElement {
           onCreateWorkflowForTask={handleCreateWorkflowForTask}
         />
       </ScrollView>
-      {workflowTaskId ? (
+      {workflowTaskId && snapshot ? (
         <TaskWorkflowFormSheet
           serverId={serverId}
           taskId={workflowTaskId}
