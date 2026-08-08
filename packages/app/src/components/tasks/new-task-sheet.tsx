@@ -7,10 +7,9 @@ import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
 import { useNewTaskFormModel } from "@/tasks/use-new-task-form-model";
+import { DEFAULT_TASK_PROJECT_COLOR } from "@/tasks/task-project-color";
 import { useTaskMutations } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
-
-const DEFAULT_PROJECT_COLOR = "#7C6BF5";
 
 export interface NewTaskSheetProps {
   serverId: string;
@@ -73,7 +72,7 @@ function OpenNewTaskSheet({
           (await createProject({
             name: current.projectName.trim(),
             prefix: current.prefix.trim().toUpperCase(),
-            color: DEFAULT_PROJECT_COLOR,
+            color: DEFAULT_TASK_PROJECT_COLOR,
             paseoProjectId: current.paseoProjectId,
           }));
         const taskId = await createTask({

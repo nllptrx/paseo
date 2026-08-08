@@ -3,10 +3,10 @@ import { HostRouteBootstrapBoundary } from "@/components/host-route-bootstrap-bo
 import { KanbanBoardScreen } from "@/screens/kanban-board-screen";
 
 export default function KanbanBoardRoute() {
-  const { boardId } = useLocalSearchParams<{ boardId: string }>();
+  const { boardId, task } = useLocalSearchParams<{ boardId: string; task?: string }>();
   return (
     <HostRouteBootstrapBoundary>
-      <KanbanBoardScreen boardId={boardId} />
+      <KanbanBoardScreen boardId={boardId} initialTaskId={task ?? null} />
     </HostRouteBootstrapBoundary>
   );
 }

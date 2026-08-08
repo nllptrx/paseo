@@ -987,6 +987,7 @@ export const ptBR: TranslationResources = {
       nothingToRun: "Ainda sem workflow nem predefinições neste quadro.",
     },
     feed: {
+      everyoneHint: "Todos que trabalham neste quadro",
       empty: "Ainda não há nada neste quadro",
       loadError: "Não foi possível carregar o feed",
       composerPlaceholder: "Escreva no quadro",
@@ -1144,8 +1145,8 @@ export const ptBR: TranslationResources = {
       planCount_other: "{{count}} planos",
     },
     board: {
-      reviewEnable: "Exigir revisão",
-      reviewDisable: "Não exigir revisão",
+      reviewRequire: "Exigir revisão",
+      archiveOnDone: "Arquivar espaços de trabalho ao concluir",
       menu: "Ações do quadro",
       createOrchestrator: "Criar orquestrador",
     },

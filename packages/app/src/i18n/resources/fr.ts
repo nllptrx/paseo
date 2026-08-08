@@ -996,6 +996,7 @@ export const fr: TranslationResources = {
       nothingToRun: "Ni workflow ni préréglages sur ce tableau.",
     },
     feed: {
+      everyoneHint: "Tous ceux qui travaillent sur ce tableau",
       empty: "Rien sur ce tableau pour l'instant",
       loadError: "Impossible de charger le fil",
       composerPlaceholder: "Écrire sur le tableau",
@@ -1154,8 +1155,8 @@ export const fr: TranslationResources = {
       planCount_other: "{{count}} plans",
     },
     board: {
-      reviewEnable: "Exiger une revue",
-      reviewDisable: "Ne pas exiger de revue",
+      reviewRequire: "Exiger une revue",
+      archiveOnDone: "Archiver les espaces de travail une fois terminé",
       menu: "Actions du tableau",
       createOrchestrator: "Créer un orchestrateur",
     },

@@ -65,9 +65,19 @@ describe("collectMentionCandidates", () => {
       ]),
     });
     expect(candidates).toEqual([
+      { agentId: "everyone", taskKey: "", taskTitle: "" },
       { agentId: "agt_1", taskKey: "PSE-1", taskTitle: "First" },
-      { agentId: "agt_2", taskKey: "PSE-2", taskTitle: "Second" },
+      // Second card holds two agents, so its rows say which one they are.
+      { agentId: "agt_2", taskKey: "PSE-2", taskTitle: "Second", position: 2, of: 2 },
     ]);
+  });
+
+  /** The board-wide target is the daemon's, not a card's — offering it with no
+   * agents to reach would be a mention that can only fail. */
+  it("offers nothing at all when no agent is attached", () => {
+    expect(
+      collectMentionCandidates({ tasks: [taskWith("t1", "First", [])], taskKeyById: new Map() }),
+    ).toEqual([]);
   });
 });
 

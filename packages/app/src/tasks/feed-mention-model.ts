@@ -6,6 +6,10 @@ export interface FeedMentionCandidate {
    * by what they are doing rather than by a hex id. */
   taskKey: string;
   taskTitle: string;
+  /** Which of the card's agents this is, when the card has more than one. Two
+   * agents on one card are otherwise the same row twice. */
+  position?: number;
+  of?: number;
 }
 
 export interface FeedMentionQuery {
@@ -36,7 +40,14 @@ export function findActiveMention(body: string, caret: number): FeedMentionQuery
   return { start: at, term };
 }
 
-/** Every agent attached to a card on this board, newest card first. */
+/**
+ * Every agent attached to a card on this board, newest card first, plus the
+ * board-wide target the daemon already understands.
+ *
+ * Two agents on one card would otherwise be two identical rows — the card is
+ * what a person recognises, but it is not what a mention addresses — so each
+ * row also carries which of the card's agents it is.
+ */
 export function collectMentionCandidates(input: {
   tasks: readonly Task[];
   taskKeyById: ReadonlyMap<string, string>;
@@ -44,20 +55,28 @@ export function collectMentionCandidates(input: {
   const seen = new Set<string>();
   const candidates: FeedMentionCandidate[] = [];
   for (const task of input.tasks) {
-    for (const link of task.agents) {
+    task.agents.forEach((link, index) => {
       if (seen.has(link.agentId)) {
-        continue;
+        return;
       }
       seen.add(link.agentId);
       candidates.push({
         agentId: link.agentId,
         taskKey: input.taskKeyById.get(task.id) ?? "",
         taskTitle: task.title,
+        ...(task.agents.length > 1 ? { position: index + 1, of: task.agents.length } : {}),
       });
-    }
+    });
+  }
+  if (candidates.length > 0) {
+    candidates.unshift({ agentId: EVERYONE_MENTION, taskKey: "", taskTitle: "" });
   }
   return candidates;
 }
+
+/** The daemon resolves this to every agent on the board, and refuses when that
+ * would wake more than it allows. */
+export const EVERYONE_MENTION = "everyone";
 
 export function filterMentionCandidates(
   candidates: readonly FeedMentionCandidate[],

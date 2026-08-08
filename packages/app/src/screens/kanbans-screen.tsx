@@ -48,7 +48,8 @@ function KanbansScreenContent(): ReactElement {
   const showLoadError = isError && loadState.status !== "loaded";
 
   const handleOpenBoard = useCallback(
-    (board: AggregatedTaskBoard) => router.push(buildKanbanBoardRoute(board.project.id)),
+    (board: AggregatedTaskBoard, taskId?: string) =>
+      router.push(buildKanbanBoardRoute(board.project.id, taskId)),
     [router],
   );
 
@@ -95,7 +96,7 @@ function KanbansScreenBody({
   onSelectHost: (serverId: string) => void;
   onRetry: () => void;
   multiHost: boolean;
-  onOpenBoard: (board: AggregatedTaskBoard) => void;
+  onOpenBoard: (board: AggregatedTaskBoard, taskId?: string) => void;
 }): ReactElement {
   const { t } = useTranslation();
   const bodyState = resolveKanbansScreenBodyState({

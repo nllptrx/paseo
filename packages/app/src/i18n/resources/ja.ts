@@ -976,6 +976,7 @@ export const ja: TranslationResources = {
       nothingToRun: "このボードにはワークフローもプリセットもまだありません。",
     },
     feed: {
+      everyoneHint: "このボードで作業中の全員",
       empty: "このボードにはまだ何もありません",
       loadError: "フィードを読み込めません",
       composerPlaceholder: "ボードに書く",
@@ -1133,8 +1134,8 @@ export const ja: TranslationResources = {
       planCount_other: "{{count}}件のプラン",
     },
     board: {
-      reviewEnable: "レビューを必須にする",
-      reviewDisable: "レビューを必須にしない",
+      reviewRequire: "レビューを必須にする",
+      archiveOnDone: "完了時にワークスペースをアーカイブ",
       menu: "ボードの操作",
       createOrchestrator: "オーケストレーターを作成",
     },

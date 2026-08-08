@@ -7,6 +7,7 @@ import { useHostFeature } from "@/runtime/host-features";
 import { useProjectDisplayName } from "@/stores/session-store-hooks";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { suggestTaskProjectPrefix } from "@/tasks/new-task-form-model";
+import { DEFAULT_TASK_PROJECT_COLOR } from "@/tasks/task-project-color";
 import { tasksQueryKey } from "@/tasks/task-query-keys";
 import { toErrorMessage } from "@/utils/error-messages";
 
@@ -47,7 +48,7 @@ export function useEnsureProjectBoard() {
       const created = await client.tasksProjectCreate({
         name: input.projectName,
         prefix: suggestTaskProjectPrefix(input.projectName) || "TSK",
-        color: "#7C6BF5",
+        color: DEFAULT_TASK_PROJECT_COLOR,
         paseoProjectId: input.projectId,
       });
       if (created.error || !created.project) {

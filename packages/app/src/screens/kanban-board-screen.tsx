@@ -14,6 +14,8 @@ import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
 import { resolveDesktopOrchestratorWidth } from "@/components/desktop-sidebar-layout";
 import { BoardFeedPane } from "@/components/tasks/board-feed-pane";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { useToast } from "@/contexts/toast-context";
+import { toErrorMessage } from "@/utils/error-messages";
 import { usePanelStore } from "@/stores/panel-store";
 import { ScreenHeader } from "@/components/headers/screen-header";
 import { ScreenTitle } from "@/components/headers/screen-title";
@@ -41,7 +43,14 @@ const ThemedMessagesSquare = withUnistyles(MessagesSquare);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 
-export function KanbanBoardScreen({ boardId }: { boardId: string }): ReactElement {
+export function KanbanBoardScreen({
+  boardId,
+  initialTaskId,
+}: {
+  boardId: string;
+  /** Opened straight away, when the route named a card. */
+  initialTaskId?: string | null;
+}): ReactElement {
   const { t } = useTranslation();
   const router = useRouter();
   const { loadState } = useTaskBoards();
@@ -102,10 +111,16 @@ export function KanbanBoardScreen({ boardId }: { boardId: string }): ReactElemen
     );
   }
 
-  return <LoadedKanbanBoardScreen board={board} />;
+  return <LoadedKanbanBoardScreen board={board} initialTaskId={initialTaskId ?? null} />;
 }
 
-function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): ReactElement {
+function LoadedKanbanBoardScreen({
+  board,
+  initialTaskId,
+}: {
+  board: AggregatedTaskBoard;
+  initialTaskId: string | null;
+}): ReactElement {
   const { t } = useTranslation();
   const { serverId, project } = board;
   const boardId = project.id;
@@ -142,6 +157,7 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
     [snapshot?.workflows, workflowTaskId],
   );
 
+  const toast = useToast();
   const totalCount = board.tasks.length;
 
   // The review flag routes a green settle to In Review instead of Done, and it
@@ -151,16 +167,33 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
   const handleOpenPresets = useCallback(() => setIsPresetsOpen(true), []);
   const handleClosePresets = useCallback(() => setIsPresetsOpen(false), []);
-  const handleSelectReviewer = useCallback(
-    (presetId: string | null) => {
-      void configureBoard({ projectId: project.id, reviewerPresetId: presetId });
+  const archiveOnDone = project.board?.archiveWorkspacesOnDone === true;
+
+  // A board setting that silently failed to save leaves the menu telling one
+  // story and the daemon keeping another.
+  const applyBoardConfig = useCallback(
+    (patch: Omit<Parameters<typeof configureBoard>[0], "projectId">) => {
+      void configureBoard({ projectId: project.id, ...patch }).catch((error) => {
+        toast.show(toErrorMessage(error));
+      });
     },
-    [configureBoard, project.id],
+    [configureBoard, project.id, toast],
   );
 
-  const handleToggleReview = useCallback(() => {
-    void configureBoard({ projectId: project.id, reviewEnabled: !reviewEnabled });
-  }, [configureBoard, project.id, reviewEnabled]);
+  const handleSelectReviewer = useCallback(
+    (presetId: string | null) => applyBoardConfig({ reviewerPresetId: presetId }),
+    [applyBoardConfig],
+  );
+
+  const handleToggleReview = useCallback(
+    () => applyBoardConfig({ reviewEnabled: !reviewEnabled }),
+    [applyBoardConfig, reviewEnabled],
+  );
+
+  const handleToggleArchiveOnDone = useCallback(
+    () => applyBoardConfig({ archiveWorkspacesOnDone: !archiveOnDone }),
+    [applyBoardConfig, archiveOnDone],
+  );
 
   const headerLeft = useMemo(
     () => (
@@ -193,8 +226,18 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
             <DropdownMenuItem
               testID={`kanban-review-toggle-${boardId}`}
               onSelect={handleToggleReview}
+              selected={reviewEnabled}
+              showSelectedCheck
             >
-              {t(reviewEnabled ? "kanban.board.reviewDisable" : "kanban.board.reviewEnable")}
+              {t("kanban.board.reviewRequire")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              testID={`kanban-archive-toggle-${boardId}`}
+              onSelect={handleToggleArchiveOnDone}
+              selected={archiveOnDone}
+              showSelectedCheck
+            >
+              {t("kanban.board.archiveOnDone")}
             </DropdownMenuItem>
             {reviewEnabled ? (
               <>
@@ -222,9 +265,11 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
       </>
     ),
     [
+      archiveOnDone,
       boardId,
       handleOpenPresets,
       handleSelectReviewer,
+      handleToggleArchiveOnDone,
       handleToggleReview,
       presets,
       project.board?.reviewerPresetId,
@@ -257,7 +302,7 @@ function LoadedKanbanBoardScreen({ board }: { board: AggregatedTaskBoard }): Rea
 
   const feedSheetHeader = useMemo(() => ({ title: t("tasks.feed.toggle") }), [t]);
 
-  const [feedTaskId, setFeedTaskId] = useState<string | null>(null);
+  const [feedTaskId, setFeedTaskId] = useState<string | null>(initialTaskId ?? null);
   const handleOpenFeedTask = useCallback((taskId: string) => setFeedTaskId(taskId), []);
   const handleFeedTaskHandled = useCallback(() => setFeedTaskId(null), []);
   // On a phone the feed is a sheet over the board, so it has to close before the
@@ -348,8 +393,10 @@ function ReviewerMenuItem({
     <DropdownMenuItem
       testID={`kanban-reviewer-${boardId}-${presetId ?? "none"}`}
       onSelect={handleSelect}
+      selected={selected}
+      showSelectedCheck
     >
-      {selected ? `✓ ${label}` : label}
+      {label}
     </DropdownMenuItem>
   );
 }

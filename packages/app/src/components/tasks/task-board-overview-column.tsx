@@ -18,7 +18,7 @@ const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMute
 export interface TaskBoardOverviewColumnProps {
   board: AggregatedTaskBoard;
   showHostBadge: boolean;
-  onOpenBoard: (board: AggregatedTaskBoard) => void;
+  onOpenBoard: (board: AggregatedTaskBoard, taskId?: string) => void;
 }
 
 /**
@@ -34,6 +34,10 @@ export function TaskBoardOverviewColumn({
   const { t } = useTranslation();
   const selection = useMemo(() => selectOverviewTasks(board.tasks), [board.tasks]);
   const handleOpenBoard = useCallback(() => onOpenBoard(board), [board, onOpenBoard]);
+  const handleOpenTask = useCallback(
+    (taskId: string) => onOpenBoard(board, taskId),
+    [board, onOpenBoard],
+  );
 
   return (
     <View style={styles.column} testID={`task-board-overview-${board.project.id}`}>
@@ -58,7 +62,7 @@ export function TaskBoardOverviewColumn({
             serverId={board.serverId}
             prefix={board.project.prefix}
             task={task}
-            onPress={handleOpenBoard}
+            onPress={handleOpenTask}
           />
         ))}
         {selection.hiddenCount > 0 ? (
@@ -91,8 +95,9 @@ function OverviewTaskCard({
   serverId: string;
   prefix: string;
   task: Task;
-  onPress: () => void;
+  onPress: (taskId: string) => void;
 }): ReactElement {
+  const handlePress = useCallback(() => onPress(task.id), [onPress, task.id]);
   const workspaceIds = useMemo(() => task.agents.map((link) => link.workspaceId), [task.agents]);
   const statusByWorkspaceId = useWorkspaceStatusesByIds(serverId, workspaceIds);
   const bucket =
@@ -102,7 +107,7 @@ function OverviewTaskCard({
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       style={styles.card}
       accessibilityRole="button"
       testID={`task-board-overview-card-${task.id}`}

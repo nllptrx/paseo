@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { SendHorizontal } from "lucide-react-native";
@@ -10,6 +10,7 @@ import { useToast } from "@/contexts/toast-context";
 import { formatTaskKey } from "@/tasks/task-views";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import {
+  EVERYONE_MENTION,
   applyMention,
   collectMentionCandidates,
   filterMentionCandidates,
@@ -100,9 +101,21 @@ export function BoardFeedPane({
     });
   }, [draft, isPosting, post, toast]);
 
+  // Oldest first, so what just happened is at the bottom. Opening on the top of
+  // a two-hundred-entry history would hide exactly the part being watched.
+  const scrollRef = useRef<ScrollView>(null);
+  const handleContentSizeChange = useCallback(() => {
+    scrollRef.current?.scrollToEnd({ animated: false });
+  }, []);
+
   return (
     <View style={styles.pane} testID="board-feed-pane">
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        onContentSizeChange={handleContentSizeChange}
+      >
         {isLoading && entries.length === 0 ? (
           <View style={styles.centered}>
             <LoadingSpinner size="small" color={styles.spinner.color} />
@@ -178,7 +191,9 @@ function MentionOption({
   candidate: FeedMentionCandidate;
   onPick: (agentId: string) => void;
 }): ReactElement {
+  const { t } = useTranslation();
   const handlePress = useCallback(() => onPick(candidate.agentId), [candidate.agentId, onPick]);
+  const isEveryone = candidate.agentId === EVERYONE_MENTION;
   return (
     <Pressable
       onPress={handlePress}
@@ -186,9 +201,12 @@ function MentionOption({
       accessibilityRole="button"
       testID={`board-feed-mention-${candidate.agentId}`}
     >
-      <Text style={styles.mentionKey}>{candidate.taskKey}</Text>
+      <Text style={styles.mentionKey}>
+        {isEveryone ? `@${EVERYONE_MENTION}` : candidate.taskKey}
+      </Text>
       <Text style={styles.mentionTitle} numberOfLines={1}>
-        {candidate.taskTitle}
+        {isEveryone ? t("tasks.feed.everyoneHint") : candidate.taskTitle}
+        {candidate.of ? ` (${candidate.position}/${candidate.of})` : ""}
       </Text>
     </Pressable>
   );

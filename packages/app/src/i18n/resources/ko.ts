@@ -972,6 +972,7 @@ export const ko: TranslationResources = {
       nothingToRun: "이 보드에는 아직 워크플로도 프리셋도 없습니다.",
     },
     feed: {
+      everyoneHint: "이 보드에서 일하는 모두",
       empty: "이 보드에는 아직 아무것도 없습니다",
       loadError: "피드를 불러오지 못했습니다",
       composerPlaceholder: "보드에 쓰기",
@@ -1129,8 +1130,8 @@ export const ko: TranslationResources = {
       planCount_other: "플랜 {{count}}개",
     },
     board: {
-      reviewEnable: "리뷰 필수로 설정",
-      reviewDisable: "리뷰 필수 해제",
+      reviewRequire: "리뷰 필수",
+      archiveOnDone: "완료 시 워크스페이스 보관",
       menu: "보드 작업",
       createOrchestrator: "오케스트레이터 생성",
     },

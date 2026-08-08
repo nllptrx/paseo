@@ -957,6 +957,7 @@ export const zhCN: TranslationResources = {
       nothingToRun: "这个看板上还没有工作流和预设。",
     },
     feed: {
+      everyoneHint: "在此看板上工作的所有人",
       empty: "这个看板上还没有内容",
       loadError: "无法加载动态",
       composerPlaceholder: "在看板上留言",
@@ -1113,8 +1114,8 @@ export const zhCN: TranslationResources = {
       planCount_other: "{{count}} 个计划",
     },
     board: {
-      reviewEnable: "需要审查",
-      reviewDisable: "不需要审查",
+      reviewRequire: "要求审查",
+      archiveOnDone: "完成时归档工作区",
       menu: "看板操作",
       createOrchestrator: "创建编排器",
     },

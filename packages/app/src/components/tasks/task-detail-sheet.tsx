@@ -119,7 +119,7 @@ function OpenTaskDetailSheet({
 }): ReactElement {
   const { t } = useTranslation();
   const toast = useToast();
-  const { setStatus, setPriority } = useTaskMutations(serverId);
+  const { setStatus, setPriority, reviewTask } = useTaskMutations(serverId);
   const { entries } = useBoardFeed({ serverId, projectId: task.projectId });
   const { post, isPosting } = useBoardFeedComposer({ serverId, projectId: task.projectId });
   const [draft, setDraft] = useState("");
@@ -130,6 +130,20 @@ function OpenTaskDetailSheet({
     () => selectBlockers({ taskId: task.id, tasks, dependencies }),
     [dependencies, task.id, tasks],
   );
+  // The verdict belongs where the change is read, not only in the card's menu:
+  // someone who opened the task to judge it should not have to close it again to
+  // say what they decided.
+  const handleReview = useCallback(
+    (verdict: "approve" | "reject") => {
+      void reviewTask({ taskId: task.id, verdict }).catch((error) => {
+        toast.show(toErrorMessage(error));
+      });
+    },
+    [reviewTask, task.id, toast],
+  );
+  const handleApprove = useCallback(() => handleReview("approve"), [handleReview]);
+  const handleReject = useCallback(() => handleReview("reject"), [handleReview]);
+
   const handleDelegate = useCallback(
     (presetId: string) => {
       void delegate({ taskId: task.id, presetId }).catch((error) => {
@@ -290,6 +304,30 @@ function OpenTaskDetailSheet({
             </Button>
           )}
         </View>
+
+        {task.status === "in_review" ? (
+          <View style={styles.section} testID="task-detail-review">
+            <Text style={styles.sectionHeading}>{t("tasks.detail.reviewerHeading")}</Text>
+            <View style={styles.presetRow}>
+              <Button
+                variant="default"
+                size="sm"
+                onPress={handleApprove}
+                testID="task-detail-approve"
+              >
+                {t("tasks.board.approve")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onPress={handleReject}
+                testID="task-detail-reject"
+              >
+                {t("tasks.board.reject")}
+              </Button>
+            </View>
+          </View>
+        ) : null}
 
         {blockers.length > 0 ? (
           <View style={styles.section} testID="task-detail-blockers">

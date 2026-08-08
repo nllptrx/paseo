@@ -987,6 +987,7 @@ export const ru: TranslationResources = {
       nothingToRun: "На этой доске пока нет ни workflow, ни пресетов.",
     },
     feed: {
+      everyoneHint: "Все, кто работает на этой доске",
       empty: "На этой доске пока пусто",
       loadError: "Не удалось загрузить ленту",
       composerPlaceholder: "Написать на доску",
@@ -1144,8 +1145,8 @@ export const ru: TranslationResources = {
       planCount_other: "{{count}} планов",
     },
     board: {
-      reviewEnable: "Требовать ревью",
-      reviewDisable: "Не требовать ревью",
+      reviewRequire: "Требовать ревью",
+      archiveOnDone: "Архивировать рабочие пространства по завершении",
       menu: "Действия доски",
       createOrchestrator: "Создать оркестратор",
     },

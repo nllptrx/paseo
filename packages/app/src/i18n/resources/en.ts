@@ -975,6 +975,7 @@ export const en = {
       nothingToRun: "No workflow and no presets on this board yet.",
     },
     feed: {
+      everyoneHint: "Everyone working on this board",
       empty: "Nothing on this board yet",
       loadError: "Unable to load the feed",
       composerPlaceholder: "Write to the board",
@@ -1132,8 +1133,8 @@ export const en = {
       planCount_other: "{{count}} plans",
     },
     board: {
-      reviewEnable: "Require review",
-      reviewDisable: "Don't require review",
+      reviewRequire: "Require review",
+      archiveOnDone: "Archive workspaces when done",
       menu: "Board actions",
       createOrchestrator: "Create Orchestrator",
     },

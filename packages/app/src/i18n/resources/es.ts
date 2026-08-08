@@ -996,6 +996,7 @@ export const es: TranslationResources = {
       nothingToRun: "Todavía no hay workflow ni ajustes en este tablero.",
     },
     feed: {
+      everyoneHint: "Todos los que trabajan en este tablero",
       empty: "Todavía no hay nada en este tablero",
       loadError: "No se pudo cargar el feed",
       composerPlaceholder: "Escribe en el tablero",
@@ -1153,8 +1154,8 @@ export const es: TranslationResources = {
       planCount_other: "{{count}} planes",
     },
     board: {
-      reviewEnable: "Requerir revisión",
-      reviewDisable: "No requerir revisión",
+      reviewRequire: "Exigir revisión",
+      archiveOnDone: "Archivar espacios de trabajo al terminar",
       menu: "Acciones del tablero",
       createOrchestrator: "Crear orquestador",
     },

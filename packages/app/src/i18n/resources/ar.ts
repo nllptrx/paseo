@@ -965,6 +965,7 @@ export const ar: TranslationResources = {
       nothingToRun: "لا يوجد سير عمل ولا إعدادات محفوظة على هذه اللوحة بعد.",
     },
     feed: {
+      everyoneHint: "كل من يعمل على هذه اللوحة",
       empty: "لا يوجد شيء على هذه اللوحة بعد",
       loadError: "تعذّر تحميل التدفق",
       composerPlaceholder: "اكتب على اللوحة",
@@ -1121,8 +1122,8 @@ export const ar: TranslationResources = {
       planCount_other: "{{count}} خطط",
     },
     board: {
-      reviewEnable: "طلب المراجعة",
-      reviewDisable: "عدم طلب المراجعة",
+      reviewRequire: "اشتراط المراجعة",
+      archiveOnDone: "أرشفة مساحات العمل عند الانتهاء",
       menu: "إجراءات اللوحة",
       createOrchestrator: "إنشاء المنسق",
     },
