@@ -945,13 +945,10 @@ export const ja: TranslationResources = {
   },
   tasks: {
     presets: {
+      agentLabel: "エージェント",
+      agentHint: "どのエージェントがどのモデルで作業するか。",
       nameLabel: "名前",
-      providerLabel: "プロバイダー",
       providerPlaceholder: "プロバイダーを選択",
-      providerEmpty: "利用できるプロバイダーがありません",
-      modelLabel: "モデル",
-      modelHint: "任意。空の場合はプロバイダーの既定モデルを使います。",
-      modelPlaceholder: "opus",
       environmentLabel: "実行場所",
       instructionsLabel: "指示",
       confirmDeleteTitle: "プリセットを削除",
@@ -1033,6 +1030,7 @@ export const ja: TranslationResources = {
       noProject: "このタスクを入れるプロジェクトがありません",
     },
     workflow: {
+      agentLabel: "エージェント",
       evidenceLabel: "証跡",
       evidenceHint: "停止したエージェントは、何かをしたエージェントではありません。",
       requireChanges: "変更を必須にする",
@@ -1048,7 +1046,6 @@ export const ja: TranslationResources = {
       promptLabel: "Prompt",
       promptHint: "このステップのエージェントが従う指示です。",
       promptPlaceholder: "エージェントは何をすべきですか？",
-      providerLabel: "プロバイダー",
       providerPlaceholder: "プロバイダーを選択",
       providerEmptyText: "利用できるプロバイダーがありません",
       addStep: "ステップを追加",

@@ -956,13 +956,10 @@ export const ptBR: TranslationResources = {
   },
   tasks: {
     presets: {
+      agentLabel: "Agente",
+      agentHint: "Qual agente faz o trabalho, e com qual modelo.",
       nameLabel: "Nome",
-      providerLabel: "Provedor",
       providerPlaceholder: "Escolha um provedor",
-      providerEmpty: "Nenhum provedor disponível",
-      modelLabel: "Modelo",
-      modelHint: "Opcional. Vazio usa o modelo padrão do provedor.",
-      modelPlaceholder: "opus",
       environmentLabel: "Executa em",
       instructionsLabel: "Instruções",
       confirmDeleteTitle: "Excluir predefinição",
@@ -1044,6 +1041,7 @@ export const ptBR: TranslationResources = {
       noProject: "Nenhum projeto para colocar esta tarefa",
     },
     workflow: {
+      agentLabel: "Agente",
       evidenceLabel: "Evidência",
       evidenceHint: "Um agente que parou não é um agente que fez algo.",
       requireChanges: "Exigir mudanças",
@@ -1059,7 +1057,6 @@ export const ptBR: TranslationResources = {
       promptLabel: "Prompt",
       promptHint: "As instruções com que o agente da etapa trabalha.",
       promptPlaceholder: "O que o agente deve fazer?",
-      providerLabel: "Provedor",
       providerPlaceholder: "Escolha um provedor",
       providerEmptyText: "Nenhum provedor disponível",
       addStep: "Adicionar etapa",

@@ -7,16 +7,13 @@ import type { TaskPreset } from "@getpaseo/protocol/tasks/types";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
+import { AgentModelField } from "@/components/agents/agent-model-field";
 import { Field, FormTextInput } from "@/components/ui/form-field";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { SelectField } from "@/components/ui/select-field";
 import { useToast } from "@/contexts/toast-context";
 import { confirmDialog } from "@/utils/confirm-dialog";
-import {
-  resolveProviderLabel,
-  useTaskAvailableProviders,
-} from "@/tasks/use-task-available-providers";
+import { resolveProviderLabel } from "@/tasks/use-task-available-providers";
 import { useTaskPresetMutations, useTaskPresets } from "@/tasks/use-task-delegate";
 import { toErrorMessage } from "@/utils/error-messages";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -59,26 +56,13 @@ function OpenTaskPresetsSheet({
   const toast = useToast();
   const { presets, isLoading } = useTaskPresets(serverId);
   const { createPreset, deletePreset, isBusy } = useTaskPresetMutations(serverId);
-  const { providers } = useTaskAvailableProviders(serverId);
 
   const [name, setName] = useState("");
-  const [model, setModel] = useState("");
+  const [model, setModel] = useState<string | null>(null);
   const [instructions, setInstructions] = useState("");
-  const [provider, setProvider] = useState<string | null>(null);
+  const [provider, setProvider] = useState<AgentProvider | null>(null);
   const [environmentKind, setEnvironmentKind] = useState<EnvironmentKind>("new_worktree");
 
-  const providerChoices = useMemo(
-    () =>
-      (providers ?? [])
-        .filter((entry) => entry.available)
-        .map((entry) => ({
-          id: entry.provider,
-          value: entry.provider,
-          label: resolveProviderLabel(entry.provider),
-          testID: `task-presets-provider-${entry.provider}`,
-        })),
-    [providers],
-  );
   const environmentOptions = useMemo(
     () => [
       {
@@ -94,33 +78,29 @@ function OpenTaskPresetsSheet({
     ],
     [t],
   );
-  const selectedProvider =
-    providerChoices.find((choice) => choice.value === provider)?.value ??
-    providerChoices[0]?.value ??
-    null;
-  const canSave = name.trim().length > 0 && selectedProvider !== null && !isBusy;
+  const canSave = name.trim().length > 0 && provider !== null && !isBusy;
 
   const handleSave = useCallback(() => {
-    if (!canSave || !selectedProvider) {
+    if (!canSave || !provider) {
       return;
     }
     void (async () => {
       try {
         await createPreset({
           name: name.trim(),
-          provider: selectedProvider,
-          model: model.trim() || null,
+          provider: provider,
+          model,
           instructions: instructions.trim(),
           environmentKind,
         });
         setName("");
-        setModel("");
+        setModel(null);
         setInstructions("");
       } catch (error) {
         toast.show(toErrorMessage(error));
       }
     })();
-  }, [canSave, createPreset, environmentKind, instructions, model, name, selectedProvider, toast]);
+  }, [canSave, createPreset, environmentKind, instructions, model, name, provider, toast]);
 
   const handleDelete = useCallback(
     (preset: TaskPreset) => {
@@ -144,10 +124,12 @@ function OpenTaskPresetsSheet({
     [deletePreset, t, toast],
   );
 
-  const selectedProviderDisplay = useMemo(
-    () =>
-      selectedProvider ? { label: resolveProviderLabel(selectedProvider as AgentProvider) } : null,
-    [selectedProvider],
+  const handleSelectAgent = useCallback(
+    (selection: { provider: AgentProvider; model: string | null }) => {
+      setProvider(selection.provider);
+      setModel(selection.model);
+    },
+    [],
   );
 
   const header = useMemo(() => ({ title: t("tasks.presets.title") }), [t]);
@@ -172,32 +154,16 @@ function OpenTaskPresetsSheet({
               testID="task-presets-name-input"
             />
           </Field>
-          <SelectField
-            label={t("tasks.presets.providerLabel")}
-            value={selectedProvider}
-            selectedDisplay={selectedProviderDisplay}
-            options={providerChoices}
-            onChange={setProvider}
+          <AgentModelField
+            serverId={serverId}
+            label={t("tasks.presets.agentLabel")}
+            hint={t("tasks.presets.agentHint")}
+            provider={provider}
+            model={model}
+            onSelect={handleSelectAgent}
             placeholder={t("tasks.presets.providerPlaceholder")}
-            emptyText={t("tasks.presets.providerEmpty")}
-            loading={providers === null}
-            testID="task-presets-provider"
-            triggerTestID="task-presets-provider-trigger"
+            testID="task-presets-agent"
           />
-          <Field
-            label={t("tasks.presets.modelLabel")}
-            hint={t("tasks.presets.modelHint")}
-            testID="task-presets-model"
-          >
-            <FormTextInput
-              value={model}
-              onChangeText={setModel}
-              placeholder={t("tasks.presets.modelPlaceholder")}
-              autoCapitalize="none"
-              autoCorrect={false}
-              testID="task-presets-model-input"
-            />
-          </Field>
           <Field label={t("tasks.presets.environmentLabel")} testID="task-presets-environment">
             <SegmentedControl
               options={environmentOptions}

@@ -944,13 +944,10 @@ export const en = {
   },
   tasks: {
     presets: {
+      agentLabel: "Agent",
+      agentHint: "Which agent runs the work, and on which model.",
       nameLabel: "Name",
-      providerLabel: "Provider",
       providerPlaceholder: "Choose a provider",
-      providerEmpty: "No available providers",
-      modelLabel: "Model",
-      modelHint: "Optional. Empty runs the provider's default.",
-      modelPlaceholder: "opus",
       environmentLabel: "Runs in",
       instructionsLabel: "Instructions",
       confirmDeleteTitle: "Delete preset",
@@ -1032,6 +1029,7 @@ export const en = {
       noProject: "No project to put this task in",
     },
     workflow: {
+      agentLabel: "Agent",
       evidenceLabel: "Evidence",
       evidenceHint: "An agent that stopped is not an agent that did something.",
       requireChanges: "Require changes",
@@ -1047,7 +1045,6 @@ export const en = {
       promptLabel: "Prompt",
       promptHint: "The instructions the step's agent runs on.",
       promptPlaceholder: "What should the agent do?",
-      providerLabel: "Provider",
       providerPlaceholder: "Choose a provider",
       providerEmptyText: "No available providers",
       addStep: "Add step",

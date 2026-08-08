@@ -956,13 +956,10 @@ export const ru: TranslationResources = {
   },
   tasks: {
     presets: {
+      agentLabel: "Агент",
+      agentHint: "Какой агент выполняет работу и на какой модели.",
       nameLabel: "Название",
-      providerLabel: "Провайдер",
       providerPlaceholder: "Выберите провайдера",
-      providerEmpty: "Нет доступных провайдеров",
-      modelLabel: "Модель",
-      modelHint: "Необязательно. Пусто — модель провайдера по умолчанию.",
-      modelPlaceholder: "opus",
       environmentLabel: "Где выполняется",
       instructionsLabel: "Инструкции",
       confirmDeleteTitle: "Удалить пресет",
@@ -1044,6 +1041,7 @@ export const ru: TranslationResources = {
       noProject: "Нет проекта для этой задачи",
     },
     workflow: {
+      agentLabel: "Агент",
       evidenceLabel: "Подтверждение",
       evidenceHint: "Агент, который остановился, — это не агент, который что-то сделал.",
       requireChanges: "Требовать изменения",
@@ -1059,7 +1057,6 @@ export const ru: TranslationResources = {
       promptLabel: "Prompt",
       promptHint: "Инструкции, по которым работает агент шага.",
       promptPlaceholder: "Что должен сделать агент?",
-      providerLabel: "Провайдер",
       providerPlaceholder: "Выберите провайдера",
       providerEmptyText: "Нет доступных провайдеров",
       addStep: "Добавить шаг",

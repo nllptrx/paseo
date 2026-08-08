@@ -6,6 +6,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
+import { AgentModelField } from "@/components/agents/agent-model-field";
 import { SelectField } from "@/components/ui/select-field";
 import { Switch } from "@/components/ui/switch";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -14,7 +15,6 @@ import {
   TASK_WORKFLOW_TRIGGER_TYPES,
   TASK_WORKFLOW_WORKSPACE_LABEL_KEYS,
   TASK_WORKFLOW_WORKSPACE_MODES,
-  resolveProviderDisplay,
   type TaskWorkflowFormModel,
   type TaskWorkflowFormState,
   type TaskWorkflowFormStep,
@@ -55,8 +55,9 @@ export function TaskWorkflowStepEditor({
     (value: string) => model.setStepPrompt(key, value),
     [key, model],
   );
-  const handleProvider = useCallback(
-    (provider: AgentProvider) => model.setStepAgent(key, { provider, model: null }),
+  const handleAgent = useCallback(
+    (selection: { provider: AgentProvider; model: string | null }) =>
+      model.setStepAgent(key, selection),
     [key, model],
   );
   const handleWorkspace = useCallback(
@@ -189,17 +190,14 @@ export function TaskWorkflowStepEditor({
         />
       </Field>
 
-      <SelectField
-        label={t("tasks.workflow.providerLabel")}
-        value={step.provider}
-        selectedDisplay={resolveProviderDisplay(state.providerOptions, step.provider)}
-        options={state.providerOptions}
-        onChange={handleProvider}
+      <AgentModelField
+        serverId={state.serverId}
+        label={t("tasks.workflow.agentLabel")}
+        provider={step.provider}
+        model={step.model}
+        onSelect={handleAgent}
         placeholder={t("tasks.workflow.providerPlaceholder")}
-        emptyText={t("tasks.workflow.providerEmptyText")}
-        loading={state.providerResolutionStatus === "pending"}
-        testID={`task-workflow-form-provider-${index}`}
-        triggerTestID={`task-workflow-form-provider-trigger-${index}`}
+        testID={`task-workflow-form-agent-${index}`}
       />
 
       <View style={styles.row}>

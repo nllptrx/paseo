@@ -965,13 +965,10 @@ export const es: TranslationResources = {
   },
   tasks: {
     presets: {
+      agentLabel: "Agente",
+      agentHint: "Qué agente hace el trabajo, y con qué modelo.",
       nameLabel: "Nombre",
-      providerLabel: "Proveedor",
       providerPlaceholder: "Elige un proveedor",
-      providerEmpty: "No hay proveedores disponibles",
-      modelLabel: "Modelo",
-      modelHint: "Opcional. Vacío usa el modelo por defecto del proveedor.",
-      modelPlaceholder: "opus",
       environmentLabel: "Se ejecuta en",
       instructionsLabel: "Instrucciones",
       confirmDeleteTitle: "Eliminar ajuste",
@@ -1053,6 +1050,7 @@ export const es: TranslationResources = {
       noProject: "No hay proyecto donde poner esta tarea",
     },
     workflow: {
+      agentLabel: "Agente",
       evidenceLabel: "Evidencia",
       evidenceHint: "Un agente que se detuvo no es un agente que hizo algo.",
       requireChanges: "Exigir cambios",
@@ -1068,7 +1066,6 @@ export const es: TranslationResources = {
       promptLabel: "Prompt",
       promptHint: "Las instrucciones con las que trabaja el agente del paso.",
       promptPlaceholder: "¿Qué debe hacer el agente?",
-      providerLabel: "Proveedor",
       providerPlaceholder: "Elige un proveedor",
       providerEmptyText: "No hay proveedores disponibles",
       addStep: "Añadir paso",

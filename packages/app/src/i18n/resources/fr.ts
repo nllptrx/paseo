@@ -964,13 +964,10 @@ export const fr: TranslationResources = {
   },
   tasks: {
     presets: {
+      agentLabel: "Agent",
+      agentHint: "Quel agent effectue le travail, et avec quel modèle.",
       nameLabel: "Nom",
-      providerLabel: "Fournisseur",
       providerPlaceholder: "Choisir un fournisseur",
-      providerEmpty: "Aucun fournisseur disponible",
-      modelLabel: "Modèle",
-      modelHint: "Facultatif. Vide utilise le modèle par défaut du fournisseur.",
-      modelPlaceholder: "opus",
       environmentLabel: "S'exécute dans",
       instructionsLabel: "Instructions",
       confirmDeleteTitle: "Supprimer le préréglage",
@@ -1054,6 +1051,7 @@ export const fr: TranslationResources = {
       noProject: "Aucun projet où placer cette tâche",
     },
     workflow: {
+      agentLabel: "Agent",
       evidenceLabel: "Preuves",
       evidenceHint: "Un agent qui s'est arrêté n'est pas un agent qui a fait quelque chose.",
       requireChanges: "Exiger des modifications",
@@ -1069,7 +1067,6 @@ export const fr: TranslationResources = {
       promptLabel: "Prompt",
       promptHint: "Les instructions sur lesquelles l'agent de l'étape travaille.",
       promptPlaceholder: "Que doit faire l'agent ?",
-      providerLabel: "Fournisseur",
       providerPlaceholder: "Choisir un fournisseur",
       providerEmptyText: "Aucun fournisseur disponible",
       addStep: "Ajouter une étape",

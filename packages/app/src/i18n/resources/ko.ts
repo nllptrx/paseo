@@ -941,13 +941,10 @@ export const ko: TranslationResources = {
   },
   tasks: {
     presets: {
+      agentLabel: "에이전트",
+      agentHint: "어느 에이전트가 어느 모델로 작업하는지.",
       nameLabel: "이름",
-      providerLabel: "제공자",
       providerPlaceholder: "제공자 선택",
-      providerEmpty: "사용할 수 있는 제공자가 없습니다",
-      modelLabel: "모델",
-      modelHint: "선택 사항. 비우면 제공자 기본 모델을 쓰집니다.",
-      modelPlaceholder: "opus",
       environmentLabel: "실행 위치",
       instructionsLabel: "지침",
       confirmDeleteTitle: "프리셋 삭제",
@@ -1029,6 +1026,7 @@ export const ko: TranslationResources = {
       noProject: "이 태스크를 넣을 프로젝트가 없습니다",
     },
     workflow: {
+      agentLabel: "에이전트",
       evidenceLabel: "증거",
       evidenceHint: "멈춘 에이전트가 무언가를 한 에이전트는 아닙니다.",
       requireChanges: "변경 필수",
@@ -1044,7 +1042,6 @@ export const ko: TranslationResources = {
       promptLabel: "Prompt",
       promptHint: "이 단계의 에이전트가 따르는 지침입니다.",
       promptPlaceholder: "에이전트가 무엇을 해야 하나요?",
-      providerLabel: "제공자",
       providerPlaceholder: "제공자 선택",
       providerEmptyText: "사용할 수 있는 제공자가 없습니다",
       addStep: "단계 추가",

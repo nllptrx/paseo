@@ -926,13 +926,10 @@ export const zhCN: TranslationResources = {
   },
   tasks: {
     presets: {
+      agentLabel: "Agent",
+      agentHint: "由哪个 Agent、用哪个模型来做。",
       nameLabel: "名称",
-      providerLabel: "提供方",
       providerPlaceholder: "选择提供方",
-      providerEmpty: "没有可用的提供方",
-      modelLabel: "模型",
-      modelHint: "可选。留空则使用提供方的默认模型。",
-      modelPlaceholder: "opus",
       environmentLabel: "运行于",
       instructionsLabel: "说明",
       confirmDeleteTitle: "删除预设",
@@ -1014,6 +1011,7 @@ export const zhCN: TranslationResources = {
       noProject: "没有可放置此任务的项目",
     },
     workflow: {
+      agentLabel: "Agent",
       evidenceLabel: "证据",
       evidenceHint: "停下来的 Agent 并不等于做了事的 Agent。",
       requireChanges: "必须有改动",
@@ -1029,7 +1027,6 @@ export const zhCN: TranslationResources = {
       promptLabel: "Prompt",
       promptHint: "该步骤的 Agent 依据的指令。",
       promptPlaceholder: "Agent 应该做什么？",
-      providerLabel: "提供方",
       providerPlaceholder: "选择提供方",
       providerEmptyText: "没有可用的提供方",
       addStep: "添加步骤",

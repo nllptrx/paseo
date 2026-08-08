@@ -934,13 +934,10 @@ export const ar: TranslationResources = {
   },
   tasks: {
     presets: {
+      agentLabel: "الوكيل",
+      agentHint: "أي وكيل ينفّذ العمل، وبأي نموذج.",
       nameLabel: "الاسم",
-      providerLabel: "المزوّد",
       providerPlaceholder: "اختر مزوّدًا",
-      providerEmpty: "لا يوجد مزوّدون متاحون",
-      modelLabel: "النموذج",
-      modelHint: "اختياري. الفراغ يستخدم النموذج الافتراضي للمزوّد.",
-      modelPlaceholder: "opus",
       environmentLabel: "يُنفّذ في",
       instructionsLabel: "التعليمات",
       confirmDeleteTitle: "حذف الإعداد",
@@ -1022,6 +1019,7 @@ export const ar: TranslationResources = {
       noProject: "لا يوجد مشروع لوضع هذه المهمة فيه",
     },
     workflow: {
+      agentLabel: "الوكيل",
       evidenceLabel: "الدليل",
       evidenceHint: "الوكيل الذي توقف ليس وكيلًا أنجز شيئًا.",
       requireChanges: "اشترط وجود تغييرات",
@@ -1037,7 +1035,6 @@ export const ar: TranslationResources = {
       promptLabel: "Prompt",
       promptHint: "التعليمات التي يعمل بها وكيل الخطوة.",
       promptPlaceholder: "ما الذي يجب أن يفعله الوكيل؟",
-      providerLabel: "المزوّد",
       providerPlaceholder: "اختر مزوّدًا",
       providerEmptyText: "لا يوجد مزوّدون متاحون",
       addStep: "إضافة خطوة",
