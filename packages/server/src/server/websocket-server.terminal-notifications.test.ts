@@ -8,8 +8,6 @@ import type { DaemonConfigStore } from "./daemon-config-store.js";
 import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
-import type { KanbanEngine } from "./kanban/engine.js";
-import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import type {
   TerminalActivityListener,
@@ -161,7 +159,6 @@ function createServer(terminalManager: TerminalManager, workspaceRegistry?: Work
     createStub<FileBackedChatService>({}),
     createStub<LoopService>({}),
     createStub<ScheduleService>({}),
-    createStub<KanbanService>({}),
     createStub<CheckoutDiffManager>({
       subscribe: vi.fn(),
       scheduleRefreshForCwd: vi.fn(),
@@ -187,7 +184,6 @@ function createServer(terminalManager: TerminalManager, workspaceRegistry?: Work
     undefined,
     undefined,
     undefined,
-    createStub<KanbanEngine>({}),
   );
 
   return { server, pushNotifications };

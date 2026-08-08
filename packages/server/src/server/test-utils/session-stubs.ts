@@ -61,14 +61,6 @@ export function asScheduleService(): SessionOptions["scheduleService"] {
   return createStub<SessionOptions["scheduleService"]>({});
 }
 
-export function asKanbanService(): SessionOptions["kanbanService"] {
-  return createStub<SessionOptions["kanbanService"]>({});
-}
-
-export function asKanbanEngine(): SessionOptions["kanbanEngine"] {
-  return createStub<SessionOptions["kanbanEngine"]>({});
-}
-
 export function asLoopService(): SessionOptions["loopService"] {
   return createStub<SessionOptions["loopService"]>({});
 }

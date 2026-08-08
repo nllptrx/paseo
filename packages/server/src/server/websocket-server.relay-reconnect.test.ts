@@ -8,8 +8,6 @@ import type { DaemonConfigStore } from "./daemon-config-store.js";
 import type { FileBackedChatService } from "./chat/chat-service.js";
 import type { LoopService } from "./loop-service.js";
 import type { ScheduleService } from "./schedule/service.js";
-import type { KanbanEngine } from "./kanban/engine.js";
-import type { KanbanService } from "./kanban/service.js";
 import type { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import type { WorkspaceAutoName } from "./workspace-auto-name.js";
 import { asInternals, createStub } from "./test-utils/class-mocks.js";
@@ -286,7 +284,6 @@ function createServer(options?: {
     createStub<FileBackedChatService>({}),
     createStub<LoopService>({}),
     createStub<ScheduleService>({}),
-    createStub<KanbanService>({}),
     createStub<CheckoutDiffManager>({
       subscribe: vi.fn(),
       scheduleRefreshForCwd: vi.fn(),
@@ -312,7 +309,6 @@ function createServer(options?: {
     undefined,
     undefined,
     undefined,
-    createStub<KanbanEngine>({}),
   );
 }
 
