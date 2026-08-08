@@ -5,6 +5,13 @@
 - Node.js (see `.tool-versions` for exact version)
 - npm workspaces (comes with Node)
 
+`@types/node` stays on the major the code actually runs on, and every workspace
+declares it — a workspace that doesn't gets whichever version some transitive
+dependency happened to hoist, and then typechecks against a runtime nobody
+ships. That is `^22` everywhere except `packages/desktop`, whose main process
+runs inside Electron's own Node (41.2.0 bundles 24.14.0). Bump Electron and its
+types move with it.
+
 ## Running the dev server
 
 ```bash
