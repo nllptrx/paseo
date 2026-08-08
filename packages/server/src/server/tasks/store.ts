@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import type { Logger } from "pino";
 import { z } from "zod";
 import { StepSchema, type Step, type TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 
@@ -183,6 +184,7 @@ function toPreset(row: TaskPresetRow): TaskPreset {
  */
 export async function openTaskStore(input: {
   databasePath: string;
+  logger: Logger;
   now?: () => Date;
 }): Promise<TaskStore> {
   const { DatabaseSync } = await import("node:sqlite");
@@ -191,6 +193,7 @@ export async function openTaskStore(input: {
   }
   return new TaskStore({
     database: new DatabaseSync(input.databasePath),
+    logger: input.logger,
     ...(input.now ? { now: input.now } : {}),
   });
 }
@@ -203,9 +206,11 @@ export async function openTaskStore(input: {
 export class TaskStore {
   private readonly db: DatabaseSync;
   private readonly now: () => Date;
+  private readonly logger: Logger;
 
-  constructor(input: { database: DatabaseSync; now?: () => Date }) {
+  constructor(input: { database: DatabaseSync; logger: Logger; now?: () => Date }) {
     this.db = input.database;
+    this.logger = input.logger;
     this.now = input.now ?? (() => new Date());
     migrateTasksDatabase(this.db);
   }
@@ -225,7 +230,14 @@ export class TaskStore {
       this.db.exec("COMMIT");
       return result;
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      try {
+        this.db.exec("ROLLBACK");
+      } catch (rollbackError) {
+        this.logger.error(
+          { err: rollbackError },
+          "Failed to roll back a tracker transaction after an error",
+        );
+      }
       throw error;
     }
   }
@@ -589,11 +601,26 @@ export class TaskStore {
   }
 
   listWorkflows(): TaskWorkflow[] {
-    return selectAll(
+    const workflows: TaskWorkflow[] = [];
+    const rows = selectAll(
       this.db.prepare("SELECT * FROM task_workflows ORDER BY task_id"),
       TaskWorkflowRowSchema,
       "task_workflows",
-    ).map(toWorkflow);
+    );
+    for (const row of rows) {
+      try {
+        workflows.push(toWorkflow(row));
+      } catch (error) {
+        // One card's stored steps being unreadable is that card's problem. It
+        // must not take the board's other workflows down with it, and this list
+        // is what recovery reads at boot.
+        this.logger.error(
+          { err: error, taskId: row.task_id },
+          "Skipped a workflow whose stored steps could not be read",
+        );
+      }
+    }
+    return workflows;
   }
 
   setWorkflow(input: { taskId: string; steps: readonly Step[] }): TaskWorkflow {

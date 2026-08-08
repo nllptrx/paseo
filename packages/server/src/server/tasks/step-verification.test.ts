@@ -98,7 +98,23 @@ describe("checkStepEvidence", () => {
     const result = await checkStepEvidence({
       cwd,
       requireChanges: false,
-      verify: { command: ["node", "-e", "process.exit(process.argv[1] ? 0 : 0)", "; rm -rf ."] },
+      verify: {
+        command: [
+          "node",
+          "-e",
+          "process.exit(process.argv[1] === '; rm -rf .' ? 0 : 1)",
+          "; rm -rf .",
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("reports a command that writes more than the host will buffer", async () => {
+    const result = await checkStepEvidence({
+      cwd,
+      requireChanges: false,
+      verify: { command: ["node", "-e", "console.log('x'.repeat(64 * 1024)); process.exit(0)"] },
     });
     expect(result.ok).toBe(true);
   });

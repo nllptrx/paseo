@@ -202,12 +202,13 @@ export function TaskBoard({
         overTaskId: overColumn === null ? overId : null,
       });
       const neighbours = resolveTaskDropNeighbours(drop.tasks, drop.index);
-      // A drop back onto its own slot changes nothing; skip the write.
-      if (
-        dragged.status === targetStatus &&
-        (neighbours.beforePosition === dragged.position ||
-          neighbours.afterPosition === dragged.position)
-      ) {
+      // A drop back onto its own slot changes nothing; skip the write. The slot
+      // is what has to match — a neighbour merely sharing the dragged card's
+      // position would also swallow a real move onto the far side of it.
+      const originalIndex = (byStatus.get(dragged.status) ?? []).findIndex(
+        (task) => task.id === activeId,
+      );
+      if (dragged.status === targetStatus && drop.index === originalIndex) {
         return;
       }
       const move: TaskBoardMove = {

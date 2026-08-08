@@ -487,6 +487,23 @@ describe("TaskWorkflowEngine", () => {
     expect(secondStep?.runs[0].agentIds).toHaveLength(1);
   });
 
+  /** The tracker that marks a slot taken is only registered after the
+   * workspaces are resolved and the agents created. Two dispatches racing
+   * through that window both used to read the same free slot. */
+  test("holds the cap against dispatches that start together", async () => {
+    const capped = new TaskWorkflowEngine({ ...engineDeps(), maxConcurrentRuns: 1 });
+    const first = await seedWorkflow([makeStepInput()]);
+    const second = await seedWorkflow([makeStepInput()]);
+
+    const [one, two] = await Promise.all([
+      capped.runStep({ taskId: first.taskId, stepId: first.stepIds[0] }),
+      capped.runStep({ taskId: second.taskId, stepId: second.stepIds[0] }),
+    ]);
+
+    const statuses = [one.runs[0].status, two.runs[0].status].sort();
+    expect(statuses).toEqual(["queued", "running"]);
+  });
+
   /** A queue only a live process knows about is a queue a crash erases. */
   test("starts a run left queued by a crash at boot", async () => {
     const capped = new TaskWorkflowEngine({ ...engineDeps(), maxConcurrentRuns: 1 });

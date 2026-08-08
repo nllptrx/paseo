@@ -2431,7 +2431,25 @@ export class Session {
   private dispatchTasksMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     const session = this.tasksSession;
     if (!session) {
-      return undefined;
+      // A host without a tracker still has to answer. Falling through would
+      // leave the request with no reply at all, and a client waiting forever
+      // is worse than one told the feature is not here.
+      if (!msg.type.startsWith("tasks.")) {
+        return undefined;
+      }
+      const requestId = sessionRequestId(msg);
+      if (requestId) {
+        this.emit({
+          type: "rpc_error",
+          payload: {
+            requestId,
+            requestType: msg.type,
+            error: "This host has no task tracker. Update or check the daemon's tracker support.",
+            code: "unsupported",
+          },
+        });
+      }
+      return Promise.resolve();
     }
     switch (msg.type) {
       case "tasks.snapshot.request":

@@ -4,6 +4,13 @@ import { runGitCommand } from "../../utils/run-git-command.js";
 
 /** Enough of the tail to say what failed without pasting a build log into a run. */
 const MAX_CAPTURED_OUTPUT_BYTES = 8_000;
+/**
+ * How much the command may write before the host kills it. Far above what a run
+ * reports, because these are different limits: a test suite that prints a
+ * megabyte and exits zero has passed, and reading only its last 8KB must not
+ * turn that into a failure.
+ */
+const MAX_COMMAND_OUTPUT_BYTES = 32 * 1024 * 1024;
 export const DEFAULT_VERIFY_TIMEOUT_MS = 10 * 60 * 1_000;
 
 export interface StepEvidenceResult {
@@ -108,7 +115,7 @@ function runVerifyCommand(input: {
       {
         cwd: input.cwd,
         timeout,
-        maxBuffer: MAX_CAPTURED_OUTPUT_BYTES,
+        maxBuffer: MAX_COMMAND_OUTPUT_BYTES,
         // No shell: the command is an argv the author wrote, not a string this
         // host interpolates into one.
         shell: false,
@@ -120,9 +127,7 @@ function runVerifyCommand(input: {
           return;
         }
         const output = `${stdout}${stderr}`.trim().slice(-MAX_CAPTURED_OUTPUT_BYTES);
-        const reason = isTimeout(error)
-          ? `did not finish within ${timeout}ms`
-          : `exited with ${describeExit(error)}`;
+        const reason = describeFailure(error, timeout);
         resolve({
           ok: false,
           error: `Verification \`${input.verify.command.join(" ")}\` ${reason}${
@@ -134,8 +139,24 @@ function runVerifyCommand(input: {
   });
 }
 
+function describeFailure(error: ExecFileException, timeout: number): string {
+  if (isOutputOverflow(error)) {
+    return `wrote more than ${MAX_COMMAND_OUTPUT_BYTES} bytes and was stopped`;
+  }
+  if (isTimeout(error)) {
+    return `did not finish within ${timeout}ms`;
+  }
+  return `exited with ${describeExit(error)}`;
+}
+
+function isOutputOverflow(error: ExecFileException): boolean {
+  return error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+}
+
+/** A kill this host ordered, rather than a command that chose to exit. The
+ * overflow kill looks identical apart from its code, so it is excluded. */
 function isTimeout(error: ExecFileException): boolean {
-  return error.killed === true || error.code === "ETIMEDOUT";
+  return !isOutputOverflow(error) && (error.killed === true || error.code === "ETIMEDOUT");
 }
 
 function describeExit(error: ExecFileException): string {

@@ -189,6 +189,7 @@ export class TaskWorkflowEngine {
   private readonly logger: Logger;
   private readonly now: () => Date;
   private readonly runTrackers = new Map<string, RunTracker>();
+  private readonly reservedRunIds = new Set<string>();
   private readonly maxConcurrentRuns: number;
   private draining = false;
   private onWorkflowSettled: ((taskId: string) => void) | null = null;
@@ -341,7 +342,7 @@ export class TaskWorkflowEngine {
     // lifecycle through "idle" the same way finishing does, which would
     // otherwise race the completion observer into reporting a spurious
     // "finished" and writing over this cancellation.
-    this.discardTracker(latest.id);
+    this.clearTracker(latest.id);
     for (const agentId of latest.agentIds) {
       try {
         await cancelAgentRunCommand(
@@ -787,8 +788,14 @@ export class TaskWorkflowEngine {
     return resolved;
   }
 
+  /**
+   * A slot is taken from the moment a dispatch commits to it, not from the
+   * moment its tracker exists. Registering the tracker happens after the
+   * workspaces are resolved and the agents are created, and two dispatches
+   * racing through that gap would both read the same free slot.
+   */
   private hasFreeSlot(): boolean {
-    return this.runTrackers.size < this.maxConcurrentRuns;
+    return this.runTrackers.size + this.reservedRunIds.size < this.maxConcurrentRuns;
   }
 
   /**
@@ -922,12 +929,27 @@ export class TaskWorkflowEngine {
     if (!this.hasFreeSlot()) {
       return this.enqueueRun(identifier, reuseWorkspaceIds);
     }
+    const runId = randomUUID();
+    this.reservedRunIds.add(runId);
+    try {
+      return await this.dispatchReservedRun(identifier, steps, stepIndex, reuseWorkspaceIds, runId);
+    } finally {
+      this.reservedRunIds.delete(runId);
+    }
+  }
+
+  private async dispatchReservedRun(
+    identifier: TaskStepIdentifier,
+    steps: Step[],
+    stepIndex: number,
+    reuseWorkspaceIds: string[] | null,
+    runId: string,
+  ): Promise<Step> {
     const step = steps[stepIndex];
     const targets = reuseWorkspaceIds
       ? await this.resolveTargetsFromWorkspaceIds(reuseWorkspaceIds, step.agents.length)
       : await this.resolveTargetsForStep(identifier, steps, stepIndex, step.agents.length);
 
-    const runId = randomUUID();
     const labels = stepRunLabels(identifier.taskId, step.id, runId);
     const agentIds: string[] = [];
     let creationError: string | null = null;
@@ -1246,22 +1268,27 @@ export class TaskWorkflowEngine {
     });
   }
 
-  private discardTracker(runId: string): void {
+  /**
+   * Drops a run's tracker and everything it holds open.
+   *
+   * The unsubscribes are not optional cleanup. The first failing agent settles
+   * the whole run while its siblings are still working — they are not killed —
+   * so by the time they reach a terminal lifecycle the tracker is already gone
+   * and their handlers return early, leaving their subscriptions attached to
+   * the agent manager for the life of the process.
+   */
+  private clearTracker(runId: string): void {
     const tracker = this.runTrackers.get(runId);
     if (!tracker) {
       return;
     }
+    if (tracker.timeout) {
+      clearTimeout(tracker.timeout);
+    }
     for (const unsubscribe of tracker.unsubscribes.values()) {
       unsubscribe();
     }
-    this.clearTracker(runId);
-  }
-
-  private clearTracker(runId: string): void {
-    const tracker = this.runTrackers.get(runId);
-    if (tracker?.timeout) {
-      clearTimeout(tracker.timeout);
-    }
+    tracker.unsubscribes.clear();
     this.runTrackers.delete(runId);
   }
 

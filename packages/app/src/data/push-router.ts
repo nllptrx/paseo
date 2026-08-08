@@ -492,12 +492,20 @@ function reconcileTasksSubscriptions(input: {
 
   if (desired && !input.active.has("tasks")) {
     input.active.set("tasks", desired);
-    void input.client.tasksSubscribe(`push-router:${input.serverId}:tasks`).catch((error) => {
-      if (input.active.get("tasks") === desired) {
-        input.active.delete("tasks");
-      }
-      console.error("[server-data] tasksSubscribe failed", { serverId: input.serverId, error });
-    });
+    void input.client
+      .tasksSubscribe(`push-router:${input.serverId}:tasks`)
+      .then((result) => {
+        if (result.error) {
+          throw new Error(result.error);
+        }
+        return result;
+      })
+      .catch((error) => {
+        if (input.active.get("tasks") === desired) {
+          input.active.delete("tasks");
+        }
+        console.error("[server-data] tasksSubscribe failed", { serverId: input.serverId, error });
+      });
   }
 }
 

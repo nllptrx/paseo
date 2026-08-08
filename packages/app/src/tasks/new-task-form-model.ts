@@ -1,11 +1,22 @@
 import type { TaskProject, TaskStatus } from "@getpaseo/protocol/tasks/types";
 
+/** The tracker stores prefixes uppercase and at most this long, so the form
+ * cannot let anything else through: past here the failure is a constraint
+ * violation with nothing to show the person who typed it. */
 const PREFIX_MAX_LENGTH = 8;
+const PREFIX_SUGGESTION_LENGTH = 3;
+
+export function normalizeTaskProjectPrefix(value: string): string {
+  return value
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase()
+    .slice(0, PREFIX_MAX_LENGTH);
+}
 
 /** `Paseo Mobile` → `PAS`: enough to read as a key, always editable before submit. */
 export function suggestTaskProjectPrefix(name: string): string {
   const letters = name.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  return letters.slice(0, Math.min(3, PREFIX_MAX_LENGTH));
+  return letters.slice(0, PREFIX_SUGGESTION_LENGTH);
 }
 
 export interface NewTaskFormSnapshot {
@@ -51,7 +62,11 @@ function resolveCanSubmit(state: NewTaskFormState): boolean {
     return false;
   }
   if (state.needsProject) {
-    return state.projectName.trim().length > 0 && state.prefix.trim().length > 0;
+    return (
+      state.projectName.trim().length > 0 &&
+      state.prefix.length > 0 &&
+      state.prefix.length <= PREFIX_MAX_LENGTH
+    );
   }
   return true;
 }
@@ -110,7 +125,7 @@ export function openNewTaskForm(snapshot: NewTaskFormSnapshot): NewTaskFormModel
       publish({ ...state, projectName: value, submitError: null });
     },
     setPrefix(value) {
-      publish({ ...state, prefix: value, submitError: null });
+      publish({ ...state, prefix: normalizeTaskProjectPrefix(value), submitError: null });
     },
     setSubmitting(value) {
       publish({ ...state, isSubmitting: value });

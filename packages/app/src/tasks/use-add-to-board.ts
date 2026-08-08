@@ -87,8 +87,15 @@ export function useSidebarAddToBoardAction(workspace: {
       return;
     }
     void (async () => {
+      // The mutation reports its own failures, so this waits on it outside the
+      // catch below rather than toasting the same error a second time.
+      const project = await ensureBoard
+        .mutateAsync({ serverId, projectId, projectName })
+        .catch(() => null);
+      if (!project) {
+        return;
+      }
       try {
-        const project = await ensureBoard.mutateAsync({ serverId, projectId, projectName });
         const client = runtime.getClient(serverId);
         if (!client) {
           throw new Error("Host disconnected");

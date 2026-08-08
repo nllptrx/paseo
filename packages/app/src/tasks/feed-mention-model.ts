@@ -83,6 +83,11 @@ export function applyMention(input: { body: string; mention: FeedMentionQuery; a
 } {
   const head = input.body.slice(0, input.mention.start);
   const tail = input.body.slice(input.mention.start + 1 + input.mention.term.length);
-  const inserted = `@${input.agentId} `;
-  return { body: `${head}${inserted}${tail}`, caret: head.length + inserted.length };
+  // Picking a name mid-sentence must not push a second space into it: the
+  // separator that is already there is the one the writer typed. Either way the
+  // caret lands past the separator, ready for the next word.
+  const reusesSeparator = tail.startsWith(" ");
+  const inserted = reusesSeparator ? `@${input.agentId}` : `@${input.agentId} `;
+  const caret = head.length + inserted.length + (reusesSeparator ? 1 : 0);
+  return { body: `${head}${inserted}${tail}`, caret };
 }

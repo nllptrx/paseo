@@ -2,13 +2,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TaskRowShapeError } from "./rows.js";
 import { openTaskStore, type TaskStore } from "./store.js";
 
+const logger = pino({ level: "silent" });
+
 async function createStore(): Promise<TaskStore> {
   let tick = 0;
   return openTaskStore({
+    logger,
     databasePath: ":memory:",
     now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)),
   });
@@ -272,7 +276,7 @@ describe("TaskStore row shape", () => {
    */
   it("names the table when the database on disk has a different shape", async () => {
     const databasePath = join(directory, "tasks.db");
-    const first = await openTaskStore({ databasePath });
+    const first = await openTaskStore({ databasePath, logger });
     const projectId = first.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
     first.createTask({ projectId, title: "Before the change" });
     first.close();
@@ -281,7 +285,7 @@ describe("TaskStore row shape", () => {
     raw.exec("ALTER TABLE tasks RENAME COLUMN priority TO importance");
     raw.close();
 
-    const second = await openTaskStore({ databasePath });
+    const second = await openTaskStore({ databasePath, logger });
     try {
       let thrown: unknown;
       try {
@@ -297,7 +301,7 @@ describe("TaskStore row shape", () => {
     }
   });
   it("defaults a new project's board to no review and no archiving", async () => {
-    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const project = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" });
       expect(project.board).toEqual({
@@ -313,7 +317,7 @@ describe("TaskStore row shape", () => {
   });
 
   it("keeps board settings the caller did not touch", async () => {
-    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const project = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" });
       store.configureBoard({ projectId: project.id, reviewOnReject: "backlog" });
@@ -330,7 +334,7 @@ describe("TaskStore row shape", () => {
   });
 
   it("replaces a task's workflow rather than accumulating them", async () => {
-    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
       const task = store.createTask({ projectId, title: "Ship it" });
@@ -358,7 +362,7 @@ describe("TaskStore row shape", () => {
   });
 
   it("deletes a task's workflow with the task", async () => {
-    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
       const task = store.createTask({ projectId, title: "Ship it" });
@@ -387,7 +391,7 @@ describe("TaskStore row shape", () => {
   /** The gate reads intent, so a blocker that was canceled stops blocking — it is
    * never going to be done, and leaving it to block would strand the dependent. */
   it("counts only unfinished blockers as unmet dependencies", async () => {
-    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
       const blocked = store.createTask({ projectId, title: "Depends" });
@@ -412,7 +416,7 @@ describe("TaskStore row shape", () => {
   /** One order for the whole board: a note typed at the board and a comment on a
    * card are the same kind of entry, and the feed is where they meet. */
   it("merges card comments and board entries into one feed", async () => {
-    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
       const task = store.createTask({ projectId, title: "Ship it" });
@@ -439,7 +443,7 @@ describe("TaskStore row shape", () => {
   /** The cap reads back from the newest, so a busy board shows what just
    * happened rather than the day it opened. */
   it("caps the feed at the newest entries and still returns them oldest-first", async () => {
-    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
       for (let index = 0; index < 5; index++) {
@@ -458,7 +462,7 @@ describe("TaskStore row shape", () => {
   });
 
   it("keeps a board entry when the card it was about is deleted", async () => {
-    const store = await openTaskStore({ databasePath: join(directory, "tasks.db") });
+    const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
       const task = store.createTask({ projectId, title: "Ship it" });

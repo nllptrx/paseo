@@ -1274,10 +1274,15 @@ export async function createPaseoDaemon(
   // probe opens the store, and a store that will not open leaves the tracker
   // switched off rather than taking the daemon down with it. The same warm-up
   // re-arms the attachment observers a restart dropped.
-  void taskService.isAvailable().then(async () => {
-    await taskTransitions.start();
-    return taskWorkflowEngine.recoverInterruptedRuns();
-  });
+  void taskService
+    .isAvailable()
+    .then(async () => {
+      await taskTransitions.start();
+      return taskWorkflowEngine.recoverInterruptedRuns();
+    })
+    .catch((error: unknown) => {
+      logger.error({ err: error }, "Failed to warm up the task tracker");
+    });
   logger.info({ elapsed: elapsed() }, "Task workflow engine initialized");
   logger.info({ elapsed: elapsed() }, "Loading persisted agent registry");
   const persistedRecords = await agentStorage.list();

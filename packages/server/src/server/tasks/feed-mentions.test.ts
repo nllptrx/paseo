@@ -7,7 +7,7 @@ import {
 } from "./feed-mentions.js";
 
 describe("parseFeedMentions", () => {
-  it("takes each name once, and ignores an email-shaped address", () => {
+  it("takes each name once", () => {
     expect(parseFeedMentions("@agt_1 and @agt_1 and @agt_2")).toEqual(["agt_1", "agt_2"]);
   });
 
@@ -27,6 +27,16 @@ describe("resolveFeedMentions", () => {
       boardAgentIds,
     });
     expect(result).toEqual({ ok: true, agentIds: ["agt_1"] });
+  });
+
+  /** An address in a sentence reads as a mention of its domain. Nobody on the
+   * board answers to that, so the note posts and wakes no one. */
+  it("wakes nobody for an email-shaped address", () => {
+    const result = resolveFeedMentions({
+      body: "ask ferrari@mastersoft.it about the migration",
+      boardAgentIds,
+    });
+    expect(result).toEqual({ ok: true, agentIds: [] });
   });
 
   /** Typing an address into a sentence is not an error, and the note still

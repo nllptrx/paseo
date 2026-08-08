@@ -26,11 +26,13 @@ export function BoardFeedEntryRow({
   taskKey?: string | undefined;
   onOpenTask?: ((taskId: string) => void) | undefined;
 }): ReactElement {
+  const taskId = entry.taskId;
+  const canOpenTask = taskId !== null && onOpenTask !== undefined;
   const handlePress = useCallback(() => {
-    if (entry.taskId && onOpenTask) {
-      onOpenTask(entry.taskId);
+    if (taskId && onOpenTask) {
+      onOpenTask(taskId);
     }
-  }, [entry.taskId, onOpenTask]);
+  }, [taskId, onOpenTask]);
 
   const isSystem = entry.kind === "system";
   return (
@@ -42,8 +44,8 @@ export function BoardFeedEntryRow({
         {taskKey ? (
           <Text
             style={styles.taskKey}
-            onPress={handlePress}
-            accessibilityRole={onOpenTask ? "button" : undefined}
+            onPress={canOpenTask ? handlePress : undefined}
+            accessibilityRole={canOpenTask ? "button" : undefined}
             testID={`board-feed-entry-task-${entry.id}`}
           >
             {taskKey}

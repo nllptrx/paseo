@@ -199,7 +199,9 @@ function toFormStep(input: {
     model: spec?.model ?? null,
     requireChanges: input.step.requireChanges === true,
     verifyCommand: input.step.verify?.command.join(" ") ?? "",
-    timeoutMinutes: input.step.timeoutMs ? String(Math.round(input.step.timeoutMs / 60_000)) : "",
+    timeoutMinutes: input.step.timeoutMs
+      ? String(Math.max(1, Math.round(input.step.timeoutMs / 60_000)))
+      : "",
     workspaceMode,
     trigger,
   };

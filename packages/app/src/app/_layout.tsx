@@ -902,7 +902,7 @@ function RootStack() {
         <Stack.Screen name="sessions" />
         <Stack.Screen name="schedules" />
         <Stack.Screen name="kanbans/index" />
-        <Stack.Screen name="kanbans/[kanbanId]" />
+        <Stack.Screen name="kanbans/[boardId]" />
         <Stack.Screen name="pair-scan" />
       </Stack.Protected>
       <Stack.Screen name="h/[serverId]" />

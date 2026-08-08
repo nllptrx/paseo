@@ -67,7 +67,10 @@ function OpenTaskPresetsSheet({
         .map((entry) => ({ value: entry.provider, label: resolveProviderLabel(entry.provider) })),
     [providers],
   );
-  const selectedProvider = provider ?? providerChoices[0]?.value ?? null;
+  const selectedProvider =
+    providerChoices.find((choice) => choice.value === provider)?.value ??
+    providerChoices[0]?.value ??
+    null;
   const canSave = name.trim().length > 0 && selectedProvider !== null && !isBusy;
 
   const handleSave = useCallback(() => {

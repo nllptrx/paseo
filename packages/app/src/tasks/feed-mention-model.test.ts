@@ -88,9 +88,15 @@ describe("filterMentionCandidates", () => {
 });
 
 describe("applyMention", () => {
-  it("replaces what was typed and leaves a space after it", () => {
+  it("replaces what was typed and reuses the space already after it", () => {
     expect(
       applyMention({ body: "ping @ag rest", mention: { start: 5, term: "ag" }, agentId: "agt_1" }),
-    ).toEqual({ body: "ping @agt_1  rest", caret: 12 });
+    ).toEqual({ body: "ping @agt_1 rest", caret: 12 });
+  });
+
+  it("adds the separator when the mention ends the note", () => {
+    expect(
+      applyMention({ body: "ping @ag", mention: { start: 5, term: "ag" }, agentId: "agt_1" }),
+    ).toEqual({ body: "ping @agt_1 ", caret: 12 });
   });
 });

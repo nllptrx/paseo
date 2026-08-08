@@ -75,7 +75,6 @@ export function BoardFeedPane({
   );
   const handleChangeDraft = useCallback((value: string) => {
     setDraft(value);
-    setCaret(value.length);
   }, []);
   const handlePickMention = useCallback(
     (agentId: string) => {

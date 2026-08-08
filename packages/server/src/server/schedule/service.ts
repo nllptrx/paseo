@@ -126,10 +126,20 @@ function countCompletedRuns(schedule: StoredSchedule): number {
   return schedule.runs.filter((run) => run.status !== "running").length;
 }
 
+/**
+ * Only a workspace this run brought into being may be taken away by it. A run
+ * handed an existing workspace is a guest there: it outlives the run, other
+ * work may already be sitting in it, and archiving it would delete something
+ * the schedule never owned.
+ */
 function shouldArchiveScheduleRunWorkspace(input: {
   agentId: string | null;
+  createdByRun: boolean;
   archiveOnFinish?: boolean;
 }): boolean {
+  if (!input.createdByRun) {
+    return false;
+  }
   return input.agentId === null || (input.archiveOnFinish ?? true);
 }
 
@@ -603,6 +613,7 @@ export class ScheduleService {
           runningRun.workspaceId &&
           shouldArchiveScheduleRunWorkspace({
             agentId: runningRun.agentId,
+            createdByRun: !updated.target.config.workspaceId,
             archiveOnFinish: updated.target.config.archiveOnFinish,
           })
         ) {
@@ -886,9 +897,9 @@ export class ScheduleService {
         workspaceId: workspace.workspaceId,
         title: resolveScheduleAgentTitle(config, schedule.prompt),
         labels: {
+          ...parseNewAgentLabels(config.labels),
           "paseo.schedule-id": schedule.id,
           "paseo.schedule-run": runId,
-          ...parseNewAgentLabels(config.labels),
         },
         mode: config.modeId,
         thinking: config.thinkingOptionId,
@@ -934,7 +945,11 @@ export class ScheduleService {
     } finally {
       if (
         workspace &&
-        shouldArchiveScheduleRunWorkspace({ agentId, archiveOnFinish: config.archiveOnFinish })
+        shouldArchiveScheduleRunWorkspace({
+          agentId,
+          createdByRun: !config.workspaceId,
+          archiveOnFinish: config.archiveOnFinish,
+        })
       ) {
         try {
           await this.archiveWorkspace(workspace.workspaceId);

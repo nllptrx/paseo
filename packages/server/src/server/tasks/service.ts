@@ -59,7 +59,7 @@ export class TaskService {
       return null;
     }
     if (!this.opening) {
-      this.opening = openTaskStore({ databasePath: this.databasePath });
+      this.opening = openTaskStore({ databasePath: this.databasePath, logger: this.logger });
     }
     try {
       const store = await this.opening;

@@ -359,7 +359,12 @@ export function groupSubtasksUnderParents(tasks: readonly Task[]): Array<{
   }
 
   const rows: Array<{ task: Task; depth: number }> = [];
+  const rendered = new Set<string>();
   const visit = (task: Task, depth: number): void => {
+    if (rendered.has(task.id)) {
+      return;
+    }
+    rendered.add(task.id);
     rows.push({ task, depth });
     for (const child of childrenByParent.get(task.id) ?? []) {
       visit(child, depth + 1);
@@ -367,6 +372,15 @@ export function groupSubtasksUnderParents(tasks: readonly Task[]): Array<{
   };
   for (const root of roots) {
     visit(root, 0);
+  }
+  // Parent links can form a cycle, and every card in one would be a child of
+  // something and so never a root. Showing them flat is wrong-looking; not
+  // showing them at all loses work.
+  for (const task of tasks) {
+    if (!rendered.has(task.id)) {
+      rendered.add(task.id);
+      rows.push({ task, depth: 0 });
+    }
   }
   return rows;
 }
