@@ -360,28 +360,35 @@ One file per schedule. ID is 8 hex characters.
 
 ---
 
-## 4. Kanban
+## 4. Tasks
 
-**Path:** `$PASEO_HOME/kanbans/{kanbanId}.json`
+**Path:** `$PASEO_HOME/tasks.db` (SQLite, `node:sqlite`)
 
-One file per project kanban. Plans, steps, step runs, and the optional
-orchestrator pointer live inline — modeled on ScheduleStore (load-once cache,
-atomic writes, per-id mutation serialization). Step runs are capped (most recent
-20 per step). No migrations: optional fields with defaults.
+The tracker, and the board: a kanban is the board view of a task project, not a
+record of its own. Tables cover projects, tasks, labels, comments, attachments,
+attached agents, workflows, dependencies and presets, plus a revision counter
+bumped by triggers so clients can tell "nothing changed" from "refetch".
 
-Columns are not stored. A plan's column is derived from its step runs, so the
-file holds only what actually happened — see [kanban-tasks-spec.md](kanban-tasks-spec.md).
+Migrations are an append-only array with a `schema_version` table; an entry is
+never edited, only added. Unlike the JSON stores here, this one is versioned
+because it holds work a user cannot recreate.
 
-Wire schemas: `packages/protocol/src/kanban/types.ts`. Store:
-`packages/server/src/server/kanban/store.ts`. Product layering and hard-outs:
+Two shapes are worth knowing. **Workflow steps are a JSON document** per task:
+they are read and rewritten whole on every run, and one schema validates the
+shape. **Feed entries are the comments table**, with `task_id` nullable — a
+comment on a card has one, a note at the board does not — which is why the feed
+is one query in one order.
+
+What is stored is intent: a task's status. What is derived is execution: an
+attached agent's liveness is read off the agent, never copied.
+
+Wire schemas: `packages/protocol/src/tasks/{types,workflow}.ts`. Store:
+`packages/server/src/server/tasks/{schema,store}.ts`. Product layering and hard-outs:
 [kanban-tasks-spec.md](kanban-tasks-spec.md).
 
 New-agent schedule targets may carry optional `workspaceId` and `labels` so a
-timed kanban step can materialize a real Schedule without a second cron engine.
-Those fields are feature-gated (`kanban`); old clients never require them.
-
-Orchestrator messages are not stored here — they use the chat store (room
-`orchestrators`).
+timed workflow step can materialize a real Schedule without a second cron engine.
+Those fields are feature-gated (`tasks`); old clients never require them.
 
 ---
 

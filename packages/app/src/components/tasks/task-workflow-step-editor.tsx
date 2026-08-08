@@ -84,6 +84,19 @@ export function TaskWorkflowStepEditor({
     () => ({ label: t(TASK_WORKFLOW_WORKSPACE_LABEL_KEYS[step.workspaceMode]) }),
     [step.workspaceMode, t],
   );
+  const handleToggleRequireChanges = useCallback(
+    () => model.setStepRequireChanges(key, !step.requireChanges),
+    [key, model, step.requireChanges],
+  );
+  const handleVerifyCommand = useCallback(
+    (value: string) => model.setStepVerifyCommand(key, value),
+    [key, model],
+  );
+  const handleTimeoutMinutes = useCallback(
+    (value: string) => model.setStepTimeoutMinutes(key, value),
+    [key, model],
+  );
+
   const triggerDisplay = useMemo(
     () => ({ label: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS[step.trigger]) }),
     [step.trigger, t],
@@ -207,6 +220,48 @@ export function TaskWorkflowStepEditor({
           />
         </View>
       </View>
+
+      <Field
+        label={t("tasks.workflow.evidenceLabel")}
+        hint={t("tasks.workflow.evidenceHint")}
+        testID={`task-workflow-form-step-evidence-${index}`}
+      >
+        <Button
+          variant={step.requireChanges ? "default" : "outline"}
+          size="sm"
+          onPress={handleToggleRequireChanges}
+          testID={`task-workflow-form-step-require-changes-${index}`}
+        >
+          {t("tasks.workflow.requireChanges")}
+        </Button>
+      </Field>
+
+      <Field
+        label={t("tasks.workflow.verifyLabel")}
+        hint={t("tasks.workflow.verifyHint")}
+        testID={`task-workflow-form-step-verify-${index}`}
+      >
+        <FormTextInput
+          value={step.verifyCommand}
+          onChangeText={handleVerifyCommand}
+          placeholder={t("tasks.workflow.verifyPlaceholder")}
+          testID={`task-workflow-form-step-verify-input-${index}`}
+        />
+      </Field>
+
+      <Field
+        label={t("tasks.workflow.timeoutLabel")}
+        hint={t("tasks.workflow.timeoutHint")}
+        testID={`task-workflow-form-step-timeout-${index}`}
+      >
+        <FormTextInput
+          value={step.timeoutMinutes}
+          onChangeText={handleTimeoutMinutes}
+          placeholder={t("tasks.workflow.timeoutPlaceholder")}
+          keyboardType="number-pad"
+          testID={`task-workflow-form-step-timeout-input-${index}`}
+        />
+      </Field>
     </View>
   );
 }

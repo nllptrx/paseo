@@ -69,6 +69,11 @@ export const TASK_WORKFLOW_TRIGGER_LABEL_KEYS: Record<TaskWorkflowFormTriggerTyp
 export interface TaskWorkflowFormStep {
   /** Refuse to call the step done when its workspace is untouched. */
   requireChanges: boolean;
+  /** A command that has to pass, written as a command line and split on
+   * spaces. Empty means the step asks for no command. */
+  verifyCommand: string;
+  /** Minutes, as typed. Empty means no ceiling. */
+  timeoutMinutes: string;
   /** Stable across edits and reorders so list keys and test ids don't shift. */
   key: string;
   name: string;
@@ -106,6 +111,9 @@ export interface TaskWorkflowFormModel {
   setStepAgent: (key: string, agent: { provider: AgentProvider; model: string | null }) => void;
   setStepWorkspaceMode: (key: string, mode: TaskWorkflowFormWorkspaceMode) => void;
   setStepTrigger: (key: string, trigger: TaskWorkflowFormTriggerType) => void;
+  setStepRequireChanges: (key: string, requireChanges: boolean) => void;
+  setStepVerifyCommand: (key: string, command: string) => void;
+  setStepTimeoutMinutes: (key: string, minutes: string) => void;
   setSubmitError: (value: string | null) => void;
 }
 
@@ -161,6 +169,8 @@ function createStep(input: {
     // has not done the thing, and treating that as success is how a board ends
     // up full of work nobody did.
     requireChanges: true,
+    verifyCommand: "",
+    timeoutMinutes: "",
     // A step the author just added should not start the moment the workflow exists.
     trigger: "manual",
   };
@@ -188,6 +198,8 @@ function toFormStep(input: {
     provider: spec?.provider ?? input.fallbackProvider,
     model: spec?.model ?? null,
     requireChanges: input.step.requireChanges === true,
+    verifyCommand: input.step.verify?.command.join(" ") ?? "",
+    timeoutMinutes: input.step.timeoutMs ? String(Math.round(input.step.timeoutMs / 60_000)) : "",
     workspaceMode,
     trigger,
   };
@@ -325,12 +337,35 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
     setStepWorkspaceMode(key, mode) {
       updateStep(key, (step) => ({ ...step, workspaceMode: mode }));
     },
+    setStepRequireChanges(key, requireChanges) {
+      updateStep(key, (step) => ({ ...step, requireChanges }));
+    },
+    setStepVerifyCommand(key, verifyCommand) {
+      updateStep(key, (step) => ({ ...step, verifyCommand }));
+    },
+    setStepTimeoutMinutes(key, timeoutMinutes) {
+      updateStep(key, (step) => ({ ...step, timeoutMinutes }));
+    },
     setStepTrigger(key, trigger) {
       updateStep(key, (step) => ({ ...step, trigger }));
     },
     setSubmitError(value) {
       publish({ ...state, submitError: value });
     },
+  };
+}
+
+/** The evidence fields, as the wire wants them: a command split on spaces and
+ * minutes turned into milliseconds. Blank fields ask for nothing. */
+function buildStepEvidence(step: TaskWorkflowFormStep): {
+  verify?: { command: string[] };
+  timeoutMs?: number;
+} {
+  const command = step.verifyCommand.trim().split(/\s+/).filter(Boolean);
+  const minutes = Number.parseInt(step.timeoutMinutes.trim(), 10);
+  return {
+    ...(command.length > 0 ? { verify: { command } } : {}),
+    ...(Number.isFinite(minutes) && minutes > 0 ? { timeoutMs: minutes * 60_000 } : {}),
   };
 }
 
@@ -352,6 +387,7 @@ export function buildTaskWorkflowSteps(state: TaskWorkflowFormState): StepInput[
       workspace: { mode: step.workspaceMode } as StepWorkspaceStrategy,
       trigger: { type: step.trigger } as StepTrigger,
       requireChanges: step.requireChanges,
+      ...buildStepEvidence(step),
     });
   }
   return steps;

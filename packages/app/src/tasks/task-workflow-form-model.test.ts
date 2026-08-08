@@ -186,4 +186,60 @@ describe("task workflow form model", () => {
     const model = openTaskWorkflowForm({ ...SNAPSHOT, availableProviders: PROVIDERS });
     expect(buildTaskWorkflowSteps(model.getState())).toBeNull();
   });
+  /** A blank field asks for nothing: an empty command must not become a step
+   * that runs the empty string and fails every time. */
+  it("leaves the evidence fields off the payload when they are blank", () => {
+    const model = openTaskWorkflowForm({ serverId: "srv", taskId: "tsk" });
+    model.setStepName(model.getState().steps[0].key, "Build");
+    model.setStepPrompt(model.getState().steps[0].key, "do it");
+    model.setStepAgent(model.getState().steps[0].key, { provider: "claude", model: null });
+
+    const [step] = buildTaskWorkflowSteps(model.getState()) ?? [];
+    expect(step).not.toHaveProperty("verify");
+    expect(step).not.toHaveProperty("timeoutMs");
+    expect(step.requireChanges).toBe(true);
+  });
+
+  it("turns a typed command line and minutes into what the wire wants", () => {
+    const model = openTaskWorkflowForm({ serverId: "srv", taskId: "tsk" });
+    const key = model.getState().steps[0].key;
+    model.setStepName(key, "Build");
+    model.setStepPrompt(key, "do it");
+    model.setStepAgent(key, { provider: "claude", model: null });
+    model.setStepVerifyCommand(key, "  npm  run   test  ");
+    model.setStepTimeoutMinutes(key, "30");
+
+    const [step] = buildTaskWorkflowSteps(model.getState()) ?? [];
+    expect(step.verify).toEqual({ command: ["npm", "run", "test"] });
+    expect(step.timeoutMs).toBe(1_800_000);
+  });
+
+  /** Editing has to start from what is stored, or saving would replace the
+   * evidence the step already asked for. */
+  it("reads stored evidence back into the form", () => {
+    const model = openTaskWorkflowForm({
+      serverId: "srv",
+      taskId: "tsk",
+      existingSteps: [
+        {
+          id: "stp_1",
+          name: "Build",
+          prompt: "do it",
+          agents: [{ provider: "claude" }],
+          completion: "all",
+          workspace: { mode: "worktree" },
+          trigger: { type: "manual" },
+          requireChanges: true,
+          verify: { command: ["npm", "test"] },
+          timeoutMs: 600_000,
+          runs: [],
+        },
+      ],
+    });
+
+    const [step] = model.getState().steps;
+    expect(step.verifyCommand).toBe("npm test");
+    expect(step.timeoutMinutes).toBe("10");
+    expect(step.requireChanges).toBe(true);
+  });
 });
