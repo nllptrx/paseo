@@ -24,9 +24,28 @@ export interface TaskTransitionEngineDeps {
   agentManager: Pick<AgentManager, "subscribe" | "getAgent">;
 
   logger: pino.Logger;
+  /** How long a reviewer may run before the board stops waiting on it. */
+  reviewTimeoutMs?: number;
+  /** How many reviewers the board will put on one card before handing it to a
+   * human. */
+  maxReviewAttempts?: number;
 }
 
 const DEFAULT_ON_REJECT: TaskBoardConfig["reviewOnReject"] = "in_progress";
+
+/**
+ * A reviewer that neither answers nor stops holds the card in review forever.
+ * Nothing it does is an error, so no observer fires, and nobody watches a board
+ * continuously — so the board stops waiting on its own.
+ */
+export const DEFAULT_REVIEW_TIMEOUT_MS = 30 * 60_000;
+
+/**
+ * Two attempts. A reviewer that ended without a verdict twice will not produce
+ * one on the third try, and a card that keeps respawning agents spends tokens
+ * nobody asked for.
+ */
+export const DEFAULT_MAX_REVIEW_ATTEMPTS = 2;
 
 /**
  * The two transitions a run can write. Work attached to a task settling green moves it to `in_review`
@@ -41,8 +60,12 @@ export class TaskTransitionEngine {
   private readonly deps: TaskTransitionEngineDeps;
   private readonly unsubscribesByLink = new Map<string, () => void>();
   private readonly reviewUnsubscribesByLink = new Map<string, () => void>();
+  private readonly reviewTimeoutsByLink = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly reviewAttemptsByTask = new Map<string, number>();
   private readonly verdictsInFlight = new Set<string>();
   private readonly completionsInFlight = new Map<string, Promise<Task>>();
+  private readonly reviewTimeoutMs: number;
+  private readonly maxReviewAttempts: number;
   /** Puts a fresh agent on a card that reached review. Unset on hosts that do
    * not run agents; review then waits for a human, the same answer a board
    * without a reviewer preset gives. */
@@ -51,7 +74,15 @@ export class TaskTransitionEngine {
    * settlement: a reviewed task still needs its checkout until approval. */
   private onTaskDone: ((taskId: string) => Promise<void>) | null = null;
   private requestCorrection:
-    | ((input: { taskId: string; feedback: string | null }) => Promise<{ agentId: string } | null>)
+    | ((input: {
+        taskId: string;
+        feedback: string | null;
+      }) => Promise<{ agentIds: string[] } | null>)
+    | null = null;
+  /** Lets go of a reviewer that has stopped: its checkout is a worktree the
+   * daemon made for one judgement, and the findings live in the feed. */
+  private releaseReviewer:
+    | ((input: { taskId: string; agentId: string; cancelAgent: boolean }) => Promise<void>)
     | null = null;
   private integrateTaskWork: ((taskId: string) => Promise<void>) | null = null;
   private integrateTaskIntoParent: ((taskId: string) => Promise<void>) | null = null;
@@ -61,6 +92,8 @@ export class TaskTransitionEngine {
 
   constructor(deps: TaskTransitionEngineDeps) {
     this.deps = deps;
+    this.reviewTimeoutMs = deps.reviewTimeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS;
+    this.maxReviewAttempts = deps.maxReviewAttempts ?? DEFAULT_MAX_REVIEW_ATTEMPTS;
   }
 
   /** Re-arm completion observers for every stored attachment. A daemon restart
@@ -217,6 +250,7 @@ export class TaskTransitionEngine {
     }
     if (policy.reviewEnabled) {
       await this.deps.taskService.updateTask({ taskId, status: "in_review" });
+      this.reviewAttemptsByTask.delete(taskId);
       this.announceToBoard(project, {
         task,
         note: "settled its attached work, integrated it into the task branch, and moved to in_review",
@@ -230,10 +264,17 @@ export class TaskTransitionEngine {
   /**
    * Hands a card that reached review to a reviewer, when the board names one.
    * Fire-and-forget: the card is already in review, and a reviewer that fails
-   * to start leaves a human to do what a human did before.
+   * to start leaves a human to do what a human did before — but the board says
+   * so on the card rather than only in the daemon log.
    */
   setRequestReview(request: (taskId: string) => Promise<{ agentId: string } | null>): void {
     this.requestReview = request;
+  }
+
+  setReleaseReviewer(
+    listener: (input: { taskId: string; agentId: string; cancelAgent: boolean }) => Promise<void>,
+  ): void {
+    this.releaseReviewer = listener;
   }
 
   setOnTaskDone(listener: (taskId: string) => Promise<void>): void {
@@ -244,7 +285,7 @@ export class TaskTransitionEngine {
     listener: (input: {
       taskId: string;
       feedback: string | null;
-    }) => Promise<{ agentId: string } | null>,
+    }) => Promise<{ agentIds: string[] } | null>,
   ): void {
     this.requestCorrection = listener;
   }
@@ -271,40 +312,62 @@ export class TaskTransitionEngine {
     if (!this.requestReview) {
       return;
     }
+    const attempt = (this.reviewAttemptsByTask.get(taskId) ?? 0) + 1;
+    this.reviewAttemptsByTask.set(taskId, attempt);
     void (async () => {
       const reviewer = await this.requestReview?.(taskId);
       if (reviewer) {
         this.observeReviewer({ taskId, agentId: reviewer.agentId });
+        return;
       }
+      // No reviewer preset: the card waits for a human, which is not a failure
+      // and not something to retry.
+      this.reviewAttemptsByTask.delete(taskId);
     })().catch((error) => {
       this.deps.logger.warn({ err: error, taskId }, "Could not start a review for this task");
+      void this.reportReviewStartFailure(taskId, error);
     });
+  }
+
+  /**
+   * A board that names a reviewer and then silently falls back to a human is
+   * indistinguishable from a board with no reviewer at all. Say which one this
+   * is, on the card.
+   */
+  private async reportReviewStartFailure(taskId: string, error: unknown): Promise<void> {
+    this.reviewAttemptsByTask.delete(taskId);
+    try {
+      const task = await this.deps.taskService.getTask(taskId);
+      if (!task) {
+        return;
+      }
+      const project = await this.deps.taskService.getProject(task.projectId);
+      this.announceToBoard(project, {
+        task,
+        note: `could not start its review and now requires a human: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    } catch (reportError) {
+      this.deps.logger.warn(
+        { err: reportError, taskId },
+        "Could not record a review that failed to start",
+      );
+    }
   }
 
   private observeReviewer(input: { taskId: string; agentId: string }): void {
     const key = this.linkKey(input);
-    this.reviewUnsubscribesByLink.get(key)?.();
+    this.clearReviewWatch(key);
     let observer = observeAgentCompletion();
     const finish = (outcome: "finished" | "errored" | "closed"): void => {
-      this.reviewUnsubscribesByLink.get(key)?.();
-      this.reviewUnsubscribesByLink.delete(key);
-      void (async () => {
-        const task = await this.deps.taskService.getTask(input.taskId);
-        if (!task || task.status !== "in_review") {
-          return;
-        }
-        const note = reviewerOutcomeNote(outcome);
-        await this.deps.taskService.createComment({
-          taskId: input.taskId,
-          kind: "system",
-          authorName: "board",
-          agentId: input.agentId,
-          body: `The reviewer ${note}; this task still requires review.`,
-        });
-      })().catch((error) => {
+      this.clearReviewWatch(key);
+      void this.settleReviewer({
+        ...input,
+        note: reviewerOutcomeNote(outcome),
+        cancelAgent: false,
+      }).catch((error) => {
         this.deps.logger.warn(
           { err: error, taskId: input.taskId, agentId: input.agentId },
-          "Could not record a reviewer that ended without a verdict",
+          "Could not settle a reviewer that ended without a verdict",
         );
       });
     };
@@ -321,6 +384,10 @@ export class TaskTransitionEngine {
       { agentId: input.agentId, replayState: false },
     );
     this.reviewUnsubscribesByLink.set(key, unsubscribe);
+    this.reviewTimeoutsByLink.set(
+      key,
+      setTimeout(() => this.timeOutReviewer(input), this.reviewTimeoutMs),
+    );
     const snapshot = this.deps.agentManager.getAgent(input.agentId);
     if (snapshot) {
       const initial = observer.observeLifecycle(snapshot.lifecycle);
@@ -328,6 +395,70 @@ export class TaskTransitionEngine {
         finish(initial);
       }
     }
+  }
+
+  private clearReviewWatch(key: string): void {
+    this.reviewUnsubscribesByLink.get(key)?.();
+    this.reviewUnsubscribesByLink.delete(key);
+    const timeout = this.reviewTimeoutsByLink.get(key);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    this.reviewTimeoutsByLink.delete(key);
+  }
+
+  private timeOutReviewer(input: { taskId: string; agentId: string }): void {
+    this.clearReviewWatch(this.linkKey(input));
+    void this.settleReviewer({
+      ...input,
+      note: `ran past the ${this.reviewTimeoutMs}ms review limit and was stopped`,
+      cancelAgent: true,
+    }).catch((error) => {
+      this.deps.logger.warn(
+        { err: error, taskId: input.taskId, agentId: input.agentId },
+        "Could not settle a reviewer that ran past its limit",
+      );
+    });
+  }
+
+  /**
+   * A reviewer stopped. Its checkout goes either way — it exists for one
+   * judgement on the task branch, and the findings are in the feed. If the
+   * verdict never landed, the board puts one more reviewer on the card and then
+   * leaves it to a human, so a card can neither sit in review forever nor spawn
+   * agents forever.
+   */
+  private async settleReviewer(input: {
+    taskId: string;
+    agentId: string;
+    note: string;
+    cancelAgent: boolean;
+  }): Promise<void> {
+    await this.releaseReviewer?.({
+      taskId: input.taskId,
+      agentId: input.agentId,
+      cancelAgent: input.cancelAgent,
+    });
+    const task = await this.deps.taskService.getTask(input.taskId);
+    if (!task || task.status !== "in_review") {
+      return;
+    }
+    const attempts = this.reviewAttemptsByTask.get(input.taskId) ?? 0;
+    const retrying = this.requestReview !== null && attempts < this.maxReviewAttempts;
+    await this.deps.taskService.createComment({
+      taskId: input.taskId,
+      kind: "system",
+      authorName: "board",
+      agentId: input.agentId,
+      body: `The reviewer ${input.note}; ${
+        retrying ? "the board is starting a fresh review" : "this task still requires review"
+      }.`,
+    });
+    if (retrying) {
+      this.startReview(input.taskId);
+      return;
+    }
+    this.reviewAttemptsByTask.delete(input.taskId);
   }
 
   /** Approve goes to done. Reject follows the task's effective rejection
@@ -350,6 +481,7 @@ export class TaskTransitionEngine {
         throw new Error(`Task ${input.taskId} is not in review`);
       }
       const project = await this.deps.taskService.getProject(task.projectId);
+      this.reviewAttemptsByTask.delete(input.taskId);
       if (input.verdict === "approve") {
         return await this.completeTask(input.taskId, "was approved");
       }
@@ -495,18 +627,21 @@ export class TaskTransitionEngine {
       taskId,
       feedback: feedback?.trim() || null,
     });
-    if (!correction) {
+    if (!correction || correction.agentIds.length === 0) {
       throw new Error("no attached worker is available to resume");
     }
+    const corrected = new Set(correction.agentIds);
     const links = await this.deps.taskService.listTaskAgents(taskId);
     for (const link of links) {
       const isSupersededWorker =
-        (link.role ?? "worker") === "worker" && link.agentId !== correction.agentId;
+        (link.role ?? "worker") === "worker" && !corrected.has(link.agentId);
       if (isSupersededWorker) {
         this.unobserveAttachment({ taskId, agentId: link.agentId });
       }
     }
-    this.observeAttachment({ taskId, agentId: correction.agentId });
+    for (const agentId of corrected) {
+      this.observeAttachment({ taskId, agentId });
+    }
   }
 
   /**
@@ -546,6 +681,11 @@ export class TaskTransitionEngine {
       unsubscribe();
     }
     this.reviewUnsubscribesByLink.clear();
+    for (const timeout of this.reviewTimeoutsByLink.values()) {
+      clearTimeout(timeout);
+    }
+    this.reviewTimeoutsByLink.clear();
+    this.reviewAttemptsByTask.clear();
   }
 }
 

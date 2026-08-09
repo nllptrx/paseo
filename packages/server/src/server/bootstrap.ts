@@ -1271,6 +1271,7 @@ export async function createPaseoDaemon(
   });
   logger.info({ elapsed: elapsed() }, "Schedule service initialized");
   taskTransitions.setRequestReview((taskId) => taskWorkflowEngine.requestReview(taskId));
+  taskTransitions.setReleaseReviewer((input) => taskWorkflowEngine.releaseReviewer(input));
   taskTransitions.setRequestCorrection((input) => taskWorkflowEngine.requestCorrection(input));
   taskTransitions.setIntegrateTaskWork((taskId) => taskWorkflowEngine.integrateTaskWork(taskId));
   taskTransitions.setIntegrateTaskIntoParent((taskId) =>

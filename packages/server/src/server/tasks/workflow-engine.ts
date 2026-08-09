@@ -9,7 +9,11 @@ import type {
   StepRun,
   StepRunStatus,
 } from "@getpaseo/protocol/tasks/workflow";
-import { resolveTaskExecutionPolicy, type Task } from "@getpaseo/protocol/tasks/types";
+import {
+  resolveTaskExecutionPolicy,
+  type Task,
+  type TaskAgentLink,
+} from "@getpaseo/protocol/tasks/types";
 import { observeAgentCompletion } from "../agent/agent-completion.js";
 import type { AgentManager, ManagedAgent } from "../agent/agent-manager.js";
 import { formatProviderModel, type BoundCreateAgentCommand } from "../agent/create-agent/create.js";
@@ -1103,11 +1107,9 @@ export class TaskWorkflowEngine {
     }
     const preset = await this.taskService.getPreset(presetId);
     if (!preset) {
-      this.logger.warn(
-        { taskId, presetId },
-        "The board names a reviewer preset that no longer exists",
-      );
-      return null;
+      // Distinct from "this board reviews by hand": somebody asked for an agent
+      // reviewer and is not getting one.
+      throw new Error(`The reviewer preset ${presetId} no longer exists`);
     }
     const prompt = buildReviewPrompt({
       task,
@@ -1164,13 +1166,20 @@ export class TaskWorkflowEngine {
     }
   }
 
-  /** A rejected review goes back to the most recently attached worker in the
-   * same checkout. The transition engine observes this new turn and sends the
-   * resulting change through a fresh review. */
+  /**
+   * A rejected review goes back to every worker attached to the card, each in
+   * its own checkout. Resuming only the newest one is wrong the moment a task
+   * fans out: the review judged the integrated branch, so findings can belong to
+   * any of the workers that fed it, and the ones left out would settle again
+   * unchanged.
+   *
+   * The transition engine observes the new turns and sends the result through a
+   * fresh review once they have all stopped.
+   */
   async requestCorrection(input: {
     taskId: string;
     feedback: string | null;
-  }): Promise<{ agentId: string } | null> {
+  }): Promise<{ agentIds: string[] } | null> {
     if (!this.resumeAgent) {
       return null;
     }
@@ -1178,10 +1187,13 @@ export class TaskWorkflowEngine {
     if (!task) {
       return null;
     }
-    const worker = (await this.taskService.listTaskAgents(input.taskId)).findLast(
-      (link) => (link.role ?? "worker") === "worker",
-    );
-    if (!worker) {
+    const workers = new Map<string, TaskAgentLink>();
+    for (const link of await this.taskService.listTaskAgents(input.taskId)) {
+      if ((link.role ?? "worker") === "worker") {
+        workers.set(link.agentId, link);
+      }
+    }
+    if (workers.size === 0) {
       return null;
     }
     const project = await this.taskService.getProject(task.projectId);
@@ -1191,39 +1203,92 @@ export class TaskWorkflowEngine {
     const feedback =
       input.feedback ??
       "The review rejected the current change. Read the task feed for the findings.";
-    await this.taskService.attachAgent({
-      taskId: input.taskId,
-      agentId: worker.agentId,
-      workspaceId: worker.workspaceId,
-      presetId: worker.presetId,
-      role: "worker",
-      completionOwner: "attachment",
-    });
-    try {
-      await this.resumeAgent({
-        agentId: worker.agentId,
-        prompt: [
-          `Review rejected ${project.prefix}-${task.number}.`,
-          `Task ID: ${task.id}`,
-          `Title: ${task.title}`,
-          "",
-          feedback,
-          "",
-          "Correct the implementation in this workspace. Comment on the task with what changed when finished.",
-        ].join("\n"),
-      });
-    } catch (error) {
+    const prompt = [
+      `Review rejected ${project.prefix}-${task.number}.`,
+      `Task ID: ${task.id}`,
+      `Title: ${task.title}`,
+      "",
+      feedback,
+      "",
+      "Correct the implementation in this workspace. Comment on the task with what changed when finished.",
+    ].join("\n");
+
+    const resumed: string[] = [];
+    const failures: unknown[] = [];
+    for (const worker of workers.values()) {
       await this.taskService.attachAgent({
         taskId: input.taskId,
         agentId: worker.agentId,
         workspaceId: worker.workspaceId,
         presetId: worker.presetId,
-        role: worker.role ?? "worker",
-        completionOwner: worker.completionOwner ?? "attachment",
+        role: "worker",
+        completionOwner: "attachment",
       });
-      throw error;
+      try {
+        await this.resumeAgent({ agentId: worker.agentId, prompt });
+        resumed.push(worker.agentId);
+      } catch (error) {
+        await this.taskService.attachAgent({
+          taskId: input.taskId,
+          agentId: worker.agentId,
+          workspaceId: worker.workspaceId,
+          presetId: worker.presetId,
+          role: worker.role ?? "worker",
+          completionOwner: worker.completionOwner ?? "attachment",
+        });
+        failures.push(error);
+      }
     }
-    return { agentId: worker.agentId };
+    if (resumed.length === 0) {
+      throw failures[0] ?? new Error("No attached worker could be resumed for the correction");
+    }
+    for (const error of failures) {
+      this.logger.warn(
+        { err: error, taskId: input.taskId },
+        "A worker could not be resumed for the correction; the others were",
+      );
+    }
+    return { agentIds: resumed };
+  }
+
+  /**
+   * Lets go of a reviewer that has stopped. A review checkout is a worktree the
+   * daemon made for one judgement on the task branch: keeping it leaves dead
+   * worktrees on disk and makes the card's newest workspace the reviewer's
+   * rather than a worker's. The findings live in the feed, not in the checkout.
+   */
+  async releaseReviewer(input: {
+    taskId: string;
+    agentId: string;
+    cancelAgent: boolean;
+  }): Promise<void> {
+    const links = await this.taskService.listTaskAgents(input.taskId);
+    const reviewer = links.find(
+      (link) => link.agentId === input.agentId && (link.role ?? "worker") === "reviewer",
+    );
+    if (!reviewer) {
+      return;
+    }
+    if (input.cancelAgent) {
+      await this.cancelCreatedAgent(input.agentId);
+    }
+    const sharedWithAnotherAgent = links.some(
+      (link) => link.workspaceId === reviewer.workspaceId && link.agentId !== reviewer.agentId,
+    );
+    if (sharedWithAnotherAgent) {
+      return;
+    }
+    try {
+      const workspace = await this.getWorkspace(reviewer.workspaceId);
+      if (workspace && !workspace.archivedAt && workspace.isPaseoOwnedWorktree) {
+        await this.archiveWorkspace(reviewer.workspaceId);
+      }
+    } catch (error) {
+      this.logger.warn(
+        { err: error, workspaceId: reviewer.workspaceId },
+        "Failed to archive a review workspace",
+      );
+    }
   }
 
   private async resolveExistingTaskWorkspace(taskId: string): Promise<AgentTarget | null> {
@@ -1632,7 +1697,7 @@ export class TaskWorkflowEngine {
         agentId,
       );
     } catch (error) {
-      this.logger.warn({ err: error, agentId }, "Failed to stop an agent whose task start failed");
+      this.logger.warn({ err: error, agentId }, "Failed to stop an agent the task no longer needs");
     }
   }
 

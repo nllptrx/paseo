@@ -994,7 +994,22 @@ describe("TaskWorkflowEngine", () => {
     expect(await engine.requestReview(taskId)).toBeNull();
   });
 
-  test("sends rejected review feedback to the latest worker", async () => {
+  test("refuses to review with a preset the board no longer has", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const preset = await service.createPreset({
+      name: "Reviewer",
+      provider: "claude",
+      environmentKind: "project_default",
+    });
+    await service.configureBoard({ projectId, reviewerPresetId: preset.id });
+    await service.deletePreset(preset.id);
+
+    await expect(engine.requestReview(taskId)).rejects.toThrow(/no longer exists/);
+  });
+
+  /** The review judged the integrated branch, so a rejection belongs to every
+   * worker that fed it — not only the newest one. */
+  test("sends rejected review feedback to every attached worker", async () => {
     const resumed: Array<{ agentId: string; prompt: string }> = [];
     engine = new TaskWorkflowEngine({
       ...engineDeps(),
@@ -1003,16 +1018,82 @@ describe("TaskWorkflowEngine", () => {
       },
     });
     const { taskId } = await seedWorkflow([makeStepInput()]);
-    await service.attachAgent({ taskId, agentId: "agt_1", workspaceId: "ws_shared" });
-    await service.attachAgent({ taskId, agentId: "agt_2", workspaceId: "ws_shared" });
+    await service.attachAgent({ taskId, agentId: "agt_1", workspaceId: "ws_one" });
+    await service.attachAgent({ taskId, agentId: "agt_2", workspaceId: "ws_two" });
+    await service.attachAgent({
+      taskId,
+      agentId: "agt_reviewer",
+      workspaceId: "ws_review",
+      role: "reviewer",
+    });
 
     const correction = await engine.requestCorrection({ taskId, feedback: "Fix the race" });
 
-    expect(correction).toEqual({ agentId: "agt_2" });
-    expect(resumed).toHaveLength(1);
-    expect(resumed[0]).toMatchObject({ agentId: "agt_2" });
+    expect(correction).toEqual({ agentIds: ["agt_1", "agt_2"] });
+    expect(resumed.map((entry) => entry.agentId)).toEqual(["agt_1", "agt_2"]);
     expect(resumed[0].prompt).toContain("Fix the race");
     expect(resumed[0].prompt).toContain(taskId);
+  });
+
+  test("corrects the workers it can when one cannot be resumed", async () => {
+    const resumed: string[] = [];
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      resumeAgent: async (input) => {
+        if (input.agentId === "agt_1") {
+          throw new Error("agent unavailable");
+        }
+        resumed.push(input.agentId);
+      },
+    });
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    await service.attachAgent({ taskId, agentId: "agt_1", workspaceId: "ws_one" });
+    await service.attachAgent({ taskId, agentId: "agt_2", workspaceId: "ws_two" });
+
+    expect(await engine.requestCorrection({ taskId, feedback: "Fix it" })).toEqual({
+      agentIds: ["agt_2"],
+    });
+    expect(resumed).toEqual(["agt_2"]);
+  });
+
+  /** The review checkout exists for one judgement on the task branch. Left
+   * behind it is a dead worktree that also outranks the workers' checkouts when
+   * the card next looks for a workspace. */
+  test("archives a stopped reviewer's worktree", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const preset = await service.createPreset({
+      name: "Reviewer",
+      provider: "claude",
+      environmentKind: "project_default",
+    });
+    await service.configureBoard({ projectId, reviewerPresetId: preset.id });
+    const requested = await engine.requestReview(taskId);
+    const reviewerWorkspaceId = (await service.getTask(taskId))?.agents.find(
+      (agent) => agent.agentId === requested?.agentId,
+    )?.workspaceId;
+
+    await engine.releaseReviewer({
+      taskId,
+      agentId: requested?.agentId ?? "",
+      cancelAgent: false,
+    });
+
+    expect(archivedWorkspaceIds).toEqual([reviewerWorkspaceId]);
+  });
+
+  test("leaves a worker's workspace alone when releasing a reviewer that shares it", async () => {
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    await service.attachAgent({ taskId, agentId: "agt_worker", workspaceId: "ws_shared" });
+    await service.attachAgent({
+      taskId,
+      agentId: "agt_reviewer",
+      workspaceId: "ws_shared",
+      role: "reviewer",
+    });
+
+    await engine.releaseReviewer({ taskId, agentId: "agt_reviewer", cancelAgent: false });
+
+    expect(archivedWorkspaceIds).toEqual([]);
   });
 
   test("restores workflow completion ownership when resuming a correction fails", async () => {

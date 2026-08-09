@@ -58,7 +58,11 @@ describe("TaskTransitionEngine", () => {
     rmSync(directory, { recursive: true, force: true });
   });
 
-  async function seedTask(input?: { review?: TaskBoardConfig }) {
+  async function seedTask(input?: {
+    review?: TaskBoardConfig;
+    reviewTimeoutMs?: number;
+    maxReviewAttempts?: number;
+  }) {
     const project = await service.createProject({
       name: "Paseo",
       prefix: "PSE",
@@ -78,10 +82,19 @@ describe("TaskTransitionEngine", () => {
       taskService: service,
       agentManager,
       logger,
+      ...(input?.reviewTimeoutMs !== undefined ? { reviewTimeoutMs: input.reviewTimeoutMs } : {}),
+      ...(input?.maxReviewAttempts !== undefined
+        ? { maxReviewAttempts: input.maxReviewAttempts }
+        : {}),
     });
     engine.setIntegrateTaskWork(async () => undefined);
     engine.setIntegrateTaskIntoParent(async () => undefined);
     return { task, engine, agentManager, projectId: project.id };
+  }
+
+  async function feedText(projectId: string): Promise<string> {
+    const feed = await service.listBoardFeed({ projectId });
+    return feed.map((entry) => entry.body).join("\n");
   }
 
   it("moves a task to done when work settles and the board does not review", async () => {
@@ -260,7 +273,7 @@ describe("TaskTransitionEngine", () => {
     const corrections: Array<{ taskId: string; feedback: string | null }> = [];
     engine.setRequestCorrection(async (input) => {
       corrections.push(input);
-      return { agentId: "agent-1" };
+      return { agentIds: ["agent-1"] };
     });
 
     await engine.onWorkSettled(task.id);
@@ -284,6 +297,25 @@ describe("TaskTransitionEngine", () => {
     ]);
   });
 
+  it("watches every worker a correction resumed", async () => {
+    const { task, engine, agentManager } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    await service.attachAgent({ taskId: task.id, agentId: "worker-1", workspaceId: "ws-1" });
+    await service.attachAgent({ taskId: task.id, agentId: "worker-2", workspaceId: "ws-2" });
+    await service.updateTask({ taskId: task.id, status: "in_review" });
+    engine.setRequestCorrection(async () => ({ agentIds: ["worker-1", "worker-2"] }));
+
+    await engine.applyReviewVerdict({ taskId: task.id, verdict: "reject", feedback: "Both" });
+
+    expect(agentManager.listenerCount("worker-1")).toBe(1);
+    expect(agentManager.listenerCount("worker-2")).toBe(1);
+  });
+
   it("uses a task's correction-round limit instead of the board default", async () => {
     const { task, engine } = await seedTask({
       review: {
@@ -298,7 +330,7 @@ describe("TaskTransitionEngine", () => {
       status: "in_review",
       executionPolicy: { maxReviewIterations: 1 },
     });
-    engine.setRequestCorrection(async () => ({ agentId: "worker" }));
+    engine.setRequestCorrection(async () => ({ agentIds: ["worker"] }));
 
     await engine.applyReviewVerdict({ taskId: task.id, verdict: "reject", feedback: "Again" });
     await service.updateTask({ taskId: task.id, status: "in_review" });
@@ -416,27 +448,140 @@ describe("TaskTransitionEngine", () => {
     expect((await service.getTask(task.id))?.status).toBe("done");
   });
 
-  it("records when an automatic reviewer finishes without a verdict", async () => {
+  it("starts a fresh reviewer when the first one finishes without a verdict", async () => {
     const { task, engine, agentManager, projectId } = await seedTask({
       review: {
         reviewEnabled: true,
         reviewOnReject: "in_progress",
         archiveWorkspacesOnDone: false,
       },
+      maxReviewAttempts: 2,
     });
-    engine.setRequestReview(async () => ({ agentId: "reviewer-1" }));
+    const requested: string[] = [];
+    engine.setRequestReview(async () => {
+      const agentId = `reviewer-${requested.length + 1}`;
+      requested.push(agentId);
+      return { agentId };
+    });
 
     await engine.onWorkSettled(task.id);
-    await new Promise((resolve) => setImmediate(resolve));
+    await vi.waitFor(() => expect(requested).toEqual(["reviewer-1"]));
     agentManager.emitLifecycle("reviewer-1", "running");
     agentManager.emitLifecycle("reviewer-1", "idle");
-    await new Promise((resolve) => setImmediate(resolve));
 
+    await vi.waitFor(() => expect(requested).toEqual(["reviewer-1", "reviewer-2"]));
     expect((await service.getTask(task.id))?.status).toBe("in_review");
-    const feed = await service.listBoardFeed({ projectId });
-    expect(feed.some((entry) => entry.body.includes("finished without recording a verdict"))).toBe(
-      true,
+    expect(await feedText(projectId)).toContain(
+      "finished without recording a verdict; the board is starting a fresh review",
     );
+  });
+
+  it("stops retrying reviewers and leaves the card to a human", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+      maxReviewAttempts: 2,
+    });
+    const requested: string[] = [];
+    engine.setRequestReview(async () => {
+      const agentId = `reviewer-${requested.length + 1}`;
+      requested.push(agentId);
+      return { agentId };
+    });
+
+    await engine.onWorkSettled(task.id);
+    await vi.waitFor(() => expect(requested).toHaveLength(1));
+    agentManager.emitLifecycle("reviewer-1", "running");
+    agentManager.emitLifecycle("reviewer-1", "error");
+    await vi.waitFor(() => expect(requested).toHaveLength(2));
+    agentManager.emitLifecycle("reviewer-2", "running");
+    agentManager.emitLifecycle("reviewer-2", "error");
+
+    await vi.waitFor(async () =>
+      expect(await feedText(projectId)).toContain("this task still requires review"),
+    );
+    expect(requested).toEqual(["reviewer-1", "reviewer-2"]);
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
+  });
+
+  /** A reviewer that loops is not an error anyone observes: without a ceiling
+   * the card waits on it forever. */
+  it("stops a reviewer that runs past its limit and releases its checkout", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+      reviewTimeoutMs: 10,
+      maxReviewAttempts: 1,
+    });
+    const released: Array<{ agentId: string; cancelAgent: boolean }> = [];
+    engine.setRequestReview(async () => ({ agentId: "reviewer-1" }));
+    engine.setReleaseReviewer(async (input) => {
+      released.push({ agentId: input.agentId, cancelAgent: input.cancelAgent });
+    });
+
+    await engine.onWorkSettled(task.id);
+    agentManager.emitLifecycle("reviewer-1", "running");
+
+    await vi.waitFor(async () =>
+      expect(await feedText(projectId)).toContain("ran past the 10ms review limit"),
+    );
+    expect(released).toEqual([{ agentId: "reviewer-1", cancelAgent: true }]);
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
+  });
+
+  it("releases the review checkout once a verdict has landed", async () => {
+    const { task, engine, agentManager } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    const released: Array<{ agentId: string; cancelAgent: boolean }> = [];
+    engine.setRequestReview(async () => ({ agentId: "reviewer-1" }));
+    engine.setReleaseReviewer(async (input) => {
+      released.push({ agentId: input.agentId, cancelAgent: input.cancelAgent });
+    });
+
+    await engine.onWorkSettled(task.id);
+    agentManager.emitLifecycle("reviewer-1", "running");
+    await engine.applyReviewVerdict({ taskId: task.id, verdict: "approve" });
+    agentManager.emitLifecycle("reviewer-1", "idle");
+
+    await vi.waitFor(() =>
+      expect(released).toEqual([{ agentId: "reviewer-1", cancelAgent: false }]),
+    );
+    expect((await service.getTask(task.id))?.status).toBe("done");
+  });
+
+  /** A board that names a reviewer and quietly falls back to a human reads
+   * exactly like a board with no reviewer at all. */
+  it("says on the card when a review cannot be started", async () => {
+    const { task, engine, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    engine.setRequestReview(async () => {
+      throw new Error("The reviewer preset pre-1 no longer exists");
+    });
+
+    await engine.onWorkSettled(task.id);
+
+    await vi.waitFor(async () =>
+      expect(await feedText(projectId)).toContain(
+        "could not start its review and now requires a human: The reviewer preset pre-1 no longer exists",
+      ),
+    );
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
   });
 
   it("stops observing when the agent closes or is detached", async () => {

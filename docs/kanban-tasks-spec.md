@@ -108,14 +108,25 @@ are independent writes from different call sites, which is how they drift.
     a stale finish cannot pull a manually moved card or race a sibling worker.
 - Review verdict: approve → `done`; reject → the task's effective
   `review.onReject`, default
-  `in_progress`. A rejection sent back to work resumes the latest worker with
-  the review feedback and returns to review after the correction. The task can
+  `in_progress`. A rejection sent back to work resumes **every** attached worker
+  with the review feedback and returns to review after the correction — the
+  review judged the integrated branch, so findings can belong to any worker that
+  fed it. The task can
   override the board's correction limit (default 3, maximum 10); exhausting it
-  leaves the card in review for a human. A reviewer that ends without a verdict is
-  recorded in the feed. Exposed as RPC, card menu, detail sheet, and MCP
-  `review_task`. If the worker cannot be resumed, the card returns to review
+  leaves the card in review for a human. Exposed as RPC, card menu, detail
+  sheet, and MCP
+  `review_task`. If no worker can be resumed, the card returns to review
   with the failure in the feed; it never stays in Working with no correction
   running.
+- A reviewer that ends without a verdict is recorded in the feed and replaced
+  once; the second one ending the same way leaves the card to a human. A
+  reviewer that neither answers nor stops is cancelled at a 30-minute ceiling
+  and counts as an ending. A board that names a reviewer preset it no longer has
+  says so on the card instead of quietly falling back to human review.
+- A review checkout is released as soon as its reviewer stops, verdict or not:
+  it is a worktree the daemon made for one judgement on the task branch, and the
+  findings live in the feed. Worker checkouts still follow
+  `archiveWorkspacesOnDone`.
 - Failure moves nothing. The task stays `in_progress` and the card shows it.
 - Manual moves write the same stored field through the same RPC, so automation
   and hand cannot disagree.
