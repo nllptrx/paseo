@@ -76,6 +76,10 @@ export function BoardFeedPane({
   );
   const handleChangeDraft = useCallback((value: string) => {
     setDraft(value);
+    // Web automation, paste, and some native keyboards update the value
+    // without emitting a selection event. Treat that as an edit at the end;
+    // an actual selection event still corrects this for mid-string edits.
+    setCaret(value.length);
   }, []);
   const handlePickMention = useCallback(
     (agentId: string) => {

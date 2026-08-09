@@ -580,6 +580,7 @@ function ModelRow({
       onPress={onPress}
       leadingSlot={leadingSlot}
       trailingSlot={trailingSlot}
+      testID={`model-option-${row.provider}-${row.modelId}`}
     />
   );
 }

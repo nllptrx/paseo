@@ -108,6 +108,10 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.lg,
     fontWeight: theme.fontWeight.medium,
   },
+  subtitle: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+  },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -377,7 +381,13 @@ export function SheetHeaderView({
           <Text style={titleStyle} numberOfLines={1}>
             {header.title}
           </Text>
-          {header.subtitle}
+          {typeof header.subtitle === "string" || typeof header.subtitle === "number" ? (
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {header.subtitle}
+            </Text>
+          ) : (
+            header.subtitle
+          )}
         </View>
         {header.actions ? <View style={styles.headerActions}>{header.actions}</View> : null}
         {showCloseButton ? (

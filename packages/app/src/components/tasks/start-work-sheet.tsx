@@ -62,10 +62,11 @@ export function StartWorkSheet({
       if (!taskId) {
         return;
       }
-      onClose();
-      void delegate({ taskId, presetId }).catch((error) => {
-        toast.show(toErrorMessage(error));
-      });
+      void delegate({ taskId, presetId })
+        .then(onClose)
+        .catch((error) => {
+          toast.show(toErrorMessage(error));
+        });
     },
     [delegate, onClose, taskId, toast],
   );
@@ -75,10 +76,11 @@ export function StartWorkSheet({
       if (!taskId) {
         return;
       }
-      onClose();
-      void delegate({ taskId, agent: { provider } }).catch((error) => {
-        toast.show(toErrorMessage(error));
-      });
+      void delegate({ taskId, agent: { provider } })
+        .then(onClose)
+        .catch((error) => {
+          toast.show(toErrorMessage(error));
+        });
     },
     [delegate, onClose, taskId, toast],
   );
@@ -87,10 +89,11 @@ export function StartWorkSheet({
     if (!taskId || !firstStepId) {
       return;
     }
-    onClose();
-    void act({ taskId, stepId: firstStepId, action: "run" }).catch((error) => {
-      toast.show(toErrorMessage(error));
-    });
+    void act({ taskId, stepId: firstStepId, action: "run" })
+      .then(onClose)
+      .catch((error) => {
+        toast.show(toErrorMessage(error));
+      });
   }, [act, firstStepId, onClose, taskId, toast]);
 
   const header = useMemo(
@@ -118,6 +121,7 @@ export function StartWorkSheet({
             variant="default"
             onPress={handleRunWorkflow}
             disabled={busy}
+            loading={isActing}
             testID="task-start-work-run-workflow"
           >
             {t("tasks.start.runWorkflow")}
@@ -130,6 +134,7 @@ export function StartWorkSheet({
             presetId={preset.id}
             name={preset.name}
             disabled={busy}
+            loading={isDelegating}
             onStart={handleDelegate}
           />
         ))}
@@ -143,6 +148,7 @@ export function StartWorkSheet({
                 provider={choice.value}
                 label={choice.label}
                 disabled={busy}
+                loading={isDelegating}
                 onStart={handleStartAdhoc}
               />
             ))}
@@ -153,7 +159,7 @@ export function StartWorkSheet({
           ) : null}
         </View>
 
-        <Button variant="ghost" onPress={onClose} testID="task-start-work-skip">
+        <Button variant="ghost" onPress={onClose} disabled={busy} testID="task-start-work-skip">
           {t("tasks.start.justMove")}
         </Button>
       </View>
@@ -167,11 +173,13 @@ function ProviderButton({
   provider,
   label,
   disabled,
+  loading,
   onStart,
 }: {
   provider: string;
   label: string;
   disabled: boolean;
+  loading: boolean;
   onStart: (provider: string) => void;
 }): ReactElement {
   const handlePress = useCallback(() => onStart(provider), [onStart, provider]);
@@ -181,6 +189,7 @@ function ProviderButton({
       size="sm"
       onPress={handlePress}
       disabled={disabled}
+      loading={loading}
       testID={`task-start-work-provider-${provider}`}
     >
       {label}
@@ -192,11 +201,13 @@ function PresetRow({
   presetId,
   name,
   disabled,
+  loading,
   onStart,
 }: {
   presetId: string;
   name: string;
   disabled: boolean;
+  loading: boolean;
   onStart: (presetId: string) => void;
 }): ReactElement {
   const handlePress = useCallback(() => onStart(presetId), [onStart, presetId]);
@@ -205,6 +216,7 @@ function PresetRow({
       variant="outline"
       onPress={handlePress}
       disabled={disabled}
+      loading={loading}
       testID={`task-start-work-preset-${presetId}`}
     >
       {name}
