@@ -48,10 +48,12 @@ const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foregroun
 export function KanbanBoardScreen({
   boardId,
   initialTaskId,
+  onInitialTaskHandled,
 }: {
   boardId: string;
   /** Opened straight away, when the route named a card. */
   initialTaskId?: string | null;
+  onInitialTaskHandled?: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const router = useRouter();
@@ -113,15 +115,23 @@ export function KanbanBoardScreen({
     );
   }
 
-  return <LoadedKanbanBoardScreen board={board} initialTaskId={initialTaskId ?? null} />;
+  return (
+    <LoadedKanbanBoardScreen
+      board={board}
+      initialTaskId={initialTaskId ?? null}
+      onInitialTaskHandled={onInitialTaskHandled}
+    />
+  );
 }
 
 function LoadedKanbanBoardScreen({
   board,
   initialTaskId,
+  onInitialTaskHandled,
 }: {
   board: AggregatedTaskBoard;
   initialTaskId: string | null;
+  onInitialTaskHandled?: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const { serverId, project } = board;
@@ -404,7 +414,12 @@ function LoadedKanbanBoardScreen({
 
   const [feedTaskId, setFeedTaskId] = useState<string | null>(initialTaskId ?? null);
   const handleOpenFeedTask = useCallback((taskId: string) => setFeedTaskId(taskId), []);
-  const handleFeedTaskHandled = useCallback(() => setFeedTaskId(null), []);
+  const handleFeedTaskHandled = useCallback(() => {
+    setFeedTaskId(null);
+    if (initialTaskId) {
+      onInitialTaskHandled?.();
+    }
+  }, [initialTaskId, onInitialTaskHandled]);
   // On a phone the feed is a sheet over the board, so it has to close before the
   // task it names can be read.
   const handleOpenFeedTaskFromSheet = useCallback(

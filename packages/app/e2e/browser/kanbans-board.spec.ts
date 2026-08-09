@@ -706,6 +706,22 @@ test.describe("Kanbans board", () => {
     await page.getByTestId("board-feed-send").click();
     await expect(feed).toContainText(note, { timeout: 30_000 });
   });
+
+  test("consuming a task query does not reopen the task after reload", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-task-query-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const title = `Query task ${Date.now()}`;
+    const seeded = await seedTrackerTask(workspace, title);
+
+    await openKanbans(page);
+    await page.getByTestId(`task-board-overview-card-${seeded.taskId}`).click();
+    await expect(page.getByTestId("task-detail-sheet")).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(new RegExp(`/kanbans/${seeded.projectId}$`));
+
+    await page.getByTestId("task-detail-sheet").getByRole("button", { name: "Close" }).click();
+    await page.reload();
+    await expect(page.getByTestId("task-detail-sheet")).toHaveCount(0);
+  });
 });
 
 test.describe("Kanbans overview", () => {
