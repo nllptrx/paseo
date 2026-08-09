@@ -271,10 +271,7 @@ function OpenTaskDetailSheet({
   const handleComment = useCallback(() => submitComment(false), [submitComment]);
   const handleCommentAndSend = useCallback(() => submitComment(true), [submitComment]);
 
-  const header = useMemo(
-    () => ({ title: formatTaskKey(project, task), subtitle: task.title }),
-    [project, task],
-  );
+  const header = useMemo(() => ({ title: formatTaskKey(project, task) }), [project, task]);
 
   return (
     <AdaptiveModalSheet
@@ -310,7 +307,7 @@ function OpenTaskDetailSheet({
         </View>
         <View style={styles.fieldRow}>
           <DropdownMenu>
-            <DropdownTrigger testID="task-detail-status-trigger">
+            <DropdownTrigger style={styles.fieldTrigger} testID="task-detail-status-trigger">
               <Text style={styles.fieldValue}>{t(TASK_STATUS_LABEL_KEYS[task.status])}</Text>
             </DropdownTrigger>
             <DropdownMenuContent align="start">
@@ -325,7 +322,7 @@ function OpenTaskDetailSheet({
             </DropdownMenuContent>
           </DropdownMenu>
           <DropdownMenu>
-            <DropdownTrigger testID="task-detail-priority-trigger">
+            <DropdownTrigger style={styles.fieldTrigger} testID="task-detail-priority-trigger">
               <Text style={styles.fieldValue}>
                 {task.priority === "none"
                   ? t("tasks.detail.priorityNone")
@@ -360,7 +357,7 @@ function OpenTaskDetailSheet({
               </Text>
             </View>
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onPress={handleEditWorkflow}
               testID="task-detail-workflow-edit"
@@ -536,45 +533,42 @@ function OpenTaskDetailSheet({
 
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>{t("tasks.detail.commentsHeading")}</Text>
-          {comments.length === 0 ? (
-            <Text style={styles.emptyComments}>{t("tasks.detail.commentsEmpty")}</Text>
-          ) : (
-            comments.map((entry) => <BoardFeedEntryRow key={entry.id} entry={entry} />)
-          )}
-        </View>
-
-        <View style={styles.composer}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            onSubmitEditing={handleComment}
-            placeholder={t("tasks.detail.commentPlaceholder")}
-            placeholderTextColor={styles.placeholder.color}
-            style={styles.input}
-            multiline
-            testID="task-detail-comment-input"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={handleComment}
-            disabled={draft.trim().length === 0 || isPosting}
-            testID="task-detail-comment-send"
-          >
-            {t("tasks.detail.commentSend")}
-          </Button>
-          {task.agents.length > 0 ? (
+          {comments.length > 0
+            ? comments.map((entry) => <BoardFeedEntryRow key={entry.id} entry={entry} />)
+            : null}
+          <View style={styles.composer}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              onSubmitEditing={handleComment}
+              placeholder={t("tasks.detail.commentPlaceholder")}
+              placeholderTextColor={styles.placeholder.color}
+              style={styles.input}
+              multiline
+              testID="task-detail-comment-input"
+            />
             <Button
-              variant="default"
+              variant="ghost"
               size="sm"
-              leftIcon={SendHorizontal}
-              onPress={handleCommentAndSend}
+              onPress={handleComment}
               disabled={draft.trim().length === 0 || isPosting}
-              testID="task-detail-comment-notify"
+              testID="task-detail-comment-send"
             >
-              {t("tasks.detail.commentNotify", { count: task.agents.length })}
+              {t("tasks.detail.commentSend")}
             </Button>
-          ) : null}
+            {task.agents.length > 0 ? (
+              <Button
+                variant="default"
+                size="sm"
+                leftIcon={SendHorizontal}
+                onPress={handleCommentAndSend}
+                disabled={draft.trim().length === 0 || isPosting}
+                testID="task-detail-comment-notify"
+              >
+                {t("tasks.detail.commentNotify", { count: task.agents.length })}
+              </Button>
+            ) : null}
+          </View>
         </View>
       </View>
     </AdaptiveModalSheet>
@@ -1284,13 +1278,10 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   body: {
-    gap: theme.spacing[4],
-    paddingHorizontal: theme.spacing[4],
-    paddingTop: theme.spacing[2],
-    paddingBottom: theme.spacing[4],
+    gap: theme.spacing[3],
   },
   brief: {
-    gap: theme.spacing[2],
+    gap: theme.spacing[1],
   },
   titleInput: {
     color: theme.colors.foreground,
@@ -1300,18 +1291,26 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[1],
   },
   descriptionInput: {
-    minHeight: 72,
+    minHeight: 44,
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[3],
+    paddingHorizontal: 0,
+    paddingVertical: theme.spacing[1],
     borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.surface1,
+    backgroundColor: "transparent",
   },
   fieldRow: {
     flexDirection: "row",
-    gap: theme.spacing[4],
+    gap: theme.spacing[2],
+  },
+  fieldTrigger: {
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: theme.spacing[3],
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface1,
   },
   fieldValue: {
     color: theme.colors.foreground,
@@ -1328,6 +1327,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   section: {
     gap: theme.spacing[2],
+    padding: theme.spacing[3],
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.lg,
   },
   sectionTitleRow: {
     flexDirection: "row",
@@ -1447,6 +1450,10 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "flex-end",
     gap: theme.spacing[2],
+    marginTop: theme.spacing[1],
+    paddingTop: theme.spacing[2],
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
   },
   input: {
     flex: 1,
