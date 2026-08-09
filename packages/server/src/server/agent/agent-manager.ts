@@ -1891,14 +1891,14 @@ export class AgentManager {
       labels?: Record<string, string>;
     },
   ): Promise<void> {
-    const liveAgent = this.getAgent(agentId);
+    const liveAgent = this.agents.get(agentId);
     if (liveAgent) {
-      if (updates.title) {
-        await this.setTitle(agentId, updates.title);
-      }
       if (updates.labels) {
-        await this.writeLabels(agentId, updates.labels);
+        liveAgent.labels = applyLabelPatch(liveAgent.labels, updates.labels);
       }
+      this.touchUpdatedAt(liveAgent);
+      await this.persistSnapshot(liveAgent, updates.title ? { title: updates.title } : undefined);
+      this.emitState(liveAgent, { persist: false });
       return;
     }
 
