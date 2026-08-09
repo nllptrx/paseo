@@ -6,8 +6,9 @@ import { useToast } from "@/contexts/toast-context";
 import { useHostFeature } from "@/runtime/host-features";
 import { useProjectDisplayName } from "@/stores/session-store-hooks";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
-import { suggestTaskProjectPrefix } from "@/tasks/new-task-form-model";
+import { suggestAvailableTaskProjectPrefix } from "@/tasks/new-task-form-model";
 import { DEFAULT_TASK_PROJECT_COLOR } from "@/tasks/task-project-color";
+import { taskBoardsQueryBaseKey } from "@/tasks/aggregated-task-boards";
 import { tasksQueryKey } from "@/tasks/task-query-keys";
 import { toErrorMessage } from "@/utils/error-messages";
 
@@ -47,7 +48,7 @@ export function useEnsureProjectBoard() {
       }
       const created = await client.tasksProjectCreate({
         name: input.projectName,
-        prefix: suggestTaskProjectPrefix(input.projectName) || "TSK",
+        prefix: suggestAvailableTaskProjectPrefix(input.projectName, snapshot.snapshot.projects),
         color: DEFAULT_TASK_PROJECT_COLOR,
         paseoProjectId: input.projectId,
       });
@@ -61,6 +62,7 @@ export function useEnsureProjectBoard() {
     },
     onSettled: (_data, _error, input) => {
       void queryClient.invalidateQueries({ queryKey: tasksQueryKey(input.serverId) });
+      void queryClient.invalidateQueries({ queryKey: taskBoardsQueryBaseKey });
     },
   });
 }

@@ -11,9 +11,12 @@ import { TaskBoardOverviewColumn } from "@/components/tasks/task-board-overview-
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useTaskBoards, type AggregatedTaskBoard } from "@/hooks/use-task-boards";
+import { useProjects } from "@/hooks/use-projects";
+import { useEnsureProjectBoard } from "@/tasks/use-add-to-board";
 import { useHosts } from "@/runtime/host-runtime";
 import { buildKanbanBoardRoute } from "@/utils/host-routes";
 import { resolveKanbansScreenBodyState } from "./kanbans-screen-state";
+import { useSessionStore } from "@/stores/session-store";
 
 export function KanbansScreen(): ReactElement {
   const isFocused = useIsFocused();
@@ -27,36 +30,91 @@ export function KanbansScreen(): ReactElement {
 
 const EMPTY_BOARDS: AggregatedTaskBoard[] = [];
 
+interface ProjectBoardEntry {
+  key: string;
+  serverId: string;
+  projectId: string;
+  projectName: string;
+  board: AggregatedTaskBoard | null;
+  canOpen: boolean;
+}
+
+function findLinkedBoard(
+  boards: readonly AggregatedTaskBoard[],
+  serverId: string,
+  paseoProjectId: string,
+): AggregatedTaskBoard | null {
+  return (
+    boards.find(
+      (board) => board.serverId === serverId && board.project.paseoProjectId === paseoProjectId,
+    ) ?? null
+  );
+}
+
 function KanbansScreenContent(): ReactElement {
   const { t } = useTranslation();
   const router = useRouter();
   const { loadState, hostErrors, isError, refetch } = useTaskBoards();
+  const { projects, isLoading: areProjectsLoading } = useProjects();
+  const ensureBoard = useEnsureProjectBoard();
   const boards = loadState.status === "loaded" ? loadState.data : EMPTY_BOARDS;
   const hosts = useHosts();
+  const sessions = useSessionStore((state) => state.sessions);
   const [selectedHost, setSelectedHost] = useState(ALL_HOSTS_OPTION_ID);
 
-  const visibleBoards = useMemo(
+  const entries = useMemo<ProjectBoardEntry[]>(() => {
+    return projects
+      .flatMap((project) =>
+        project.hosts.map((host) => {
+          const board = findLinkedBoard(boards, host.serverId, host.projectId);
+          return {
+            key: `${host.serverId}:project:${host.projectId}`,
+            serverId: host.serverId,
+            projectId: host.projectId,
+            projectName: host.projectCustomName ?? host.projectName,
+            board,
+            canOpen: sessions[host.serverId]?.serverInfo?.features?.tasks === true,
+          };
+        }),
+      )
+      .sort((left, right) => left.projectName.localeCompare(right.projectName));
+  }, [boards, projects, sessions]);
+  const visibleEntries = useMemo(
     () =>
-      boards.filter(
-        (board) => selectedHost === ALL_HOSTS_OPTION_ID || board.serverId === selectedHost,
+      entries.filter(
+        (entry) => selectedHost === ALL_HOSTS_OPTION_ID || entry.serverId === selectedHost,
       ),
-    [boards, selectedHost],
+    [entries, selectedHost],
   );
 
   const showHostFilter = hosts.length > 1;
   const showLoadError = isError && loadState.status !== "loaded";
 
-  const handleOpenBoard = useCallback(
-    (board: AggregatedTaskBoard, taskId?: string) =>
-      router.push(buildKanbanBoardRoute(board.project.id, taskId)),
-    [router],
+  const handleOpenProject = useCallback(
+    (entry: ProjectBoardEntry, taskId?: string) => {
+      if (!entry.canOpen) return;
+      if (entry.board) {
+        router.push(buildKanbanBoardRoute(entry.board.project.id, taskId));
+        return;
+      }
+      void (async () => {
+        const board = await ensureBoard.mutateAsync({
+          serverId: entry.serverId,
+          projectId: entry.projectId,
+          projectName: entry.projectName,
+        });
+        await refetch();
+        router.push(buildKanbanBoardRoute(board.id));
+      })().catch(() => undefined);
+    },
+    [ensureBoard, refetch, router],
   );
 
   return (
     <View style={styles.container}>
       <MenuHeader title={t("kanban.screen.title")} />
       <KanbansScreenBody
-        boards={visibleBoards}
+        entries={visibleEntries}
         loadState={loadState}
         hostErrors={hostErrors}
         showLoadError={showLoadError}
@@ -66,14 +124,15 @@ function KanbansScreenContent(): ReactElement {
         onSelectHost={setSelectedHost}
         onRetry={refetch}
         multiHost={hosts.length > 1}
-        onOpenBoard={handleOpenBoard}
+        onOpenProject={handleOpenProject}
+        areProjectsLoading={areProjectsLoading}
       />
     </View>
   );
 }
 
 function KanbansScreenBody({
-  boards,
+  entries,
   loadState,
   hostErrors,
   showLoadError,
@@ -83,9 +142,10 @@ function KanbansScreenBody({
   onSelectHost,
   onRetry,
   multiHost,
-  onOpenBoard,
+  onOpenProject,
+  areProjectsLoading,
 }: {
-  boards: AggregatedTaskBoard[];
+  entries: ProjectBoardEntry[];
   loadState: ReturnType<typeof useTaskBoards>["loadState"];
   hostErrors: ReturnType<typeof useTaskBoards>["hostErrors"];
   showLoadError: boolean;
@@ -95,16 +155,17 @@ function KanbansScreenBody({
   onSelectHost: (serverId: string) => void;
   onRetry: () => void;
   multiHost: boolean;
-  onOpenBoard: (board: AggregatedTaskBoard, taskId?: string) => void;
+  onOpenProject: (entry: ProjectBoardEntry, taskId?: string) => void;
+  areProjectsLoading: boolean;
 }): ReactElement {
   const { t } = useTranslation();
   const bodyState = resolveKanbansScreenBodyState({
     loadState,
-    visibleCount: boards.length,
+    visibleCount: entries.length,
     showLoadError,
   });
 
-  if (bodyState.kind === "loading") {
+  if ((bodyState.kind === "loading" || areProjectsLoading) && entries.length === 0) {
     return (
       <View style={styles.centered}>
         <LoadingSpinner size="large" color={styles.spinner.color} />
@@ -125,8 +186,20 @@ function KanbansScreenBody({
 
   if (bodyState.kind === "empty") {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.message}>{t("kanban.screen.emptyTitle")}</Text>
+      <View style={styles.body}>
+        {showHostFilter ? (
+          <View style={styles.filterRow}>
+            <HostFilter
+              hosts={hosts}
+              selectedHost={selectedHost}
+              onSelectHost={onSelectHost}
+              triggerTestID="kanbans-host-filter-trigger"
+            />
+          </View>
+        ) : null}
+        <View style={styles.centered}>
+          <Text style={styles.message}>{t("kanban.screen.emptyTitle")}</Text>
+        </View>
       </View>
     );
   }
@@ -151,16 +224,39 @@ function KanbansScreenBody({
         showsHorizontalScrollIndicator={false}
         testID="kanbans-list"
       >
-        {boards.map((board) => (
-          <TaskBoardOverviewColumn
-            key={`${board.serverId}:${board.project.id}`}
-            board={board}
+        {entries.map((entry) => (
+          <ProjectBoardOverviewEntry
+            key={entry.key}
+            entry={entry}
             showHostBadge={multiHost}
-            onOpenBoard={onOpenBoard}
+            onOpenProject={onOpenProject}
           />
         ))}
       </ScrollView>
     </View>
+  );
+}
+
+function ProjectBoardOverviewEntry({
+  entry,
+  showHostBadge,
+  onOpenProject,
+}: {
+  entry: ProjectBoardEntry;
+  showHostBadge: boolean;
+  onOpenProject: (entry: ProjectBoardEntry, taskId?: string) => void;
+}): ReactElement {
+  const handleOpenProject = useCallback(
+    (taskId?: string) => onOpenProject(entry, taskId),
+    [entry, onOpenProject],
+  );
+  return (
+    <TaskBoardOverviewColumn
+      board={entry.board}
+      project={entry}
+      showHostBadge={showHostBadge}
+      onOpenProject={handleOpenProject}
+    />
   );
 }
 

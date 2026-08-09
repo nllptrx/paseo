@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { openNewTaskForm, suggestTaskProjectPrefix } from "./new-task-form-model";
+import {
+  openNewTaskForm,
+  suggestAvailableTaskProjectPrefix,
+  suggestTaskProjectPrefix,
+} from "./new-task-form-model";
 import type { TaskProject } from "@getpaseo/protocol/tasks/types";
 
 const project: TaskProject = {
@@ -26,6 +30,18 @@ describe("suggestTaskProjectPrefix", () => {
     expect(suggestTaskProjectPrefix("Paseo Mobile")).toBe("PAS");
     expect(suggestTaskProjectPrefix("a-b 2c!")).toBe("AB2");
     expect(suggestTaskProjectPrefix("")).toBe("");
+  });
+});
+
+describe("suggestAvailableTaskProjectPrefix", () => {
+  it("adds the first free suffix when another project owns the suggestion", () => {
+    expect(
+      suggestAvailableTaskProjectPrefix("Paseo", [
+        { prefix: "PAS" },
+        { prefix: "PAS2" },
+        { prefix: "PAS3" },
+      ]),
+    ).toBe("PAS4");
   });
 });
 

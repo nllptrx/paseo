@@ -19,6 +19,24 @@ export function suggestTaskProjectPrefix(name: string): string {
   return letters.slice(0, PREFIX_SUGGESTION_LENGTH);
 }
 
+/** Pick a host-unique key for zero-input board creation. The capture form can
+ * ask a person to resolve a collision; opening a project from the global
+ * directory cannot. */
+export function suggestAvailableTaskProjectPrefix(
+  name: string,
+  projects: readonly Pick<TaskProject, "prefix">[],
+): string {
+  const base = suggestTaskProjectPrefix(name) || "TSK";
+  const used = new Set(projects.map((project) => project.prefix.toUpperCase()));
+  if (!used.has(base)) return base;
+  for (let suffix = 2; suffix < 1_000_000; suffix += 1) {
+    const suffixText = String(suffix);
+    const candidate = `${base.slice(0, PREFIX_MAX_LENGTH - suffixText.length)}${suffixText}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  throw new Error("No task project prefix is available");
+}
+
 export interface NewTaskFormSnapshot {
   serverId: string;
   /** The tracker project the task lands in, or null when the capture must

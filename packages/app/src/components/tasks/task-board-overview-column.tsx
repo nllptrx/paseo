@@ -16,9 +16,15 @@ const ThemedChevronRight = withUnistyles(ChevronRight);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 export interface TaskBoardOverviewColumnProps {
-  board: AggregatedTaskBoard;
+  board: AggregatedTaskBoard | null;
+  project: {
+    serverId: string;
+    projectId: string;
+    projectName: string;
+    canOpen: boolean;
+  };
   showHostBadge: boolean;
-  onOpenBoard: (board: AggregatedTaskBoard, taskId?: string) => void;
+  onOpenProject: (taskId?: string) => void;
 }
 
 /**
@@ -28,28 +34,29 @@ export interface TaskBoardOverviewColumnProps {
  */
 export function TaskBoardOverviewColumn({
   board,
+  project,
   showHostBadge,
-  onOpenBoard,
+  onOpenProject,
 }: TaskBoardOverviewColumnProps): ReactElement {
   const { t } = useTranslation();
-  const selection = useMemo(() => selectOverviewTasks(board.tasks), [board.tasks]);
-  const handleOpenBoard = useCallback(() => onOpenBoard(board), [board, onOpenBoard]);
-  const handleOpenTask = useCallback(
-    (taskId: string) => onOpenBoard(board, taskId),
-    [board, onOpenBoard],
-  );
+  const selection = useMemo(() => selectOverviewTasks(board?.tasks ?? []), [board?.tasks]);
+  const testProjectId = board?.project.id ?? project.projectId;
+  const emptyLabel = project.canOpen ? t("tasks.screen.empty") : t("tasks.screen.unsupported");
+  const handleOpenBoard = useCallback(() => onOpenProject(), [onOpenProject]);
+  const handleOpenTask = useCallback((taskId: string) => onOpenProject(taskId), [onOpenProject]);
 
   return (
-    <View style={styles.column} testID={`task-board-overview-${board.project.id}`}>
+    <View style={styles.column} testID={`task-board-overview-${testProjectId}`}>
       <Pressable
         onPress={handleOpenBoard}
+        disabled={!project.canOpen}
         style={styles.header}
         accessibilityRole="button"
-        testID={`task-board-overview-open-${board.project.id}`}
+        testID={`task-board-overview-open-${testProjectId}`}
       >
-        {showHostBadge ? <HostStatusDot serverId={board.serverId} /> : null}
+        {showHostBadge ? <HostStatusDot serverId={project.serverId} /> : null}
         <Text style={styles.title} numberOfLines={1}>
-          {board.project.name}
+          {project.projectName}
         </Text>
         <Text style={styles.count}>{selection.totalCount}</Text>
         <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
@@ -59,8 +66,8 @@ export function TaskBoardOverviewColumn({
         {selection.tasks.map((task) => (
           <OverviewTaskCard
             key={task.id}
-            serverId={board.serverId}
-            prefix={board.project.prefix}
+            serverId={project.serverId}
+            prefix={board?.project.prefix ?? ""}
             task={task}
             onPress={handleOpenTask}
           />
@@ -73,9 +80,14 @@ export function TaskBoardOverviewColumn({
           </Pressable>
         ) : null}
         {selection.totalCount === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>{t("tasks.screen.empty")}</Text>
-          </View>
+          <Pressable
+            onPress={handleOpenBoard}
+            disabled={!project.canOpen}
+            style={styles.empty}
+            accessibilityRole="button"
+          >
+            <Text style={styles.emptyText}>{emptyLabel}</Text>
+          </Pressable>
         ) : null}
       </View>
     </View>
