@@ -10,6 +10,7 @@ import { usePaneContext } from "@/panels/pane-context";
 import { useTasks } from "@/tasks/use-tasks";
 import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
+import type { Step } from "@getpaseo/protocol/tasks/workflow";
 
 function useKanbanPanelDescriptor(
   _target: { kind: "kanban" },
@@ -46,23 +47,32 @@ function KanbanPanel(): ReactElement {
     projectDisplayName: fields.projectDisplayName,
   }));
   const [workflowTaskId, setWorkflowTaskId] = useState<string | null>(null);
+  const [workflowEditSteps, setWorkflowEditSteps] = useState<readonly Step[] | undefined>();
 
   const handleCreateWorkflowForTask = useCallback(
-    (taskId: string) => setWorkflowTaskId(taskId),
+    (taskId: string, existingSteps?: readonly Step[]) => {
+      setWorkflowTaskId(taskId);
+      setWorkflowEditSteps(existingSteps);
+    },
     [],
   );
-  const handleCloseWorkflowForm = useCallback(() => setWorkflowTaskId(null), []);
+  const handleCloseWorkflowForm = useCallback(() => {
+    setWorkflowTaskId(null);
+    setWorkflowEditSteps(undefined);
+  }, []);
   const { snapshot } = useTasks(serverId);
   // Waiting for the snapshot is not the same as having no workflow, and the
   // editor builds its form once — opening it early offers an empty create form
   // that would replace whatever the card already has.
-  const workflowSteps = useMemo(
-    () =>
-      workflowTaskId && snapshot
-        ? (snapshot.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps ?? [])
-        : undefined,
-    [snapshot, workflowTaskId],
-  );
+  const workflowSteps = useMemo(() => {
+    if (workflowEditSteps !== undefined) {
+      return workflowEditSteps;
+    }
+    if (!workflowTaskId || !snapshot) {
+      return undefined;
+    }
+    return snapshot.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps ?? [];
+  }, [snapshot, workflowEditSteps, workflowTaskId]);
 
   if (!workspace) {
     return (
@@ -82,7 +92,7 @@ function KanbanPanel(): ReactElement {
           onCreateWorkflowForTask={handleCreateWorkflowForTask}
         />
       </ScrollView>
-      {workflowTaskId && snapshot ? (
+      {workflowTaskId && workflowSteps !== undefined ? (
         <TaskWorkflowFormSheet
           serverId={serverId}
           taskId={workflowTaskId}

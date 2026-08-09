@@ -266,6 +266,77 @@ describe("task workflow form model", () => {
     expect(step.requireChanges).toBe(true);
   });
 
+  it("hydrates saved actions that arrive after the form opens", () => {
+    const model = openTaskWorkflowForm({ serverId: "srv", taskId: "tsk" });
+
+    model.applyExistingSteps("srv", "tsk", [
+      {
+        id: "stp_1",
+        name: "Inspect the project",
+        prompt: "Read the relevant files before making changes.",
+        agents: [{ provider: "claude" }],
+        completion: "all",
+        workspace: { mode: "worktree" },
+        trigger: { type: "manual" },
+        runs: [],
+      },
+    ]);
+
+    expect(model.getState().steps).toMatchObject([
+      {
+        name: "Inspect the project",
+        prompt: "Read the relevant files before making changes.",
+        provider: "claude",
+      },
+    ]);
+  });
+
+  it("hydrates saved actions after an empty workflow snapshot", () => {
+    const model = openTaskWorkflowForm({
+      serverId: "srv",
+      taskId: "tsk",
+      existingSteps: [],
+    });
+
+    model.applyExistingSteps("srv", "tsk", [
+      {
+        id: "stp_1",
+        name: "Inspect the project",
+        prompt: "Read the relevant files before making changes.",
+        agents: [{ provider: "claude" }],
+        completion: "all",
+        workspace: { mode: "worktree" },
+        trigger: { type: "manual" },
+        runs: [],
+      },
+    ]);
+
+    expect(model.getState().steps[0]?.name).toBe("Inspect the project");
+  });
+
+  it("does not replace form edits when a later snapshot repeats saved actions", () => {
+    const storedStep = {
+      id: "stp_1",
+      name: "Inspect the project",
+      prompt: "Read first.",
+      agents: [{ provider: "claude" as const }],
+      completion: "all" as const,
+      workspace: { mode: "worktree" as const },
+      trigger: { type: "manual" as const },
+      runs: [],
+    };
+    const model = openTaskWorkflowForm({
+      serverId: "srv",
+      taskId: "tsk",
+      existingSteps: [storedStep],
+    });
+    model.setStepName(firstStepKey(model), "User edit");
+
+    model.applyExistingSteps("srv", "tsk", [{ ...storedStep, name: "RPC refresh" }]);
+
+    expect(model.getState().steps[0]?.name).toBe("User edit");
+  });
+
   /** The form shows one agent, three workspace modes and two triggers. A step
    * configured beyond that — a fan-out, an existing workspace, a cadence — must
    * survive an edit that never offered to change it. */

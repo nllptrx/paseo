@@ -108,6 +108,7 @@ export interface TaskWorkflowFormModel {
     serverId: string,
     providers: readonly TaskWorkflowFormProviderOption[],
   ) => void;
+  applyExistingSteps: (serverId: string, taskId: string, steps: readonly Step[]) => void;
   addStep: () => void;
   removeStep: (key: string) => void;
   moveStep: (key: string, direction: -1 | 1) => void;
@@ -256,6 +257,7 @@ function toFormStep(input: {
 export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWorkflowFormModel {
   const listeners = new Set<() => void>();
   let closed = false;
+  let existingStepsResolved = (snapshot.existingSteps?.length ?? 0) > 0;
   let nextStepKey = 1;
   const initialProviderOptions = buildProviderChoices(snapshot.availableProviders ?? []);
   const initialProvider = initialProviderOptions[0]?.value ?? null;
@@ -329,6 +331,29 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
           step.provider ? step : { ...step, provider: fallback, model: null },
         ),
         providerResolutionStatus: "complete",
+      });
+    },
+    applyExistingSteps(serverId, taskId, steps) {
+      if (
+        closed ||
+        existingStepsResolved ||
+        state.serverId !== serverId ||
+        state.taskId !== taskId
+      ) {
+        return;
+      }
+      if (steps.length === 0) {
+        return;
+      }
+      existingStepsResolved = true;
+      const fallback = state.providerOptions[0]?.value ?? null;
+      const formSteps = steps.map((step) =>
+        toFormStep({ key: `step-${nextStepKey++}`, step, fallbackProvider: fallback }),
+      );
+      publish({
+        ...state,
+        steps: formSteps,
+        providerOptions: withStepProviders(state.providerOptions, formSteps),
       });
     },
     addStep() {

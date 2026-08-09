@@ -454,6 +454,89 @@ test.describe("Kanbans board", () => {
     await expect(page.getByTestId("task-workflow-form-sheet")).toBeVisible({ timeout: 10_000 });
   });
 
+  test("editing a saved plan opens its actions", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-edit-plan-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const { projectId, taskId } = await seedTrackerTask(workspace, `Plan task ${Date.now()}`);
+    const workflow = await trackerClient(workspace).tasksWorkflowSet({
+      taskId,
+      steps: [
+        {
+          name: "Inspect the project",
+          prompt: "Read the relevant files before making changes.",
+          agents: [{ provider: "claude" }],
+          completion: "all",
+          workspace: { mode: "existing", workspaceId: workspace.workspaceId },
+          trigger: { type: "manual" },
+        },
+      ],
+    });
+    if (workflow.error) throw new Error(workflow.error);
+
+    await openBoard(page, projectId);
+    await page.getByTestId(`task-card-${taskId}`).click();
+    const detail = page.getByTestId("task-detail-sheet");
+    await expect(detail).toBeVisible({ timeout: 10_000 });
+    await expect(detail.getByTestId("task-detail-workflow-edit")).toHaveText("Edit");
+    await expect(detail.getByTestId("task-detail-workflow")).toContainText("Inspect the project");
+    await detail.getByTestId("task-detail-workflow-edit").click();
+
+    const form = page.getByTestId("task-workflow-form-sheet");
+    await expect(form).toBeVisible({ timeout: 10_000 });
+    await form.getByTestId("task-workflow-form-step-toggle-0").click();
+    await expect(form.getByTestId("task-workflow-form-step-name-input-0")).toHaveValue(
+      "Inspect the project",
+    );
+    await expect(form.getByTestId("task-workflow-form-step-prompt-input-0")).toHaveValue(
+      "Read the relevant files before making changes.",
+    );
+    const promptInput = form.getByTestId("task-workflow-form-step-prompt-input-0");
+    await expect(promptInput).toHaveCSS("resize", "vertical");
+    await expect(promptInput).toHaveCSS("overflow-y", "auto");
+    await expect(
+      form.getByTestId("task-workflow-form-step-prompt-input-0-resize-handle"),
+    ).toHaveCount(1);
+    const beforeResize = await promptInput.boundingBox();
+    if (!beforeResize) throw new Error("Agent brief is not laid out");
+    await page.mouse.move(
+      beforeResize.x + beforeResize.width - 2,
+      beforeResize.y + beforeResize.height - 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      beforeResize.x + beforeResize.width - 2,
+      beforeResize.y + beforeResize.height + 80,
+    );
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await promptInput.boundingBox())?.height ?? 0)
+      .toBeGreaterThan(beforeResize.height + 40);
+
+    await form.getByTestId("task-workflow-form-add-step").click();
+    const secondPromptInput = form.getByTestId("task-workflow-form-step-prompt-input-1");
+    await expect(secondPromptInput).toHaveCSS("resize", "vertical");
+    await expect(secondPromptInput).toHaveCSS("overflow-y", "auto");
+    await expect(
+      form.getByTestId("task-workflow-form-step-prompt-input-1-resize-handle"),
+    ).toHaveCount(1);
+    await secondPromptInput.scrollIntoViewIfNeeded();
+    const secondBeforeResize = await secondPromptInput.boundingBox();
+    if (!secondBeforeResize) throw new Error("Second agent brief is not laid out");
+    await page.mouse.move(
+      secondBeforeResize.x + secondBeforeResize.width - 2,
+      secondBeforeResize.y + secondBeforeResize.height - 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      secondBeforeResize.x + secondBeforeResize.width - 2,
+      secondBeforeResize.y + secondBeforeResize.height + 80,
+    );
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await secondPromptInput.boundingBox())?.height ?? 0)
+      .toBeGreaterThan(secondBeforeResize.height + 40);
+  });
+
   /** A preset is what everything that starts work reads from — including
    * review — so being unable to make one leaves all of it dead. A card with no
    * plan on it still just moves: a preset on the board is not an instruction to

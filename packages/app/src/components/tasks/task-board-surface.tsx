@@ -20,7 +20,7 @@ import {
 import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks";
 import { useTaskStepActions } from "@/tasks/use-task-workflow";
 import { toErrorMessage } from "@/utils/error-messages";
-import type { TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
+import type { Step, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { NewTaskSheet } from "./new-task-sheet";
 import { TaskBoard, type TaskBoardMove } from "./task-board";
 import { TaskList } from "./task-list";
@@ -87,7 +87,7 @@ export interface TaskBoardSurfaceProps {
   /** Prefills the tracker project the first capture creates. */
   projectDisplayName: string;
   /** Offered on every card when the host screen can author a plan for a task. */
-  onCreateWorkflowForTask?: (taskId: string) => void;
+  onCreateWorkflowForTask?: (taskId: string, existingSteps?: readonly Step[]) => void;
   /** Lets a surface outside the board — the feed, which sits beside it — open a
    * task here rather than mounting a second detail sheet of its own. */
   requestedTaskId?: string | null | undefined;
@@ -314,9 +314,9 @@ export function TaskBoardSurface({
   // Editing a workflow closes the card it belongs to: the editor is a sheet of
   // its own, and two stacked sheets leave no obvious way back.
   const handleEditWorkflow = useCallback(
-    (taskId: string) => {
+    (taskId: string, existingSteps?: readonly Step[]) => {
       setOpenTaskId(null);
-      onCreateWorkflowForTask?.(taskId);
+      onCreateWorkflowForTask?.(taskId, existingSteps);
     },
     [onCreateWorkflowForTask],
   );

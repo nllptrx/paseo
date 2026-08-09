@@ -2,6 +2,7 @@ import {
   forwardRef,
   useCallback,
   useMemo,
+  useRef,
   useState,
   type ForwardedRef,
   type ReactNode,
@@ -11,13 +12,17 @@ import {
   StyleSheet as RNStyleSheet,
   Text,
   View,
+  type PointerEvent as RNPointerEvent,
   type PressableStateCallbackType,
   type TextInput,
   type TextStyle,
   type ViewStyle,
 } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { GripHorizontal } from "lucide-react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { AdaptiveTextInput, type AdaptiveTextInputProps } from "@/components/adaptive-modal-sheet";
+import { isWeb } from "@/constants/platform";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
 import {
   createControlGeometry,
   resolveControlInteractionStyles,
@@ -67,14 +72,20 @@ type FormTextInputProps = AdaptiveTextInputProps & {
 };
 
 type FlatFormTextInputStyle = ViewStyle & TextStyle;
+type ResizeMode = "none" | "both" | "horizontal" | "vertical";
+type WebFormTextInputStyle = FlatFormTextInputStyle & {
+  overflowY?: "visible" | "hidden" | "scroll" | "auto";
+  resize?: ResizeMode;
+};
 
 interface SplitFormTextInputStyle {
   chromeStyle?: ViewStyle;
   inputStyle?: TextStyle;
+  resize?: ResizeMode;
 }
 
 function splitFormTextInputStyle(style: AdaptiveTextInputProps["style"]): SplitFormTextInputStyle {
-  const flattened = RNStyleSheet.flatten(style) as FlatFormTextInputStyle | undefined;
+  const flattened = RNStyleSheet.flatten(style) as WebFormTextInputStyle | undefined;
   if (!flattened) {
     return {};
   }
@@ -99,6 +110,8 @@ function splitFormTextInputStyle(style: AdaptiveTextInputProps["style"]): SplitF
     textShadowRadius,
     textTransform,
     writingDirection,
+    overflowY,
+    resize,
     ...chromeStyle
   } = flattened;
 
@@ -126,7 +139,8 @@ function splitFormTextInputStyle(style: AdaptiveTextInputProps["style"]): SplitF
 
   return {
     chromeStyle: stripUnistylesMetadata(chromeStyle),
-    inputStyle: stripUnistylesMetadata(inputStyle),
+    inputStyle: stripUnistylesMetadata({ ...inputStyle, overflowY }) as TextStyle,
+    resize,
   };
 }
 
@@ -156,16 +170,60 @@ export const FormTextInput = forwardRef<TextInput, FormTextInputProps>(function 
   ref,
 ) {
   const [focused, setFocused] = useState(false);
+  const [resizedHeight, setResizedHeight] = useState<number | null>(null);
+  const inputElementRef = useRef<TextInput | null>(null);
   const isDisabled = editable === false;
+  const isMultiline = props.multiline === true;
   const chromeSizeStyle = size === "sm" ? formInputStyles.chromeSm : formInputStyles.chromeMd;
   const inputSizeStyle = size === "sm" ? formInputStyles.inputSm : formInputStyles.inputMd;
   const splitStyle = useMemo(() => splitFormTextInputStyle(style), [style]);
   const setInputRef = useCallback(
     (node: TextInput | null) => {
+      inputElementRef.current = node;
       assignTextInputRef(ref, node);
     },
     [ref],
   );
+  const handleGripPointerDown = useCallback((event: RNPointerEvent) => {
+    const element = inputElementRef.current as unknown as HTMLElement | null;
+    const grip = event.currentTarget as unknown as HTMLElement | null;
+    if (!element || !grip) {
+      return;
+    }
+
+    const { pointerId, clientY } = event.nativeEvent;
+    const startHeight = element.getBoundingClientRect().height;
+    const lineHeight = Number.parseFloat(window.getComputedStyle(element).lineHeight);
+    const minHeight = Number.isFinite(lineHeight) ? lineHeight : startHeight;
+
+    event.preventDefault();
+    event.stopPropagation();
+    grip.setPointerCapture?.(pointerId);
+
+    function handleMove(moveEvent: PointerEvent) {
+      if (moveEvent.pointerId !== pointerId) {
+        return;
+      }
+      moveEvent.preventDefault();
+      setResizedHeight(Math.max(minHeight, startHeight + moveEvent.clientY - clientY));
+    }
+
+    function handleUp(upEvent: PointerEvent) {
+      if (upEvent.pointerId !== pointerId) {
+        return;
+      }
+      if (grip?.hasPointerCapture?.(pointerId)) {
+        grip.releasePointerCapture(pointerId);
+      }
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+    }
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+  }, []);
   const handleFocus = useCallback<NonNullable<AdaptiveTextInputProps["onFocus"]>>(
     (event) => {
       setFocused(true);
@@ -181,9 +239,16 @@ export const FormTextInput = forwardRef<TextInput, FormTextInputProps>(function 
     [onBlur],
   );
   const inputStyle = useMemo(
-    () => [formInputStyles.input, inputSizeStyle, splitStyle.inputStyle],
-    [inputSizeStyle, splitStyle.inputStyle],
+    () => [
+      formInputStyles.input,
+      inputSizeStyle,
+      isWeb && isMultiline && formInputStyles.multilineInput,
+      splitStyle.inputStyle,
+      resizedHeight === null ? null : { height: resizedHeight },
+    ],
+    [inputSizeStyle, isMultiline, resizedHeight, splitStyle.inputStyle],
   ) as AdaptiveTextInputProps["style"];
+  const showResizeHandle = isWeb && splitStyle.resize === "vertical";
   const chromeStyle = useCallback(
     ({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) => [
       formInputStyles.chrome,
@@ -216,6 +281,17 @@ export const FormTextInput = forwardRef<TextInput, FormTextInputProps>(function 
         onFocus={handleFocus}
         style={inputStyle}
       />
+      {showResizeHandle ? (
+        <View
+          role="separator"
+          aria-orientation="horizontal"
+          style={[formInputStyles.resizeGrip, RESIZE_GRIP_CURSOR]}
+          onPointerDown={handleGripPointerDown}
+          testID={props.testID ? `${props.testID}-resize-handle` : undefined}
+        >
+          <ThemedGrip size={ICON_SIZE.md} uniProps={gripIconMapping} />
+        </View>
+      ) : null}
     </Pressable>
   );
 });
@@ -241,11 +317,26 @@ const styles = StyleSheet.create((theme) => ({
   },
 }));
 
+const ThemedGrip = withUnistyles(GripHorizontal);
+const gripIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const RESIZE_GRIP_CURSOR = { cursor: "row-resize", touchAction: "none" } as object;
+
 const formInputStyles = StyleSheet.create((theme) => {
   const geometry = createControlGeometry(theme);
 
   return {
+    resizeGrip: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: theme.spacing[3],
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 1,
+    },
     chrome: {
+      position: "relative",
       backgroundColor: theme.colors.surface2,
     },
     chromeSm: {
@@ -274,6 +365,12 @@ const formInputStyles = StyleSheet.create((theme) => {
       paddingVertical: 0,
       outlineColor: "transparent",
       outlineWidth: 0,
+    },
+    multilineInput: {
+      flexBasis: "auto",
+      flexGrow: 0,
+      flexShrink: 0,
+      width: "100%",
     },
     inputSm: {
       ...geometry.fieldTextSm,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Text, View } from "react-native";
+import { StyleSheet as RNStyleSheet, Text, View } from "react-native";
 import type { Task, TaskProject } from "@getpaseo/protocol/tasks/types";
+import type { Step } from "@getpaseo/protocol/tasks/workflow";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
 import { Ellipsis, MessagesSquare } from "lucide-react-native";
@@ -24,6 +25,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   type MenuPageDefinition,
@@ -138,6 +140,9 @@ function LoadedKanbanBoardScreen({
   const boardId = project.id;
   const { configureBoard } = useTaskMutations(serverId);
   const [workflowTaskId, setWorkflowTaskId] = useState<string | null>(null);
+  const [workflowEditSteps, setWorkflowEditSteps] = useState<readonly Step[] | undefined>(
+    undefined,
+  );
   const isCompact = useIsCompactFormFactor();
   // Desktop remembers the pane like the explorer sidebar does; compact borrows
   // the whole screen for it, so it is a sheet you summon, never a default.
@@ -156,23 +161,31 @@ function LoadedKanbanBoardScreen({
   const handleCloseFeedSheet = useCallback(() => setIsFeedSheetOpen(false), []);
 
   const handleCreateWorkflowForTask = useCallback(
-    (taskId: string) => setWorkflowTaskId(taskId),
+    (taskId: string, existingSteps?: readonly Step[]) => {
+      setWorkflowTaskId(taskId);
+      setWorkflowEditSteps(existingSteps);
+    },
     [],
   );
-  const handleCloseWorkflowForm = useCallback(() => setWorkflowTaskId(null), []);
+  const handleCloseWorkflowForm = useCallback(() => {
+    setWorkflowTaskId(null);
+    setWorkflowEditSteps(undefined);
+  }, []);
   const { snapshot } = useTasks(serverId);
   // A snapshot that has not arrived and a task with no workflow both read as
   // "no steps", and the editor cannot tell them apart: it builds its form once,
   // so opening it too early gives an empty create form that would replace the
   // workflow already on the card.
-  const workflowSteps = useMemo(
-    () =>
-      workflowTaskId && snapshot
-        ? (snapshot.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps ?? [])
-        : undefined,
-    [snapshot, workflowTaskId],
-  );
-  const canEditWorkflow = workflowTaskId !== null && snapshot !== undefined;
+  const workflowSteps = useMemo(() => {
+    if (workflowEditSteps !== undefined) {
+      return workflowEditSteps;
+    }
+    if (!workflowTaskId || !snapshot) {
+      return undefined;
+    }
+    return snapshot.workflows?.find((entry) => entry.taskId === workflowTaskId)?.steps ?? [];
+  }, [snapshot, workflowEditSteps, workflowTaskId]);
+  const canEditWorkflow = workflowTaskId !== null && workflowSteps !== undefined;
 
   const toast = useToast();
   // The review flag routes a green settle to In Review instead of Done, and it
@@ -275,6 +288,13 @@ function LoadedKanbanBoardScreen({
                 onSelect={handleSelectReviewer}
               />
             ))}
+            {/* Without this the menu is one item long and reads as "a person is
+                the only reviewer this board can have". */}
+            {presets.length === 0 ? (
+              <DropdownMenuLabel testID={`kanban-reviewer-${boardId}-empty`}>
+                {t("tasks.detail.reviewerEmpty")}
+              </DropdownMenuLabel>
+            ) : null}
           </>
         ),
       },
@@ -631,15 +651,35 @@ function FeedSidebar({
   const resizeAnimatedStyle = useAnimatedStyle(() => ({ width: resizeWidth.value }));
 
   return (
-    <Animated.View style={[styles.feedPane, resizeAnimatedStyle, { paddingTop: insets.top }]}>
-      <SidebarResizeHandle edge="left" gesture={resizeGesture} testID="board-feed-resize-handle" />
-      <BoardFeedPane serverId={serverId} project={project} tasks={tasks} onOpenTask={onOpenTask} />
+    <Animated.View
+      style={[feedSidebarStaticStyles.container, resizeAnimatedStyle, { paddingTop: insets.top }]}
+    >
+      <View style={styles.feedPane}>
+        <SidebarResizeHandle
+          edge="left"
+          gesture={resizeGesture}
+          testID="board-feed-resize-handle"
+        />
+        <BoardFeedPane
+          serverId={serverId}
+          project={project}
+          tasks={tasks}
+          onOpenTask={onOpenTask}
+        />
+      </View>
     </Animated.View>
   );
 }
 
+const feedSidebarStaticStyles = RNStyleSheet.create({
+  container: {
+    position: "relative" as const,
+  },
+});
+
 const styles = StyleSheet.create((theme) => ({
   feedPane: {
+    flex: 1,
     borderLeftWidth: theme.borderWidth[1],
     borderLeftColor: theme.colors.border,
     backgroundColor: theme.colors.surface0,

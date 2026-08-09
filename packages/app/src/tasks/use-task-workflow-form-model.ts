@@ -20,6 +20,13 @@ export function useTaskWorkflowFormModel(
   const { providers } = useTaskAvailableProviders(snapshot.serverId);
 
   useEffect(() => {
+    if (!snapshot.existingSteps) {
+      return;
+    }
+    model.applyExistingSteps(snapshot.serverId, snapshot.taskId, snapshot.existingSteps);
+  }, [model, snapshot.existingSteps, snapshot.serverId, snapshot.taskId]);
+
+  useEffect(() => {
     if (!providers) {
       return;
     }
