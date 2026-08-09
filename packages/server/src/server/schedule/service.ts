@@ -27,6 +27,30 @@ import type { FirstAgentContext } from "@getpaseo/protocol/messages";
 
 const SCHEDULE_TICK_INTERVAL_MS = 1000;
 
+export type ScheduleRunLifecycleEvent =
+  | { type: "before_run"; scheduleId: string; scheduleRunId: string }
+  | { type: "before_agent_start"; scheduleId: string; scheduleRunId: string }
+  | {
+      type: "agent_started";
+      scheduleId: string;
+      scheduleRunId: string;
+      agentId: string;
+      workspaceId: string;
+    }
+  | {
+      type: "settled";
+      scheduleId: string;
+      scheduleRunId: string;
+      status: "succeeded" | "failed";
+      agentId: string | null;
+      error: string | null;
+      endedAt: string;
+    };
+
+export type ScheduleRunLifecycleListener = (
+  event: ScheduleRunLifecycleEvent,
+) => Promise<void> | void;
+
 // A run failed because its target no longer exists: the agent was deleted or
 // archived, or a new-agent cwd was removed. These are permanent, so the schedule
 // is completed instead of retried until it burns down to its expiry.
@@ -265,6 +289,7 @@ export class ScheduleService {
     runId: string,
   ) => Promise<ScheduleExecutionResult>;
   private readonly runningScheduleIds = new Set<string>();
+  private readonly runLifecycleListeners = new Set<ScheduleRunLifecycleListener>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: ScheduleServiceOptions) {
@@ -300,6 +325,25 @@ export class ScheduleService {
     if (this.tickTimer) {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
+    }
+  }
+
+  subscribeRunLifecycle(listener: ScheduleRunLifecycleListener): () => void {
+    this.runLifecycleListeners.add(listener);
+    return () => this.runLifecycleListeners.delete(listener);
+  }
+
+  private async emitRunLifecycle(
+    event: ScheduleRunLifecycleEvent,
+    options?: { propagateErrors?: boolean },
+  ): Promise<void> {
+    for (const listener of this.runLifecycleListeners) {
+      try {
+        await listener(event);
+      } catch (error) {
+        if (options?.propagateErrors) throw error;
+        this.logger.warn({ err: error, event }, "Schedule run lifecycle listener failed");
+      }
     }
   }
 
@@ -714,6 +758,10 @@ export class ScheduleService {
     const scheduleWithRun = await this.appendRunningRun(schedule.id, runningRun);
 
     try {
+      await this.emitRunLifecycle(
+        { type: "before_run", scheduleId: schedule.id, scheduleRunId: runId },
+        { propagateErrors: true },
+      );
       const result = await this.runner(scheduleWithRun, runId);
       await this.finishRun({
         scheduleId: schedule.id,
@@ -814,7 +862,19 @@ export class ScheduleService {
 
       return updated;
     });
-    requireSchedule(updatedSchedule, params.scheduleId);
+    const settledSchedule = requireSchedule(updatedSchedule, params.scheduleId);
+    const settledRun = settledSchedule.runs.find((run) => run.id === params.runId);
+    if (settledRun?.endedAt) {
+      await this.emitRunLifecycle({
+        type: "settled",
+        scheduleId: params.scheduleId,
+        scheduleRunId: params.runId,
+        status: params.status,
+        agentId: settledRun.agentId,
+        error: settledRun.error,
+        endedAt: settledRun.endedAt,
+      });
+    }
   }
 
   private async recordRunWorkspace(params: {
@@ -889,6 +949,10 @@ export class ScheduleService {
         agentId: null,
       });
       const runConfig = { ...config, cwd: workspace.cwd };
+      await this.emitRunLifecycle(
+        { type: "before_agent_start", scheduleId: schedule.id, scheduleRunId: runId },
+        { propagateErrors: true },
+      );
       const created = await this.createAgent({
         kind: "mcp",
         provider: formatScheduleProviderModel(runConfig),
@@ -917,6 +981,16 @@ export class ScheduleService {
         workspaceId: workspace.workspaceId,
         agentId,
       });
+      await this.emitRunLifecycle(
+        {
+          type: "agent_started",
+          scheduleId: schedule.id,
+          scheduleRunId: runId,
+          agentId,
+          workspaceId: workspace.workspaceId,
+        },
+        { propagateErrors: true },
+      );
       if (created.initialPromptError) {
         throw created.initialPromptError;
       }

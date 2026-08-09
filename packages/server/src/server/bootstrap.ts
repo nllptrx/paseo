@@ -129,6 +129,7 @@ import type { RequestedSpeechProviders } from "./speech/speech-types.js";
 import { createSpeechService } from "./speech/speech-runtime.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
+import { sendPromptToAgent } from "./agent/agent-prompt.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import {
@@ -1228,15 +1229,6 @@ export async function createPaseoDaemon(
     archiveWorkspace: archiveScheduleWorkspaceExternal,
     getWorkspace: (workspaceId) => workspaceRegistry.get(workspaceId),
   });
-  await scheduleService.start();
-  agentManager.setAgentArchivedCallback(async (agentId) => {
-    try {
-      await scheduleService.completeForAgent(agentId);
-    } catch (error) {
-      logger.warn({ err: error, agentId }, "Failed to complete schedules for archived agent");
-    }
-  });
-  logger.info({ elapsed: elapsed() }, "Schedule service initialized");
   const taskService = new TaskService({
     databasePath: path.join(config.paseoHome, "tasks.db"),
     logger,
@@ -1261,9 +1253,38 @@ export async function createPaseoDaemon(
     },
     createWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
+    resumeAgent: async ({ agentId, prompt }) => {
+      await sendPromptToAgent({ agentManager, agentStorage, agentId, prompt, logger });
+    },
     logger,
   });
+  scheduleService.subscribeRunLifecycle((event) =>
+    taskWorkflowEngine.handleScheduleRunLifecycle(event),
+  );
+  await scheduleService.start();
+  agentManager.setAgentArchivedCallback(async (agentId) => {
+    try {
+      await scheduleService.completeForAgent(agentId);
+    } catch (error) {
+      logger.warn({ err: error, agentId }, "Failed to complete schedules for archived agent");
+    }
+  });
+  logger.info({ elapsed: elapsed() }, "Schedule service initialized");
   taskTransitions.setRequestReview((taskId) => taskWorkflowEngine.requestReview(taskId));
+  taskTransitions.setRequestCorrection((input) => taskWorkflowEngine.requestCorrection(input));
+  taskTransitions.setIntegrateTaskWork((taskId) => taskWorkflowEngine.integrateTaskWork(taskId));
+  taskTransitions.setIntegrateTaskIntoParent((taskId) =>
+    taskWorkflowEngine.integrateTaskIntoParent(taskId),
+  );
+  taskTransitions.setRequestIntegrationFix((input) =>
+    taskWorkflowEngine.requestIntegrationFix(input),
+  );
+  taskService.setCompleteTaskHandler((taskId) =>
+    taskTransitions.completeTask(taskId, "was moved to done"),
+  );
+  taskTransitions.setOnTaskDone((taskId) =>
+    taskWorkflowEngine.archiveTaskWorkspacesAfterDone(taskId),
+  );
   taskWorkflowEngine.setOnWorkflowSettled((taskId) => {
     void taskTransitions.onWorkSettled(taskId).catch((error) => {
       logger.error({ err: error, taskId }, "Failed to move a task after its workflow settled");

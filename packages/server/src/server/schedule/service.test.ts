@@ -352,6 +352,35 @@ describe("ScheduleService", () => {
     expect(inspected.nextRunAt).toBe("2026-01-01T00:02:00.000Z");
   });
 
+  test("emits preflight and settled lifecycle events for a run", async () => {
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      runner: async () => ({
+        agentId: "00000000-0000-0000-0000-000000000001",
+        output: "done",
+      }),
+    });
+    const events: string[] = [];
+    service.subscribeRunLifecycle((event) => {
+      events.push(`${event.type}:${event.scheduleId}`);
+    });
+    const schedule = await service.create({
+      prompt: "Review new PRs",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: { type: "new-agent", config: { provider: "claude", cwd: tempDir } },
+    });
+
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+
+    expect(events).toEqual([`before_run:${schedule.id}`, `settled:${schedule.id}`]);
+  });
+
   test("pause and resume update persisted schedule state", async () => {
     const service = createScheduleService({
       paseoHome: tempDir,
