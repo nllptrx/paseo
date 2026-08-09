@@ -116,7 +116,7 @@ describe("task workflow form model", () => {
     expect(model.getState().canSubmit).toBe(true);
 
     model.addStep();
-    // The new step has no name or prompt yet, so the workflow is not submittable.
+    // The new action has no name yet, so the workflow is not submittable.
     expect(model.getState().canSubmit).toBe(false);
 
     const second = model.getState().steps[1]?.key ?? "";
@@ -125,7 +125,8 @@ describe("task workflow form model", () => {
     expect(model.getState().canSubmit).toBe(true);
 
     model.setStepPrompt(key, "   ");
-    expect(model.getState().canSubmit).toBe(false);
+    expect(model.getState().canSubmit).toBe(true);
+    expect(buildTaskWorkflowSteps(model.getState())?.[0]?.prompt).toBe("Build");
   });
 
   it("inherits the previous step's agent when adding a step", () => {

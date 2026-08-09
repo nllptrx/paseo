@@ -1,7 +1,7 @@
-import { useCallback, useMemo, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronUp, Trash2 } from "lucide-react-native";
+import { ChevronDown, ChevronUp, Settings2, Trash2 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,16 @@ export function TaskWorkflowStepEditor({
 }: TaskWorkflowStepEditorProps): ReactElement {
   const { t } = useTranslation();
   const { key } = step;
+  const [advanced, setAdvanced] = useState(
+    Boolean(
+      step.source &&
+      (step.workspaceMode !== "worktree" ||
+        step.trigger !== "manual" ||
+        step.requireChanges === false ||
+        step.verifyCommand ||
+        step.timeoutMinutes),
+    ),
+  );
 
   const handleName = useCallback((value: string) => model.setStepName(key, value), [key, model]);
   const handlePrompt = useCallback(
@@ -71,6 +81,7 @@ export function TaskWorkflowStepEditor({
   const handleRemove = useCallback(() => model.removeStep(key), [key, model]);
   const handleMoveUp = useCallback(() => model.moveStep(key, -1), [key, model]);
   const handleMoveDown = useCallback(() => model.moveStep(key, 1), [key, model]);
+  const toggleAdvanced = useCallback(() => setAdvanced((value) => !value), []);
 
   // The first step has nothing before it, so the two choices that name a
   // previous step are not offered there. A mode the form cannot author but the
@@ -164,27 +175,24 @@ export function TaskWorkflowStepEditor({
         </View>
       </View>
 
-      <Field
-        label={t("tasks.workflow.stepNameLabel")}
-        testID={`task-workflow-form-step-name-${index}`}
-      >
+      <Field label="Action" testID={`task-workflow-form-step-name-${index}`}>
         <FormTextInput
           value={step.name}
           onChangeText={handleName}
-          placeholder={t("tasks.workflow.stepNamePlaceholder")}
+          placeholder="Implement, investigate, review…"
           testID={`task-workflow-form-step-name-input-${index}`}
         />
       </Field>
 
       <Field
-        label={t("tasks.workflow.promptLabel")}
-        hint={t("tasks.workflow.promptHint")}
+        label="Agent brief"
+        hint="The task title and description are included automatically. Add only what this action needs."
         testID={`task-workflow-form-step-prompt-${index}`}
       >
         <FormTextInput
           value={step.prompt}
           onChangeText={handlePrompt}
-          placeholder={t("tasks.workflow.promptPlaceholder")}
+          placeholder="What should the agent do in this action?"
           multiline
           testID={`task-workflow-form-step-prompt-input-${index}`}
         />
@@ -199,79 +207,97 @@ export function TaskWorkflowStepEditor({
         placeholder={t("tasks.workflow.providerPlaceholder")}
         testID={`task-workflow-form-agent-${index}`}
       />
-
-      <View style={styles.row}>
-        <View style={styles.rowItem}>
-          <SelectField
-            label={t("tasks.workflow.workspaceLabel")}
-            value={step.workspaceMode}
-            selectedDisplay={workspaceDisplay}
-            options={workspaceOptions}
-            onChange={handleWorkspace}
-            placeholder={t("tasks.workflow.workspaceLabel")}
-            emptyText={t("tasks.workflow.workspaceLabel")}
-            testID={`task-workflow-form-workspace-${index}`}
-            triggerTestID={`task-workflow-form-workspace-trigger-${index}`}
-          />
-        </View>
-        <View style={styles.rowItem}>
-          <SelectField
-            label={t("tasks.workflow.triggerLabel")}
-            hint={index === 0 ? undefined : t("tasks.workflow.triggerHint")}
-            value={step.trigger}
-            selectedDisplay={triggerDisplay}
-            options={triggerOptions}
-            onChange={handleTrigger}
-            placeholder={t("tasks.workflow.triggerLabel")}
-            emptyText={t("tasks.workflow.triggerLabel")}
-            testID={`task-workflow-form-trigger-${index}`}
-            triggerTestID={`task-workflow-form-trigger-trigger-${index}`}
-          />
-        </View>
+      <View style={styles.executionSummary}>
+        <Text style={styles.executionSummaryText}>
+          {workspaceDisplay.label} · {triggerDisplay.label}
+        </Text>
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={Settings2}
+          onPress={toggleAdvanced}
+          testID={`task-workflow-form-step-advanced-${index}`}
+        >
+          {advanced ? "Hide settings" : "Advanced"}
+        </Button>
       </View>
 
-      <Field
-        label={t("tasks.workflow.evidenceLabel")}
-        hint={t("tasks.workflow.evidenceHint")}
-        testID={`task-workflow-form-step-evidence-${index}`}
-      >
-        <View style={styles.toggleRow}>
-          <Text style={styles.toggleLabel}>{t("tasks.workflow.requireChanges")}</Text>
-          <Switch
-            value={step.requireChanges}
-            onValueChange={handleRequireChanges}
-            accessibilityLabel={t("tasks.workflow.requireChanges")}
-            testID={`task-workflow-form-step-require-changes-${index}`}
-          />
+      {advanced ? (
+        <View style={styles.advanced} testID={`task-workflow-form-step-advanced-fields-${index}`}>
+          <View style={styles.row}>
+            <View style={styles.rowItem}>
+              <SelectField
+                label={t("tasks.workflow.workspaceLabel")}
+                value={step.workspaceMode}
+                selectedDisplay={workspaceDisplay}
+                options={workspaceOptions}
+                onChange={handleWorkspace}
+                placeholder={t("tasks.workflow.workspaceLabel")}
+                emptyText={t("tasks.workflow.workspaceLabel")}
+                testID={`task-workflow-form-workspace-${index}`}
+                triggerTestID={`task-workflow-form-workspace-trigger-${index}`}
+              />
+            </View>
+            <View style={styles.rowItem}>
+              <SelectField
+                label={t("tasks.workflow.triggerLabel")}
+                hint={index === 0 ? undefined : t("tasks.workflow.triggerHint")}
+                value={step.trigger}
+                selectedDisplay={triggerDisplay}
+                options={triggerOptions}
+                onChange={handleTrigger}
+                placeholder={t("tasks.workflow.triggerLabel")}
+                emptyText={t("tasks.workflow.triggerLabel")}
+                testID={`task-workflow-form-trigger-${index}`}
+                triggerTestID={`task-workflow-form-trigger-trigger-${index}`}
+              />
+            </View>
+          </View>
+
+          <Field
+            label="Completion evidence"
+            hint="Require a changed checkout before this action can pass."
+            testID={`task-workflow-form-step-evidence-${index}`}
+          >
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>{t("tasks.workflow.requireChanges")}</Text>
+              <Switch
+                value={step.requireChanges}
+                onValueChange={handleRequireChanges}
+                accessibilityLabel={t("tasks.workflow.requireChanges")}
+                testID={`task-workflow-form-step-require-changes-${index}`}
+              />
+            </View>
+          </Field>
+
+          <Field
+            label="Check command"
+            hint="Optional command that must pass, for example npm test."
+            testID={`task-workflow-form-step-verify-${index}`}
+          >
+            <FormTextInput
+              value={step.verifyCommand}
+              onChangeText={handleVerifyCommand}
+              placeholder={t("tasks.workflow.verifyPlaceholder")}
+              testID={`task-workflow-form-step-verify-input-${index}`}
+            />
+          </Field>
+
+          <Field
+            label={t("tasks.workflow.timeoutLabel")}
+            hint={t("tasks.workflow.timeoutHint")}
+            testID={`task-workflow-form-step-timeout-${index}`}
+          >
+            <FormTextInput
+              value={step.timeoutMinutes}
+              onChangeText={handleTimeoutMinutes}
+              placeholder={t("tasks.workflow.timeoutPlaceholder")}
+              keyboardType="number-pad"
+              testID={`task-workflow-form-step-timeout-input-${index}`}
+            />
+          </Field>
         </View>
-      </Field>
-
-      <Field
-        label={t("tasks.workflow.verifyLabel")}
-        hint={t("tasks.workflow.verifyHint")}
-        testID={`task-workflow-form-step-verify-${index}`}
-      >
-        <FormTextInput
-          value={step.verifyCommand}
-          onChangeText={handleVerifyCommand}
-          placeholder={t("tasks.workflow.verifyPlaceholder")}
-          testID={`task-workflow-form-step-verify-input-${index}`}
-        />
-      </Field>
-
-      <Field
-        label={t("tasks.workflow.timeoutLabel")}
-        hint={t("tasks.workflow.timeoutHint")}
-        testID={`task-workflow-form-step-timeout-${index}`}
-      >
-        <FormTextInput
-          value={step.timeoutMinutes}
-          onChangeText={handleTimeoutMinutes}
-          placeholder={t("tasks.workflow.timeoutPlaceholder")}
-          keyboardType="number-pad"
-          testID={`task-workflow-form-step-timeout-input-${index}`}
-        />
-      </Field>
+      ) : null}
     </View>
   );
 }
@@ -295,6 +321,24 @@ const styles = StyleSheet.create((theme) => ({
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.lg,
     backgroundColor: theme.colors.surface1,
+  },
+  executionSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    paddingTop: theme.spacing[1],
+  },
+  executionSummaryText: {
+    flex: 1,
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  advanced: {
+    gap: theme.spacing[3],
+    paddingTop: theme.spacing[2],
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
   },
   header: {
     flexDirection: "row",

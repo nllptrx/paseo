@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useSyncExternalStore, type ReactElement } from "react";
 import { Text, View } from "react-native";
-import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
@@ -39,7 +38,6 @@ function OpenTaskWorkflowFormSheet({
   visible,
   onClose,
 }: TaskWorkflowFormSheetProps): ReactElement {
-  const { t } = useTranslation();
   const { setWorkflow, isBusy } = useTaskMutations(serverId);
   const snapshot = useMemo(
     () => ({ serverId, taskId, ...(existingSteps ? { existingSteps } : {}) }),
@@ -70,7 +68,7 @@ function OpenTaskWorkflowFormSheet({
     void handleSubmit();
   }, [handleSubmit]);
 
-  const header = useMemo(() => ({ title: t("tasks.workflow.title") }), [t]);
+  const header = useMemo(() => ({ title: "Agent plan" }), []);
   const footer = useMemo(
     () => (
       <Button
@@ -80,10 +78,10 @@ function OpenTaskWorkflowFormSheet({
         loading={isBusy}
         testID="task-workflow-form-submit"
       >
-        {t("tasks.workflow.submit")}
+        Save plan
       </Button>
     ),
-    [canSubmit, handleSubmitPress, isBusy, t],
+    [canSubmit, handleSubmitPress, isBusy],
   );
 
   return (
@@ -100,7 +98,7 @@ function OpenTaskWorkflowFormSheet({
             starts below the fold and walks further away with every step. */}
         <View style={styles.stepsHeader}>
           <Text style={styles.stepsHeading}>
-            {t("tasks.workflow.stepsHeading", { count: state.steps.length })}
+            {state.steps.length} {state.steps.length === 1 ? "action" : "actions"}
           </Text>
           <Button
             variant="ghost"
@@ -109,7 +107,7 @@ function OpenTaskWorkflowFormSheet({
             onPress={model.addStep}
             testID="task-workflow-form-add-step"
           >
-            {t("tasks.workflow.addStep")}
+            Add action
           </Button>
         </View>
         <View style={styles.steps}>

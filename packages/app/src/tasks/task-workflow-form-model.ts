@@ -190,7 +190,7 @@ function withPositionValidChoices(step: TaskWorkflowFormStep, index: number): Ta
 }
 
 function isStepComplete(step: TaskWorkflowFormStep): boolean {
-  return step.name.trim().length > 0 && step.prompt.trim().length > 0 && step.provider !== null;
+  return step.name.trim().length > 0 && step.provider !== null;
 }
 
 function resolveCanSubmit(state: TaskWorkflowFormState): boolean {
@@ -460,7 +460,9 @@ export function buildTaskWorkflowSteps(state: TaskWorkflowFormState): StepInput[
     }
     steps.push({
       name: step.name.trim(),
-      prompt: step.prompt.trim(),
+      // The task brief is always in the generated prompt. A blank per-action
+      // brief means the action label itself is the only extra instruction.
+      prompt: step.prompt.trim() || step.name.trim(),
       agents: buildStepAgents(step, provider),
       completion: "all",
       workspace: buildStepWorkspace(step),
