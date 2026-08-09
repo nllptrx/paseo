@@ -110,6 +110,11 @@ describe("TaskWorkflowEngine", () => {
   let archivedWorkspaceIds: string[];
   let settledTaskIds: string[];
   let worktreeBaseBranches: Array<string | null>;
+  let taskBranches: Set<string>;
+  let taskBranchBases: Array<{ branch: string; baseBranch: string }>;
+  let integratedWorkspaces: Array<{ cwd: string; targetBranch: string }>;
+  let integratedBranches: Array<{ sourceBranch: string; targetBranch: string }>;
+  let createdAgentPrompts: string[];
   let engineDeps: () => ConstructorParameters<typeof TaskWorkflowEngine>[0];
   let workspaces: Map<
     string,
@@ -138,6 +143,11 @@ describe("TaskWorkflowEngine", () => {
     archivedWorkspaceIds = [];
     settledTaskIds = [];
     worktreeBaseBranches = [];
+    taskBranches = new Set(["main"]);
+    taskBranchBases = [];
+    integratedWorkspaces = [];
+    integratedBranches = [];
+    createdAgentPrompts = [];
     workspaces = new Map([
       [
         "ws_shared",
@@ -153,7 +163,8 @@ describe("TaskWorkflowEngine", () => {
     engineDeps = () => ({
       taskService: service,
       agentManager: agentManager.asAgentManager(),
-      createAgent: async () => {
+      createAgent: async (input) => {
+        createdAgentPrompts.push(input.initialPrompt ?? "");
         createdAgentCounter += 1;
         const agentId = `agt_${createdAgentCounter}`;
         agentManager.register(agentId, "initializing");
@@ -187,6 +198,21 @@ describe("TaskWorkflowEngine", () => {
         archivedWorkspaceIds.push(workspaceId);
         const workspace = workspaces.get(workspaceId);
         if (workspace) workspace.archivedAt = new Date().toISOString();
+      },
+      taskGit: {
+        isRepository: async () => true,
+        resolveDefaultBranch: async () => "main",
+        branchExists: async (_cwd, branch) => taskBranches.has(branch),
+        createBranch: async (_cwd, branch, baseBranch) => {
+          taskBranches.add(branch);
+          taskBranchBases.push({ branch, baseBranch });
+        },
+        integrateWorkspace: async (cwd, targetBranch) => {
+          integratedWorkspaces.push({ cwd, targetBranch });
+        },
+        integrateBranch: async (_cwd, sourceBranch, targetBranch) => {
+          integratedBranches.push({ sourceBranch, targetBranch });
+        },
       },
       logger,
       now: () => new Date("2026-01-01T00:00:00.000Z"),
@@ -238,6 +264,8 @@ describe("TaskWorkflowEngine", () => {
     expect(running.runs).toHaveLength(1);
     expect(running.runs[0].status).toBe("running");
     const agentId = running.runs[0].agentIds[0];
+    expect(createdAgentPrompts.at(-1)).toContain(taskId);
+    expect(createdAgentPrompts.at(-1)).toContain("Do the thing");
 
     agentManager.setLifecycle(agentId, "running");
     agentManager.setLifecycle(agentId, "idle");
@@ -280,6 +308,70 @@ describe("TaskWorkflowEngine", () => {
     await waitFor(() => settledTaskIds.length === 1);
 
     expect(settledTaskIds).toEqual([taskId]);
+  });
+
+  test("attaches and settles a scheduled step from schedule lifecycle events", async () => {
+    const scheduledEngine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      scheduleService: {
+        createOrReplace: vi.fn(async () => ({ id: "sched_1" }) as never),
+        delete: vi.fn(),
+      },
+    });
+    scheduledEngine.setOnWorkflowSettled((taskId) => settledTaskIds.push(taskId));
+    const seeded = await seedWorkflow([
+      makeStepInput({ name: "Implement" }),
+      makeStepInput({
+        name: "Later verify",
+        trigger: { type: "schedule", cadence: { type: "every", everyMs: 60_000 } },
+      }),
+    ]);
+    const first = await scheduledEngine.runStep({
+      taskId: seeded.taskId,
+      stepId: seeded.stepIds[0],
+    });
+    const firstAgentId = first.runs[0].agentIds[0];
+    agentManager.setLifecycle(firstAgentId, "running");
+    agentManager.setLifecycle(firstAgentId, "idle");
+    await waitFor(async () => (await getStep(seeded.taskId, 1))?.runs[0]?.scheduleId === "sched_1");
+
+    await scheduledEngine.handleScheduleRunLifecycle({
+      type: "before_run",
+      scheduleId: "sched_1",
+      scheduleRunId: "schedule-run-1",
+    });
+    await scheduledEngine.handleScheduleRunLifecycle({
+      type: "agent_started",
+      scheduleId: "sched_1",
+      scheduleRunId: "schedule-run-1",
+      agentId: "scheduled-agent",
+      workspaceId: "ws_shared",
+    });
+    expect((await service.getTask(seeded.taskId))?.status).toBe("in_progress");
+    expect((await service.getTask(seeded.taskId))?.agents).toEqual([
+      expect.objectContaining({ agentId: firstAgentId, completionOwner: "workflow" }),
+      expect.objectContaining({
+        agentId: "scheduled-agent",
+        completionOwner: "workflow",
+      }),
+    ]);
+
+    await scheduledEngine.handleScheduleRunLifecycle({
+      type: "settled",
+      scheduleId: "sched_1",
+      scheduleRunId: "schedule-run-1",
+      status: "succeeded",
+      agentId: "scheduled-agent",
+      error: null,
+      endedAt: "2026-01-01T00:01:00.000Z",
+    });
+
+    expect((await getStep(seeded.taskId, 1))?.runs[0]).toMatchObject({
+      status: "succeeded",
+      agentIds: ["scheduled-agent"],
+      endedAt: "2026-01-01T00:01:00.000Z",
+    });
+    expect(settledTaskIds).toEqual([seeded.taskId]);
   });
 
   test("fan-out: step succeeds only once every agent finishes, fails on first error", async () => {
@@ -348,7 +440,7 @@ describe("TaskWorkflowEngine", () => {
     expect((await getStep(taskId))?.runs[0].status).toBe("interrupted");
   });
 
-  test("archiveWorkspacesOnDone only archives Paseo-owned worktrees, once the workflow finishes", async () => {
+  test("archiveWorkspacesOnDone waits for final task completion and only archives Paseo-owned worktrees", async () => {
     const { projectId, taskId, stepIds } = await seedWorkflow([
       makeStepInput({ workspace: { mode: "worktree" } }),
     ]);
@@ -362,10 +454,31 @@ describe("TaskWorkflowEngine", () => {
     const agentId = running.runs[0].agentIds[0];
     agentManager.setLifecycle(agentId, "running");
     agentManager.setLifecycle(agentId, "idle");
-    await waitFor(() => archivedWorkspaceIds.includes(worktreeWorkspaceId));
+    await waitFor(() => settledTaskIds.includes(taskId));
+
+    expect(archivedWorkspaceIds).not.toContain(worktreeWorkspaceId);
+
+    await engine.archiveTaskWorkspacesAfterDone(taskId);
 
     expect(archivedWorkspaceIds).toContain(worktreeWorkspaceId);
     expect(archivedWorkspaceIds).not.toContain("ws_shared");
+  });
+
+  test("a task can enable workspace cleanup when its board keeps workspaces", async () => {
+    const { taskId, stepIds } = await seedWorkflow([
+      makeStepInput({ workspace: { mode: "worktree" } }),
+    ]);
+    await service.updateTask({
+      taskId,
+      executionPolicy: { archiveWorkspacesOnDone: true },
+    });
+    const running = await engine.runStep({ taskId, stepId: stepIds[0] });
+    const workspaceId = running.runs[0].workspaceIds[0];
+    await service.updateTask({ taskId, status: "done" });
+
+    await engine.archiveTaskWorkspacesAfterDone(taskId);
+
+    expect(archivedWorkspaceIds).toContain(workspaceId);
   });
 
   /** A worktree needs a checkout to branch from, and a tracker project can exist
@@ -380,15 +493,23 @@ describe("TaskWorkflowEngine", () => {
     });
 
     await expect(engine.runStep({ taskId: task.id, stepId: workflow.steps[0].id })).rejects.toThrow(
-      /not linked to a Paseo project/,
+      /not linked to a Git workspace/,
     );
   });
-  /** A subtask stacks on its parent instead of racing main, so its diff is
-   * reviewable on its own rather than carrying everything the parent did. */
-  test("a subtask's worktree starts from its parent's branch", async () => {
+
+  test("completes tracker-only work without requiring a Git project", async () => {
+    const project = await service.createProject({ name: "Loose", prefix: "LSE", color: "#fff" });
+    const task = await service.createTask({ projectId: project.id, title: "Human task" });
+
+    await expect(engine.integrateTaskIntoParent(task.id)).resolves.toBeUndefined();
+    expect((await service.getTask(task.id))?.integration).toBeUndefined();
+  });
+  /** Every task has a durable branch. A child starts from its parent's durable
+   * branch, while each worker starts from the branch of the task it owns. */
+  test("a subtask's worktree starts from its own branch stacked on its parent", async () => {
     const parent = await seedWorkflow([makeStepInput({ workspace: { mode: "worktree" } })]);
     const parentRun = await engine.runStep({ taskId: parent.taskId, stepId: parent.stepIds[0] });
-    const parentWorkspaceId = parentRun.runs[0].workspaceIds[0];
+    void parentRun;
 
     const child = await service.createTask({
       projectId: parent.projectId,
@@ -402,12 +523,17 @@ describe("TaskWorkflowEngine", () => {
 
     await engine.runStep({ taskId: child.id, stepId: childWorkflow.steps[0].id });
 
-    expect(worktreeBaseBranches).toEqual([null, `paseo/${parentWorkspaceId}`]);
+    const project = await service.getProject(parent.projectId);
+    const parentBranch = `paseo/tasks/${project?.prefix.toLowerCase()}-1`;
+    const childBranch = `paseo/tasks/${project?.prefix.toLowerCase()}-2`;
+    expect(taskBranchBases).toEqual([
+      { branch: parentBranch, baseBranch: "main" },
+      { branch: childBranch, baseBranch: parentBranch },
+    ]);
+    expect(worktreeBaseBranches).toEqual([parentBranch, childBranch]);
   });
 
-  /** A parent with no worktree has nothing to stack onto; the subtask starts
-   * where any other work would. */
-  test("a subtask whose parent never ran starts from the default branch", async () => {
+  test("a subtask whose parent never ran still stacks through both task branches", async () => {
     const parent = await seedWorkflow([makeStepInput()]);
     const child = await service.createTask({
       projectId: parent.projectId,
@@ -421,7 +547,110 @@ describe("TaskWorkflowEngine", () => {
 
     await engine.runStep({ taskId: child.id, stepId: childWorkflow.steps[0].id });
 
-    expect(worktreeBaseBranches).toEqual([null]);
+    const project = await service.getProject(parent.projectId);
+    const parentBranch = `paseo/tasks/${project?.prefix.toLowerCase()}-1`;
+    const childBranch = `paseo/tasks/${project?.prefix.toLowerCase()}-2`;
+    expect(taskBranchBases).toEqual([
+      { branch: parentBranch, baseBranch: "main" },
+      { branch: childBranch, baseBranch: parentBranch },
+    ]);
+    expect(worktreeBaseBranches).toEqual([childBranch]);
+  });
+
+  test("integrates worker work into the task branch before delivering a child to its parent", async () => {
+    const parent = await seedWorkflow([makeStepInput()]);
+    const child = await service.createTask({
+      projectId: parent.projectId,
+      title: "Subtask",
+      parentTaskId: parent.taskId,
+    });
+    await service.attachAgent({ taskId: child.id, agentId: "agt_child", workspaceId: "ws_shared" });
+
+    await engine.integrateTaskIntoParent(child.id);
+
+    const project = await service.getProject(parent.projectId);
+    const parentBranch = `paseo/tasks/${project?.prefix.toLowerCase()}-1`;
+    const childBranch = `paseo/tasks/${project?.prefix.toLowerCase()}-2`;
+    expect(integratedWorkspaces).toEqual([{ cwd: "/ws/shared", targetBranch: childBranch }]);
+    expect(integratedBranches).toEqual([{ sourceBranch: childBranch, targetBranch: parentBranch }]);
+    expect((await service.getTask(child.id))?.integration).toEqual({
+      branch: childBranch,
+      status: "integrated",
+      error: null,
+    });
+  });
+
+  test("persists a child merge conflict without marking it integrated", async () => {
+    const parent = await seedWorkflow([makeStepInput()]);
+    const child = await service.createTask({
+      projectId: parent.projectId,
+      title: "Subtask",
+      parentTaskId: parent.taskId,
+    });
+    await service.attachAgent({ taskId: child.id, agentId: "agt_child", workspaceId: "ws_shared" });
+    const deps = engineDeps();
+    const taskGit = deps.taskGit;
+    if (!taskGit) throw new Error("test task Git adapter is missing");
+    engine = new TaskWorkflowEngine({
+      ...deps,
+      taskGit: {
+        ...taskGit,
+        integrateBranch: async () => {
+          throw new Error("merge conflict in src/task.ts");
+        },
+      },
+    });
+
+    await expect(engine.integrateTaskIntoParent(child.id)).rejects.toThrow(/merge conflict/);
+
+    expect((await service.getTask(child.id))?.integration).toMatchObject({
+      status: "conflicted",
+      error: "merge conflict in src/task.ts",
+    });
+  });
+
+  test("serializes sibling delivery into their shared parent branch", async () => {
+    const parent = await seedWorkflow([makeStepInput()]);
+    const first = await service.createTask({
+      projectId: parent.projectId,
+      title: "First child",
+      parentTaskId: parent.taskId,
+    });
+    const second = await service.createTask({
+      projectId: parent.projectId,
+      title: "Second child",
+      parentTaskId: parent.taskId,
+    });
+    await service.attachAgent({ taskId: first.id, agentId: "agt_first", workspaceId: "ws_shared" });
+    await service.attachAgent({
+      taskId: second.id,
+      agentId: "agt_second",
+      workspaceId: "ws_shared",
+    });
+    const deps = engineDeps();
+    const taskGit = deps.taskGit;
+    if (!taskGit) throw new Error("test task Git adapter is missing");
+    let concurrent = 0;
+    let maximumConcurrent = 0;
+    engine = new TaskWorkflowEngine({
+      ...deps,
+      taskGit: {
+        ...taskGit,
+        integrateBranch: async () => {
+          concurrent += 1;
+          maximumConcurrent = Math.max(maximumConcurrent, concurrent);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          concurrent -= 1;
+        },
+      },
+    });
+
+    await Promise.all([
+      engine.integrateTaskIntoParent(first.id),
+      engine.integrateTaskIntoParent(second.id),
+    ]);
+
+    expect(maximumConcurrent).toBe(1);
   });
   /** The short path a workflow makes long: a preset is a one-step workflow you
    * do not have to author, and the agent lands attached. */
@@ -439,7 +668,50 @@ describe("TaskWorkflowEngine", () => {
     const task = await service.getTask(taskId);
     expect(task?.agents.map((agent) => agent.agentId)).toEqual([agentId]);
     expect(task?.agents[0].presetId).toBe(preset.id);
+    expect(createdAgentPrompts.at(-1)).toContain(`PSE${seededProjects}-1`);
+    expect(createdAgentPrompts.at(-1)).toContain(taskId);
     void projectId;
+  });
+
+  test("a task can require a dedicated worktree for ordinary delegation", async () => {
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    await service.updateTask({
+      taskId,
+      executionPolicy: { workspace: "dedicated" },
+    });
+    const preset = await service.createPreset({
+      name: "Implement in place",
+      provider: "claude",
+      environmentKind: "project_default",
+    });
+
+    await engine.delegate({ taskId, presetId: preset.id });
+    const delegated = await service.getTask(taskId);
+
+    expect(delegated?.agents[0]?.workspaceId).toMatch(/^ws_wt_/);
+    expect(worktreeBaseBranches[0]).toMatch(/^paseo\/tasks\/pse\d+-1$/);
+  });
+
+  test("a task can reuse attached work despite a dedicated-worktree preset", async () => {
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    await service.attachAgent({ taskId, agentId: "agt_existing", workspaceId: "ws_shared" });
+    await service.updateTask({
+      taskId,
+      executionPolicy: { workspace: "reuse" },
+    });
+    const preset = await service.createPreset({
+      name: "Implement separately",
+      provider: "claude",
+      environmentKind: "new_worktree",
+    });
+
+    const { agentId } = await engine.delegate({ taskId, presetId: preset.id });
+    const delegated = await service.getTask(taskId);
+
+    expect(delegated?.agents.find((link) => link.agentId === agentId)?.workspaceId).toBe(
+      "ws_shared",
+    );
+    expect(worktreeBaseBranches).toEqual([]);
   });
 
   /** The gate belongs to claiming, so it has to stop a delegate before an agent
@@ -454,7 +726,72 @@ describe("TaskWorkflowEngine", () => {
       environmentKind: "new_worktree",
     });
 
+    const beforeCreateCount = createdAgentCounter;
     await expect(engine.delegate({ taskId, presetId: preset.id })).rejects.toThrow(/blocked by/);
+    expect(createdAgentCounter).toBe(beforeCreateCount);
+    expect(createdAgentPrompts).toEqual([]);
+  });
+
+  test("refuses to run a blocked workflow before creating workspaces or agents", async () => {
+    const { projectId, taskId, stepIds } = await seedWorkflow([
+      makeStepInput({ workspace: { mode: "worktree" } }),
+    ]);
+    const blocker = await service.createTask({ projectId, title: "First" });
+    await service.addDependency({ taskId, dependsOnTaskId: blocker.id });
+    const beforeCreateCount = createdAgentCounter;
+
+    await expect(engine.runStep({ taskId, stepId: stepIds[0] })).rejects.toThrow(/blocked by/);
+
+    expect(createdAgentCounter).toBe(beforeCreateCount);
+    expect(createdAgentPrompts).toEqual([]);
+    expect((await service.getTask(taskId))?.agents).toEqual([]);
+  });
+
+  test("stops a workflow agent when a blocker arrives during dispatch", async () => {
+    const { projectId, taskId, stepIds } = await seedWorkflow([makeStepInput()]);
+    const blocker = await service.createTask({ projectId, title: "First" });
+    const deps = engineDeps();
+    const createAgent = deps.createAgent;
+    deps.createAgent = async (input) => {
+      const created = await createAgent(input);
+      await service.addDependency({ taskId, dependsOnTaskId: blocker.id });
+      return created;
+    };
+    const racingEngine = new TaskWorkflowEngine(deps);
+
+    await expect(racingEngine.runStep({ taskId, stepId: stepIds[0] })).rejects.toThrow(
+      /blocked by/,
+    );
+
+    expect((await service.getTask(taskId))?.agents).toEqual([]);
+    expect(agentManager.getAgent("agt_1")?.lifecycle).toBe("idle");
+    expect((await service.getWorkflow(taskId))?.steps[0].runs[0].status).toBe("failed");
+  });
+
+  test("cleans up a delegated agent and worktree when claiming loses a race", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const blocker = await service.createTask({ projectId, title: "First" });
+    const preset = await service.createPreset({
+      name: "Implement",
+      provider: "claude",
+      environmentKind: "new_worktree",
+    });
+    const deps = engineDeps();
+    const createAgent = deps.createAgent;
+    deps.createAgent = async (input) => {
+      const created = await createAgent(input);
+      await service.addDependency({ taskId, dependsOnTaskId: blocker.id });
+      return created;
+    };
+    const racingEngine = new TaskWorkflowEngine(deps);
+
+    await expect(racingEngine.delegate({ taskId, presetId: preset.id })).rejects.toThrow(
+      /blocked by/,
+    );
+
+    expect((await service.getTask(taskId))?.agents).toEqual([]);
+    expect(agentManager.getAgent("agt_2")?.lifecycle).toBe("idle");
+    expect(archivedWorkspaceIds).toEqual(["ws_wt_1"]);
   });
   async function secondRunStatus(taskId: string): Promise<boolean> {
     const step = (await service.getWorkflow(taskId))?.steps[0];
@@ -616,7 +953,38 @@ describe("TaskWorkflowEngine", () => {
     const task = await service.getTask(taskId);
     const reviewer = task?.agents.find((agent) => agent.agentId === requested?.agentId);
     expect(reviewer?.role).toBe("reviewer");
+    expect(reviewer?.workspaceId).not.toBe("ws_shared");
+    expect(worktreeBaseBranches.at(-1)).toMatch(/^paseo\/tasks\/pse\d+-1$/);
     expect(await service.listTaskWorkerIds(taskId)).toEqual(["agt_worker"]);
+    expect(createdAgentPrompts.at(-1)).toContain(`PSE${seededProjects}-1`);
+    expect(createdAgentPrompts.at(-1)).toContain(taskId);
+  });
+
+  test("a task can choose a different reviewer than its board", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const boardReviewer = await service.createPreset({
+      name: "Board reviewer",
+      provider: "claude",
+      environmentKind: "project_default",
+      instructions: "BOARD REVIEWER",
+    });
+    const taskReviewer = await service.createPreset({
+      name: "Task reviewer",
+      provider: "claude",
+      environmentKind: "project_default",
+      instructions: "TASK REVIEWER",
+    });
+    await service.configureBoard({ projectId, reviewerPresetId: boardReviewer.id });
+    await service.updateTask({
+      taskId,
+      executionPolicy: { reviewerPresetId: taskReviewer.id },
+    });
+    await service.attachAgent({ taskId, agentId: "agt_worker", workspaceId: "ws_shared" });
+
+    await engine.requestReview(taskId);
+
+    expect(createdAgentPrompts.at(-1)).toContain("TASK REVIEWER");
+    expect(createdAgentPrompts.at(-1)).not.toContain("BOARD REVIEWER");
   });
 
   test("does not review a board that names no reviewer", async () => {
@@ -624,5 +992,48 @@ describe("TaskWorkflowEngine", () => {
     await service.attachAgent({ taskId, agentId: "agt_worker", workspaceId: "ws_shared" });
 
     expect(await engine.requestReview(taskId)).toBeNull();
+  });
+
+  test("sends rejected review feedback to the latest worker", async () => {
+    const resumed: Array<{ agentId: string; prompt: string }> = [];
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      resumeAgent: async (input) => {
+        resumed.push(input);
+      },
+    });
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    await service.attachAgent({ taskId, agentId: "agt_1", workspaceId: "ws_shared" });
+    await service.attachAgent({ taskId, agentId: "agt_2", workspaceId: "ws_shared" });
+
+    const correction = await engine.requestCorrection({ taskId, feedback: "Fix the race" });
+
+    expect(correction).toEqual({ agentId: "agt_2" });
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0]).toMatchObject({ agentId: "agt_2" });
+    expect(resumed[0].prompt).toContain("Fix the race");
+    expect(resumed[0].prompt).toContain(taskId);
+  });
+
+  test("restores workflow completion ownership when resuming a correction fails", async () => {
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      resumeAgent: async () => {
+        throw new Error("agent unavailable");
+      },
+    });
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    await service.attachAgent({
+      taskId,
+      agentId: "agt_1",
+      workspaceId: "ws_shared",
+      completionOwner: "workflow",
+    });
+
+    await expect(engine.requestCorrection({ taskId, feedback: "Fix it" })).rejects.toThrow(
+      /agent unavailable/,
+    );
+
+    expect((await service.getTask(taskId))?.agents[0]?.completionOwner).toBe("workflow");
   });
 });

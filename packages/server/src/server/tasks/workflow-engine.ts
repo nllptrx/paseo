@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Logger } from "pino";
 import type {
   Step,
@@ -6,13 +9,16 @@ import type {
   StepRun,
   StepRunStatus,
 } from "@getpaseo/protocol/tasks/workflow";
+import { resolveTaskExecutionPolicy, type Task } from "@getpaseo/protocol/tasks/types";
 import { observeAgentCompletion } from "../agent/agent-completion.js";
 import type { AgentManager, ManagedAgent } from "../agent/agent-manager.js";
 import { formatProviderModel, type BoundCreateAgentCommand } from "../agent/create-agent/create.js";
 import { cancelAgentRunCommand } from "../agent/lifecycle-command.js";
-import type { ScheduleService } from "../schedule/service.js";
+import type { ScheduleRunLifecycleEvent, ScheduleService } from "../schedule/service.js";
 import type { PersistedWorkspaceRecord } from "../workspace-registry.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../worktree-session.js";
+import { mergeToBase } from "../../utils/checkout-git.js";
+import { runGitCommand } from "../../utils/run-git-command.js";
 import type { TaskService } from "./service.js";
 import { checkStepEvidence, readHeadCommit, type StepEvidenceResult } from "./step-verification.js";
 
@@ -59,6 +65,20 @@ interface WorktreeWorkspaceInput {
   baseBranch?: string;
 }
 
+export interface TaskGitIntegration {
+  isRepository(cwd: string): Promise<boolean>;
+  resolveDefaultBranch(cwd: string): Promise<string>;
+  branchExists(cwd: string, branch: string): Promise<boolean>;
+  createBranch(cwd: string, branch: string, baseBranch: string): Promise<void>;
+  integrateWorkspace(cwd: string, targetBranch: string, message: string): Promise<void>;
+  integrateBranch(
+    cwd: string,
+    sourceBranch: string,
+    targetBranch: string,
+    message: string,
+  ): Promise<void>;
+}
+
 /**
  * How many step runs this host dispatches at once. Every run can fan out to
  * several agents, so the real ceiling is higher — this bounds how many pieces
@@ -77,7 +97,9 @@ export interface TaskWorkflowEngineDeps {
     | "attachAgent"
     | "listTaskAgents"
     | "getPreset"
+    | "updateTask"
     | "isAvailable"
+    | "assertTaskClaimable"
   >;
   agentManager: AgentManager;
   createAgent: BoundCreateAgentCommand;
@@ -88,14 +110,17 @@ export interface TaskWorkflowEngineDeps {
     input: WorktreeWorkspaceInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   archiveWorkspace: (workspaceId: string) => Promise<void>;
+  resumeAgent?: (input: { agentId: string; prompt: string }) => Promise<void>;
   logger: Logger;
   now?: () => Date;
   maxConcurrentRuns?: number;
+  taskGit?: TaskGitIntegration;
 }
 
 interface AgentTarget {
   cwd: string;
   workspaceId: string;
+  createdForRun?: boolean;
 }
 
 // Tracks the agents still in flight for one running StepRun so fan-out
@@ -123,6 +148,79 @@ function requireStepIndex(steps: Step[], stepId: string): number {
   return index;
 }
 
+async function commitWorkspaceChanges(cwd: string, message: string): Promise<void> {
+  const status = await runGitCommand(["status", "--porcelain"], { cwd });
+  if (!status.stdout.trim()) return;
+  await runGitCommand(["add", "-A"], { cwd, timeout: 120_000 });
+  await runGitCommand(
+    [
+      "-c",
+      "user.name=Paseo",
+      "-c",
+      "user.email=paseo@localhost",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-m",
+      message,
+    ],
+    { cwd, timeout: 120_000 },
+  );
+}
+
+export const defaultTaskGitIntegration: TaskGitIntegration = {
+  async isRepository(cwd) {
+    const result = await runGitCommand(["rev-parse", "--git-dir"], {
+      cwd,
+      acceptExitCodes: [0, 128],
+    });
+    return result.exitCode === 0;
+  },
+  async resolveDefaultBranch(cwd) {
+    const remote = await runGitCommand(
+      ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+      { cwd, acceptExitCodes: [0, 1, 128] },
+    );
+    if (remote.exitCode === 0 && remote.stdout.trim()) {
+      return remote.stdout.trim().replace(/^origin\//, "");
+    }
+    const current = await runGitCommand(["branch", "--show-current"], { cwd });
+    if (!current.stdout.trim()) throw new Error("Unable to determine the project's default branch");
+    return current.stdout.trim();
+  },
+  async branchExists(cwd, branch) {
+    const result = await runGitCommand(
+      ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
+      { cwd, acceptExitCodes: [0, 1] },
+    );
+    return result.exitCode === 0;
+  },
+  async createBranch(cwd, branch, baseBranch) {
+    await runGitCommand(["branch", branch, baseBranch], { cwd, timeout: 120_000 });
+  },
+  async integrateWorkspace(cwd, targetBranch, message) {
+    await commitWorkspaceChanges(cwd, message);
+    await mergeToBase(cwd, { baseRef: targetBranch, mode: "merge" });
+  },
+  async integrateBranch(cwd, sourceBranch, targetBranch) {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "paseo-task-integration-"));
+    try {
+      await runGitCommand(["worktree", "add", temporaryRoot, sourceBranch], {
+        cwd,
+        timeout: 120_000,
+      });
+      await mergeToBase(temporaryRoot, { baseRef: targetBranch, mode: "merge" });
+    } finally {
+      await runGitCommand(["worktree", "remove", "--force", temporaryRoot], {
+        cwd,
+        timeout: 120_000,
+        acceptExitCodes: [0, 128],
+      }).catch(() => undefined);
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+};
+
 function stepAgentTitle(step: Step, spec: StepAgentSpec, agentIndex: number): string {
   const suffix = spec.model ? `${spec.provider}/${spec.model}` : spec.provider;
   return step.agents.length > 1
@@ -136,13 +234,16 @@ function stepAgentTitle(step: Step, spec: StepAgentSpec, agentIndex: number): st
  * it the conclusion it is supposed to reach independently.
  */
 function buildReviewPrompt(input: {
-  task: { title: string; description: string };
+  task: Pick<Task, "id" | "number" | "title" | "description">;
+  projectPrefix: string;
   instructions: string;
 }): string {
   const lines = [
     "You are reviewing a change someone else made. You did not write it and you have not seen how it was written.",
     "",
-    `Task: ${input.task.title}`,
+    `Task: ${input.projectPrefix}-${input.task.number}`,
+    `Task ID: ${input.task.id}`,
+    `Title: ${input.task.title}`,
   ];
   if (input.task.description.trim().length > 0) {
     lines.push("", input.task.description.trim());
@@ -153,8 +254,32 @@ function buildReviewPrompt(input: {
   lines.push(
     "",
     "Read the diff in this workspace and decide whether it does what the task asks, correctly.",
-    "Record what you found with comment_task, then call review_task with approve or reject.",
+    "Record what you found with comment_task, then call review_task with approve or reject and include the findings as feedback when rejecting.",
     "Reject when you cannot tell: an unverifiable change is not an approved one.",
+  );
+  return lines.join("\n");
+}
+
+function buildWorkPrompt(input: {
+  task: Pick<Task, "id" | "number" | "title" | "description">;
+  projectPrefix: string;
+  instructions: string;
+}): string {
+  const lines: string[] = [];
+  if (input.instructions.trim().length > 0) {
+    lines.push(input.instructions.trim(), "");
+  }
+  lines.push(
+    `Task: ${input.projectPrefix}-${input.task.number}`,
+    `Task ID: ${input.task.id}`,
+    `Title: ${input.task.title}`,
+  );
+  if (input.task.description.trim().length > 0) {
+    lines.push("", input.task.description.trim());
+  }
+  lines.push(
+    "",
+    "Implement this task in the current workspace. Use comment_task with the task ID above to record the result when finished.",
   );
   return lines.join("\n");
 }
@@ -186,11 +311,15 @@ export class TaskWorkflowEngine {
     input: WorktreeWorkspaceInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   private readonly archiveWorkspace: (workspaceId: string) => Promise<void>;
+  private readonly resumeAgent: TaskWorkflowEngineDeps["resumeAgent"];
+  private readonly taskGit: TaskGitIntegration;
   private readonly logger: Logger;
   private readonly now: () => Date;
   private readonly runTrackers = new Map<string, RunTracker>();
   private readonly reservedRunIds = new Set<string>();
   private readonly maxConcurrentRuns: number;
+  private readonly integrationBranchPromises = new Map<string, Promise<string>>();
+  private readonly integrationBranchTails = new Map<string, Promise<void>>();
   private draining = false;
   private onWorkflowSettled: ((taskId: string) => void) | null = null;
 
@@ -203,6 +332,8 @@ export class TaskWorkflowEngine {
     this.getProjectRootCwd = deps.getProjectRootCwd;
     this.createWorktreeWorkspace = deps.createWorktreeWorkspace;
     this.archiveWorkspace = deps.archiveWorkspace;
+    this.resumeAgent = deps.resumeAgent;
+    this.taskGit = deps.taskGit ?? defaultTaskGitIntegration;
     this.logger = deps.logger.child({ module: "task-workflow-engine" });
     this.now = deps.now ?? (() => new Date());
     this.maxConcurrentRuns = deps.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS;
@@ -212,6 +343,17 @@ export class TaskWorkflowEngine {
    * the task moves is the tracker's decision. */
   setOnWorkflowSettled(listener: (taskId: string) => void): void {
     this.onWorkflowSettled = listener;
+  }
+
+  /** Archive only after the task reaches its final Done state. Workflow
+   * settlement may lead to review, and the reviewer must still be able to read
+   * the checkout. */
+  async archiveTaskWorkspacesAfterDone(taskId: string): Promise<void> {
+    const workflow = await this.taskService.getWorkflow(taskId);
+    if (!workflow) {
+      return;
+    }
+    await this.archiveWorkspacesIfConfigured(taskId, workflow.steps);
   }
 
   // Boot recovery: any step run still "running" when the daemon went down
@@ -413,15 +555,22 @@ export class TaskWorkflowEngine {
     if (step.trigger.type !== "schedule") {
       throw new Error(`Step ${step.id} does not have a schedule trigger`);
     }
-    // Known gap: a scheduled step only dispatches agents[0] — multi-agent
-    // fan-out under trigger:schedule is not implemented (ScheduleTarget's
-    // new-agent config carries exactly one agent).
+    await this.taskService.assertTaskClaimable(identifier.taskId);
+    if (step.agents.length !== 1) {
+      throw new Error(
+        `Step ${step.id} uses a schedule and must have exactly one agent; scheduled fan-out is not supported`,
+      );
+    }
     const primarySpec = step.agents[0];
-    const target = await this.resolveTargetsForStep(identifier, steps, stepIndex, 1);
+    const prompt = await this.buildTaskWorkPrompt(
+      identifier.taskId,
+      primarySpec.promptOverride ?? step.prompt,
+    );
+    const target = await this.resolveTargetsForStep(identifier, steps, stepIndex, 1, prompt);
     const runId = randomUUID();
     const schedule = await this.scheduleService.createOrReplace({
       name: `task-step-${step.id}`,
-      prompt: primarySpec.promptOverride ?? step.prompt,
+      prompt,
       cadence: step.trigger.cadence,
       maxRuns: 1,
       runOnCreate: false,
@@ -461,9 +610,80 @@ export class TaskWorkflowEngine {
         ],
       }),
     });
-    // The schedule fires on its own cadence; backfilling the run with the agent
-    // it created, and settling the step from the schedule's own run history,
-    // is not implemented.
+  }
+
+  /** ScheduleService owns the clock and provider run; this engine owns the
+   * workflow row and task attachment. Lifecycle events join those two records
+   * without polling or treating a schedule as a second workflow engine. */
+  async handleScheduleRunLifecycle(event: ScheduleRunLifecycleEvent): Promise<void> {
+    const scheduled = await this.findScheduledStep(event.scheduleId);
+    if (!scheduled) return;
+    if (event.type === "before_run" || event.type === "before_agent_start") {
+      await this.taskService.assertTaskClaimable(scheduled.taskId);
+      return;
+    }
+    if (event.type === "agent_started") {
+      await this.taskService.attachAgent({
+        taskId: scheduled.taskId,
+        agentId: event.agentId,
+        workspaceId: event.workspaceId,
+        completionOwner: "workflow",
+      });
+      await this.taskService.mutateStep({
+        taskId: scheduled.taskId,
+        stepId: scheduled.stepId,
+        mutate: (current) => ({
+          ...current,
+          runs: current.runs.map((run) =>
+            run.id === scheduled.runId
+              ? { ...run, agentIds: [...new Set([...run.agentIds, event.agentId])] }
+              : run,
+          ),
+        }),
+      });
+      return;
+    }
+    const { steps: updatedSteps } = await this.taskService.mutateStep({
+      taskId: scheduled.taskId,
+      stepId: scheduled.stepId,
+      mutate: (current) => ({
+        ...current,
+        runs: current.runs.map((run) =>
+          run.id === scheduled.runId
+            ? {
+                ...run,
+                status: event.status,
+                endedAt: event.endedAt,
+                agentIds:
+                  event.agentId && !run.agentIds.includes(event.agentId)
+                    ? [...run.agentIds, event.agentId]
+                    : run.agentIds,
+                error: event.error,
+              }
+            : run,
+        ),
+      }),
+    });
+    if (event.status === "succeeded") {
+      await this.afterStepSettled(scheduled.taskId, updatedSteps, scheduled.stepIndex);
+    }
+  }
+
+  private async findScheduledStep(scheduleId: string): Promise<{
+    taskId: string;
+    stepId: string;
+    stepIndex: number;
+    runId: string;
+  } | null> {
+    for (const workflow of await this.taskService.listWorkflows()) {
+      for (const [stepIndex, step] of workflow.steps.entries()) {
+        const run = step.runs.find((candidate) => candidate.scheduleId === scheduleId);
+        if (run) {
+          return { taskId: workflow.taskId, stepId: step.id, stepIndex, runId: run.id };
+        }
+      }
+    }
+    return null;
   }
 
   private async resolveProjectRootCwd(taskId: string): Promise<string> {
@@ -472,12 +692,217 @@ export class TaskWorkflowEngine {
       throw new Error(`Task not found: ${taskId}`);
     }
     const project = await this.taskService.getProject(task.projectId);
-    if (!project?.paseoProjectId) {
-      throw new Error(
-        `Task ${taskId} cannot create a worktree: its board is not linked to a Paseo project`,
-      );
+    if (project?.paseoProjectId) {
+      return this.getProjectRootCwd(project.paseoProjectId);
     }
-    return this.getProjectRootCwd(project.paseoProjectId);
+    for (const link of await this.taskService.listTaskAgents(taskId)) {
+      const workspace = await this.getWorkspace(link.workspaceId);
+      if (workspace && !workspace.archivedAt && (await this.taskGit.isRepository(workspace.cwd))) {
+        return workspace.cwd;
+      }
+    }
+    throw new Error(
+      `Task ${taskId} cannot create a worktree: its board is not linked to a Git workspace`,
+    );
+  }
+
+  /** Assigns one stable ref to the task. Agent branches can come and go; this
+   * ref is the delivery boundary every run merges into. */
+  async ensureTaskIntegrationBranch(taskId: string, requestedBaseBranch?: string): Promise<string> {
+    const inFlight = this.integrationBranchPromises.get(taskId);
+    if (inFlight) return inFlight;
+    const promise = this.createTaskIntegrationBranch(taskId, requestedBaseBranch).finally(() => {
+      this.integrationBranchPromises.delete(taskId);
+    });
+    this.integrationBranchPromises.set(taskId, promise);
+    return promise;
+  }
+
+  private async createTaskIntegrationBranch(
+    taskId: string,
+    requestedBaseBranch?: string,
+  ): Promise<string> {
+    const task = await this.taskService.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    const cwd = await this.resolveProjectRootCwd(taskId);
+    if (task.integration?.branch) {
+      if (!(await this.taskGit.branchExists(cwd, task.integration.branch))) {
+        throw new Error(`Task branch is missing: ${task.integration.branch}`);
+      }
+      return task.integration.branch;
+    }
+    const project = await this.taskService.getProject(task.projectId);
+    if (!project) throw new Error(`Task project not found: ${task.projectId}`);
+    const baseBranch = task.parentTaskId
+      ? await this.ensureTaskIntegrationBranch(task.parentTaskId)
+      : (requestedBaseBranch ?? (await this.taskGit.resolveDefaultBranch(cwd)));
+    const branch = `paseo/tasks/${project.prefix.toLowerCase()}-${task.number}`;
+    if (!(await this.taskGit.branchExists(cwd, branch))) {
+      await this.taskGit.createBranch(cwd, branch, baseBranch);
+    }
+    await this.taskService.updateTask({
+      taskId,
+      integration: {
+        branch,
+        status: task.parentTaskId ? "pending" : "not_applicable",
+        error: null,
+      },
+    });
+    return branch;
+  }
+
+  /** Commits each worker workspace and merges it into the task's durable ref.
+   * Repeating this is safe: already merged branches are a Git no-op. */
+  async integrateTaskWork(taskId: string): Promise<void> {
+    const task = await this.taskService.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    const workers = (await this.taskService.listTaskAgents(taskId)).filter(
+      (link) => (link.role ?? "worker") === "worker",
+    );
+    // Tracker-only work has no Git delivery boundary. A branch is created when
+    // the first code agent starts, not when a human checks off a plain task.
+    if (!task.integration && workers.length === 0) return;
+    if (!task.integration) {
+      const project = await this.taskService.getProject(task.projectId);
+      if (!project?.paseoProjectId) {
+        let hasGitWorker = false;
+        for (const worker of workers) {
+          const workspace = await this.getWorkspace(worker.workspaceId);
+          if (workspace && (await this.taskGit.isRepository(workspace.cwd))) {
+            hasGitWorker = true;
+            break;
+          }
+        }
+        if (!hasGitWorker) return;
+      }
+    }
+    const branch = await this.ensureTaskIntegrationBranch(taskId);
+    const seenWorkspaces = new Set<string>();
+    try {
+      for (const worker of workers) {
+        if (seenWorkspaces.has(worker.workspaceId)) continue;
+        seenWorkspaces.add(worker.workspaceId);
+        const workspace = await this.getWorkspace(worker.workspaceId);
+        if (!workspace || workspace.archivedAt) {
+          throw new Error(`Worker workspace is unavailable: ${worker.workspaceId}`);
+        }
+        await this.withIntegrationBranchLock(branch, () =>
+          this.taskGit.integrateWorkspace(workspace.cwd, branch, `Integrate task ${task.title}`),
+        );
+      }
+      await this.taskService.updateTask({
+        taskId,
+        integration: {
+          branch,
+          status: task.parentTaskId ? "pending" : "not_applicable",
+          error: null,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.taskService.updateTask({
+        taskId,
+        integration: { branch, status: "conflicted", error: message },
+      });
+      throw error;
+    }
+  }
+
+  /** A child is delivered only after its canonical ref merges into its
+   * parent's canonical ref. Root tasks have no parent delivery boundary. */
+  async integrateTaskIntoParent(taskId: string): Promise<void> {
+    await this.integrateTaskWork(taskId);
+    const task = await this.taskService.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (!task.integration) return;
+    if (!task.parentTaskId) return;
+    const parentBranch = await this.ensureTaskIntegrationBranch(task.parentTaskId);
+    const sourceBranch = task.integration.branch;
+    const cwd = await this.resolveProjectRootCwd(taskId);
+    try {
+      await this.withIntegrationBranchLock(parentBranch, () =>
+        this.taskGit.integrateBranch(
+          cwd,
+          sourceBranch,
+          parentBranch,
+          `Integrate subtask ${task.title}`,
+        ),
+      );
+      await this.taskService.updateTask({
+        taskId,
+        integration: { branch: sourceBranch, status: "integrated", error: null },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.taskService.updateTask({
+        taskId,
+        integration: {
+          branch: sourceBranch,
+          status: "conflicted",
+          error: message,
+        },
+      });
+      throw error;
+    }
+  }
+
+  /** Sibling subtasks can finish in parallel, but Git cannot check out and
+   * update their shared parent ref from two temporary worktrees at once. Queue
+   * only operations targeting the same canonical branch. */
+  private async withIntegrationBranchLock<T>(
+    branch: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.integrationBranchTails.get(branch) ?? Promise.resolve();
+    let release = (): void => undefined;
+    const turn = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => turn);
+    this.integrationBranchTails.set(branch, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.integrationBranchTails.get(branch) === tail) {
+        this.integrationBranchTails.delete(branch);
+      }
+    }
+  }
+
+  /** Gives an integration conflict back to the latest worker. The failed Git
+   * merge has already been aborted, so the agent resolves it on its own branch
+   * and completion retries the same integration gate. */
+  async requestIntegrationFix(input: { taskId: string; error: string }): Promise<void> {
+    if (!this.resumeAgent) return;
+    const task = await this.taskService.getTask(input.taskId);
+    if (!task?.integration) return;
+    const worker = (await this.taskService.listTaskAgents(input.taskId))
+      .toReversed()
+      .find((link) => (link.role ?? "worker") === "worker");
+    if (!worker) return;
+    await this.resumeAgent({
+      agentId: worker.agentId,
+      prompt: [
+        `Integration for task ${task.title} could not complete.`,
+        `Canonical task branch: ${task.integration.branch}`,
+        `Git reported: ${input.error}`,
+        "Merge the latest canonical base into this workspace, resolve every conflict, verify the result, and finish again.",
+      ].join("\n"),
+    });
+  }
+
+  private async buildTaskWorkPrompt(taskId: string, instructions: string): Promise<string> {
+    const task = await this.taskService.getTask(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    const project = await this.taskService.getProject(task.projectId);
+    if (!project) {
+      throw new Error(`Task project not found: ${task.projectId}`);
+    }
+    return buildWorkPrompt({ task, projectPrefix: project.prefix, instructions });
   }
 
   /**
@@ -507,12 +932,18 @@ export class TaskWorkflowEngine {
     if (!task) {
       throw new Error(`Task not found: ${input.taskId}`);
     }
+    await this.taskService.assertTaskClaimable(input.taskId);
+    const project = await this.taskService.getProject(task.projectId);
+    if (!project) {
+      throw new Error(`Task project not found: ${task.projectId}`);
+    }
 
-    const target = await this.resolveDelegateTarget(input.taskId, preset, task.title);
-    const prompt =
-      preset.instructions.trim().length > 0
-        ? `${preset.instructions.trim()}\n\n${task.title}`
-        : task.title;
+    const prompt = buildWorkPrompt({
+      task,
+      projectPrefix: project.prefix,
+      instructions: preset.instructions,
+    });
+    const target = await this.resolveDelegateTarget(input.taskId, preset, prompt);
 
     const created = await this.createAgent({
       kind: "mcp",
@@ -532,12 +963,30 @@ export class TaskWorkflowEngine {
       notifyOnFinish: false,
     });
 
-    await this.taskService.attachAgent({
-      taskId: input.taskId,
-      agentId: created.snapshot.id,
-      workspaceId: target.workspaceId,
-      presetId: preset.id,
-    });
+    try {
+      if (created.initialPromptError) {
+        throw created.initialPromptError;
+      }
+      await this.taskService.attachAgent({
+        taskId: input.taskId,
+        agentId: created.snapshot.id,
+        workspaceId: target.workspaceId,
+        presetId: preset.id,
+      });
+    } catch (error) {
+      await this.cancelCreatedAgent(created.snapshot.id);
+      if (target.createdForRun) {
+        try {
+          await this.archiveWorkspace(target.workspaceId);
+        } catch (archiveError) {
+          this.logger.warn(
+            { err: archiveError, workspaceId: target.workspaceId },
+            "Failed to archive an unused delegation workspace",
+          );
+        }
+      }
+      throw error;
+    }
     return { agentId: created.snapshot.id };
   }
 
@@ -584,20 +1033,43 @@ export class TaskWorkflowEngine {
     preset: { environmentKind: "project_default" | "new_worktree"; baseBranch: string | null },
     prompt: string,
   ): Promise<AgentTarget> {
-    if (preset.environmentKind === "project_default") {
+    const task = await this.taskService.getTask(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    const project = await this.taskService.getProject(task.projectId);
+    const workspacePolicy = resolveTaskExecutionPolicy(
+      project?.board,
+      task.executionPolicy,
+    ).workspace;
+    let environmentKind = preset.environmentKind;
+    if (workspacePolicy === "dedicated") {
+      environmentKind = "new_worktree";
+    } else if (workspacePolicy === "reuse") {
+      environmentKind = "project_default";
+    }
+    if (environmentKind === "project_default") {
       const existing = await this.resolveExistingTaskWorkspace(taskId);
       if (existing) {
+        await this.ensureTaskIntegrationBranch(taskId, preset.baseBranch ?? undefined);
         return existing;
       }
     }
     const sourceCwd = await this.resolveProjectRootCwd(taskId);
-    const baseBranch = preset.baseBranch ?? (await this.resolveParentBranch(taskId));
+    const baseBranch = await this.ensureTaskIntegrationBranch(
+      taskId,
+      preset.baseBranch ?? undefined,
+    );
     const created = await this.createWorktreeWorkspace({
       cwd: sourceCwd,
       firstAgentContext: { prompt },
-      ...(baseBranch ? { baseBranch } : {}),
+      baseBranch,
     });
-    return { cwd: created.workspace.cwd, workspaceId: created.workspace.workspaceId };
+    return {
+      cwd: created.workspace.cwd,
+      workspaceId: created.workspace.workspaceId,
+      createdForRun: true,
+    };
   }
 
   /**
@@ -609,8 +1081,9 @@ export class TaskWorkflowEngine {
    * inherits nothing but the card and the checkout, and it attaches as a
    * reviewer so the tracker will accept its verdict and refuse the workers'.
    *
-   * It runs in the workspace the work happened in — reviewing a change means
-   * reading it, and a clean worktree elsewhere has nothing to read.
+   * It runs in a fresh checkout of the task's canonical branch. That branch is
+   * the consolidated result when several workers fan out, while any one worker
+   * checkout may contain only its own part.
    */
   async requestReview(taskId: string): Promise<{ agentId: string } | null> {
     const task = await this.taskService.getTask(taskId);
@@ -618,7 +1091,13 @@ export class TaskWorkflowEngine {
       return null;
     }
     const project = await this.taskService.getProject(task.projectId);
-    const presetId = project?.board?.reviewerPresetId;
+    if (!project) {
+      return null;
+    }
+    const presetId = resolveTaskExecutionPolicy(
+      project.board,
+      task.executionPolicy,
+    ).reviewerPresetId;
     if (!presetId) {
       return null;
     }
@@ -630,38 +1109,121 @@ export class TaskWorkflowEngine {
       );
       return null;
     }
-    const workspace = await this.resolveExistingTaskWorkspace(taskId);
-    if (!workspace) {
-      this.logger.warn({ taskId }, "Cannot review a task whose work left no workspace to read");
+    const prompt = buildReviewPrompt({
+      task,
+      projectPrefix: project.prefix,
+      instructions: preset.instructions,
+    });
+    const sourceCwd = await this.resolveProjectRootCwd(taskId);
+    const taskBranch = await this.ensureTaskIntegrationBranch(taskId);
+    const reviewWorkspace = await this.createWorktreeWorkspace({
+      cwd: sourceCwd,
+      baseBranch: taskBranch,
+      firstAgentContext: { prompt },
+    });
+    const workspace = {
+      cwd: reviewWorkspace.workspace.cwd,
+      workspaceId: reviewWorkspace.workspace.workspaceId,
+    };
+
+    let createdAgentId: string | null = null;
+    try {
+      const created = await this.createAgent({
+        kind: "mcp",
+        provider: formatProviderModel(
+          preset.provider as StepAgentSpec["provider"],
+          preset.model ?? undefined,
+        ),
+        title: `Review ${task.title}`,
+        initialPrompt: prompt,
+        cwd: workspace.cwd,
+        workspaceId: workspace.workspaceId,
+        mode: preset.modeId ?? undefined,
+        thinking: preset.thinkingOptionId ?? undefined,
+        unattended: true,
+        promptFailure: "return-error",
+        background: true,
+        notifyOnFinish: false,
+      });
+      createdAgentId = created.snapshot.id;
+      if (created.initialPromptError) {
+        throw created.initialPromptError;
+      }
+      await this.taskService.attachAgent({
+        taskId,
+        agentId: created.snapshot.id,
+        workspaceId: workspace.workspaceId,
+        presetId: preset.id,
+        role: "reviewer",
+      });
+      return { agentId: created.snapshot.id };
+    } catch (error) {
+      if (createdAgentId) await this.cancelCreatedAgent(createdAgentId);
+      await this.archiveWorkspace(workspace.workspaceId).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** A rejected review goes back to the most recently attached worker in the
+   * same checkout. The transition engine observes this new turn and sends the
+   * resulting change through a fresh review. */
+  async requestCorrection(input: {
+    taskId: string;
+    feedback: string | null;
+  }): Promise<{ agentId: string } | null> {
+    if (!this.resumeAgent) {
       return null;
     }
-
-    const created = await this.createAgent({
-      kind: "mcp",
-      provider: formatProviderModel(
-        preset.provider as StepAgentSpec["provider"],
-        preset.model ?? undefined,
-      ),
-      title: `Review ${task.title}`,
-      initialPrompt: buildReviewPrompt({ task, instructions: preset.instructions }),
-      cwd: workspace.cwd,
-      workspaceId: workspace.workspaceId,
-      mode: preset.modeId ?? undefined,
-      thinking: preset.thinkingOptionId ?? undefined,
-      unattended: true,
-      promptFailure: "return-error",
-      background: true,
-      notifyOnFinish: false,
-    });
-
+    const task = await this.taskService.getTask(input.taskId);
+    if (!task) {
+      return null;
+    }
+    const worker = (await this.taskService.listTaskAgents(input.taskId)).findLast(
+      (link) => (link.role ?? "worker") === "worker",
+    );
+    if (!worker) {
+      return null;
+    }
+    const project = await this.taskService.getProject(task.projectId);
+    if (!project) {
+      return null;
+    }
+    const feedback =
+      input.feedback ??
+      "The review rejected the current change. Read the task feed for the findings.";
     await this.taskService.attachAgent({
-      taskId,
-      agentId: created.snapshot.id,
-      workspaceId: workspace.workspaceId,
-      presetId: preset.id,
-      role: "reviewer",
+      taskId: input.taskId,
+      agentId: worker.agentId,
+      workspaceId: worker.workspaceId,
+      presetId: worker.presetId,
+      role: "worker",
+      completionOwner: "attachment",
     });
-    return { agentId: created.snapshot.id };
+    try {
+      await this.resumeAgent({
+        agentId: worker.agentId,
+        prompt: [
+          `Review rejected ${project.prefix}-${task.number}.`,
+          `Task ID: ${task.id}`,
+          `Title: ${task.title}`,
+          "",
+          feedback,
+          "",
+          "Correct the implementation in this workspace. Comment on the task with what changed when finished.",
+        ].join("\n"),
+      });
+    } catch (error) {
+      await this.taskService.attachAgent({
+        taskId: input.taskId,
+        agentId: worker.agentId,
+        workspaceId: worker.workspaceId,
+        presetId: worker.presetId,
+        role: worker.role ?? "worker",
+        completionOwner: worker.completionOwner ?? "attachment",
+      });
+      throw error;
+    }
+    return { agentId: worker.agentId };
   }
 
   private async resolveExistingTaskWorkspace(taskId: string): Promise<AgentTarget | null> {
@@ -674,26 +1236,12 @@ export class TaskWorkflowEngine {
     return null;
   }
 
-  private async resolveParentBranch(taskId: string): Promise<string | null> {
-    const task = await this.taskService.getTask(taskId);
-    if (!task?.parentTaskId) {
-      return null;
-    }
-    const parentLinks = await this.taskService.listTaskAgents(task.parentTaskId);
-    for (const link of parentLinks) {
-      const workspace = await this.getWorkspace(link.workspaceId);
-      if (workspace && !workspace.archivedAt && workspace.branch) {
-        return workspace.branch;
-      }
-    }
-    return null;
-  }
-
   private async resolveTargetsForStep(
     identifier: TaskStepIdentifier,
     steps: Step[],
     stepIndex: number,
     agentCount: number,
+    firstAgentPrompt: string,
   ): Promise<AgentTarget[]> {
     const step = steps[stepIndex];
     switch (step.workspace.mode) {
@@ -702,6 +1250,7 @@ export class TaskWorkflowEngine {
         if (!workspace || workspace.archivedAt) {
           throw new Error(`Workspace not found: ${step.workspace.workspaceId}`);
         }
+        await this.ensureTaskIntegrationBranch(identifier.taskId, workspace.branch ?? undefined);
         return Array.from({ length: agentCount }, () => ({
           cwd: workspace.cwd,
           workspaceId: workspace.workspaceId,
@@ -717,11 +1266,11 @@ export class TaskWorkflowEngine {
           );
         }
         const sourceCwd = await this.resolveProjectRootCwd(identifier.taskId);
-        const baseBranch = await this.resolveParentBranch(identifier.taskId);
+        const baseBranch = await this.ensureTaskIntegrationBranch(identifier.taskId);
         const created = await this.createWorktreeWorkspace({
           cwd: sourceCwd,
-          firstAgentContext: { prompt: step.prompt },
-          ...(baseBranch ? { baseBranch } : {}),
+          firstAgentContext: { prompt: firstAgentPrompt },
+          baseBranch,
         });
         return Array.from({ length: agentCount }, () => ({
           cwd: created.workspace.cwd,
@@ -730,13 +1279,13 @@ export class TaskWorkflowEngine {
       }
       case "worktree_per_agent": {
         const sourceCwd = await this.resolveProjectRootCwd(identifier.taskId);
-        const baseBranch = await this.resolveParentBranch(identifier.taskId);
+        const baseBranch = await this.ensureTaskIntegrationBranch(identifier.taskId);
         const targets: AgentTarget[] = [];
         for (let i = 0; i < agentCount; i++) {
           const created = await this.createWorktreeWorkspace({
             cwd: sourceCwd,
-            firstAgentContext: { prompt: step.prompt },
-            ...(baseBranch ? { baseBranch } : {}),
+            firstAgentContext: { prompt: firstAgentPrompt },
+            baseBranch,
           });
           targets.push({ cwd: created.workspace.cwd, workspaceId: created.workspace.workspaceId });
         }
@@ -926,6 +1475,7 @@ export class TaskWorkflowEngine {
     stepIndex: number,
     reuseWorkspaceIds: string[] | null,
   ): Promise<Step> {
+    await this.taskService.assertTaskClaimable(identifier.taskId);
     if (!this.hasFreeSlot()) {
       return this.enqueueRun(identifier, reuseWorkspaceIds);
     }
@@ -946,9 +1496,20 @@ export class TaskWorkflowEngine {
     runId: string,
   ): Promise<Step> {
     const step = steps[stepIndex];
+    const prompts = await Promise.all(
+      step.agents.map((spec) =>
+        this.buildTaskWorkPrompt(identifier.taskId, spec.promptOverride ?? step.prompt),
+      ),
+    );
     const targets = reuseWorkspaceIds
       ? await this.resolveTargetsFromWorkspaceIds(reuseWorkspaceIds, step.agents.length)
-      : await this.resolveTargetsForStep(identifier, steps, stepIndex, step.agents.length);
+      : await this.resolveTargetsForStep(
+          identifier,
+          steps,
+          stepIndex,
+          step.agents.length,
+          prompts[0],
+        );
 
     const labels = stepRunLabels(identifier.taskId, step.id, runId);
     const agentIds: string[] = [];
@@ -962,7 +1523,7 @@ export class TaskWorkflowEngine {
           kind: "mcp",
           provider: formatProviderModel(spec.provider, spec.model),
           title: stepAgentTitle(step, spec, i),
-          initialPrompt: spec.promptOverride ?? step.prompt,
+          initialPrompt: prompts[i],
           cwd: target.cwd,
           workspaceId: target.workspaceId,
           mode: spec.modeId,
@@ -1020,7 +1581,25 @@ export class TaskWorkflowEngine {
       return updatedStep;
     }
 
-    await this.attachRunAgentsToTask(identifier.taskId, agentIds, targets);
+    try {
+      await this.attachRunAgentsToTask(identifier.taskId, agentIds, targets);
+    } catch (error) {
+      for (const agentId of agentIds) {
+        await this.cancelCreatedAgent(agentId);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      const endedAt = this.now().toISOString();
+      await this.taskService.mutateStep({
+        ...identifier,
+        mutate: (current) => ({
+          ...current,
+          runs: current.runs.map((run) =>
+            run.id === runId ? { ...run, status: "failed" as const, endedAt, error: message } : run,
+          ),
+        }),
+      });
+      throw error;
+    }
     this.trackRun(identifier, runId, agentIds, creationError, step.timeoutMs);
     return updatedStep;
   }
@@ -1035,17 +1614,25 @@ export class TaskWorkflowEngine {
     agentIds: string[],
     targets: AgentTarget[],
   ): Promise<void> {
+    for (let i = 0; i < agentIds.length; i++) {
+      const target = targets.length === 1 ? targets[0] : targets[i];
+      await this.taskService.attachAgent({
+        taskId,
+        agentId: agentIds[i],
+        workspaceId: target.workspaceId,
+        completionOwner: "workflow",
+      });
+    }
+  }
+
+  private async cancelCreatedAgent(agentId: string): Promise<void> {
     try {
-      for (let i = 0; i < agentIds.length; i++) {
-        const target = targets.length === 1 ? targets[0] : targets[i];
-        await this.taskService.attachAgent({
-          taskId,
-          agentId: agentIds[i],
-          workspaceId: target.workspaceId,
-        });
-      }
+      await cancelAgentRunCommand(
+        { agentManager: this.agentManager, logger: this.logger },
+        agentId,
+      );
     } catch (error) {
-      this.logger.error({ err: error, taskId }, "Failed to attach step-run agents to the task");
+      this.logger.warn({ err: error, agentId }, "Failed to stop an agent whose task start failed");
     }
   }
 
@@ -1303,7 +1890,6 @@ export class TaskWorkflowEngine {
       });
       return;
     }
-    await this.archiveWorkspacesIfConfigured(taskId, steps);
     this.onWorkflowSettled?.(taskId);
   }
 
@@ -1315,7 +1901,10 @@ export class TaskWorkflowEngine {
     try {
       const task = await this.taskService.getTask(taskId);
       const project = task ? await this.taskService.getProject(task.projectId) : null;
-      if (!project?.board?.archiveWorkspacesOnDone) {
+      if (
+        !task ||
+        !resolveTaskExecutionPolicy(project?.board, task.executionPolicy).archiveWorkspacesOnDone
+      ) {
         return;
       }
       await this.archivePaseoOwnedWorktrees(steps);
