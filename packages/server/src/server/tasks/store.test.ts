@@ -32,6 +32,26 @@ describe("TaskStore", () => {
     expect(() => store.createProject({ name: "Other", prefix: "PSE", color: "#000" })).toThrow();
   });
 
+  it("reuses the board already linked to a Paseo project", () => {
+    const first = store.createProject({
+      name: "Linked",
+      prefix: "LNK",
+      color: "#fff",
+      paseoProjectId: "project-1",
+    });
+    const second = store.createProject({
+      name: "Renamed",
+      prefix: "NEW",
+      color: "#000",
+      paseoProjectId: "project-1",
+    });
+
+    expect(second).toEqual(first);
+    expect(
+      store.listProjects().filter((project) => project.paseoProjectId === "project-1"),
+    ).toEqual([first]);
+  });
+
   it("allocates task numbers in sequence and never reuses one", () => {
     const first = store.createTask({ projectId, title: "One" });
     const second = store.createTask({ projectId, title: "Two" });
@@ -53,6 +73,88 @@ describe("TaskStore", () => {
     expect(task.priority).toBe("none");
     expect(task.agents).toEqual([]);
     expect(task.commentCount).toBe(0);
+  });
+
+  it("stores task execution exceptions and can return to board defaults", () => {
+    const task = store.createTask({
+      projectId,
+      title: "Special",
+      executionPolicy: {
+        review: "required",
+        workspace: "dedicated",
+        maxParallelSubtasks: 2,
+      },
+    });
+    expect(task.executionPolicy).toEqual({
+      review: "required",
+      workspace: "dedicated",
+      maxParallelSubtasks: 2,
+    });
+
+    expect(store.updateTask({ taskId: task.id, executionPolicy: null }).executionPolicy).toBe(
+      undefined,
+    );
+  });
+
+  it("turns a parent's subtask concurrency into dependency waves", () => {
+    const parent = store.createTask({
+      projectId,
+      title: "Parent",
+      executionPolicy: { maxParallelSubtasks: 2 },
+    });
+    const first = store.createTask({ projectId, title: "One", parentTaskId: parent.id });
+    const second = store.createTask({ projectId, title: "Two", parentTaskId: parent.id });
+    const third = store.createTask({ projectId, title: "Three", parentTaskId: parent.id });
+    const fourth = store.createTask({ projectId, title: "Four", parentTaskId: parent.id });
+
+    expect(store.listDependencies()).toEqual(
+      expect.arrayContaining([
+        { taskId: fourth.id, dependsOnTaskId: second.id },
+        { taskId: third.id, dependsOnTaskId: first.id },
+      ]),
+    );
+    expect(store.listDependencies()).toHaveLength(2);
+  });
+
+  it("persists the task branch and its delivery state", () => {
+    const task = store.createTask({ projectId, title: "Integrated" });
+
+    store.updateTask({
+      taskId: task.id,
+      integration: {
+        branch: "paseo/tasks/pse-1",
+        status: "conflicted",
+        error: "conflict in src/task.ts",
+      },
+    });
+    expect(store.getTask(task.id)?.integration).toEqual({
+      branch: "paseo/tasks/pse-1",
+      status: "conflicted",
+      error: "conflict in src/task.ts",
+    });
+
+    store.updateTask({
+      taskId: task.id,
+      integration: { branch: "paseo/tasks/pse-1", status: "integrated", error: null },
+    });
+    expect(store.getTask(task.id)?.integration).toMatchObject({
+      status: "integrated",
+      error: null,
+    });
+  });
+
+  it("keeps hierarchy within one board and rejects ancestry cycles", () => {
+    const otherProject = store.createProject({ name: "Other", prefix: "OTH", color: "#fff" });
+    const parent = store.createTask({ projectId, title: "Parent" });
+    const child = store.createTask({ projectId, title: "Child", parentTaskId: parent.id });
+    const other = store.createTask({ projectId: otherProject.id, title: "Other" });
+
+    expect(() =>
+      store.createTask({ projectId, title: "Cross-board", parentTaskId: other.id }),
+    ).toThrow(/same project/);
+    expect(() => store.updateTask({ taskId: parent.id, parentTaskId: child.id })).toThrow(
+      /own ancestor/,
+    );
   });
 
   it("appends to the end of a column and moves between two neighbours", () => {
@@ -118,6 +220,25 @@ describe("TaskStore", () => {
 
     store.detachAgent({ taskId: task.id, agentId: "agt_1" });
     expect(store.listTaskAgents(task.id)).toEqual([]);
+  });
+
+  it("persists and updates who owns an attached agent's completion", () => {
+    const task = store.createTask({ projectId, title: "Worked" });
+    store.attachAgent({
+      taskId: task.id,
+      agentId: "agt_1",
+      workspaceId: "ws_1",
+      completionOwner: "workflow",
+    });
+    expect(store.listTaskAgents(task.id)[0]?.completionOwner).toBe("workflow");
+
+    store.attachAgent({
+      taskId: task.id,
+      agentId: "agt_1",
+      workspaceId: "ws_1",
+      completionOwner: "attachment",
+    });
+    expect(store.listTaskAgents(task.id)[0]?.completionOwner).toBe("attachment");
   });
 
   it("counts comments on the task and carries their agent authorship", () => {
@@ -309,6 +430,7 @@ describe("TaskStore row shape", () => {
         reviewOnReject: "in_progress",
         archiveWorkspacesOnDone: false,
         reviewerPresetId: null,
+        maxReviewIterations: 3,
       });
       expect(store.getProject(project.id)?.board).toEqual(project.board);
     } finally {
@@ -327,6 +449,7 @@ describe("TaskStore row shape", () => {
         reviewOnReject: "backlog",
         archiveWorkspacesOnDone: false,
         reviewerPresetId: null,
+        maxReviewIterations: 3,
       });
     } finally {
       store.close();

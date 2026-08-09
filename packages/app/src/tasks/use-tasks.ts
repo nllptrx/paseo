@@ -2,7 +2,13 @@ import { useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import type { Task, TaskSnapshot, TaskStatus } from "@getpaseo/protocol/tasks/types";
+import type {
+  Task,
+  TaskExecutionPolicy,
+  TaskPriority,
+  TaskSnapshot,
+  TaskStatus,
+} from "@getpaseo/protocol/tasks/types";
 import type { StepInput } from "@getpaseo/protocol/tasks/workflow";
 import { useFetchQuery } from "@/data/query";
 import { tasksPushRoute } from "@/data/push-router";
@@ -15,6 +21,13 @@ export { tasksQueryBaseKey, tasksQueryKey } from "@/tasks/task-query-keys";
 /** The tracker is host-local, and the host says whether it has one at all. */
 export function useTasksSupported(serverId: string): boolean {
   return useSessionStore((state) => state.sessions[serverId]?.serverInfo?.features?.tasks === true);
+}
+
+/** Per-task automation fields are newer than the tracker itself. */
+export function useTaskExecutionPolicySupported(serverId: string): boolean {
+  return useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.taskExecutionPolicy === true,
+  );
 }
 
 export interface UseTasksResult {
@@ -107,25 +120,42 @@ export interface UseTaskMutationsResult {
     title: string;
     description?: string;
     status?: TaskStatus;
+    parentTaskId?: string | null;
+    executionPolicy?: TaskExecutionPolicy;
   }) => Promise<string>;
   moveTask: (input: TaskMovePatch) => Promise<void>;
-  reviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => Promise<void>;
+  reviewTask: (input: {
+    taskId: string;
+    verdict: "approve" | "reject";
+    feedback?: string;
+  }) => Promise<Task>;
+  updateTask: (input: {
+    taskId: string;
+    title?: string;
+    description?: string;
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    parentTaskId?: string | null;
+    executionPolicy?: TaskExecutionPolicy | null;
+  }) => Promise<Task>;
   configureBoard: (input: {
     projectId: string;
     reviewEnabled?: boolean;
     reviewOnReject?: "in_progress" | "todo" | "backlog";
     archiveWorkspacesOnDone?: boolean;
     reviewerPresetId?: string | null;
+    maxReviewIterations?: number;
   }) => Promise<void>;
   setWorkflow: (input: { taskId: string; steps: StepInput[] }) => Promise<void>;
   clearWorkflow: (taskId: string) => Promise<void>;
   runStep: (input: { taskId: string; stepId: string }) => Promise<void>;
-  setStatus: (input: { taskId: string; status: TaskStatus }) => Promise<void>;
+  setStatus: (input: { taskId: string; status: TaskStatus }) => Promise<Task>;
   setPriority: (input: {
     taskId: string;
     priority: "urgent" | "high" | "medium" | "low" | "none";
-  }) => Promise<void>;
+  }) => Promise<Task>;
   deleteTask: (taskId: string) => Promise<void>;
+  isReviewing: boolean;
   isBusy: boolean;
 }
 
@@ -167,6 +197,8 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
       title: string;
       description?: string;
       status?: TaskStatus;
+      parentTaskId?: string | null;
+      executionPolicy?: TaskExecutionPolicy;
     }) => {
       const payload = await require().tasksCreate(input);
       if (payload.error || !payload.task) {
@@ -198,9 +230,10 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
   const update = useMutation({
     mutationFn: async (input: Parameters<DaemonClient["tasksUpdate"]>[0]) => {
       const payload = await require().tasksUpdate(input);
-      if (payload.error) {
-        throw new Error(payload.error);
+      if (payload.error || !payload.task) {
+        throw new Error(payload.error ?? "The host returned no updated task");
       }
+      return payload.task;
     },
     onSettled: invalidate,
   });
@@ -216,11 +249,16 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
   });
 
   const review = useMutation({
-    mutationFn: async (input: { taskId: string; verdict: "approve" | "reject" }) => {
+    mutationFn: async (input: {
+      taskId: string;
+      verdict: "approve" | "reject";
+      feedback?: string;
+    }) => {
       const payload = await require().tasksReview(input);
-      if (payload.error) {
-        throw new Error(payload.error);
+      if (payload.error || !payload.task) {
+        throw new Error(payload.error ?? "The host returned no reviewed task");
       }
+      return payload.task;
     },
     onSettled: invalidate,
   });
@@ -232,6 +270,7 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
       reviewOnReject?: "in_progress" | "todo" | "backlog";
       archiveWorkspacesOnDone?: boolean;
       reviewerPresetId?: string | null;
+      maxReviewIterations?: number;
     }) => {
       const payload = await require().tasksBoardConfigure(input);
       if (payload.error) {
@@ -280,9 +319,11 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
     createTask: (input) => createTask.mutateAsync(input),
     moveTask: (input) => move.mutateAsync(input),
     reviewTask: (input) => review.mutateAsync(input),
+    updateTask: (input) => update.mutateAsync(input),
     setStatus: (input) => update.mutateAsync({ taskId: input.taskId, status: input.status }),
     setPriority: (input) => update.mutateAsync({ taskId: input.taskId, priority: input.priority }),
     deleteTask: (taskId) => remove.mutateAsync(taskId),
+    isReviewing: review.isPending,
     isBusy:
       createProject.isPending ||
       createTask.isPending ||

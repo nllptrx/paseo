@@ -3146,6 +3146,9 @@ export const ServerInfoStatusPayloadSchema = z
         // Absent also means the host could not open its task store, so a client
         // must gate on it rather than assume the daemon version implies it.
         tasks: z.boolean().optional(),
+        // COMPAT(taskExecutionPolicy): added in v0.3.0-beta.2, remove after the
+        // daemon floor includes per-task automation overrides.
+        taskExecutionPolicy: z.boolean().optional(),
       })
       .optional(),
   })

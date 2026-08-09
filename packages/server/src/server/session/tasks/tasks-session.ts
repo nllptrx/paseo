@@ -136,6 +136,9 @@ export class TasksSession {
         ...(request.dueDate === undefined ? {} : { dueDate: request.dueDate }),
         ...(request.parentTaskId === undefined ? {} : { parentTaskId: request.parentTaskId }),
         ...(request.labelIds === undefined ? {} : { labelIds: request.labelIds }),
+        ...(request.executionPolicy === undefined
+          ? {}
+          : { executionPolicy: request.executionPolicy }),
       });
       this.host.emit({
         type: "tasks.create.response",
@@ -157,6 +160,9 @@ export class TasksSession {
         ...(request.dueDate === undefined ? {} : { dueDate: request.dueDate }),
         ...(request.parentTaskId === undefined ? {} : { parentTaskId: request.parentTaskId }),
         ...(request.labelIds === undefined ? {} : { labelIds: request.labelIds }),
+        ...(request.executionPolicy === undefined
+          ? {}
+          : { executionPolicy: request.executionPolicy }),
       });
       this.host.emit({
         type: "tasks.update.response",
@@ -253,6 +259,7 @@ export class TasksSession {
       const task = await this.transitions.applyReviewVerdict({
         taskId: request.taskId,
         verdict: request.verdict,
+        ...(request.feedback !== undefined ? { feedback: request.feedback } : {}),
       });
       this.host.emit({
         type: "tasks.review.response",
@@ -271,6 +278,9 @@ export class TasksSession {
         projectId: request.projectId,
         ...(request.reviewEnabled !== undefined ? { reviewEnabled: request.reviewEnabled } : {}),
         ...(request.reviewOnReject !== undefined ? { reviewOnReject: request.reviewOnReject } : {}),
+        ...(request.maxReviewIterations !== undefined
+          ? { maxReviewIterations: request.maxReviewIterations }
+          : {}),
         ...(request.archiveWorkspacesOnDone !== undefined
           ? { archiveWorkspacesOnDone: request.archiveWorkspacesOnDone }
           : {}),

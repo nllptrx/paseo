@@ -1126,8 +1126,8 @@ export const en = {
       boardMissing: "That kanban is no longer available.",
     },
     board: {
-      reviewRequire: "Require review",
-      archiveOnDone: "Archive workspaces when done",
+      reviewRequire: "Default: require review",
+      archiveOnDone: "Default: archive workspaces",
       menu: "Board actions",
     },
     column: {

@@ -1668,6 +1668,9 @@ export class VoiceAssistantWebSocketServer {
         // False when this host could not open its task store, so the client hides
         // the tracker rather than offering a surface every request would reject.
         tasks: this.taskService?.isAvailableNow ?? false,
+        // COMPAT(taskExecutionPolicy): added in v0.3.0-beta.2, remove after the
+        // daemon floor includes per-task automation overrides.
+        taskExecutionPolicy: this.taskService?.isAvailableNow ?? false,
       },
     };
   }

@@ -11,6 +11,12 @@ import { migrateTasksDatabase } from "./schema.js";
  * tasks.db is the one database the daemon cannot recreate.
  */
 function rewindToVersion1(db: DatabaseSync): void {
+  db.exec("ALTER TABLE task_agents DROP COLUMN completion_owner");
+  db.exec("DELETE FROM schema_version WHERE version = 6");
+  db.exec("DROP TRIGGER task_revision_review_policy_update");
+  db.exec("ALTER TABLE tasks DROP COLUMN review_iteration");
+  db.exec("ALTER TABLE task_projects DROP COLUMN max_review_iterations");
+  db.exec("DELETE FROM schema_version WHERE version = 5");
   db.exec("ALTER TABLE task_agents DROP COLUMN role");
   db.exec("ALTER TABLE task_projects DROP COLUMN reviewer_preset_id");
   db.exec("DELETE FROM schema_version WHERE version = 4");
@@ -97,23 +103,41 @@ describe("migrateTasksDatabase", () => {
         .prepare("SELECT version FROM schema_version ORDER BY version")
         .all()
         .map((row) => (row as { version: number }).version);
-      expect(versions).toEqual([1, 2, 3, 4]);
+      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 
       const project = second.prepare("SELECT * FROM task_projects WHERE id = 'tprj_1'").get() as {
         name: string;
         review_enabled: number;
         review_on_reject: string;
         archive_workspaces_on_done: number;
+        max_review_iterations: number;
       };
       expect(project.name).toBe("Paseo");
       expect(project.review_enabled).toBe(0);
       expect(project.review_on_reject).toBe("in_progress");
       expect(project.archive_workspaces_on_done).toBe(0);
+      expect(project.max_review_iterations).toBe(3);
 
-      const task = second.prepare("SELECT title FROM tasks WHERE id = 'tsk_1'").get() as {
+      const task = second.prepare("SELECT * FROM tasks WHERE id = 'tsk_1'").get() as {
         title: string;
+        review_iteration: number;
+        execution_policy: string | null;
+        integration_branch: string | null;
+        integration_status: string | null;
+        integration_error: string | null;
       };
       expect(task.title).toBe("Ship it");
+      expect(task.review_iteration).toBe(0);
+      expect(task.execution_policy).toBeNull();
+      expect(task.integration_branch).toBeNull();
+      expect(task.integration_status).toBeNull();
+      expect(task.integration_error).toBeNull();
+
+      const agentColumns = second
+        .prepare("PRAGMA table_info(task_agents)")
+        .all()
+        .map((row) => (row as { name: string }).name);
+      expect(agentColumns).toContain("completion_owner");
     } finally {
       second.close();
     }
@@ -130,7 +154,7 @@ describe("migrateTasksDatabase", () => {
       const applied = second.prepare("SELECT count(*) AS total FROM schema_version").get() as {
         total: number;
       };
-      expect(applied.total).toBe(4);
+      expect(applied.total).toBe(8);
     } finally {
       second.close();
     }

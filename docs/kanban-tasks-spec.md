@@ -32,8 +32,9 @@ keys, capture) and `Emanuele-web04/synara` (board behaviour).
   tasks, labels(+links), comments, attachments, task_agents, presets, revision
   counter bumped by triggers.
 - **Stored** (intent): status `backlog|todo|in_progress|in_review|done|canceled`,
-  priority, labels, due date, fractional position (`POSITION_STEP=1024`;
-  the client sends neighbours, the daemon picks the number).
+  priority, labels, due date, per-task execution policy, fractional position
+  (`POSITION_STEP=1024`; the client sends neighbours, the daemon picks the
+  number).
 - **Derived** (execution): attached agents' live state, read off the agents.
 - Task project ↔ Paseo project via `paseoProjectId`; prefix unique per host.
 - Sync: push `tasks.update { revision }`; a client at the same revision does
@@ -43,7 +44,10 @@ keys, capture) and `Emanuele-web04/synara` (board behaviour).
 
 `StoredKanban` is gone. One board-shaped object: the task project.
 
-- `review` and `archiveWorkspacesOnDone` live on `task_projects` in SQLite.
+- `review` and `archiveWorkspacesOnDone` live on `task_projects` in SQLite as
+  board defaults. A task stores a sparse override for review, reviewer,
+  correction rounds, rejection target, cleanup and ordinary delegation's
+  workspace choice. Resetting it returns the task to the board defaults.
   The kanban JSON record, its store, service, engine, RPCs, protocol module,
   CLI group and plan UI are deleted, and with them the get-or-create dance the
   workspace tab needed just to obtain an id.
@@ -58,16 +62,25 @@ keys, capture) and `Emanuele-web04/synara` (board behaviour).
 Plans stop being objects. The step machine — agent specs, workspace strategy,
 triggers, hard gates, schedules — survives unchanged and re-homes: **steps
 attach to a task**. Plan `title`/`description` and nested plans go; the task
-carries them. "Add plan" on the card becomes "Add workflow".
+carries them. The UI calls this ordered list an **agent plan**.
 
 `derivePlanColumn` goes with them. A task's stored status and the transition
 engine are the only column truth.
+
+A scheduled step has one agent. Schedule lifecycle events attach that agent to
+the task and settle the workflow step; scheduled fan-out is rejected when the
+workflow is saved because one schedule run has one agent target.
 
 ### 2.3 Hierarchy and dependencies [SHIPPED]
 
 Tasks carry `parentTaskId` (subtasks) and dependency edges in
 `task_dependencies`. The snapshot carries the edges so a client can draw them.
 A subtask is a task in every other respect — same statuses, same board.
+
+A parent can limit how many newly created subtasks are ready together. Creation
+links later siblings to earlier siblings in dependency waves. A limit of two
+makes child 3 wait for child 1 and child 4 wait for child 2. Removing the limit
+adds no dependency; it does not remove dependencies already stored.
 
 ### 2.4 Board event bus [DECIDED]
 
@@ -80,21 +93,34 @@ are independent writes from different call sites, which is how they drift.
 
 `packages/server/src/server/tasks/transitions.ts`, unit-tested:
 
-- Attached work settles green → the task moves to `in_review` when the board
-  has `review.enabled`, else to `done`.
+- Attached work settles green → the task moves to `in_review` when its effective
+  review policy requires it, else to `done`. The task override wins over the
+  board default.
   - Workflow-dispatched agents attach without observers; the last step
     settling is the signal, so a 3-step workflow does not move the task on
-    step 1.
+    step 1. Each attachment stores whether the workflow or the attachment
+    transition owns completion, so daemon restart recovery preserves that
+    boundary. Reviewer links restore the review observer instead of a worker
+    observer.
   - Manually attached agents (RPC/MCP `attach_task_agent`) get an observer per
-    attachment, re-armed at daemon boot, firing once per finish. A task pushed
-    back to work moves again on the next finish.
-- Review verdict: approve → `done`; reject → `review.onReject`, default
-  `in_progress`. Exposed as RPC, card menu, and MCP `review_task`.
+    attachment, re-armed at daemon boot. The task advances only from
+    `in_progress` and only after every attached worker has stopped running, so
+    a stale finish cannot pull a manually moved card or race a sibling worker.
+- Review verdict: approve → `done`; reject → the task's effective
+  `review.onReject`, default
+  `in_progress`. A rejection sent back to work resumes the latest worker with
+  the review feedback and returns to review after the correction. The task can
+  override the board's correction limit (default 3, maximum 10); exhausting it
+  leaves the card in review for a human. A reviewer that ends without a verdict is
+  recorded in the feed. Exposed as RPC, card menu, detail sheet, and MCP
+  `review_task`. If the worker cannot be resumed, the card returns to review
+  with the failure in the feed; it never stays in Working with no correction
+  running.
 - Failure moves nothing. The task stays `in_progress` and the card shows it.
 - Manual moves write the same stored field through the same RPC, so automation
   and hand cannot disagree.
 
-**[DECIDED] addition:** every automatic move posts to the feed naming what
+Every automatic move posts to the feed naming what
 caused it, and stays reversible by hand. Boards that moved cards silently
 shipped ping-pong bugs between In Progress and In Review; attribution plus a
 one-move undo is what prevents it.
@@ -122,12 +148,18 @@ one-move undo is what prevents it.
   sheet on compact). Right side: the task count. No back arrow; back is the
   sidebar's Kanbans entry. The feed toggle returns with §6.
 - **Columns** are the statuses. Canceled appears only when populated. Columns
-  flex 264–360 wide with horizontal scroll; compact shows one column behind a
-  scrollable segmented picker.
+  flex 264–360 wide and scroll vertically on their own inside one horizontal
+  board; compact shows one column behind a scrollable segmented picker.
+- **View picker** switches between Kanban and Tasks in place. Tasks is the same
+  project data grouped by status as dense rows, with one capture action and the
+  same detail and menu actions as cards. Search, status/priority/label filters,
+  sort, direct status and priority controls, and scroll position are shared
+  surface preferences and persist per board. Filtering changes the projection,
+  never the stored task set. It has no route or task data of its own.
 - **Card**: key, priority label (colour-coded urgent/high), live
   `StatusBucketDot` from attached agents, title, label chips. A press opens the
   detail sheet (§5.4). Kebab and right-click context menu carry the same list:
-  Details, Approve/Reject when in review, Add workflow, Open agent per
+  Details, Approve/Reject when in review, Add agent plan, Open agent per
   attachment, move-to-status, Delete. Subtasks indent under their parent when
   the parent is in the same column.
 - **Capture**: every column's "+" opens the minimal sheet — title only. The
@@ -141,9 +173,11 @@ one-move undo is what prevents it.
   desktop, sheet on compact. Its content is the feed (§6); it reuses the
   panel-store keys the orchestrator pane left behind.
 
-**[DECIDED] menu changes**: "Add plan" → "Add workflow"; "Require review"
+Menu changes: "Add workflow" → "Add agent plan"; "Require review"
 becomes a checkmark toggle per [docs/menus.md](menus.md) rather than a menu
-item with a swapping label; "Create Orchestrator" goes (§6.1).
+item with a swapping label. Review policy is one submenu with reviewer,
+rejection target, and correction-round limit. "Create Orchestrator" goes
+(§6.1).
 
 ### 5.2 Workspace [SHIPPED]
 
@@ -155,20 +189,30 @@ item with a swapping label; "Create Orchestrator" goes (§6.1).
   workspace's project has a board, following the PR-tab fallback rule. It
   replaced the orchestrator tab that stood there (§6.1).
 
-### 5.3 Overview `/kanbans` [SHIPPED]
+### 5.3 Global overview `/kanbans` [SHIPPED]
 
-Renders tasks per project. Each column is a tracker project — its cards are
-read-only, because acting on a task belongs to the board one press away. Hosts
-without a tracker are skipped rather than asked and failed.
+Renders the complete Paseo project directory across hosts, joined to tracker
+boards when they exist, so a project does not disappear before its first task.
+Each column is a Paseo project/host pair; its cards are read-only, because
+acting on a task belongs to the board one press away. Opening an empty project
+creates its linked tracker project and enters it. Projects on hosts without the
+tasks capability stay visible and say that tasks are unavailable. Unlinked
+tracker projects are ignored; a board in Paseo belongs to a registered Paseo
+project.
 
 The route is `/kanbans/<taskProjectId>`: a board is a tracker project, so the
 same id addresses the column and the board it opens.
 
 ### 5.4 Task detail sheet [SHIPPED]
 
-Description, comments, labels, due date, subtasks, dependencies and
-attachments are wire-complete with no surface. Build one sheet that shows
-them, opened by pressing a card. That also settles what a card press does:
+The detail sheet is the task's working surface. Its title and agent brief are
+editable in place. It shows comments, labels, due date, subtasks, dependencies,
+attachments, agents, the agent plan and review actions. Automation is summarized
+in plain language and expands to task-specific controls; the board menu only
+sets defaults. The agent-plan form shows the common choices first and keeps
+workspace, trigger, evidence, verification command and timeout behind Advanced.
+Rejecting from the sheet accepts correction feedback that is sent to the resumed
+worker. This also settles what a card press does:
 
 - **press → detail sheet, always**, whatever the number of attached agents.
   Attached agents are rows in the sheet; opening a conversation is a tap on a
@@ -180,11 +224,17 @@ them, opened by pressing a card. That also settles what a card press does:
 A preset is the one-step workflow you do not have to author: pick one on a
 card and an agent starts, already attached, in the environment the preset asks
 for. It attaches through the tracker, so a blocked task refuses before an agent
-exists rather than after one is running.
+or worktree exists rather than after one is running. Workflow dispatch uses the
+same preflight and checks again when attaching. Every generated worker or
+reviewer prompt carries the task key and id so its task tools have an exact
+target.
 
 `project_default` means "where this card is already being worked" — the
 workspace an agent on it is using. A card nobody is on gets a worktree like the
 other mode; the project root is not a workspace the daemon can attach to.
+The task can force ordinary preset delegation to a dedicated worktree or to
+reuse its attached workspace. Explicit agent-plan steps keep their own
+workspace setting.
 
 The picker is on the detail sheet: one press per preset, disabled while the
 card has open blockers — the daemon would refuse anyway, and a button that
@@ -246,18 +296,22 @@ overwritten outputs, ~75x the tokens).
   the orchestrator sidebar pane, the workspace tab kind, the explorer tab, and
   Create Orchestrator.
 
-### 6.2 Subtask isolation — stacked branches, sibling worktrees [SHIPPED]
+### 6.2 Task delivery — canonical branches, worker worktrees [SHIPPED]
 
-- A task's agent works in its own worktree and branch.
-- A **subtask** branches off its **parent task's branch**, read from the
-  parent's own worktree, not off main. Worktree directories are siblings, as
-  they already were — a checkout nested in a live worktree confuses git and the
-  agents' file tools.
-- A parent that never ran has nothing to stack onto; the subtask starts where
-  any other work would.
-- A subtask merges into the parent branch; the parent merges to main. This maps
-  1:1 onto stacked PRs and keeps review units bounded.
-- Depth beyond one level works, and the UI does not encourage it.
+- A task that runs code owns one durable `paseo/tasks/<key>` branch. Agent
+  workspaces are temporary workers; their branches merge into the task branch
+  when work settles. Tracker-only tasks create no Git state.
+- A root task branch starts from the selected or repository default branch. A
+  subtask branch starts from its parent's task branch. Every worker for that
+  subtask starts from the subtask branch.
+- Review reads the integrated task branch. Approval and a manual move to Done
+  use the same completion gate: a subtask reaches Done only after its task
+  branch merges into the parent task branch.
+- A conflict aborts the merge, moves the task to Working and records the Git
+  error in the board feed and task detail. The latest worker receives the
+  resolution prompt. Finishing again retries the gate.
+- Done is the dependency-unblocking state, so an unintegrated subtask cannot
+  unblock its dependents. Depth beyond one level uses the same rule.
 
 ## 7. Build order
 
@@ -282,8 +336,9 @@ and the board e2e.
   and run outcomes are read, never copied.
 - One destination per object. The kanban is the tasks' board view; no parallel
   route or screen shows the same thing.
-- The protocol stays backward compatible; features gate on
-  `server_info.features.{tasks,kanban}`. Compatibility shims are only for
+- The protocol stays backward compatible. The tracker gates on
+  `server_info.features.tasks`; per-task automation gates separately on
+  `server_info.features.taskExecutionPolicy`. Compatibility shims are only for
   shapes a released peer can actually produce.
 - Steps keep their hard gates. No second cron engine. Workspaces remain the
   source of truth for execution.

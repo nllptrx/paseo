@@ -16,6 +16,7 @@ import {
   type CreateTaskInput,
   type CreateTaskPresetInput,
   type TaskAgentRole,
+  type TaskAgentCompletionOwner,
   type CreateTaskProjectInput,
   type TaskStore,
   type UpdateTaskInput,
@@ -43,6 +44,7 @@ export class TaskService {
   private opening: Promise<TaskStore> | null = null;
   private unavailableReason: string | null = null;
   private available = false;
+  private completeTaskHandler: ((taskId: string) => Promise<Task>) | null = null;
 
   constructor(input: { databasePath: string; logger: pino.Logger }) {
     this.databasePath = input.databasePath;
@@ -141,6 +143,7 @@ export class TaskService {
     reviewOnReject?: TaskBoardConfig["reviewOnReject"];
     archiveWorkspacesOnDone?: boolean;
     reviewerPresetId?: string | null;
+    maxReviewIterations?: number;
   }): Promise<TaskProject> {
     const store = await this.require();
     const project = store.configureBoard(input);
@@ -155,6 +158,13 @@ export class TaskService {
   }
 
   async setWorkflow(input: { taskId: string; steps: readonly Step[] }): Promise<TaskWorkflow> {
+    for (const step of input.steps) {
+      if (step.trigger.type === "schedule" && step.agents.length !== 1) {
+        throw new Error(
+          `Step ${step.id} uses a schedule and must have exactly one agent; scheduled fan-out is not supported`,
+        );
+      }
+    }
     const store = await this.require();
     const workflow = store.setWorkflow(input);
     this.announce(store);
@@ -234,6 +244,9 @@ export class TaskService {
   }
 
   async createTask(input: CreateTaskInput): Promise<Task> {
+    if (input.parentTaskId && input.status === "done") {
+      throw new Error("A subtask cannot be created as Done before it is integrated");
+    }
     const store = await this.require();
     const task = store.createTask(input);
     this.announce(store);
@@ -241,6 +254,9 @@ export class TaskService {
   }
 
   async updateTask(input: UpdateTaskInput): Promise<Task> {
+    if (input.status === "done" && this.completeTaskHandler) {
+      return await this.completeThroughGate(input.taskId, input);
+    }
     const store = await this.require();
     const task = store.updateTask(input);
     this.announce(store);
@@ -253,10 +269,49 @@ export class TaskService {
     beforePosition: number | null;
     afterPosition: number | null;
   }): Promise<Task> {
+    if (input.status === "done" && this.completeTaskHandler) {
+      const completed = await this.completeThroughGate(input.taskId);
+      if (completed.status !== "done") return completed;
+    }
     const store = await this.require();
     const task = store.moveTask(input);
     this.announce(store);
     return task;
+  }
+
+  /** Installs the integration-aware Done transition after the workflow engine
+   * exists. Keeping this at the service boundary covers UI drags, RPC and MCP
+   * without trusting every caller to remember the delivery gate. */
+  setCompleteTaskHandler(handler: (taskId: string) => Promise<Task>): void {
+    this.completeTaskHandler = handler;
+  }
+
+  /** Internal terminal write used only after the transition engine has passed
+   * the integration gate. Keeping it separate avoids a recursive public Done
+   * request and does not open a bypass to RPC or MCP callers. */
+  async finalizeTaskDone(taskId: string): Promise<Task> {
+    const store = await this.require();
+    const task = store.updateTask({ taskId, status: "done" });
+    this.announce(store);
+    return task;
+  }
+
+  private async completeThroughGate(
+    taskId: string,
+    pendingUpdate?: UpdateTaskInput,
+  ): Promise<Task> {
+    if (!this.completeTaskHandler) {
+      throw new Error("Task completion is unavailable until integration is configured");
+    }
+    if (pendingUpdate) {
+      const { status: _status, ...rest } = pendingUpdate;
+      if (Object.keys(rest).some((key) => key !== "taskId")) {
+        const store = await this.require();
+        store.updateTask(rest);
+        this.announce(store);
+      }
+    }
+    return await this.completeTaskHandler(taskId);
   }
 
   async deleteTask(taskId: string): Promise<void> {
@@ -279,6 +334,7 @@ export class TaskService {
     workspaceId: string;
     presetId?: string | null;
     role?: TaskAgentRole;
+    completionOwner?: TaskAgentCompletionOwner;
   }): Promise<void> {
     const store = await this.require();
     this.assertClaimable(store, input.taskId);
@@ -336,6 +392,14 @@ export class TaskService {
     });
   }
 
+  /** Check dependencies before allocating a worktree or starting an agent.
+   * `attachAgent` checks again when the link is committed, closing the race
+   * where a blocker is added while those resources are being created. */
+  async assertTaskClaimable(taskId: string): Promise<void> {
+    const store = await this.require();
+    this.assertClaimable(store, taskId);
+  }
+
   async detachAgent(input: { taskId: string; agentId: string }): Promise<void> {
     const store = await this.require();
     store.detachAgent(input);
@@ -383,7 +447,7 @@ export class TaskService {
     return (await this.require()).listTaskAgents(taskId);
   }
 
-  async listAgentLinks(): Promise<Array<{ taskId: string; agentId: string; workspaceId: string }>> {
+  async listAgentLinks(): Promise<Array<{ taskId: string } & TaskAgentLink>> {
     return (await this.require()).listAgentLinks();
   }
 

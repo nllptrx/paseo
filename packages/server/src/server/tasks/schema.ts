@@ -246,6 +246,43 @@ const MIGRATIONS: readonly string[] = [
 
     ALTER TABLE task_projects ADD COLUMN reviewer_preset_id TEXT;
   `,
+  `
+    -- A rejection loop is bounded and survives daemon restarts. The task keeps
+    -- the current correction count; the board says how many it permits.
+    ALTER TABLE task_projects ADD COLUMN max_review_iterations INTEGER NOT NULL DEFAULT 3
+      CHECK (max_review_iterations BETWEEN 1 AND 10);
+    ALTER TABLE tasks ADD COLUMN review_iteration INTEGER NOT NULL DEFAULT 0
+      CHECK (review_iteration >= 0);
+
+    CREATE TRIGGER task_revision_review_policy_update
+      AFTER UPDATE OF reviewer_preset_id, max_review_iterations ON task_projects
+    BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+  `,
+  `
+    -- A workflow step and an ordinary attachment can point at the same kind of
+    -- agent, but only one may own the task transition when that agent settles.
+    -- Persist the owner so restart recovery cannot turn an intermediate step
+    -- into completion of the whole task.
+    ALTER TABLE task_agents ADD COLUMN completion_owner TEXT NOT NULL DEFAULT 'attachment'
+      CHECK (completion_owner IN ('attachment', 'workflow'));
+  `,
+  `
+    -- Board policy is the default, not a prison. A compact validated document
+    -- lets one task override review, cleanup, delegation workspace and subtask
+    -- concurrency without multiplying nullable columns for every new policy.
+    ALTER TABLE tasks ADD COLUMN execution_policy TEXT;
+  `,
+  `
+    -- A task owns a durable branch identity even though its agents and
+    -- workspaces are replaceable. Completion can therefore require integration
+    -- instead of treating an isolated worktree as delivered work.
+    ALTER TABLE tasks ADD COLUMN integration_branch TEXT;
+    ALTER TABLE tasks ADD COLUMN integration_status TEXT
+      CHECK (integration_status IN ('pending', 'conflicted', 'integrated', 'not_applicable'));
+    ALTER TABLE tasks ADD COLUMN integration_error TEXT;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

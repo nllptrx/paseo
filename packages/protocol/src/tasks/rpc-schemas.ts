@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   TaskCommentSchema,
+  TaskExecutionPolicySchema,
   TaskPrioritySchema,
   TaskPresetSchema,
   TaskProjectSchema,
@@ -70,6 +71,7 @@ export const TasksCreateRequestSchema = z.object({
   dueDate: z.string().nullable().optional(),
   parentTaskId: z.string().nullable().optional(),
   labelIds: z.array(z.string()).optional(),
+  executionPolicy: TaskExecutionPolicySchema.optional(),
 });
 
 export const TasksCreateResponseSchema = z.object({
@@ -92,6 +94,8 @@ export const TasksUpdateRequestSchema = z.object({
   dueDate: z.string().nullable().optional(),
   parentTaskId: z.string().nullable().optional(),
   labelIds: z.array(z.string()).optional(),
+  /** Null clears all task-level exceptions back to board defaults. */
+  executionPolicy: TaskExecutionPolicySchema.nullable().optional(),
 });
 
 export const TasksUpdateResponseSchema = z.object({
@@ -195,6 +199,9 @@ export const TasksReviewRequestSchema = z.object({
   requestId: z.string(),
   taskId: z.string(),
   verdict: z.enum(["approve", "reject"]),
+  /** Reviewer findings. New clients send this with reject; older clients can
+   * continue sending a verdict alone. */
+  feedback: z.string().trim().min(1).optional(),
 });
 
 export const TasksReviewResponseSchema = z.object({
@@ -247,6 +254,7 @@ export const TasksBoardConfigureRequestSchema = z.object({
   projectId: z.string(),
   reviewEnabled: z.boolean().optional(),
   reviewOnReject: z.enum(["in_progress", "todo", "backlog"]).optional(),
+  maxReviewIterations: z.number().int().positive().max(10).optional(),
   archiveWorkspacesOnDone: z.boolean().optional(),
   reviewerPresetId: z.string().nullable().optional(),
 });

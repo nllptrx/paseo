@@ -75,6 +75,7 @@ describe("TasksSession workflow requests", () => {
       reviewOnReject: "in_progress",
       archiveWorkspacesOnDone: false,
       reviewerPresetId: null,
+      maxReviewIterations: 3,
     });
   });
 

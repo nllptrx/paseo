@@ -44,9 +44,77 @@ export const TaskBoardConfigSchema = z.object({
    * human. */
   reviewerPresetId: z.string().nullable().optional(),
   reviewOnReject: z.enum(["in_progress", "todo", "backlog"]),
+  /** Correction rounds before an agent rejection has to wait for a human.
+   * Optional so a new client can still read projects from an older daemon. */
+  maxReviewIterations: z.number().int().positive().max(10).optional(),
   archiveWorkspacesOnDone: z.boolean(),
 });
 export type TaskBoardConfig = z.infer<typeof TaskBoardConfigSchema>;
+
+/** Per-task exceptions to the board's execution defaults. Missing fields
+ * inherit; `null` reviewer means this task waits for a human even when the
+ * board has an agent reviewer. */
+export const TaskExecutionPolicySchema = z.object({
+  review: z.enum(["inherit", "required", "disabled"]).optional(),
+  reviewerPresetId: z.string().nullable().optional(),
+  reviewOnReject: z.enum(["in_progress", "todo", "backlog"]).optional(),
+  maxReviewIterations: z.number().int().positive().max(10).optional(),
+  archiveWorkspacesOnDone: z.boolean().optional(),
+  /** How ordinary delegation resolves its checkout. Explicit workflow steps
+   * continue to carry their own workspace strategy. */
+  workspace: z.enum(["inherit", "dedicated", "reuse"]).optional(),
+  /** Maximum sibling subtasks that may become ready together. New subtasks are
+   * linked into dependency waves at creation; the daemon-wide cap still wins. */
+  maxParallelSubtasks: z.number().int().positive().max(10).optional(),
+});
+export type TaskExecutionPolicy = z.infer<typeof TaskExecutionPolicySchema>;
+
+export interface ResolvedTaskExecutionPolicy {
+  reviewEnabled: boolean;
+  reviewerPresetId: string | null;
+  reviewOnReject: TaskBoardConfig["reviewOnReject"];
+  maxReviewIterations: number;
+  archiveWorkspacesOnDone: boolean;
+  workspace: "inherit" | "dedicated" | "reuse";
+  maxParallelSubtasks: number | null;
+}
+
+function resolveReviewEnabled(
+  board: TaskBoardConfig | undefined,
+  override: TaskExecutionPolicy | undefined,
+): boolean {
+  if (override?.review === "required") return true;
+  if (override?.review === "disabled") return false;
+  return board?.reviewEnabled ?? false;
+}
+
+function resolveReviewerPresetId(
+  board: TaskBoardConfig | undefined,
+  override: TaskExecutionPolicy | undefined,
+): string | null {
+  if (override && "reviewerPresetId" in override) {
+    return override.reviewerPresetId ?? null;
+  }
+  return board?.reviewerPresetId ?? null;
+}
+
+/** One resolver for transitions, dispatch and UI summaries. Keeping inheritance
+ * here prevents three surfaces from showing different effective behaviour. */
+export function resolveTaskExecutionPolicy(
+  board: TaskBoardConfig | undefined,
+  override: TaskExecutionPolicy | undefined,
+): ResolvedTaskExecutionPolicy {
+  return {
+    reviewEnabled: resolveReviewEnabled(board, override),
+    reviewerPresetId: resolveReviewerPresetId(board, override),
+    reviewOnReject: override?.reviewOnReject ?? board?.reviewOnReject ?? "in_progress",
+    maxReviewIterations: override?.maxReviewIterations ?? board?.maxReviewIterations ?? 3,
+    archiveWorkspacesOnDone:
+      override?.archiveWorkspacesOnDone ?? board?.archiveWorkspacesOnDone ?? false,
+    workspace: override?.workspace ?? "inherit",
+    maxParallelSubtasks: override?.maxParallelSubtasks ?? null,
+  };
+}
 
 export const TaskProjectSchema = z.object({
   id: z.string(),
@@ -81,6 +149,10 @@ export const TaskAgentLinkSchema = z.object({
   /** A reviewer is on the card to judge it, not to have done it. Only workers
    * are barred from reviewing. */
   role: z.enum(["worker", "reviewer"]).optional(),
+  /** Which engine turns this agent finishing into task progress. Workflow-owned
+   * links wait for the workflow's final step; attachment-owned links settle the
+   * task directly. Optional for compatibility with hosts before this marker. */
+  completionOwner: z.enum(["attachment", "workflow"]).optional(),
   attachedAt: z.string(),
 });
 export type TaskAgentLink = z.infer<typeof TaskAgentLinkSchema>;
@@ -94,6 +166,14 @@ export const TaskAttachmentSchema = z.object({
   createdAt: z.string(),
 });
 export type TaskAttachment = z.infer<typeof TaskAttachmentSchema>;
+
+/** Durable Git identity for work that can outlive any one agent workspace. */
+export const TaskIntegrationSchema = z.object({
+  branch: z.string(),
+  status: z.enum(["pending", "conflicted", "integrated", "not_applicable"]),
+  error: z.string().nullable(),
+});
+export type TaskIntegration = z.infer<typeof TaskIntegrationSchema>;
 
 /**
  * One entry in a board's feed. `taskId` is null when the entry belongs to the
@@ -131,6 +211,12 @@ export const TaskSchema = z.object({
   agents: z.array(TaskAgentLinkSchema),
   attachments: z.array(TaskAttachmentSchema),
   commentCount: z.number().int().nonnegative(),
+  /** Number of rejected review rounds in the current task lifecycle. */
+  reviewIteration: z.number().int().nonnegative().optional(),
+  /** Absent means every execution choice inherits from the board/preset. */
+  executionPolicy: TaskExecutionPolicySchema.optional(),
+  /** Optional for clients connected to a host from before task branches. */
+  integration: TaskIntegrationSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

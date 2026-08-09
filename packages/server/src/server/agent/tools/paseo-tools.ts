@@ -3222,15 +3222,20 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       inputSchema: {
         taskId: z.string().trim().min(1),
         verdict: z.enum(["approve", "reject"]),
+        feedback: z.string().trim().min(1).optional(),
       },
       outputSchema: { task: TaskSchema },
     },
-    async ({ taskId, verdict }) => {
+    async ({ taskId, verdict, feedback }) => {
       if (!taskTransitions) {
         throw new Error("Task tracker is not configured on this host");
       }
       await assertNotReviewingOwnWork(taskId);
-      const task = await taskTransitions.applyReviewVerdict({ taskId, verdict });
+      const task = await taskTransitions.applyReviewVerdict({
+        taskId,
+        verdict,
+        ...(feedback !== undefined ? { feedback } : {}),
+      });
       return { content: [], structuredContent: ensureValidJson({ task }) };
     },
   );

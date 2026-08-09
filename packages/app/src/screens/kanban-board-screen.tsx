@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import type { Task, TaskProject } from "@getpaseo/protocol/tasks/types";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
@@ -24,7 +24,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  type MenuPageDefinition,
 } from "@/components/ui/dropdown-menu";
 import { TaskPresetsSheet } from "@/components/tasks/task-presets-sheet";
 import { TaskWorkflowFormSheet } from "@/components/tasks/task-workflow-form-sheet";
@@ -173,6 +175,8 @@ function LoadedKanbanBoardScreen({
   const handleOpenPresets = useCallback(() => setIsPresetsOpen(true), []);
   const handleClosePresets = useCallback(() => setIsPresetsOpen(false), []);
   const archiveOnDone = project.board?.archiveWorkspacesOnDone === true;
+  const reviewOnReject = project.board?.reviewOnReject ?? "in_progress";
+  const maxReviewIterations = project.board?.maxReviewIterations ?? 3;
 
   // A board setting that silently failed to save leaves the menu telling one
   // story and the daemon keeping another.
@@ -200,6 +204,112 @@ function LoadedKanbanBoardScreen({
     [applyBoardConfig, archiveOnDone],
   );
 
+  const handleSelectRejectTarget = useCallback(
+    (nextRejectTarget: "in_progress" | "todo" | "backlog") =>
+      applyBoardConfig({ reviewOnReject: nextRejectTarget }),
+    [applyBoardConfig],
+  );
+  const handleSelectMaxIterations = useCallback(
+    (nextMaxIterations: number) => applyBoardConfig({ maxReviewIterations: nextMaxIterations }),
+    [applyBoardConfig],
+  );
+
+  const boardMenuPages = useMemo<MenuPageDefinition[]>(
+    () => [
+      {
+        id: "review-policy",
+        title: "Review loop",
+        content: (
+          <>
+            <DropdownMenuSubTrigger
+              id="reviewer"
+              value={reviewerLabel(project, presets, "None")}
+              testID={`kanban-review-reviewer-${boardId}`}
+            >
+              Reviewer
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger
+              id="reject-target"
+              value={rejectTargetLabel(reviewOnReject)}
+              testID={`kanban-review-reject-target-${boardId}`}
+            >
+              On rejection
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger
+              id="review-iterations"
+              value={String(maxReviewIterations)}
+              testID={`kanban-review-iterations-${boardId}`}
+            >
+              Correction rounds
+            </DropdownMenuSubTrigger>
+          </>
+        ),
+      },
+      {
+        id: "reviewer",
+        title: "Reviewer",
+        content: (
+          <>
+            <ReviewerMenuItem
+              boardId={boardId}
+              presetId={null}
+              label={t("tasks.detail.reviewerNone")}
+              selected={project.board?.reviewerPresetId == null}
+              onSelect={handleSelectReviewer}
+            />
+            {presets.map((preset) => (
+              <ReviewerMenuItem
+                key={preset.id}
+                boardId={boardId}
+                presetId={preset.id}
+                label={preset.name}
+                selected={project.board?.reviewerPresetId === preset.id}
+                onSelect={handleSelectReviewer}
+              />
+            ))}
+          </>
+        ),
+      },
+      {
+        id: "reject-target",
+        title: "On rejection",
+        content: (["in_progress", "todo", "backlog"] as const).map((status) => (
+          <RejectTargetOption
+            key={status}
+            boardId={boardId}
+            status={status}
+            selected={reviewOnReject === status}
+            onSelect={handleSelectRejectTarget}
+          />
+        )),
+      },
+      {
+        id: "review-iterations",
+        title: "Correction rounds",
+        content: [1, 2, 3, 5, 10].map((iterations) => (
+          <ReviewIterationOption
+            key={iterations}
+            boardId={boardId}
+            iterations={iterations}
+            selected={maxReviewIterations === iterations}
+            onSelect={handleSelectMaxIterations}
+          />
+        )),
+      },
+    ],
+    [
+      boardId,
+      handleSelectMaxIterations,
+      handleSelectRejectTarget,
+      handleSelectReviewer,
+      maxReviewIterations,
+      presets,
+      project,
+      reviewOnReject,
+      t,
+    ],
+  );
+
   const headerLeft = useMemo(
     () => (
       <>
@@ -222,6 +332,7 @@ function LoadedKanbanBoardScreen({
           <DropdownMenuContent
             align="start"
             width={220}
+            pages={boardMenuPages}
             testID={`kanban-board-menu-content-${boardId}`}
             sheetTitle={t("kanban.board.menu")}
           >
@@ -245,25 +356,14 @@ function LoadedKanbanBoardScreen({
               {t("kanban.board.archiveOnDone")}
             </DropdownMenuItem>
             {reviewEnabled ? (
-              <>
-                <ReviewerMenuItem
-                  boardId={boardId}
-                  presetId={null}
-                  label={t("tasks.detail.reviewerNone")}
-                  selected={project.board?.reviewerPresetId == null}
-                  onSelect={handleSelectReviewer}
-                />
-                {presets.map((preset) => (
-                  <ReviewerMenuItem
-                    key={preset.id}
-                    boardId={boardId}
-                    presetId={preset.id}
-                    label={preset.name}
-                    selected={project.board?.reviewerPresetId === preset.id}
-                    onSelect={handleSelectReviewer}
-                  />
-                ))}
-              </>
+              <DropdownMenuSubTrigger
+                id="review-policy"
+                value={`${maxReviewIterations} rounds`}
+                indicator={project.board?.reviewerPresetId != null}
+                testID={`kanban-review-policy-${boardId}`}
+              >
+                Default review loop
+              </DropdownMenuSubTrigger>
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -271,12 +371,12 @@ function LoadedKanbanBoardScreen({
     ),
     [
       archiveOnDone,
+      boardMenuPages,
       boardId,
       handleOpenPresets,
-      handleSelectReviewer,
       handleToggleArchiveOnDone,
       handleToggleReview,
-      presets,
+      maxReviewIterations,
       project.board?.reviewerPresetId,
       project.name,
       reviewEnabled,
@@ -325,11 +425,7 @@ function LoadedKanbanBoardScreen({
       <View style={styles.row}>
         <View style={styles.centerColumn}>
           <ScreenHeader left={headerLeft} right={headerRight} leftStyle={styles.headerLeft} />
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            testID={`kanban-board-${boardId}`}
-          >
+          <View style={styles.scroll} testID={`kanban-board-${boardId}`}>
             <TaskBoardSurface
               serverId={serverId}
               paseoProjectId={project.paseoProjectId ?? ""}
@@ -339,7 +435,7 @@ function LoadedKanbanBoardScreen({
               requestedTaskId={feedTaskId}
               onRequestedTaskHandled={handleFeedTaskHandled}
             />
-          </ScrollView>
+          </View>
         </View>
         {!isCompact && feedOpenDesktop ? (
           <FeedSidebar
@@ -376,6 +472,69 @@ function LoadedKanbanBoardScreen({
         />
       ) : null}
     </View>
+  );
+}
+
+function reviewerLabel(
+  project: TaskProject,
+  presets: readonly { id: string; name: string }[],
+  noneLabel: string,
+): string {
+  const presetId = project.board?.reviewerPresetId;
+  return presets.find((preset) => preset.id === presetId)?.name ?? noneLabel;
+}
+
+function rejectTargetLabel(status: "in_progress" | "todo" | "backlog"): string {
+  if (status === "in_progress") return "Working";
+  if (status === "todo") return "Todo";
+  return "Backlog";
+}
+
+function RejectTargetOption({
+  boardId,
+  status,
+  selected,
+  onSelect,
+}: {
+  boardId: string;
+  status: "in_progress" | "todo" | "backlog";
+  selected: boolean;
+  onSelect: (status: "in_progress" | "todo" | "backlog") => void;
+}): ReactElement {
+  const handleSelect = useCallback(() => onSelect(status), [onSelect, status]);
+  return (
+    <DropdownMenuItem
+      selected={selected}
+      showSelectedCheck
+      testID={`kanban-review-reject-${boardId}-${status}`}
+      onSelect={handleSelect}
+    >
+      {rejectTargetLabel(status)}
+    </DropdownMenuItem>
+  );
+}
+
+function ReviewIterationOption({
+  boardId,
+  iterations,
+  selected,
+  onSelect,
+}: {
+  boardId: string;
+  iterations: number;
+  selected: boolean;
+  onSelect: (iterations: number) => void;
+}): ReactElement {
+  const handleSelect = useCallback(() => onSelect(iterations), [iterations, onSelect]);
+  return (
+    <DropdownMenuItem
+      selected={selected}
+      showSelectedCheck
+      testID={`kanban-review-iterations-${boardId}-${iterations}`}
+      onSelect={handleSelect}
+    >
+      {iterations}
+    </DropdownMenuItem>
   );
 }
 
@@ -509,10 +668,6 @@ const styles = StyleSheet.create((theme) => ({
   scroll: {
     flex: 1,
     minHeight: 0,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: theme.spacing[6],
   },
   centered: {
     flex: 1,

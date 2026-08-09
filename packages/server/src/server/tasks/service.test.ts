@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Step } from "@getpaseo/protocol/tasks/workflow";
 import { TaskService } from "./service.js";
 
 const logger = pino({ level: "silent" });
@@ -102,6 +103,73 @@ describe("TaskService", () => {
     expect((await service.snapshot()).tasks).toEqual([]);
     await service.close();
   });
+
+  it("routes both task updates and board drops to the completion gate", async () => {
+    const service = createService();
+    const project = await service.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" });
+    const first = await service.createTask({ projectId: project.id, title: "First" });
+    const second = await service.createTask({ projectId: project.id, title: "Second" });
+    const gated: string[] = [];
+    service.setCompleteTaskHandler(async (taskId) => {
+      gated.push(taskId);
+      return await service.finalizeTaskDone(taskId);
+    });
+
+    await service.updateTask({ taskId: first.id, status: "done" });
+    await service.moveTask({
+      taskId: second.id,
+      status: "done",
+      beforePosition: null,
+      afterPosition: null,
+    });
+
+    expect(gated).toEqual([first.id, second.id]);
+    expect((await service.getTask(first.id))?.status).toBe("done");
+    expect((await service.getTask(second.id))?.status).toBe("done");
+    await service.close();
+  });
+
+  it("does not apply a Done drop when the completion gate keeps the task active", async () => {
+    const service = createService();
+    const project = await service.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" });
+    const task = await service.createTask({
+      projectId: project.id,
+      title: "Conflicted",
+      status: "in_progress",
+    });
+    service.setCompleteTaskHandler(async (taskId) => {
+      const current = await service.getTask(taskId);
+      if (!current) throw new Error("missing test task");
+      return current;
+    });
+
+    const result = await service.moveTask({
+      taskId: task.id,
+      status: "done",
+      beforePosition: null,
+      afterPosition: null,
+    });
+
+    expect(result.status).toBe("in_progress");
+    expect((await service.getTask(task.id))?.status).toBe("in_progress");
+    await service.close();
+  });
+
+  it("refuses to create an already-complete subtask", async () => {
+    const service = createService();
+    const project = await service.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" });
+    const parent = await service.createTask({ projectId: project.id, title: "Parent" });
+
+    await expect(
+      service.createTask({
+        projectId: project.id,
+        parentTaskId: parent.id,
+        title: "Child",
+        status: "done",
+      }),
+    ).rejects.toThrow(/cannot be created as Done/);
+    await service.close();
+  });
   /** The gate is what "claiming" means: a task waiting on something unfinished
    * refuses the attachment rather than letting two agents race the order. */
   it("refuses to attach an agent to a task whose blockers are open", async () => {
@@ -140,6 +208,28 @@ describe("TaskService", () => {
     } finally {
       await service.close();
     }
+  });
+
+  it("refuses scheduled workflow fan-out until the scheduler can represent it", async () => {
+    const service = createService();
+    const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
+    const task = await service.createTask({ projectId: project.id, title: "Scheduled" });
+    const step: Step = {
+      id: "stp_1",
+      name: "Scheduled step",
+      prompt: "Run it",
+      agents: [{ provider: "claude" }, { provider: "codex" }],
+      completion: "all",
+      workspace: { mode: "existing", workspaceId: "ws_1" },
+      trigger: { type: "schedule", cadence: { type: "every", everyMs: 60_000 } },
+      runs: [],
+    };
+
+    await expect(service.setWorkflow({ taskId: task.id, steps: [step] })).rejects.toThrow(
+      /exactly one agent/,
+    );
+    expect(await service.getWorkflow(task.id)).toBeNull();
+    await service.close();
   });
   /** The board has to be true while work runs, not only after it. Starting from
    * Backlog and jumping to Done would never have shown the work happening. */

@@ -7,6 +7,7 @@ import { z } from "zod";
 import { StepSchema, type Step, type TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 
 export type TaskAgentRole = "worker" | "reviewer";
+export type TaskAgentCompletionOwner = "attachment" | "workflow";
 import type {
   Task,
   TaskAgentLink,
@@ -19,7 +20,10 @@ import type {
   TaskProject,
   TaskSnapshot,
   TaskStatus,
+  TaskExecutionPolicy,
+  TaskIntegration,
 } from "@getpaseo/protocol/tasks/types";
+import { TaskExecutionPolicySchema } from "@getpaseo/protocol/tasks/types";
 import {
   BlobPathRowSchema,
   CountRowSchema,
@@ -76,6 +80,7 @@ export interface CreateTaskInput {
   dueDate?: string | null;
   parentTaskId?: string | null;
   labelIds?: readonly string[];
+  executionPolicy?: TaskExecutionPolicy;
 }
 
 export interface UpdateTaskInput {
@@ -87,6 +92,12 @@ export interface UpdateTaskInput {
   dueDate?: string | null;
   parentTaskId?: string | null;
   labelIds?: readonly string[];
+  /** Internal lifecycle write; clients cannot set this through tasks.update. */
+  reviewIteration?: number;
+  /** Null returns the task to board/preset defaults. */
+  executionPolicy?: TaskExecutionPolicy | null;
+  /** Internal Git delivery state; clients cannot write it through tasks.update. */
+  integration?: TaskIntegration | null;
 }
 
 export interface CreateTaskCommentInput {
@@ -121,6 +132,24 @@ export interface CreateTaskPresetInput {
   baseBranch?: string | null;
 }
 
+function resolveIntegrationUpdate(
+  current: TaskRow,
+  integration: TaskIntegration | null | undefined,
+): { branch: string | null; status: TaskIntegration["status"] | null; error: string | null } {
+  if (integration === undefined) {
+    return {
+      branch: current.integration_branch,
+      status: current.integration_status,
+      error: current.integration_error,
+    };
+  }
+  return {
+    branch: integration?.branch ?? null,
+    status: integration?.status ?? null,
+    error: integration?.error ?? null,
+  };
+}
+
 function toProject(row: TaskProjectRow): TaskProject {
   return {
     id: row.id,
@@ -133,6 +162,7 @@ function toProject(row: TaskProjectRow): TaskProject {
       reviewOnReject: row.review_on_reject,
       archiveWorkspacesOnDone: row.archive_workspaces_on_done === 1,
       reviewerPresetId: row.reviewer_preset_id,
+      maxReviewIterations: row.max_review_iterations,
     },
     createdAt: row.created_at,
   };
@@ -254,6 +284,12 @@ export class TaskStore {
   // --- Projects ---
 
   createProject(input: CreateTaskProjectInput): TaskProject {
+    if (input.paseoProjectId) {
+      const existing = this.findProjectByPaseoProjectId(input.paseoProjectId);
+      if (existing) {
+        return existing;
+      }
+    }
     const id = generateId("tprj");
     const prefix = input.prefix.trim().toUpperCase();
     const name = input.name.trim();
@@ -275,6 +311,7 @@ export class TaskStore {
         reviewOnReject: "in_progress",
         archiveWorkspacesOnDone: false,
         reviewerPresetId: null,
+        maxReviewIterations: 3,
       },
       createdAt,
     };
@@ -314,6 +351,7 @@ export class TaskStore {
     reviewOnReject?: TaskBoardConfig["reviewOnReject"];
     archiveWorkspacesOnDone?: boolean;
     reviewerPresetId?: string | null;
+    maxReviewIterations?: number;
   }): TaskProject {
     const current = this.getProject(input.projectId);
     if (!current) {
@@ -324,6 +362,7 @@ export class TaskStore {
       reviewOnReject: "in_progress" as const,
       archiveWorkspacesOnDone: false,
       reviewerPresetId: null,
+      maxReviewIterations: 3,
     };
     const next: TaskBoardConfig = {
       reviewEnabled: input.reviewEnabled ?? board.reviewEnabled,
@@ -333,12 +372,13 @@ export class TaskStore {
         input.reviewerPresetId !== undefined
           ? input.reviewerPresetId
           : (board.reviewerPresetId ?? null),
+      maxReviewIterations: input.maxReviewIterations ?? board.maxReviewIterations ?? 3,
     };
     this.db
       .prepare(
         `UPDATE task_projects
          SET review_enabled = ?, review_on_reject = ?, archive_workspaces_on_done = ?,
-             reviewer_preset_id = ?
+             reviewer_preset_id = ?, max_review_iterations = ?
          WHERE id = ?`,
       )
       .run(
@@ -346,6 +386,7 @@ export class TaskStore {
         next.reviewOnReject,
         next.archiveWorkspacesOnDone ? 1 : 0,
         next.reviewerPresetId ?? null,
+        next.maxReviewIterations ?? 3,
         input.projectId,
       );
     return { ...current, board: next };
@@ -400,13 +441,20 @@ export class TaskStore {
       const status = input.status ?? "backlog";
       const id = generateId("task");
       const timestamp = this.timestamp();
+      if (input.parentTaskId) {
+        this.assertValidParent({
+          taskId: id,
+          projectId: input.projectId,
+          parentTaskId: input.parentTaskId,
+        });
+      }
 
       this.db
         .prepare(
           `INSERT INTO tasks (
              id, project_id, number, title, description, status, priority,
-             due_date, parent_task_id, position, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             due_date, parent_task_id, position, created_at, updated_at, execution_policy
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -421,11 +469,69 @@ export class TaskStore {
           this.nextPosition(input.projectId, status),
           timestamp,
           timestamp,
+          input.executionPolicy ? JSON.stringify(input.executionPolicy) : null,
         );
 
       this.replaceLabels(id, input.labelIds ?? []);
+      if (input.parentTaskId) {
+        this.linkSubtaskConcurrencyWave({ taskId: id, parentTaskId: input.parentTaskId });
+      }
       return this.requireTask(id);
     });
+  }
+
+  /** A parent's concurrency limit becomes ordinary dependency edges. This
+   * keeps readiness inspectable and makes every dispatch path honour it without
+   * a second scheduler-specific blocking model. */
+  private linkSubtaskConcurrencyWave(input: { taskId: string; parentTaskId: string }): void {
+    const parent = this.requireTaskRow(input.parentTaskId);
+    const policy = parent.execution_policy
+      ? TaskExecutionPolicySchema.parse(JSON.parse(parent.execution_policy))
+      : undefined;
+    const limit = policy?.maxParallelSubtasks;
+    if (!limit) {
+      return;
+    }
+    const siblings = selectAll(
+      this.db.prepare(
+        `SELECT id AS task_id FROM tasks
+         WHERE parent_task_id = ? AND id <> ?
+         ORDER BY position, created_at, id`,
+      ),
+      TaskIdRowSchema,
+      "tasks",
+      [input.parentTaskId, input.taskId],
+    );
+    if (siblings.length < limit) {
+      return;
+    }
+    const blocker = siblings[siblings.length - limit];
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)",
+      )
+      .run(input.taskId, blocker.task_id);
+  }
+
+  /** Hierarchy stays inside one board and cannot fold back onto itself. */
+  private assertValidParent(input: {
+    taskId: string;
+    projectId: string;
+    parentTaskId: string;
+  }): void {
+    let candidate: string | null = input.parentTaskId;
+    const visited = new Set<string>();
+    while (candidate) {
+      if (candidate === input.taskId || visited.has(candidate)) {
+        throw new Error("A task cannot be its own ancestor");
+      }
+      visited.add(candidate);
+      const row = this.requireTaskRow(candidate);
+      if (row.project_id !== input.projectId) {
+        throw new Error("A task and its parent must belong to the same project");
+      }
+      candidate = row.parent_task_id;
+    }
   }
 
   private nextPosition(projectId: string, status: TaskStatus): number {
@@ -458,12 +564,35 @@ export class TaskStore {
         status === current.status
           ? current.position
           : this.nextPosition(current.project_id, status);
+      const reviewIteration =
+        input.reviewIteration ??
+        (status === "in_progress" && current.status !== "in_progress"
+          ? 0
+          : current.review_iteration);
+      const parentTaskId =
+        input.parentTaskId === undefined ? current.parent_task_id : input.parentTaskId;
+      if (parentTaskId) {
+        this.assertValidParent({
+          taskId: input.taskId,
+          projectId: current.project_id,
+          parentTaskId,
+        });
+      }
+      let executionPolicy = current.execution_policy;
+      if (input.executionPolicy === null) {
+        executionPolicy = null;
+      } else if (input.executionPolicy !== undefined) {
+        executionPolicy = JSON.stringify(input.executionPolicy);
+      }
+      const integration = resolveIntegrationUpdate(current, input.integration);
 
       this.db
         .prepare(
           `UPDATE tasks SET
              title = ?, description = ?, status = ?, priority = ?,
-             due_date = ?, parent_task_id = ?, position = ?, updated_at = ?
+             due_date = ?, parent_task_id = ?, position = ?, updated_at = ?, review_iteration = ?,
+             execution_policy = ?, integration_branch = ?, integration_status = ?,
+             integration_error = ?
            WHERE id = ?`,
         )
         .run(
@@ -472,14 +601,22 @@ export class TaskStore {
           status,
           input.priority ?? current.priority,
           input.dueDate === undefined ? current.due_date : input.dueDate,
-          input.parentTaskId === undefined ? current.parent_task_id : input.parentTaskId,
+          parentTaskId,
           position,
           this.timestamp(),
+          reviewIteration,
+          executionPolicy,
+          integration.branch,
+          integration.status,
+          integration.error,
           input.taskId,
         );
 
       if (input.labelIds) {
         this.replaceLabels(input.taskId, input.labelIds);
+      }
+      if (parentTaskId && parentTaskId !== current.parent_task_id) {
+        this.linkSubtaskConcurrencyWave({ taskId: input.taskId, parentTaskId });
       }
       return this.requireTask(input.taskId);
     });
@@ -566,6 +703,19 @@ export class TaskStore {
       agents: this.listTaskAgents(row.id),
       attachments: this.listAttachments({ taskId: row.id }),
       commentCount,
+      reviewIteration: row.review_iteration,
+      ...(row.execution_policy
+        ? { executionPolicy: TaskExecutionPolicySchema.parse(JSON.parse(row.execution_policy)) }
+        : {}),
+      ...(row.integration_branch && row.integration_status
+        ? {
+            integration: {
+              branch: row.integration_branch,
+              status: row.integration_status,
+              error: row.integration_error,
+            },
+          }
+        : {}),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -693,12 +843,18 @@ export class TaskStore {
     workspaceId: string;
     presetId?: string | null;
     role?: TaskAgentRole;
+    completionOwner?: TaskAgentCompletionOwner;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO task_agents (task_id, agent_id, workspace_id, preset_id, role, attached_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT (task_id, agent_id) DO UPDATE SET workspace_id = excluded.workspace_id`,
+        `INSERT INTO task_agents (
+           task_id, agent_id, workspace_id, preset_id, role, completion_owner, attached_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (task_id, agent_id) DO UPDATE SET
+           workspace_id = excluded.workspace_id,
+           preset_id = excluded.preset_id,
+           role = excluded.role,
+           completion_owner = excluded.completion_owner`,
       )
       .run(
         input.taskId,
@@ -706,6 +862,7 @@ export class TaskStore {
         input.workspaceId,
         input.presetId ?? null,
         input.role ?? "worker",
+        input.completionOwner ?? "attachment",
         this.timestamp(),
       );
   }
@@ -727,6 +884,7 @@ export class TaskStore {
       workspaceId: row.workspace_id,
       presetId: row.preset_id,
       role: row.role,
+      completionOwner: row.completion_owner,
       attachedAt: row.attached_at,
     }));
   }
@@ -755,7 +913,7 @@ export class TaskStore {
     return [...new Set(rows.map((row) => row.agent_id))];
   }
 
-  listAgentLinks(): Array<{ taskId: string; agentId: string; workspaceId: string }> {
+  listAgentLinks(): Array<{ taskId: string } & TaskAgentLink> {
     return selectAll(
       this.db.prepare("SELECT * FROM task_agents ORDER BY attached_at, agent_id"),
       TaskAgentRowSchema,
@@ -764,6 +922,10 @@ export class TaskStore {
       taskId: row.task_id,
       agentId: row.agent_id,
       workspaceId: row.workspace_id,
+      presetId: row.preset_id,
+      role: row.role,
+      completionOwner: row.completion_owner,
+      attachedAt: row.attached_at,
     }));
   }
 

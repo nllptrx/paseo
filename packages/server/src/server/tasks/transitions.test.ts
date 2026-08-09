@@ -33,6 +33,7 @@ function createFakeAgentManager() {
       return lifecycle ? ({ lifecycle } as ManagedAgent) : null;
     },
     emitLifecycle(agentId: string, lifecycle: ManagedAgent["lifecycle"]) {
+      this.snapshots.set(agentId, lifecycle);
       for (const listener of listeners.get(agentId) ?? []) {
         listener({ type: "agent_state", agent: { lifecycle } });
       }
@@ -78,6 +79,8 @@ describe("TaskTransitionEngine", () => {
       agentManager,
       logger,
     });
+    engine.setIntegrateTaskWork(async () => undefined);
+    engine.setIntegrateTaskIntoParent(async () => undefined);
     return { task, engine, agentManager, projectId: project.id };
   }
 
@@ -88,7 +91,10 @@ describe("TaskTransitionEngine", () => {
 
     const feed = await service.listBoardFeed({ projectId });
     expect(feed.map((entry) => ({ kind: entry.kind, body: entry.body }))).toEqual([
-      { kind: "system", body: `PSE-1 "Ship it" settled its attached work and moved to done.` },
+      {
+        kind: "system",
+        body: `PSE-1 "Ship it" settled its attached work and moved to done.`,
+      },
     ]);
     expect(feed[0].taskId).toBe(task.id);
   });
@@ -105,11 +111,107 @@ describe("TaskTransitionEngine", () => {
     expect((await service.getTask(task.id))?.status).toBe("in_review");
   });
 
+  it("returns integration failures to Working and asks the worker to fix them", async () => {
+    const { task, engine, projectId } = await seedTask();
+    const fixes: Array<{ taskId: string; error: string }> = [];
+    engine.setIntegrateTaskWork(async () => {
+      throw new Error("conflict in src/task.ts");
+    });
+    engine.setRequestIntegrationFix(async (input) => {
+      fixes.push(input);
+    });
+
+    await engine.onWorkSettled(task.id);
+
+    expect((await service.getTask(task.id))?.status).toBe("in_progress");
+    await vi.waitFor(() =>
+      expect(fixes).toEqual([{ taskId: task.id, error: "conflict in src/task.ts" }]),
+    );
+    const feed = await service.listBoardFeed({ projectId });
+    expect(feed.at(-1)?.body).toContain("could not integrate and moved back to in_progress");
+  });
+
+  it("does not finish or unblock a subtask when parent integration conflicts", async () => {
+    const { task, engine, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    const parent = await service.createTask({ projectId, title: "Parent" });
+    await service.updateTask({ taskId: task.id, parentTaskId: parent.id, status: "in_review" });
+    const dependent = await service.createTask({ projectId, title: "After child" });
+    await service.addDependency({ taskId: dependent.id, dependsOnTaskId: task.id });
+    engine.setIntegrateTaskIntoParent(async () => {
+      throw new Error("content conflict");
+    });
+
+    const result = await engine.applyReviewVerdict({ taskId: task.id, verdict: "approve" });
+
+    expect(result.status).toBe("in_progress");
+    expect((await service.listBlockers(dependent.id)).map((entry) => entry.id)).toEqual([task.id]);
+  });
+
+  it("keeps a parent active until every non-canceled subtask is done", async () => {
+    const { task, engine, projectId } = await seedTask();
+    const child = await service.createTask({
+      projectId,
+      parentTaskId: task.id,
+      title: "Still working",
+      status: "in_progress",
+    });
+
+    const blocked = await engine.completeTask(task.id);
+    expect(blocked.status).toBe("in_progress");
+
+    await service.updateTask({ taskId: child.id, status: "canceled" });
+    const completed = await engine.completeTask(task.id);
+    expect(completed.status).toBe("done");
+  });
+
+  it("lets one task override the board review default", async () => {
+    const { task, engine } = await seedTask();
+    await service.updateTask({
+      taskId: task.id,
+      executionPolicy: { review: "required" },
+    });
+
+    await engine.onWorkSettled(task.id);
+
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
+  });
+
+  it("lets one task skip review on a reviewing board", async () => {
+    const { task, engine } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    await service.updateTask({
+      taskId: task.id,
+      executionPolicy: { review: "disabled" },
+    });
+
+    await engine.onWorkSettled(task.id);
+
+    expect((await service.getTask(task.id))?.status).toBe("done");
+  });
+
   it("leaves done and canceled tasks alone", async () => {
     const { task, engine } = await seedTask();
     await service.updateTask({ taskId: task.id, status: "canceled" });
     await engine.onWorkSettled(task.id);
     expect((await service.getTask(task.id))?.status).toBe("canceled");
+  });
+
+  it("ignores stale work completion after a task has left in progress", async () => {
+    const { task, engine } = await seedTask();
+    await service.updateTask({ taskId: task.id, status: "todo" });
+    await engine.onWorkSettled(task.id, "agent-1");
+    expect((await service.getTask(task.id))?.status).toBe("todo");
   });
 
   it("approves a review to done and rejects it back to the configured status", async () => {
@@ -124,6 +226,138 @@ describe("TaskTransitionEngine", () => {
     await service.updateTask({ taskId: task.id, status: "in_review" });
     const approved = await engine.applyReviewVerdict({ taskId: task.id, verdict: "approve" });
     expect(approved.status).toBe("done");
+  });
+
+  it("runs final cleanup only after approval when review is enabled", async () => {
+    const { task, engine } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: true,
+      },
+    });
+    const cleaned: string[] = [];
+    engine.setOnTaskDone(async (taskId) => {
+      cleaned.push(taskId);
+    });
+
+    await engine.onWorkSettled(task.id);
+    expect(cleaned).toEqual([]);
+
+    await engine.applyReviewVerdict({ taskId: task.id, verdict: "approve" });
+    expect(cleaned).toEqual([task.id]);
+  });
+
+  it("runs bounded correction rounds and then requires human review", async () => {
+    const { task, engine } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        maxReviewIterations: 2,
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    const corrections: Array<{ taskId: string; feedback: string | null }> = [];
+    engine.setRequestCorrection(async (input) => {
+      corrections.push(input);
+      return { agentId: "agent-1" };
+    });
+
+    await engine.onWorkSettled(task.id);
+    const first = await engine.applyReviewVerdict({
+      taskId: task.id,
+      verdict: "reject",
+      feedback: "Fix the race",
+    });
+    expect(first).toMatchObject({ status: "in_progress", reviewIteration: 1 });
+
+    await engine.onWorkSettled(task.id);
+    const second = await engine.applyReviewVerdict({ taskId: task.id, verdict: "reject" });
+    expect(second).toMatchObject({ status: "in_progress", reviewIteration: 2 });
+
+    await engine.onWorkSettled(task.id);
+    const exhausted = await engine.applyReviewVerdict({ taskId: task.id, verdict: "reject" });
+    expect(exhausted).toMatchObject({ status: "in_review", reviewIteration: 2 });
+    expect(corrections).toEqual([
+      { taskId: task.id, feedback: "Fix the race" },
+      { taskId: task.id, feedback: null },
+    ]);
+  });
+
+  it("uses a task's correction-round limit instead of the board default", async () => {
+    const { task, engine } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+        maxReviewIterations: 5,
+      },
+    });
+    await service.updateTask({
+      taskId: task.id,
+      status: "in_review",
+      executionPolicy: { maxReviewIterations: 1 },
+    });
+    engine.setRequestCorrection(async () => ({ agentId: "worker" }));
+
+    await engine.applyReviewVerdict({ taskId: task.id, verdict: "reject", feedback: "Again" });
+    await service.updateTask({ taskId: task.id, status: "in_review" });
+    await engine.applyReviewVerdict({
+      taskId: task.id,
+      verdict: "reject",
+      feedback: "Still wrong",
+    });
+
+    const reviewed = await service.getTask(task.id);
+    expect(reviewed?.status).toBe("in_review");
+    expect(reviewed?.reviewIteration).toBe(1);
+  });
+
+  it("returns to review when correction work cannot be started", async () => {
+    const { task, engine, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        maxReviewIterations: 3,
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    await service.updateTask({ taskId: task.id, status: "in_review" });
+    engine.setRequestCorrection(async () => {
+      throw new Error("worker is gone");
+    });
+
+    const result = await engine.applyReviewVerdict({ taskId: task.id, verdict: "reject" });
+
+    expect(result).toMatchObject({ status: "in_review", reviewIteration: 0 });
+    const feed = await service.listBoardFeed({ projectId });
+    expect(feed.map((entry) => entry.body).join("\n")).toContain("could not start correction work");
+  });
+
+  it("allows only one review verdict to be in flight for a task", async () => {
+    const { task, engine } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    await service.updateTask({ taskId: task.id, status: "in_review" });
+    let releaseCleanup: (() => void) | null = null;
+    engine.setOnTaskDone(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseCleanup = resolve;
+        }),
+    );
+
+    const approval = engine.applyReviewVerdict({ taskId: task.id, verdict: "approve" });
+    await vi.waitFor(() => expect(releaseCleanup).not.toBeNull());
+    await expect(engine.applyReviewVerdict({ taskId: task.id, verdict: "reject" })).rejects.toThrow(
+      /already being decided/,
+    );
+    releaseCleanup?.();
+    await approval;
   });
 
   it("refuses a verdict on a task that is not in review", async () => {
@@ -164,6 +398,47 @@ describe("TaskTransitionEngine", () => {
     expect((await service.getTask(task.id))?.status).toBe("done");
   });
 
+  it("waits for every attached worker before advancing a task", async () => {
+    const { task, engine, agentManager } = await seedTask();
+    await service.attachAgent({ taskId: task.id, agentId: "agent-1", workspaceId: "ws-1" });
+    await service.attachAgent({ taskId: task.id, agentId: "agent-2", workspaceId: "ws-2" });
+    engine.observeAttachment({ taskId: task.id, agentId: "agent-1" });
+    engine.observeAttachment({ taskId: task.id, agentId: "agent-2" });
+
+    agentManager.emitLifecycle("agent-1", "running");
+    agentManager.emitLifecycle("agent-2", "running");
+    agentManager.emitLifecycle("agent-1", "idle");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await service.getTask(task.id))?.status).toBe("in_progress");
+
+    agentManager.emitLifecycle("agent-2", "idle");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await service.getTask(task.id))?.status).toBe("done");
+  });
+
+  it("records when an automatic reviewer finishes without a verdict", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    engine.setRequestReview(async () => ({ agentId: "reviewer-1" }));
+
+    await engine.onWorkSettled(task.id);
+    await new Promise((resolve) => setImmediate(resolve));
+    agentManager.emitLifecycle("reviewer-1", "running");
+    agentManager.emitLifecycle("reviewer-1", "idle");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
+    const feed = await service.listBoardFeed({ projectId });
+    expect(feed.some((entry) => entry.body.includes("finished without recording a verdict"))).toBe(
+      true,
+    );
+  });
+
   it("stops observing when the agent closes or is detached", async () => {
     const { task, engine, agentManager } = await seedTask();
     engine.observeAttachment({ taskId: task.id, agentId: "agent-1" });
@@ -186,6 +461,51 @@ describe("TaskTransitionEngine", () => {
     agentManager.emitLifecycle("agent-1", "idle");
     await new Promise((resolve) => setImmediate(resolve));
     expect((await service.getTask(task.id))?.status).toBe("done");
+  });
+
+  it("does not re-arm workflow-owned step agents as task completion", async () => {
+    const { task, engine, agentManager } = await seedTask();
+    await service.attachAgent({
+      taskId: task.id,
+      agentId: "workflow-step-1",
+      workspaceId: "ws-1",
+      completionOwner: "workflow",
+    });
+    await engine.start();
+
+    expect(agentManager.listenerCount("workflow-step-1")).toBe(0);
+    agentManager.emitLifecycle("workflow-step-1", "running");
+    agentManager.emitLifecycle("workflow-step-1", "idle");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await service.getTask(task.id))?.status).toBe("in_progress");
+  });
+
+  it("re-arms stored reviewers with review semantics", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    await service.updateTask({ taskId: task.id, status: "in_review" });
+    await service.attachAgent({
+      taskId: task.id,
+      agentId: "reviewer-1",
+      workspaceId: "ws-1",
+      role: "reviewer",
+    });
+    await engine.start();
+
+    agentManager.emitLifecycle("reviewer-1", "running");
+    agentManager.emitLifecycle("reviewer-1", "idle");
+    await vi.waitFor(async () => {
+      const feed = await service.listBoardFeed({ projectId });
+      let bodies = "";
+      for (const entry of feed) bodies += `${entry.body}\n`;
+      expect(bodies).toContain("without recording a verdict");
+    });
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
   });
   /** A failure moves nothing, so without a word in the feed it is invisible
    * until someone opens the card. */
