@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { StatusBucketDot } from "@/components/status-bucket-dot";
 import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
+import { useTaskLacksPlan } from "@/tasks/use-tasks";
 import { formatTaskKey, groupSubtasksUnderParents, resolveTaskLabels } from "@/tasks/task-views";
 import { aggregateSidebarStateBuckets, type SidebarStateBucket } from "@/utils/sidebar-agent-state";
 import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
@@ -377,6 +378,13 @@ export function TaskCard({
   const handlePress = useCallback(() => {
     onOpenTask?.(task.id);
   }, [onOpenTask, task.id]);
+  // A card left in Working with nothing to run carries the offer itself, rather
+  // than the board announcing it at the moment of the move: whoever is tracking
+  // their own work by hand can ignore it for as long as they like.
+  const lacksPlan = useTaskLacksPlan(serverId, task);
+  const handleAddWorkflow = useCallback(() => {
+    onCreateWorkflowForTask?.(task.id);
+  }, [onCreateWorkflowForTask, task.id]);
 
   // One list feeds the kebab and the right-click menu, so a card is reachable
   // the way any other card on this platform is.
@@ -440,6 +448,18 @@ export function TaskCard({
       </Text>
       <TaskLabelChips labels={taskLabels} />
       <TaskCardCounts task={task} />
+      {lacksPlan && onCreateWorkflowForTask && !isOverlay ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={Plus}
+          onPress={handleAddWorkflow}
+          style={styles.addPlan}
+          testID={`task-card-add-plan-${task.id}`}
+        >
+          {t("tasks.workflow.addToTask")}
+        </Button>
+      ) : null}
     </>
   );
 
@@ -638,6 +658,10 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[3],
+  },
+  addPlan: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 0,
   },
   count: {
     flexDirection: "row",

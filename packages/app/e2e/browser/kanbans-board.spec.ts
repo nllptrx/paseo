@@ -455,8 +455,10 @@ test.describe("Kanbans board", () => {
   });
 
   /** A preset is what everything that starts work reads from — including
-   * review — so being unable to make one leaves all of it dead. */
-  test("creates a preset and offers it when a card lands in Working", async ({ page }) => {
+   * review — so being unable to make one leaves all of it dead. A card with no
+   * plan on it still just moves: a preset on the board is not an instruction to
+   * run one. */
+  test("creates a preset and moves a planless card without starting anything", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-preset-" });
     cleanupTasks.push(() => workspace.cleanup());
     const seeded = await seedTrackerTask(workspace, `Preset task ${Date.now()}`);
@@ -484,17 +486,18 @@ test.describe("Kanbans board", () => {
     await page.getByTestId(`task-card-status-${seeded.taskId}`).click();
     await page.getByTestId(`task-card-status-${seeded.taskId}-in_progress`).click();
 
-    const startSheet = page.getByTestId("task-start-work-sheet");
-    await expect(startSheet).toBeVisible({ timeout: 10_000 });
-    await expect(startSheet).toContainText(presetName);
-    await page.getByTestId("task-start-work-skip").click();
-
     await expect(board.getByTestId("task-column-in_progress")).toContainText(`Preset task`, {
       timeout: 30_000,
     });
+    // Nothing asked, nothing started — and the card carries the offer to plan it.
+    await expect(page.getByTestId(`task-card-add-plan-${seeded.taskId}`)).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
-  test("keeps start-work open with a retryable error when dispatch fails", async ({ page }) => {
+  test("reports the failure when a confirmed plan starts on landing in Working", async ({
+    page,
+  }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-start-failure-" });
     cleanupTasks.push(() => workspace.cleanup());
     const seeded = await seedTrackerTask(workspace, `Failed start ${Date.now()}`);
@@ -514,18 +517,58 @@ test.describe("Kanbans board", () => {
     if (workflow.error) throw new Error(workflow.error);
 
     await openBoard(page, seeded.projectId);
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
+    const confirmations: string[] = [];
+    page.on("dialog", (dialog) => {
+      confirmations.push(dialog.message());
+      void dialog.accept();
+    });
     await page.getByTestId(`task-card-status-${seeded.taskId}`).click();
     await page.getByTestId(`task-card-status-${seeded.taskId}-in_progress`).click();
-    const startSheet = page.getByTestId("task-start-work-sheet");
-    await expect(startSheet).toBeVisible({ timeout: 10_000 });
 
-    await page.getByTestId("task-start-work-run-workflow").click();
-
-    await expect(startSheet).toBeVisible();
+    // The card's own plan is what is offered — no provider to pick.
+    await expect.poll(() => confirmations.join("\n"), { timeout: 10_000 }).toContain("Implement");
     await expect(page.getByTestId("app-toast-message")).toContainText("Workspace not found", {
       timeout: 10_000,
     });
-    await expect(page.getByTestId("task-start-work-run-workflow")).toBeEnabled();
+    // The move stands on its own: a step that could not dispatch does not take
+    // the card back out of Working.
+    await expect(board.getByTestId("task-column-in_progress")).toContainText("Failed start", {
+      timeout: 30_000,
+    });
+  });
+
+  /** Declining is the whole point of the confirmation: the card stays where it
+   * was dropped and no agent is dispatched. */
+  test("leaves the card moved and idle when the start is declined", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-start-declined-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `Declined start ${Date.now()}`);
+    const workflow = await trackerClient(workspace).tasksWorkflowSet({
+      taskId: seeded.taskId,
+      steps: [
+        {
+          name: "Implement",
+          prompt: "Do the work",
+          agents: [{ provider: "claude" }],
+          completion: "all",
+          workspace: { mode: "existing", workspaceId: "missing-workspace" },
+          trigger: { type: "manual" },
+        },
+      ],
+    });
+    if (workflow.error) throw new Error(workflow.error);
+
+    await openBoard(page, seeded.projectId);
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
+    page.on("dialog", (dialog) => void dialog.dismiss());
+    await page.getByTestId(`task-card-status-${seeded.taskId}`).click();
+    await page.getByTestId(`task-card-status-${seeded.taskId}-in_progress`).click();
+
+    await expect(board.getByTestId("task-column-in_progress")).toContainText("Declined start", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("app-toast-message")).toHaveCount(0);
   });
 
   /** A mention has to be pickable: nobody types an agent id from memory, so the
@@ -559,7 +602,7 @@ test.describe("Kanbans board", () => {
   /** A press always opens the card, whatever is attached to it. The old rule —
    * open the chat when exactly one agent is attached, do nothing otherwise —
    * was one no user could learn. */
-  test("pressing a card opens its details and takes a comment", async ({ page }) => {
+  test("pressing a card opens its details and takes an update", async ({ page }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-detail-" });
     cleanupTasks.push(() => workspace.cleanup());
     const title = `Detail task ${Date.now()}`;
@@ -571,9 +614,9 @@ test.describe("Kanbans board", () => {
 
     const sheet = page.getByTestId("task-detail-sheet");
     await expect(sheet).toBeVisible({ timeout: 10_000 });
-    await expect(sheet).toContainText(title);
+    await expect(sheet.getByTestId("task-detail-title-input")).toHaveValue(title);
 
-    const note = `Comment ${Date.now()}`;
+    const note = `Update ${Date.now()}`;
     await sheet.getByTestId("task-detail-comment-input").fill(note);
     await sheet.getByTestId("task-detail-comment-send").click();
     await expect(sheet).toContainText(note, { timeout: 30_000 });

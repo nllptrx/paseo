@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
@@ -28,6 +28,25 @@ export function useTaskExecutionPolicySupported(serverId: string): boolean {
   return useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.taskExecutionPolicy === true,
   );
+}
+
+/**
+ * Whether a card sits in Working with nothing that would make it move on its
+ * own: no plan, no agent already on it, and no subtasks carrying plans of their
+ * own. Working is also where someone tracks what they are doing by hand, so
+ * this is an offer on the card and never an interruption.
+ */
+export function useTaskLacksPlan(serverId: string, task: Task): boolean {
+  const { snapshot } = useTasks(serverId);
+  return useMemo(() => {
+    if (task.status !== "in_progress" || task.agents.length > 0 || !snapshot) {
+      return false;
+    }
+    if (snapshot.workflows?.some((entry) => entry.taskId === task.id)) {
+      return false;
+    }
+    return !snapshot.tasks.some((candidate) => candidate.parentTaskId === task.id);
+  }, [snapshot, task]);
 }
 
 export interface UseTasksResult {

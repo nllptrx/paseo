@@ -18,10 +18,10 @@ import {
   type ProjectBoardSelection,
 } from "@/tasks/task-views";
 import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks";
+import { useTaskStepActions } from "@/tasks/use-task-workflow";
 import { toErrorMessage } from "@/utils/error-messages";
 import type { TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { NewTaskSheet } from "./new-task-sheet";
-import { StartWorkSheet } from "./start-work-sheet";
 import { TaskBoard, type TaskBoardMove } from "./task-board";
 import { TaskList } from "./task-list";
 import { TaskSurfaceToolbar } from "./task-surface-toolbar";
@@ -112,9 +112,9 @@ export function TaskBoardSurface({
   const supported = useTasksSupported(serverId);
   const { snapshot, isLoading, isError, error, refetch } = useTasks(serverId);
   const { moveTask, reviewTask, deleteTask, setPriority } = useTaskMutations(serverId);
+  const { act } = useTaskStepActions(serverId);
   const [selectedColumn, setSelectedColumn] = useState<TaskStatus>("backlog");
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
-  const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const board = useMemo(
@@ -139,6 +139,10 @@ export function TaskBoardSurface({
   // must not act on the state that started it.
   const tasksRef = useRef(board.tasks);
   tasksRef.current = board.tasks;
+  const workflowsRef = useRef<readonly TaskWorkflow[]>(EMPTY_WORKFLOWS);
+  workflowsRef.current = snapshot?.workflows ?? EMPTY_WORKFLOWS;
+  const dependenciesRef = useRef<readonly TaskDependencyEdge[]>(EMPTY_DEPENDENCIES);
+  dependenciesRef.current = snapshot?.dependencies ?? EMPTY_DEPENDENCIES;
 
   const projectsById = useMemo(
     () => new Map(board.projects.map((project) => [project.id, project])),
@@ -181,47 +185,74 @@ export function TaskBoardSurface({
     [setPriority, toast],
   );
 
-  // The move lands first and stays landed: someone who drags a card to Working
-  // has said where the work is, and that statement must not depend on what they
-  // answer next. The chooser only decides whether anything starts, and only for
-  // a card that is arriving — reordering inside Working is not a new decision to
-  // start something.
+  // A card that arrives in Working with a plan on it offers to run that plan,
+  // and asks nothing else: the plan already names the agent, the model and the
+  // checkout, so the only open question is whether to start now. A card without
+  // one just moves — there is nothing configured to start, and Working is also
+  // where someone tracks what they are doing by hand.
   const handleMoveTask = useCallback(
     (move: TaskBoardMove) => {
       const before = tasksRef.current.find((task) => task.id === move.taskId);
       const arriving =
         move.status === "in_progress" && before !== undefined && before.status !== "in_progress";
-      void moveTask(move)
-        .then(() => {
-          // Read the card again, not the copy from before the request: moves are
-          // not serialised, so by the time this one lands another may have taken
-          // the card back out of Working or something may have been started on
-          // it. A chooser for a state that no longer holds is a chooser for
-          // nothing.
-          const after = tasksRef.current.find((task) => task.id === move.taskId);
-          if (arriving && after?.status === "in_progress" && after.agents.length === 0) {
-            setStartingTaskId(move.taskId);
-          }
-          return undefined;
-        })
-        .catch((moveError) => {
+      void (async () => {
+        try {
+          await moveTask(move);
+        } catch (moveError) {
           toast.show(toErrorMessage(moveError));
+          return;
+        }
+        // Read the card again, not the copy from before the request: moves are
+        // not serialised, so by the time this one lands another may have taken
+        // the card back out of Working or something may have been started on
+        // it. Starting work for a state that no longer holds starts it for
+        // nothing.
+        const after = tasksRef.current.find((task) => task.id === move.taskId);
+        if (!arriving || after?.status !== "in_progress" || after.agents.length > 0) {
+          return;
+        }
+        const firstStep = workflowsRef.current.find((entry) => entry.taskId === move.taskId)
+          ?.steps[0];
+        if (!firstStep) {
+          return;
+        }
+        // The tracker refuses to start a blocked card, and a refusal that
+        // arrives as a bare error reads as a fault rather than an answer.
+        const blockers = selectBlockers({
+          taskId: move.taskId,
+          tasks: tasksRef.current,
+          dependencies: dependenciesRef.current,
         });
+        if (blockers.length > 0) {
+          toast.show(
+            t("tasks.start.blocked", { titles: blockers.map((entry) => entry.title).join(", ") }),
+          );
+          return;
+        }
+        const confirmed = await confirmDialog({
+          title: t("tasks.start.confirmTitle"),
+          message: t("tasks.start.confirmMessage", {
+            step: firstStep.name,
+            agent: firstStep.agents[0]?.model ?? firstStep.agents[0]?.provider ?? "",
+          }),
+          confirmLabel: t("tasks.start.confirmAction"),
+        });
+        if (!confirmed) {
+          return;
+        }
+        // The card may have moved on while the dialog was open.
+        const current = tasksRef.current.find((task) => task.id === move.taskId);
+        if (current?.status !== "in_progress" || current.agents.length > 0) {
+          return;
+        }
+        try {
+          await act({ taskId: move.taskId, stepId: firstStep.id, action: "run" });
+        } catch (startError) {
+          toast.show(toErrorMessage(startError));
+        }
+      })();
     },
-    [moveTask, toast],
-  );
-  const handleCloseStartWork = useCallback(() => setStartingTaskId(null), []);
-
-  const startingTaskBlockers = useMemo(
-    () =>
-      startingTaskId
-        ? selectBlockers({
-            taskId: startingTaskId,
-            tasks: board.tasks,
-            dependencies: snapshot?.dependencies ?? EMPTY_DEPENDENCIES,
-          })
-        : [],
-    [board.tasks, snapshot?.dependencies, startingTaskId],
+    [act, moveTask, t, toast],
   );
 
   const handleCreateTask = useCallback((status: TaskStatus) => {
@@ -333,8 +364,6 @@ export function TaskBoardSurface({
         preferences={preferences}
         viewOptions={viewOptions}
         labels={board.labels}
-        visibleCount={visibleTasks.length}
-        totalCount={board.tasks.length}
         onPatch={handlePatchPreferences}
         onClearFilters={handleClearFilters}
         onCreateTask={handleCreateBacklogTask}
@@ -386,17 +415,6 @@ export function TaskBoardSurface({
           onClose={handleCloseCapture}
         />
       ) : null}
-      <StartWorkSheet
-        serverId={serverId}
-        task={board.tasks.find((task) => task.id === startingTaskId) ?? null}
-        workflow={
-          (snapshot?.workflows ?? EMPTY_WORKFLOWS).find(
-            (entry) => entry.taskId === startingTaskId,
-          ) ?? null
-        }
-        blockers={startingTaskBlockers}
-        onClose={handleCloseStartWork}
-      />
       <TaskDetailSheet
         serverId={serverId}
         taskId={openTaskId}
