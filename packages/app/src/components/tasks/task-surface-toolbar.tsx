@@ -28,8 +28,6 @@ export function TaskSurfaceToolbar({
   preferences,
   viewOptions,
   labels,
-  visibleCount,
-  totalCount,
   onPatch,
   onClearFilters,
   onCreateTask,
@@ -38,8 +36,6 @@ export function TaskSurfaceToolbar({
   preferences: TaskSurfacePreferences;
   viewOptions: SegmentedControlOption<TaskSurfaceView>[];
   labels: readonly TaskLabel[];
-  visibleCount: number;
-  totalCount: number;
   onPatch: (patch: Partial<TaskSurfacePreferences>) => void;
   onClearFilters: () => void;
   onCreateTask: () => void;
@@ -116,9 +112,6 @@ export function TaskSurfaceToolbar({
           Clear
         </Button>
       ) : null}
-      <Text style={styles.count}>
-        {visibleCount === totalCount ? totalCount : `${visibleCount}/${totalCount}`}
-      </Text>
       {preferences.view === "kanban" && reorderDisabled ? (
         <Text style={styles.hint}>Clear filters or use manual order to drag</Text>
       ) : null}
@@ -215,6 +208,7 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
+    alignContent: "center",
     flexWrap: "wrap",
     gap: theme.spacing[1.5],
     paddingHorizontal: theme.spacing[3],
@@ -224,8 +218,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   searchBox: {
     minWidth: 150,
-    maxWidth: 280,
-    flexGrow: 1,
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1.5],
@@ -244,15 +237,12 @@ const styles = StyleSheet.create((theme) => ({
   searchPlaceholder: { color: theme.colors.foregroundMuted },
   trigger: {
     minHeight: 28,
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: theme.spacing[2],
     borderRadius: theme.borderRadius.md,
   },
   triggerText: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.xs },
   triggerIcon: { color: theme.colors.foregroundMuted },
-  count: {
-    marginLeft: "auto",
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-  },
   hint: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.xs },
 }));

@@ -165,8 +165,6 @@ function LoadedKanbanBoardScreen({
   const canEditWorkflow = workflowTaskId !== null && snapshot !== undefined;
 
   const toast = useToast();
-  const totalCount = board.tasks.length;
-
   // The review flag routes a green settle to In Review instead of Done, and it
   // is a property of the board — which is the tracker project.
   const reviewEnabled = project.board?.reviewEnabled === true;
@@ -386,23 +384,20 @@ function LoadedKanbanBoardScreen({
 
   const headerRight = useMemo(
     () => (
-      <>
-        <Text style={styles.count}>{t("tasks.screen.taskCount", { count: totalCount })}</Text>
-        <Button
-          variant="ghost"
-          size="xs"
-          onPress={handleToggleFeed}
-          accessibilityLabel={t("tasks.feed.toggle")}
-          testID="board-feed-toggle"
-        >
-          <ThemedMessagesSquare
-            size={16}
-            uniProps={isFeedOpen ? foregroundIconMapping : mutedIconMapping}
-          />
-        </Button>
-      </>
+      <Button
+        variant="ghost"
+        size="xs"
+        onPress={handleToggleFeed}
+        accessibilityLabel={t("tasks.feed.toggle")}
+        testID="board-feed-toggle"
+      >
+        <ThemedMessagesSquare
+          size={16}
+          uniProps={isFeedOpen ? foregroundIconMapping : mutedIconMapping}
+        />
+      </Button>
     ),
-    [handleToggleFeed, isFeedOpen, t, totalCount],
+    [handleToggleFeed, isFeedOpen, t],
   );
 
   const feedSheetHeader = useMemo(() => ({ title: t("tasks.feed.toggle") }), [t]);
@@ -645,10 +640,6 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
-  },
-  count: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
   },
   menuTrigger: {
     width: 24,
