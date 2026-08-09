@@ -258,23 +258,10 @@ async function killTerminalIfPresent(terminalId: string | null | undefined): Pro
   }
 }
 
-async function archiveWorktreeIfPresent(params: {
-  cwd: string;
-  worktreePath?: string | null;
-  worktreeSlug?: string | null;
-}): Promise<void> {
-  if (!params.worktreePath && !params.worktreeSlug) {
-    return;
-  }
+async function archiveWorkspaceIfPresent(workspaceId: string | null | undefined): Promise<void> {
+  if (!workspaceId) return;
   try {
-    await topLevelClient.callTool({
-      name: "archive_worktree",
-      args: {
-        cwd: params.cwd,
-        ...(params.worktreePath ? { worktreePath: params.worktreePath } : {}),
-        ...(params.worktreeSlug ? { worktreeSlug: params.worktreeSlug } : {}),
-      },
-    });
+    await topLevelClient.callTool({ name: "archive_workspace", args: { workspaceId } });
   } catch {
     // ignore cleanup errors
   }
@@ -827,91 +814,79 @@ describe("Suite D: Provider Tools", () => {
   });
 });
 
-describe("Suite E: Worktree Tools", () => {
-  test("list_worktrees on empty repo", async () => {
-    const payload = await callToolStructured(topLevelClient, "list_worktrees", {
-      cwd: worktreeRepoCwd,
-    });
-    expect(payload.worktrees).toEqual([]);
+describe("Suite E: Workspace Tools", () => {
+  test("list_workspaces always returns an array", async () => {
+    const payload = await callToolStructured(topLevelClient, "list_workspaces");
+    expect(Array.isArray(payload.workspaces)).toBe(true);
   });
 
-  test("create_worktree and list_worktrees", async () => {
-    let worktreePath: string | null = null;
+  test("create_workspace and list_workspaces", async () => {
+    let workspaceId: string | null = null;
     const branchName = `parity-create-${Date.now()}`;
     try {
-      const created = await callToolStructured(topLevelClient, "create_worktree", {
-        cwd: worktreeRepoCwd,
-        target: {
-          kind: "branch-off",
-          worktreeSlug: branchName,
-          baseBranch: "main",
-        },
+      const created = await callToolStructured(topLevelClient, "create_workspace", {
+        isolation: "worktree",
+        path: worktreeRepoCwd,
+        mode: "branch-off",
+        worktreeSlug: branchName,
+        branchName,
+        baseBranch: "main",
       });
-      worktreePath = str(created.worktreePath);
+      workspaceId = str(created.workspaceId);
 
-      const listed = await callToolStructured(topLevelClient, "list_worktrees", {
-        cwd: worktreeRepoCwd,
-      });
-      const worktrees = recordArr(listed.worktrees);
-      expect(worktrees).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            path: worktreePath,
-            branchName,
-          }),
-        ]),
+      const listed = await callToolStructured(topLevelClient, "list_workspaces");
+      expect(recordArr(listed.workspaces)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ workspaceId, cwd: created.cwd })]),
       );
     } finally {
-      await archiveWorktreeIfPresent({ cwd: worktreeRepoCwd, worktreePath });
+      await archiveWorkspaceIfPresent(workspaceId);
     }
   });
 
-  test("archive_worktree removes worktree", async () => {
-    let worktreePath: string | null = null;
+  test("archive_workspace removes a worktree workspace", async () => {
+    let workspaceId: string | null = null;
     const branchName = `parity-archive-${Date.now()}`;
     try {
-      const created = await callToolStructured(topLevelClient, "create_worktree", {
-        cwd: worktreeRepoCwd,
-        target: {
-          kind: "branch-off",
-          worktreeSlug: branchName,
-          baseBranch: "main",
-        },
+      const created = await callToolStructured(topLevelClient, "create_workspace", {
+        isolation: "worktree",
+        path: worktreeRepoCwd,
+        mode: "branch-off",
+        worktreeSlug: branchName,
+        branchName,
+        baseBranch: "main",
       });
-      worktreePath = str(created.worktreePath);
+      workspaceId = str(created.workspaceId);
 
-      await callToolStructured(topLevelClient, "archive_worktree", {
-        cwd: worktreeRepoCwd,
-        worktreePath,
-      });
-      worktreePath = null;
+      await callToolStructured(topLevelClient, "archive_workspace", { workspaceId });
 
-      const listed = await callToolStructured(topLevelClient, "list_worktrees", {
-        cwd: worktreeRepoCwd,
-      });
-      const worktrees = recordArr(listed.worktrees);
-      expect(worktrees.some((worktree) => worktree.path === created.worktreePath)).toBe(false);
+      const listed = await callToolStructured(topLevelClient, "list_workspaces");
+      expect(
+        recordArr(listed.workspaces).some((workspace) => workspace.workspaceId === workspaceId),
+      ).toBe(false);
+      workspaceId = null;
     } finally {
-      await archiveWorktreeIfPresent({ cwd: worktreeRepoCwd, worktreePath });
+      await archiveWorkspaceIfPresent(workspaceId);
     }
   });
 
-  test("archive_worktree succeeds when caller cwd is inside the archived worktree", async () => {
+  test("archive_workspace succeeds when caller cwd is inside its worktree", async () => {
+    let workspaceId: string | null = null;
     let worktreePath: string | null = null;
     let worktreeAgentId: string | null = null;
     let worktreeScopedClient: McpClient | null = null;
     const branchName = `parity-archive-self-cwd-${Date.now()}`;
 
     try {
-      const created = await callToolStructured(topLevelClient, "create_worktree", {
-        cwd: worktreeRepoCwd,
-        target: {
-          kind: "branch-off",
-          worktreeSlug: branchName,
-          baseBranch: "main",
-        },
+      const created = await callToolStructured(topLevelClient, "create_workspace", {
+        isolation: "worktree",
+        path: worktreeRepoCwd,
+        mode: "branch-off",
+        worktreeSlug: branchName,
+        branchName,
+        baseBranch: "main",
       });
-      worktreePath = str(created.worktreePath);
+      workspaceId = str(created.workspaceId);
+      worktreePath = str(created.cwd);
       worktreeAgentId = await createTopLevelAgent({
         cwd: worktreePath,
         title: "Worktree scoped parity agent",
@@ -922,22 +897,22 @@ describe("Suite E: Worktree Tools", () => {
         )}`,
       );
 
-      const archived = await callToolStructured(worktreeScopedClient, "archive_worktree", {
-        worktreePath,
+      const archived = await callToolStructured(worktreeScopedClient, "archive_workspace", {
+        workspaceId,
       });
-      expect(archived).toEqual({ success: true });
+      expect(archived.workspaceId).toBe(workspaceId);
+      workspaceId = null;
       worktreePath = null;
       worktreeAgentId = null;
 
-      const listed = await callToolStructured(topLevelClient, "list_worktrees", {
-        cwd: worktreeRepoCwd,
-      });
-      const worktrees = recordArr(listed.worktrees);
-      expect(worktrees.map((worktree) => worktree.path)).not.toContain(created.worktreePath);
+      const listed = await callToolStructured(topLevelClient, "list_workspaces");
+      expect(recordArr(listed.workspaces).map((workspace) => workspace.workspaceId)).not.toContain(
+        created.workspaceId,
+      );
     } finally {
       await worktreeScopedClient?.close();
       await archiveAgentIfPresent(worktreeAgentId);
-      await archiveWorktreeIfPresent({ cwd: worktreeRepoCwd, worktreePath });
+      await archiveWorkspaceIfPresent(workspaceId);
     }
   });
 });
@@ -972,6 +947,8 @@ describe("Suite G: Task Tools", () => {
       body: "Looks close.",
     });
     expect((commented.comment as StructuredContent).kind).toBe("user");
+    const feed = await callToolStructured(topLevelClient, "read_board_feed", { projectId });
+    expect(recordArr(feed.entries).map((entry) => entry.body)).toContain("Looks close.");
 
     await expectToolError(
       topLevelClient,
@@ -1101,5 +1078,48 @@ describe("Suite G: Task Tools", () => {
       await agentClient?.close();
       await archiveAgentIfPresent(agentId);
     }
+  }, 20_000);
+
+  test("refuses to run a blocked workflow before an agent starts", async () => {
+    const project = await callToolStructured(topLevelClient, "create_task_project", {
+      name: "Blocked workflow",
+      prefix: "blk",
+    });
+    const projectId = str(project.projectId);
+    const blocker = await callToolStructured(topLevelClient, "create_task", {
+      projectId,
+      title: "Finish first",
+    });
+    const blocked = await callToolStructured(topLevelClient, "create_task", {
+      projectId,
+      title: "Wait for it",
+    });
+    const taskId = str((blocked.task as StructuredContent).id);
+    await callToolStructured(topLevelClient, "add_task_dependency", {
+      taskId,
+      dependsOnTaskId: str((blocker.task as StructuredContent).id),
+    });
+    const added = await callToolStructured(topLevelClient, "add_task_workflow", {
+      taskId,
+      steps: [
+        {
+          name: "Implement",
+          prompt: "Do the thing",
+          agents: [{ provider: "claude" }],
+          completion: "all",
+          workspace: { mode: "existing", workspaceId: "never-used" },
+          trigger: { type: "manual" },
+        },
+      ],
+    });
+    const stepId = str(recordArr((added.workflow as StructuredContent).steps)[0].id);
+
+    await expectToolError(topLevelClient, "run_task_step", { taskId, stepId }, /blocked by/i);
+
+    const listed = await callToolStructured(topLevelClient, "list_tasks", {});
+    const task = recordArr((listed.snapshot as StructuredContent).tasks).find(
+      (entry) => entry.id === taskId,
+    );
+    expect(task).toMatchObject({ status: "backlog", agents: [] });
   }, 20_000);
 });
