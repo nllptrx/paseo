@@ -21,10 +21,37 @@ interface TrackerSeedClient {
     agentId: string;
     workspaceId: string;
   }): Promise<{ error: string | null }>;
+  tasksWorkflowSet(input: {
+    taskId: string;
+    steps: Array<{
+      name: string;
+      prompt: string;
+      agents: Array<{ provider: "claude" }>;
+      completion: "all";
+      workspace: { mode: "existing"; workspaceId: string };
+      trigger: { type: "manual" };
+    }>;
+  }): Promise<{ error: string | null }>;
   tasksSnapshot(): Promise<{
     snapshot: {
-      tasks: Array<{ id: string; title: string; status: string }>;
-      projects: Array<{ id: string; board?: { reviewEnabled: boolean } }>;
+      tasks: Array<{
+        id: string;
+        title: string;
+        description?: string;
+        status: string;
+        priority: string;
+        parentTaskId?: string | null;
+        executionPolicy?: {
+          review?: string;
+          workspace?: string;
+          maxParallelSubtasks?: number;
+        };
+      }>;
+      dependencies: Array<{ taskId: string; dependsOnTaskId: string }>;
+      projects: Array<{
+        id: string;
+        board?: { reviewEnabled: boolean; maxReviewIterations?: number };
+      }>;
     } | null;
     error: string | null;
   }>;
@@ -85,6 +112,56 @@ async function readTaskStatus(workspace: SeededWorkspace, taskId: string): Promi
   return payload.snapshot?.tasks.find((task) => task.id === taskId)?.status ?? null;
 }
 
+async function readTaskPriority(
+  workspace: SeededWorkspace,
+  taskId: string,
+): Promise<string | null> {
+  const payload = await trackerClient(workspace).tasksSnapshot();
+  return payload.snapshot?.tasks.find((task) => task.id === taskId)?.priority ?? null;
+}
+
+async function readTaskBriefAndPolicy(workspace: SeededWorkspace, taskId: string) {
+  const snapshot = (await trackerClient(workspace).tasksSnapshot()).snapshot;
+  for (const task of snapshot?.tasks ?? []) {
+    if (task.id === taskId) {
+      return {
+        title: task.title,
+        description: task.description,
+        policy: task.executionPolicy,
+      };
+    }
+  }
+  return null;
+}
+
+async function hasSubtask(
+  workspace: SeededWorkspace,
+  input: { parentTaskId: string; title: string },
+): Promise<boolean> {
+  const snapshot = (await trackerClient(workspace).tasksSnapshot()).snapshot;
+  for (const task of snapshot?.tasks ?? []) {
+    if (task.title === input.title && task.parentTaskId === input.parentTaskId) return true;
+  }
+  return false;
+}
+
+async function hasDependencyBetweenTitles(
+  workspace: SeededWorkspace,
+  input: { blockedTitle: string; blockerTitle: string },
+): Promise<boolean> {
+  const snapshot = (await trackerClient(workspace).tasksSnapshot()).snapshot;
+  let blockedId: string | undefined;
+  let blockerId: string | undefined;
+  for (const task of snapshot?.tasks ?? []) {
+    if (task.title === input.blockedTitle) blockedId = task.id;
+    if (task.title === input.blockerTitle) blockerId = task.id;
+  }
+  for (const edge of snapshot?.dependencies ?? []) {
+    if (edge.taskId === blockedId && edge.dependsOnTaskId === blockerId) return true;
+  }
+  return false;
+}
+
 async function readBoardReviewEnabled(
   workspace: SeededWorkspace,
   projectId: string,
@@ -92,6 +169,17 @@ async function readBoardReviewEnabled(
   const payload = await trackerClient(workspace).tasksSnapshot();
   const project = payload.snapshot?.projects.find((entry) => entry.id === projectId);
   return project?.board?.reviewEnabled ?? false;
+}
+
+async function readBoardReviewIterations(
+  workspace: SeededWorkspace,
+  projectId: string,
+): Promise<number | null> {
+  const payload = await trackerClient(workspace).tasksSnapshot();
+  return (
+    payload.snapshot?.projects.find((entry) => entry.id === projectId)?.board
+      ?.maxReviewIterations ?? null
+  );
 }
 
 /**
@@ -147,12 +235,28 @@ test.describe("Kanbans board", () => {
     }
   });
 
-  test("shows empty state when the host has no kanbans", async ({ page }) => {
+  test("shows every Paseo project before it has a board and creates the board on open", async ({
+    page,
+  }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-empty-" });
     cleanupTasks.push(() => workspace.cleanup());
+    const unlinked = await trackerClient(workspace).tasksProjectCreate({
+      name: "Unlinked development tracker",
+      prefix: `U${Date.now().toString(36)}`.slice(0, 8).toUpperCase(),
+      color: "#7C6BF5",
+    });
+    if (!unlinked.project) {
+      throw new Error(unlinked.error ?? "Failed to create unlinked tracker project");
+    }
 
     await openKanbans(page);
-    await expect(page.getByText("No kanbans yet")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(`task-board-overview-open-${unlinked.project.id}`)).toHaveCount(
+      0,
+    );
+    const project = page.getByTestId(`task-board-overview-open-${workspace.projectId}`);
+    await expect(project).toBeVisible({ timeout: 30_000 });
+    await project.click();
+    await expect(page.getByTestId("task-surface-toolbar")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("sidebar-kanbans")).toBeVisible();
   });
 
@@ -184,6 +288,20 @@ test.describe("Kanbans board", () => {
     const snapshot = await trackerClient(workspace).tasksSnapshot();
     const captured = snapshot.snapshot?.tasks.find((task) => task.title === capturedTitle);
     expect(captured?.status).toBe("todo");
+
+    await board.getByTestId("task-view-list").click();
+    const taskList = board.getByTestId("task-list");
+    await expect(taskList).toBeVisible();
+    await expect(taskList.getByTestId("task-list-group-backlog")).toBeVisible();
+    await expect(taskList.getByText(seededTitle)).toBeVisible();
+    await expect(taskList.getByTestId("task-list-group-todo")).toBeVisible();
+    await expect(taskList.getByText(capturedTitle)).toBeVisible();
+    await board.getByTestId("task-search").fill(seededTitle);
+    await expect(taskList.getByText(capturedTitle)).toHaveCount(0);
+    await board.getByTestId("task-filters-clear").click();
+    await expect(taskList.getByText(capturedTitle)).toBeVisible();
+    await taskList.getByTestId(`task-list-row-${seeded.taskId}`).click();
+    await expect(page.getByTestId("task-detail-sheet")).toBeVisible();
   });
 
   test("dragging a card onto another column writes the status through", async ({ page }) => {
@@ -232,7 +350,39 @@ test.describe("Kanbans board", () => {
     await expect(board.getByTestId("task-column-done")).toContainText(title);
   });
 
-  test("an In Review card offers a verdict: approve to done, reject back to work", async ({
+  test("the task list edits status and priority directly and remembers its view", async ({
+    page,
+  }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-task-list-edit-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `List edit ${Date.now()}`);
+
+    await openBoard(page, seeded.projectId);
+    const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
+    await board.getByTestId("task-view-list").click();
+    const row = board.getByTestId(`task-list-row-${seeded.taskId}`);
+    await expect(row).toBeVisible({ timeout: 30_000 });
+
+    await row.getByTestId(`task-list-status-${seeded.taskId}`).click();
+    await page.getByTestId(`task-list-status-${seeded.taskId}-todo`).click();
+    await expect
+      .poll(() => readTaskStatus(workspace, seeded.taskId), { timeout: 30_000 })
+      .toBe("todo");
+
+    await row.getByTestId(`task-list-priority-${seeded.taskId}`).click();
+    await page.getByTestId(`task-list-priority-${seeded.taskId}-high`).click();
+    await expect
+      .poll(() => readTaskPriority(workspace, seeded.taskId), { timeout: 30_000 })
+      .toBe("high");
+
+    await page.reload();
+    await waitForSidebarHydration(page);
+    const reloadedBoard = page.getByTestId(`kanban-board-${seeded.projectId}`);
+    await expect(reloadedBoard.getByTestId("task-list")).toBeVisible({ timeout: 30_000 });
+    await expect(reloadedBoard.getByTestId(`task-list-row-${seeded.taskId}`)).toContainText("High");
+  });
+
+  test("an In Review card approves to done and explains a correction that cannot start", async ({
     page,
   }) => {
     const workspace = await seedWorkspace({ repoPrefix: "kanban-verdict-" });
@@ -264,10 +414,14 @@ test.describe("Kanbans board", () => {
     await expect(rejectedCard).toBeVisible({ timeout: 30_000 });
     await page.getByTestId(`task-card-status-${rejectedTaskId}`).click();
     await page.getByTestId(`task-card-reject-${rejectedTaskId}`).click();
-    // No review config on this board, so reject falls back to in_progress.
+    // This manually seeded card has no worker to resume. It must stay in review
+    // instead of pretending a correction round started.
     await expect
       .poll(() => readTaskStatus(workspace, rejectedTaskId), { timeout: 30_000 })
-      .toBe("in_progress");
+      .toBe("in_review");
+    await expect(
+      page.getByText("The task remains in Review; no correction round was started."),
+    ).toBeVisible();
   });
 
   test("the board menu toggles review, and a card authors a workflow", async ({ page }) => {
@@ -284,6 +438,14 @@ test.describe("Kanbans board", () => {
     await expect
       .poll(async () => readBoardReviewEnabled(workspace, projectId), { timeout: 30_000 })
       .toBe(true);
+
+    await page.getByTestId(`kanban-board-menu-${projectId}`).click();
+    await page.getByTestId(`kanban-review-policy-${projectId}`).click();
+    await page.getByTestId(`kanban-review-iterations-${projectId}`).click();
+    await page.getByTestId(`kanban-review-iterations-${projectId}-5`).click();
+    await expect
+      .poll(async () => readBoardReviewIterations(workspace, projectId), { timeout: 30_000 })
+      .toBe(5);
 
     // A workflow belongs to a card, so it is authored from the card's menu.
     const board = page.getByTestId(`kanban-board-${projectId}`);
@@ -307,6 +469,13 @@ test.describe("Kanbans board", () => {
     await expect(sheet).toBeVisible({ timeout: 10_000 });
     const presetName = `Implementer ${Date.now()}`;
     await page.getByTestId("task-presets-name-input").fill(presetName);
+    await page.getByTestId("task-presets-agent-trigger").click();
+    const modelOption = page.locator('[data-testid^="model-option-"]').first();
+    if (!(await modelOption.isVisible().catch(() => false))) {
+      await page.locator('[data-testid^="model-provider-"]').first().click();
+    }
+    await expect(modelOption).toBeVisible({ timeout: 10_000 });
+    await modelOption.click();
     await page.getByTestId("task-presets-save").click();
     await expect(sheet).toContainText(presetName, { timeout: 30_000 });
     await page.keyboard.press("Escape");
@@ -323,6 +492,40 @@ test.describe("Kanbans board", () => {
     await expect(board.getByTestId("task-column-in_progress")).toContainText(`Preset task`, {
       timeout: 30_000,
     });
+  });
+
+  test("keeps start-work open with a retryable error when dispatch fails", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-start-failure-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `Failed start ${Date.now()}`);
+    const workflow = await trackerClient(workspace).tasksWorkflowSet({
+      taskId: seeded.taskId,
+      steps: [
+        {
+          name: "Implement",
+          prompt: "Do the work",
+          agents: [{ provider: "claude" }],
+          completion: "all",
+          workspace: { mode: "existing", workspaceId: "missing-workspace" },
+          trigger: { type: "manual" },
+        },
+      ],
+    });
+    if (workflow.error) throw new Error(workflow.error);
+
+    await openBoard(page, seeded.projectId);
+    await page.getByTestId(`task-card-status-${seeded.taskId}`).click();
+    await page.getByTestId(`task-card-status-${seeded.taskId}-in_progress`).click();
+    const startSheet = page.getByTestId("task-start-work-sheet");
+    await expect(startSheet).toBeVisible({ timeout: 10_000 });
+
+    await page.getByTestId("task-start-work-run-workflow").click();
+
+    await expect(startSheet).toBeVisible();
+    await expect(page.getByTestId("app-toast-message")).toContainText("Workspace not found", {
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("task-start-work-run-workflow")).toBeEnabled();
   });
 
   /** A mention has to be pickable: nobody types an agent id from memory, so the
@@ -374,6 +577,59 @@ test.describe("Kanbans board", () => {
     await sheet.getByTestId("task-detail-comment-input").fill(note);
     await sheet.getByTestId("task-detail-comment-send").click();
     await expect(sheet).toContainText(note, { timeout: 30_000 });
+  });
+
+  test("a task edits its agent brief, automation, and subtask execution order", async ({
+    page,
+  }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-task-policy-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `Policy task ${Date.now()}`);
+
+    await openBoard(page, seeded.projectId);
+    await page.getByTestId(`task-card-${seeded.taskId}`).click();
+    const sheet = page.getByTestId("task-detail-sheet");
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+
+    const refinedTitle = `Refined outcome ${Date.now()}`;
+    await sheet.getByTestId("task-detail-title-input").fill(refinedTitle);
+    await sheet
+      .getByTestId("task-detail-description-input")
+      .fill("Implement this outcome with the constraints in the task.");
+    await sheet.getByTestId("task-detail-automation-edit").click();
+    await sheet.getByTestId("task-detail-policy-review").click();
+    await page.getByTestId("task-detail-policy-review-required").click();
+    await sheet.getByTestId("task-detail-policy-workspace").click();
+    await page.getByTestId("task-detail-policy-workspace-dedicated").click();
+    await sheet.getByTestId("task-detail-policy-subtasks").click();
+    await page.getByTestId("task-detail-policy-subtasks-1").click();
+
+    await expect
+      .poll(() => readTaskBriefAndPolicy(workspace, seeded.taskId))
+      .toEqual({
+        title: refinedTitle,
+        description: "Implement this outcome with the constraints in the task.",
+        policy: { review: "required", workspace: "dedicated", maxParallelSubtasks: 1 },
+      });
+
+    const firstTitle = `First child ${Date.now()}`;
+    await sheet.getByTestId("task-detail-subtask-input").fill(firstTitle);
+    await sheet.getByTestId("task-detail-subtask-add").click();
+    await expect
+      .poll(() => hasSubtask(workspace, { parentTaskId: seeded.taskId, title: firstTitle }))
+      .toBe(true);
+
+    const secondTitle = `Second child ${Date.now()}`;
+    await sheet.getByTestId("task-detail-subtask-input").fill(secondTitle);
+    await sheet.getByTestId("task-detail-subtask-add").click();
+    await expect
+      .poll(() =>
+        hasDependencyBetweenTitles(workspace, {
+          blockedTitle: secondTitle,
+          blockerTitle: firstTitle,
+        }),
+      )
+      .toBe(true);
   });
 
   /** The feed is where an automatic move says what it did, and where a note you

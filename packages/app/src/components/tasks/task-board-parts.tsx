@@ -1,5 +1,5 @@
 import { useCallback, useMemo, type ReactElement } from "react";
-import { Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { MessageSquare, MoreVertical, Paperclip, Plus } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -36,245 +36,36 @@ const ThemedPaperclip = withUnistyles(Paperclip);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 
-interface TaskCardAction {
+export interface TaskCardAction {
   key: string;
   label: string;
   testID: string;
   onSelect: () => void;
 }
 
-export const TASK_PRIORITY_LABEL_KEYS: Record<Exclude<TaskPriority, "none">, string> = {
-  urgent: "tasks.priority.urgent",
-  high: "tasks.priority.high",
-  medium: "tasks.priority.medium",
-  low: "tasks.priority.low",
-};
-
-/** Urgency reads as color; the two calm tiers stay muted so the title wins. */
-const PRIORITY_STYLE_KEYS: Record<Exclude<TaskPriority, "none">, "danger" | "warning" | "muted"> = {
-  urgent: "danger",
-  high: "warning",
-  medium: "muted",
-  low: "muted",
-};
-
-export const TASK_STATUS_LABEL_KEYS: Record<TaskStatus, string> = {
-  backlog: "tasks.status.backlog",
-  todo: "tasks.status.todo",
-  in_progress: "tasks.status.inProgress",
-  in_review: "tasks.status.inReview",
-  done: "tasks.status.done",
-  canceled: "tasks.status.canceled",
-};
-
-/** A drop or a menu pick: where the task goes and between which neighbours. */
-export interface TaskBoardMove {
-  taskId: string;
-  status: TaskStatus;
-  beforePosition: number | null;
-  afterPosition: number | null;
-}
-
-export interface TaskBoardProps {
-  serverId: string;
-  /** Pre-filtered to this board's projects and manual-sorted by the caller. */
-  tasks: readonly Task[];
-  labels: readonly TaskLabel[];
-  projectsById: ReadonlyMap<string, TaskProject>;
-  onMoveTask: (move: TaskBoardMove) => void;
-  /** The column's own "+" captures straight into that status. */
-  onCreateTask: (status: TaskStatus) => void;
-  /** Opens the per-agent conversation from a menu row. */
-  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-  /** A press on the card always opens the detail sheet. */
-  onOpenTask: (taskId: string) => void;
-  /** The verdict on an In Review card — distinct from a status move, because
-   * reject routes through the board's review.onReject. */
-  onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
-  onDeleteTask: (taskId: string) => void;
-  /** Authors a plan already attached to the task, when the surface offers one. */
-  onCreateWorkflowForTask?: (taskId: string) => void;
-  selectedColumn: TaskStatus;
-  onSelectColumn: (status: TaskStatus) => void;
-}
-
-/** Enough to read as "under", not so much that a deep card runs out of width. */
-const SUBTASK_INDENT = SPACING[3];
-
-/** A label is a glance, not a read: past this it truncates rather than pushing
- * the ones after it off the card. */
-const CHIP_MAX_WIDTH = 120;
-
-export function groupBoardTasks(
-  statuses: readonly TaskStatus[],
-  tasks: readonly Task[],
-): Map<TaskStatus, Task[]> {
-  const map = new Map<TaskStatus, Task[]>(statuses.map((status) => [status, []]));
-  for (const task of tasks) {
-    map.get(task.status)?.push(task);
-  }
-  return map;
-}
-
-/** A menu pick has no drop slot, so the task lands at the end of its new column. */
-export function useMoveToStatusEnd(
-  byStatus: ReadonlyMap<TaskStatus, Task[]>,
-  onMoveTask: (move: TaskBoardMove) => void,
-): (input: { taskId: string; status: TaskStatus }) => void {
-  return useCallback(
-    ({ taskId, status }) => {
-      const column = byStatus.get(status) ?? [];
-      const last = column.length > 0 ? column[column.length - 1] : undefined;
-      onMoveTask({
-        taskId,
-        status,
-        beforePosition: last?.position ?? null,
-        afterPosition: null,
-      });
-    },
-    [byStatus, onMoveTask],
-  );
-}
-
-export function TaskColumn({
-  serverId,
-  status,
-  tasks,
-  labels,
-  projectsById,
-  onMoveToStatus,
-  onCreateTask,
-  onOpenAgent,
-  onOpenTask,
-  onReviewTask,
-  onDeleteTask,
-  onCreateWorkflowForTask,
-  isOver = false,
-  renderCard,
-  bodyRef,
-}: {
-  serverId: string;
-  status: TaskStatus;
-  tasks: readonly Task[];
-  labels: readonly TaskLabel[];
-  projectsById: ReadonlyMap<string, TaskProject>;
-  onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
-  onCreateTask: (status: TaskStatus) => void;
-  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-  onOpenTask: (taskId: string) => void;
-  onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
-  onDeleteTask: (taskId: string) => void;
-  onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
-  isOver?: boolean;
-  /** Lets the web board wrap each card in a sortable without forking the column. */
-  renderCard?: (task: Task, card: ReactElement) => ReactElement;
-  /** Registers the column body as a drop target on web. */
-  bodyRef?: (element: never) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  const handleCreate = useCallback(() => onCreateTask(status), [onCreateTask, status]);
-
-  return (
-    <View style={styles.column} testID={`task-column-${status}`}>
-      <View style={styles.columnHeader}>
-        <Text style={styles.columnTitle}>{t(TASK_STATUS_LABEL_KEYS[status])}</Text>
-        <Text style={styles.columnCount}>{tasks.length}</Text>
-        <Button
-          variant="ghost"
-          size="sm"
-          leftIcon={Plus}
-          onPress={handleCreate}
-          style={styles.addButton}
-          accessibilityLabel={t("tasks.board.addTask")}
-          testID={`task-column-add-${status}`}
-        />
-      </View>
-      <View
-        ref={bodyRef as never}
-        style={[styles.columnBody, isOver && styles.columnBodyOver]}
-        testID={`task-column-body-${status}`}
-      >
-        {groupSubtasksUnderParents(tasks).map(({ task, depth }) => {
-          const card = (
-            <TaskCard
-              key={task.id}
-              serverId={serverId}
-              task={task}
-              depth={depth}
-              project={projectsById.get(task.projectId)}
-              labels={labels}
-              onMoveToStatus={onMoveToStatus}
-              onOpenAgent={onOpenAgent}
-              onOpenTask={onOpenTask}
-              onReviewTask={onReviewTask}
-              onDeleteTask={onDeleteTask}
-              onCreateWorkflowForTask={onCreateWorkflowForTask}
-            />
-          );
-          return renderCard ? renderCard(task, card) : card;
-        })}
-        {tasks.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>{t("tasks.board.emptyColumn")}</Text>
-          </View>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-export function TaskCard({
-  serverId,
+export function useTaskActions({
   task,
-  project,
-  labels,
   onMoveToStatus,
   onOpenAgent,
   onOpenTask,
   onReviewTask,
   onDeleteTask,
   onCreateWorkflowForTask,
-  depth = 0,
-  isOverlay = false,
-  isDragSource = false,
 }: {
-  serverId: string;
   task: Task;
-  /** How far under its parent this card sits, when the parent is in the same
-   * column. Indent only — a subtask is a task in every other respect. */
-  depth?: number;
-  project: TaskProject | undefined;
-  labels: readonly TaskLabel[];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-  /** Absent only in the drag overlay clone, which renders no press target. */
-  onOpenTask?: (taskId: string) => void;
-  onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
+  onOpenTask?: ((taskId: string) => void) | undefined;
+  onReviewTask: (input: {
+    taskId: string;
+    verdict: "approve" | "reject";
+    feedback?: string;
+  }) => void;
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
-  /** Rendered inside the drag overlay: lifted, non-interactive. */
-  isOverlay?: boolean;
-  /** The in-column original while its overlay clone is being dragged. */
-  isDragSource?: boolean;
-}): ReactElement {
+}): TaskCardAction[] {
   const { t } = useTranslation();
-  const taskLabels = resolveTaskLabels(task, labels);
-  const workspaceIds = useMemo(() => task.agents.map((link) => link.workspaceId), [task.agents]);
-  const statusByWorkspaceId = useWorkspaceStatusesByIds(serverId, workspaceIds);
-  // Derived and live, beside the status you set rather than merged into it.
-  const bucket = useMemo<SidebarStateBucket | null>(() => {
-    if (statusByWorkspaceId.size === 0) {
-      return null;
-    }
-    return aggregateSidebarStateBuckets(statusByWorkspaceId.values());
-  }, [statusByWorkspaceId]);
-  const handlePress = useCallback(() => {
-    onOpenTask?.(task.id);
-  }, [onOpenTask, task.id]);
-
-  // One list feeds the kebab and the right-click menu, so a card is reachable
-  // the way any other card on this platform is.
-  const actions = useMemo<TaskCardAction[]>(() => {
+  return useMemo(() => {
     const entries: TaskCardAction[] = [];
     if (onOpenTask) {
       entries.push({
@@ -342,10 +133,262 @@ export function TaskCard({
     onOpenTask,
     onReviewTask,
     t,
-    task.agents,
-    task.id,
-    task.status,
+    task,
   ]);
+}
+
+export const TASK_PRIORITY_LABEL_KEYS: Record<Exclude<TaskPriority, "none">, string> = {
+  urgent: "tasks.priority.urgent",
+  high: "tasks.priority.high",
+  medium: "tasks.priority.medium",
+  low: "tasks.priority.low",
+};
+
+/** Urgency reads as color; the two calm tiers stay muted so the title wins. */
+const PRIORITY_STYLE_KEYS: Record<Exclude<TaskPriority, "none">, "danger" | "warning" | "muted"> = {
+  urgent: "danger",
+  high: "warning",
+  medium: "muted",
+  low: "muted",
+};
+
+export const TASK_STATUS_LABEL_KEYS: Record<TaskStatus, string> = {
+  backlog: "tasks.status.backlog",
+  todo: "tasks.status.todo",
+  in_progress: "tasks.status.inProgress",
+  in_review: "tasks.status.inReview",
+  done: "tasks.status.done",
+  canceled: "tasks.status.canceled",
+};
+
+/** A drop or a menu pick: where the task goes and between which neighbours. */
+export interface TaskBoardMove {
+  taskId: string;
+  status: TaskStatus;
+  beforePosition: number | null;
+  afterPosition: number | null;
+}
+
+export interface TaskBoardProps {
+  serverId: string;
+  /** Pre-filtered to this board's projects and manual-sorted by the caller. */
+  tasks: readonly Task[];
+  labels: readonly TaskLabel[];
+  projectsById: ReadonlyMap<string, TaskProject>;
+  onMoveTask: (move: TaskBoardMove) => void;
+  /** The column's own "+" captures straight into that status. */
+  onCreateTask: (status: TaskStatus) => void;
+  /** Opens the per-agent conversation from a menu row. */
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  /** A press on the card always opens the detail sheet. */
+  onOpenTask: (taskId: string) => void;
+  /** The verdict on an In Review card — distinct from a status move, because
+   * reject routes through the board's review.onReject. */
+  onReviewTask: (input: {
+    taskId: string;
+    verdict: "approve" | "reject";
+    feedback?: string;
+  }) => void;
+  onDeleteTask: (taskId: string) => void;
+  /** Authors a plan already attached to the task, when the surface offers one. */
+  onCreateWorkflowForTask?: (taskId: string) => void;
+  selectedColumn: TaskStatus;
+  onSelectColumn: (status: TaskStatus) => void;
+  /** Filtered or computed ordering cannot be persisted as a manual drop. */
+  dragDisabled?: boolean;
+}
+
+/** Enough to read as "under", not so much that a deep card runs out of width. */
+const SUBTASK_INDENT = SPACING[3];
+
+/** A label is a glance, not a read: past this it truncates rather than pushing
+ * the ones after it off the card. */
+const CHIP_MAX_WIDTH = 120;
+
+export function groupBoardTasks(
+  statuses: readonly TaskStatus[],
+  tasks: readonly Task[],
+): Map<TaskStatus, Task[]> {
+  const map = new Map<TaskStatus, Task[]>(statuses.map((status) => [status, []]));
+  for (const task of tasks) {
+    map.get(task.status)?.push(task);
+  }
+  return map;
+}
+
+/** A menu pick has no drop slot, so the task lands at the end of its new column. */
+export function useMoveToStatusEnd(
+  byStatus: ReadonlyMap<TaskStatus, Task[]>,
+  onMoveTask: (move: TaskBoardMove) => void,
+): (input: { taskId: string; status: TaskStatus }) => void {
+  return useCallback(
+    ({ taskId, status }) => {
+      const column = byStatus.get(status) ?? [];
+      const last = column.length > 0 ? column[column.length - 1] : undefined;
+      onMoveTask({
+        taskId,
+        status,
+        beforePosition: last?.position ?? null,
+        afterPosition: null,
+      });
+    },
+    [byStatus, onMoveTask],
+  );
+}
+
+export function TaskColumn({
+  serverId,
+  status,
+  tasks,
+  labels,
+  projectsById,
+  onMoveToStatus,
+  onCreateTask,
+  onOpenAgent,
+  onOpenTask,
+  onReviewTask,
+  onDeleteTask,
+  onCreateWorkflowForTask,
+  isOver = false,
+  renderCard,
+  bodyRef,
+}: {
+  serverId: string;
+  status: TaskStatus;
+  tasks: readonly Task[];
+  labels: readonly TaskLabel[];
+  projectsById: ReadonlyMap<string, TaskProject>;
+  onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
+  onCreateTask: (status: TaskStatus) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onOpenTask: (taskId: string) => void;
+  onReviewTask: TaskBoardProps["onReviewTask"];
+  onDeleteTask: (taskId: string) => void;
+  onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
+  isOver?: boolean;
+  /** Lets the web board wrap each card in a sortable without forking the column. */
+  renderCard?: (task: Task, card: ReactElement) => ReactElement;
+  /** Registers the column body as a drop target on web. */
+  bodyRef?: (element: never) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const handleCreate = useCallback(() => onCreateTask(status), [onCreateTask, status]);
+
+  return (
+    <View style={styles.column} testID={`task-column-${status}`}>
+      <View style={styles.columnHeader}>
+        <Text style={styles.columnTitle}>{t(TASK_STATUS_LABEL_KEYS[status])}</Text>
+        <Text style={styles.columnCount}>{tasks.length}</Text>
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={Plus}
+          onPress={handleCreate}
+          style={styles.addButton}
+          accessibilityLabel={t("tasks.board.addTask")}
+          testID={`task-column-add-${status}`}
+        />
+      </View>
+      <View
+        ref={bodyRef as never}
+        style={[styles.columnBody, isOver && styles.columnBodyOver]}
+        testID={`task-column-body-${status}`}
+      >
+        <ScrollView
+          style={styles.columnScroll}
+          contentContainerStyle={styles.columnCards}
+          showsVerticalScrollIndicator={false}
+        >
+          {groupSubtasksUnderParents(tasks).map(({ task, depth }) => {
+            const card = (
+              <TaskCard
+                key={task.id}
+                serverId={serverId}
+                task={task}
+                depth={depth}
+                project={projectsById.get(task.projectId)}
+                labels={labels}
+                onMoveToStatus={onMoveToStatus}
+                onOpenAgent={onOpenAgent}
+                onOpenTask={onOpenTask}
+                onReviewTask={onReviewTask}
+                onDeleteTask={onDeleteTask}
+                onCreateWorkflowForTask={onCreateWorkflowForTask}
+              />
+            );
+            return renderCard ? renderCard(task, card) : card;
+          })}
+          {tasks.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>{t("tasks.board.emptyColumn")}</Text>
+            </View>
+          ) : null}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
+export function TaskCard({
+  serverId,
+  task,
+  project,
+  labels,
+  onMoveToStatus,
+  onOpenAgent,
+  onOpenTask,
+  onReviewTask,
+  onDeleteTask,
+  onCreateWorkflowForTask,
+  depth = 0,
+  isOverlay = false,
+  isDragSource = false,
+}: {
+  serverId: string;
+  task: Task;
+  /** How far under its parent this card sits, when the parent is in the same
+   * column. Indent only — a subtask is a task in every other respect. */
+  depth?: number;
+  project: TaskProject | undefined;
+  labels: readonly TaskLabel[];
+  onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  /** Absent only in the drag overlay clone, which renders no press target. */
+  onOpenTask?: (taskId: string) => void;
+  onReviewTask: TaskBoardProps["onReviewTask"];
+  onDeleteTask: (taskId: string) => void;
+  onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
+  /** Rendered inside the drag overlay: lifted, non-interactive. */
+  isOverlay?: boolean;
+  /** The in-column original while its overlay clone is being dragged. */
+  isDragSource?: boolean;
+}): ReactElement {
+  const { t } = useTranslation();
+  const taskLabels = resolveTaskLabels(task, labels);
+  const workspaceIds = useMemo(() => task.agents.map((link) => link.workspaceId), [task.agents]);
+  const statusByWorkspaceId = useWorkspaceStatusesByIds(serverId, workspaceIds);
+  // Derived and live, beside the status you set rather than merged into it.
+  const bucket = useMemo<SidebarStateBucket | null>(() => {
+    if (statusByWorkspaceId.size === 0) {
+      return null;
+    }
+    return aggregateSidebarStateBuckets(statusByWorkspaceId.values());
+  }, [statusByWorkspaceId]);
+  const handlePress = useCallback(() => {
+    onOpenTask?.(task.id);
+  }, [onOpenTask, task.id]);
+
+  // One list feeds the kebab and the right-click menu, so a card is reachable
+  // the way any other card on this platform is.
+  const actions = useTaskActions({
+    task,
+    onMoveToStatus,
+    onOpenAgent,
+    onOpenTask,
+    onReviewTask,
+    onDeleteTask,
+    onCreateWorkflowForTask,
+  });
 
   const body = (
     <>
@@ -499,6 +542,8 @@ const styles = StyleSheet.create((theme) => ({
   },
   column: {
     flexGrow: 1,
+    height: "100%",
+    minHeight: 0,
     minWidth: 264,
     maxWidth: 360,
     gap: theme.spacing[1],
@@ -526,16 +571,24 @@ const styles = StyleSheet.create((theme) => ({
    * empty — an unbounded stack of cards gives a drag nothing to aim at.
    */
   columnBody: {
+    flex: 1,
+    minHeight: 96,
+    overflow: "hidden",
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface0,
+  },
+  columnScroll: {
+    flex: 1,
+  },
+  columnCards: {
+    flexGrow: 1,
     minHeight: 96,
     gap: theme.spacing[2],
-    borderRadius: theme.borderRadius.lg,
     padding: theme.spacing[1],
-    backgroundColor: theme.colors.surface0,
   },
   columnBodyOver: {
     borderWidth: theme.borderWidth[1],
     borderColor: theme.colors.borderAccent,
-    padding: theme.spacing[1] - 1,
   },
   card: {
     width: "100%",

@@ -41,6 +41,7 @@ export function TaskBoard({
   onCreateWorkflowForTask,
   selectedColumn,
   onSelectColumn,
+  dragDisabled: _dragDisabled,
 }: TaskBoardProps): ReactElement {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
@@ -101,7 +102,12 @@ export function TaskBoard({
   }
 
   return (
-    <ScrollView horizontal contentContainerStyle={styles.wideRow} testID="task-board">
+    <ScrollView
+      horizontal
+      style={styles.boardScroll}
+      contentContainerStyle={styles.wideRow}
+      testID="task-board"
+    >
       {statuses.map((status) => (
         <TaskColumn
           key={status}
@@ -125,13 +131,18 @@ export function TaskBoard({
 
 const styles = StyleSheet.create((theme) => ({
   compact: {
+    flex: 1,
+    minHeight: 0,
     gap: theme.spacing[3],
     padding: theme.spacing[3],
   },
+  boardScroll: { flex: 1, minHeight: 0 },
   wideRow: {
+    flexGrow: 1,
+    height: "100%",
     flexDirection: "row",
     gap: theme.spacing[3],
     padding: theme.spacing[3],
-    alignItems: "flex-start",
+    alignItems: "stretch",
   },
 }));

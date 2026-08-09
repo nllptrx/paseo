@@ -114,6 +114,7 @@ export function TaskBoard({
   onCreateWorkflowForTask,
   selectedColumn,
   onSelectColumn,
+  dragDisabled = false,
 }: TaskBoardProps): ReactElement {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
@@ -158,10 +159,14 @@ export function TaskBoard({
     [onOpenAgent],
   );
 
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    setActiveTaskId(String(event.active.id));
-    suppressClickRef.current = true;
-  }, []);
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      if (dragDisabled) return;
+      setActiveTaskId(String(event.active.id));
+      suppressClickRef.current = true;
+    },
+    [dragDisabled],
+  );
 
   const releaseClickSuppression = useCallback(() => {
     setTimeout(() => {
@@ -176,6 +181,7 @@ export function TaskBoard({
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      if (dragDisabled) return;
       setActiveTaskId(null);
       releaseClickSuppression();
       const { active, over } = event;
@@ -219,7 +225,7 @@ export function TaskBoard({
       };
       onMoveTask(move);
     },
-    [byStatus, onMoveTask, releaseClickSuppression, statuses, tasks],
+    [byStatus, dragDisabled, onMoveTask, releaseClickSuppression, statuses, tasks],
   );
 
   if (isCompact) {
@@ -266,7 +272,12 @@ export function TaskBoard({
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
-      <ScrollView horizontal contentContainerStyle={styles.wideRow} testID="task-board">
+      <ScrollView
+        horizontal
+        style={styles.boardScroll}
+        contentContainerStyle={styles.wideRow}
+        testID="task-board"
+      >
         {statuses.map((status) => (
           <DroppableTaskColumn
             key={status}
@@ -283,6 +294,7 @@ export function TaskBoard({
             onDeleteTask={onDeleteTask}
             onCreateWorkflowForTask={onCreateWorkflowForTask}
             activeTaskId={activeTaskId}
+            dragDisabled={dragDisabled}
           />
         ))}
       </ScrollView>
@@ -324,6 +336,7 @@ function DroppableTaskColumn({
   onDeleteTask,
   onCreateWorkflowForTask,
   activeTaskId,
+  dragDisabled,
 }: {
   serverId: string;
   status: TaskStatus;
@@ -334,21 +347,27 @@ function DroppableTaskColumn({
   onCreateTask: (status: TaskStatus) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenTask: (taskId: string) => void;
-  onReviewTask: (input: { taskId: string; verdict: "approve" | "reject" }) => void;
+  onReviewTask: TaskBoardProps["onReviewTask"];
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
   activeTaskId: string | null;
+  dragDisabled: boolean;
 }): ReactElement {
   const { isOver, setNodeRef } = useDroppable({ id: columnDropId(status) });
   const sortableIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
 
   const renderCard = useCallback(
     (task: Task, card: ReactElement) => (
-      <SortableTaskCard key={task.id} taskId={task.id} isDragSource={task.id === activeTaskId}>
+      <SortableTaskCard
+        key={task.id}
+        taskId={task.id}
+        isDragSource={task.id === activeTaskId}
+        disabled={dragDisabled}
+      >
         {card}
       </SortableTaskCard>
     ),
-    [activeTaskId],
+    [activeTaskId, dragDisabled],
   );
 
   return (
@@ -377,14 +396,17 @@ function DroppableTaskColumn({
 function SortableTaskCard({
   taskId,
   isDragSource,
+  disabled,
   children,
 }: {
   taskId: string;
   isDragSource: boolean;
+  disabled: boolean;
   children: ReactElement;
 }): ReactElement {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: taskId,
+    disabled,
   });
   const style = useMemo<CSSProperties>(
     () => ({
@@ -403,13 +425,18 @@ function SortableTaskCard({
 
 const styles = StyleSheet.create((theme) => ({
   compact: {
+    flex: 1,
+    minHeight: 0,
     gap: theme.spacing[3],
     padding: theme.spacing[3],
   },
+  boardScroll: { flex: 1, minHeight: 0 },
   wideRow: {
+    flexGrow: 1,
+    height: "100%",
     flexDirection: "row",
     gap: theme.spacing[3],
     padding: theme.spacing[3],
-    alignItems: "flex-start",
+    alignItems: "stretch",
   },
 }));

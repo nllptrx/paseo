@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
+import { Kanban, ListTodo } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
-import type { TaskStatus } from "@getpaseo/protocol/tasks/types";
+import type { Task, TaskStatus } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import {
+  filterTasks,
   selectBlockers,
   selectProjectBoard,
   selectTrackerProjectBoard,
+  sortTasks,
   type TaskDependencyEdge,
+  type ProjectBoardSelection,
 } from "@/tasks/task-views";
 import { useTaskMutations, useTasks, useTasksSupported } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -19,11 +23,58 @@ import type { TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { NewTaskSheet } from "./new-task-sheet";
 import { StartWorkSheet } from "./start-work-sheet";
 import { TaskBoard, type TaskBoardMove } from "./task-board";
+import { TaskList } from "./task-list";
+import { TaskSurfaceToolbar } from "./task-surface-toolbar";
+import {
+  DEFAULT_TASK_SURFACE_PREFERENCES,
+  useTaskSurfacePreferencesStore,
+  type TaskSurfacePreferences,
+} from "@/stores/task-surface-preferences-store";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { TaskDetailSheet } from "./task-detail-sheet";
 
 const EMPTY_DEPENDENCIES: TaskDependencyEdge[] = [];
 const EMPTY_WORKFLOWS: TaskWorkflow[] = [];
+
+function selectVisibleBoardTasks(
+  board: ProjectBoardSelection,
+  preferences: TaskSurfacePreferences,
+): Task[] {
+  const filtered = filterTasks({
+    tasks: board.tasks,
+    labels: board.labels,
+    filters: {
+      statuses: preferences.statuses,
+      priorities: preferences.priorities,
+      labelNames: preferences.labelNames,
+    },
+  });
+  const query = preferences.query.trim().toLocaleLowerCase();
+  if (query.length === 0) return sortTasks(filtered, preferences.sort);
+  const matching = filtered.filter((task) => {
+    const project = board.projects.find((entry) => entry.id === task.projectId);
+    const key = project ? `${project.prefix}-${task.number}` : String(task.number);
+    return `${key} ${task.title} ${task.description}`.toLocaleLowerCase().includes(query);
+  });
+  return sortTasks(matching, preferences.sort);
+}
+
+function hasActiveTaskProjection(preferences: TaskSurfacePreferences): boolean {
+  if (preferences.sort !== "manual" || preferences.query.trim().length > 0) return true;
+  return (
+    preferences.statuses.length > 0 ||
+    preferences.priorities.length > 0 ||
+    preferences.labelNames.length > 0
+  );
+}
+
+function renderKanbanIcon({ color, size }: { color: string; size: number }): ReactElement {
+  return <Kanban color={color} size={size} />;
+}
+
+function renderTaskListIcon({ color, size }: { color: string; size: number }): ReactElement {
+  return <ListTodo color={color} size={size} />;
+}
 
 export interface TaskBoardSurfaceProps {
   serverId: string;
@@ -44,8 +95,8 @@ export interface TaskBoardSurfaceProps {
 }
 
 /**
- * The kanban board's content: this project's tasks by status, capture on every
- * column, moves written straight through to the daemon.
+ * One project's task surface: kanban columns or a dense status-grouped list,
+ * with every mutation written straight through to the daemon.
  */
 export function TaskBoardSurface({
   serverId,
@@ -60,7 +111,7 @@ export function TaskBoardSurface({
   const toast = useToast();
   const supported = useTasksSupported(serverId);
   const { snapshot, isLoading, isError, error, refetch } = useTasks(serverId);
-  const { moveTask, reviewTask, deleteTask } = useTaskMutations(serverId);
+  const { moveTask, reviewTask, deleteTask, setPriority } = useTaskMutations(serverId);
   const [selectedColumn, setSelectedColumn] = useState<TaskStatus>("backlog");
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
   const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
@@ -73,6 +124,17 @@ export function TaskBoardSurface({
         : selectProjectBoard(snapshot, paseoProjectId),
     [paseoProjectId, snapshot, trackerProjectId],
   );
+  const preferenceScope = `${serverId}:${trackerProjectId ?? `paseo:${paseoProjectId}`}`;
+  const preferences = useTaskSurfacePreferencesStore(
+    (state) => state.byScope[preferenceScope] ?? DEFAULT_TASK_SURFACE_PREFERENCES,
+  );
+  const patchPreferences = useTaskSurfacePreferencesStore((state) => state.patchScope);
+  const clearFilters = useTaskSurfacePreferencesStore((state) => state.clearFilters);
+  const visibleTasks = useMemo(
+    () => selectVisibleBoardTasks(board, preferences),
+    [board, preferences],
+  );
+  const isReorderDisabled = hasActiveTaskProjection(preferences);
   // The board as it is now, for continuations that resolve after a request and
   // must not act on the state that started it.
   const tasksRef = useRef(board.tasks);
@@ -81,6 +143,42 @@ export function TaskBoardSurface({
   const projectsById = useMemo(
     () => new Map(board.projects.map((project) => [project.id, project])),
     [board.projects],
+  );
+  const viewOptions = useMemo(
+    () => [
+      {
+        value: "kanban" as const,
+        label: t("kanban.panel.label"),
+        icon: renderKanbanIcon,
+        testID: "task-view-kanban",
+      },
+      {
+        value: "tasks" as const,
+        label: t("tasks.screen.title"),
+        icon: renderTaskListIcon,
+        testID: "task-view-list",
+      },
+    ],
+    [t],
+  );
+  const handlePatchPreferences = useCallback(
+    (patch: Parameters<typeof patchPreferences>[1]) => patchPreferences(preferenceScope, patch),
+    [patchPreferences, preferenceScope],
+  );
+  const handleClearFilters = useCallback(
+    () => clearFilters(preferenceScope),
+    [clearFilters, preferenceScope],
+  );
+  const handleScrollOffsetChange = useCallback(
+    (scrollOffset: number) => patchPreferences(preferenceScope, { scrollOffset }),
+    [patchPreferences, preferenceScope],
+  );
+  const handleCreateBacklogTask = useCallback(() => setCapturingStatus("backlog"), []);
+  const handleSetPriority = useCallback(
+    (input: Parameters<typeof setPriority>[0]) => {
+      void setPriority(input).catch((priorityError) => toast.show(toErrorMessage(priorityError)));
+    },
+    [setPriority, toast],
   );
 
   // The move lands first and stays landed: someone who drags a card to Working
@@ -131,10 +229,17 @@ export function TaskBoardSurface({
   }, []);
 
   const handleReviewTask = useCallback(
-    (input: { taskId: string; verdict: "approve" | "reject" }) => {
-      void reviewTask(input).catch((reviewError) => {
-        toast.show(toErrorMessage(reviewError));
-      });
+    (input: { taskId: string; verdict: "approve" | "reject"; feedback?: string }) => {
+      void reviewTask(input)
+        .then((reviewedTask) => {
+          if (input.verdict === "reject" && reviewedTask.status === "in_review") {
+            toast.show("The task remains in Review; no correction round was started.");
+          }
+          return reviewedTask;
+        })
+        .catch((reviewError) => {
+          toast.show(toErrorMessage(reviewError));
+        });
     },
     [reviewTask, toast],
   );
@@ -224,21 +329,52 @@ export function TaskBoardSurface({
 
   return (
     <>
-      <TaskBoard
-        serverId={serverId}
-        tasks={board.tasks}
+      <TaskSurfaceToolbar
+        preferences={preferences}
+        viewOptions={viewOptions}
         labels={board.labels}
-        projectsById={projectsById}
-        onMoveTask={handleMoveTask}
-        onCreateTask={handleCreateTask}
-        onOpenAgent={handleOpenAgent}
-        onOpenTask={handleOpenTask}
-        onReviewTask={handleReviewTask}
-        onDeleteTask={handleDeleteTask}
-        onCreateWorkflowForTask={onCreateWorkflowForTask}
-        selectedColumn={selectedColumn}
-        onSelectColumn={setSelectedColumn}
+        visibleCount={visibleTasks.length}
+        totalCount={board.tasks.length}
+        onPatch={handlePatchPreferences}
+        onClearFilters={handleClearFilters}
+        onCreateTask={handleCreateBacklogTask}
+        reorderDisabled={isReorderDisabled}
       />
+      {preferences.view === "kanban" ? (
+        <TaskBoard
+          serverId={serverId}
+          tasks={visibleTasks}
+          labels={board.labels}
+          projectsById={projectsById}
+          onMoveTask={handleMoveTask}
+          onCreateTask={handleCreateTask}
+          onOpenAgent={handleOpenAgent}
+          onOpenTask={handleOpenTask}
+          onReviewTask={handleReviewTask}
+          onDeleteTask={handleDeleteTask}
+          onCreateWorkflowForTask={onCreateWorkflowForTask}
+          selectedColumn={selectedColumn}
+          onSelectColumn={setSelectedColumn}
+          dragDisabled={isReorderDisabled}
+        />
+      ) : (
+        <TaskList
+          serverId={serverId}
+          tasks={visibleTasks}
+          totalCount={board.tasks.length}
+          initialScrollOffset={preferences.scrollOffset ?? 0}
+          onScrollOffsetChange={handleScrollOffsetChange}
+          labels={board.labels}
+          projectsById={projectsById}
+          onMoveTask={handleMoveTask}
+          onOpenAgent={handleOpenAgent}
+          onOpenTask={handleOpenTask}
+          onReviewTask={handleReviewTask}
+          onDeleteTask={handleDeleteTask}
+          onSetPriority={handleSetPriority}
+          onCreateWorkflowForTask={onCreateWorkflowForTask}
+        />
+      )}
       {capturingStatus ? (
         <NewTaskSheet
           serverId={serverId}

@@ -31,7 +31,7 @@ export interface UseTaskBoardsResult {
   hostErrors: TaskBoardHostError[];
   isError: boolean;
   error: Error | null;
-  refetch: () => void;
+  refetch: () => Promise<void>;
   isRefetching: boolean;
 }
 
@@ -87,8 +87,8 @@ export function useTaskBoards(): UseTaskBoardsResult {
     hostErrors: query.data?.status === "loaded" ? query.data.hostErrors : [],
     isError: query.isError,
     error: query.error,
-    refetch: () => {
-      void query.refetch();
+    refetch: async () => {
+      await query.refetch();
     },
     isRefetching: query.isRefetching,
   };
