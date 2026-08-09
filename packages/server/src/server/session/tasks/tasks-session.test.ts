@@ -187,6 +187,79 @@ describe("TasksSession workflow requests", () => {
     expect(notified).toEqual([]);
   });
 
+  it("persists a message recipient and its delivery result", async () => {
+    const { projectId, taskId } = await seedTask();
+    await service.attachAgent({ taskId, agentId: "agt_1", workspaceId: "ws_1" });
+
+    await session.handleFeedSendMessageRequest({
+      type: "tasks.feed.send_message.request",
+      requestId: "r1",
+      projectId,
+      taskId,
+      body: "Please continue",
+      recipientAgentIds: ["agt_1"],
+    });
+
+    const entry = payloadOf(emitted, "tasks.feed.send_message.response").entry;
+    expect(entry?.entryKind).toBe("message");
+    expect(entry?.recipients).toEqual([
+      { agentId: "agt_1", workspaceId: "ws_1", deliveryStatus: "delivered" },
+    ]);
+    expect(notified).toHaveLength(1);
+  });
+
+  it("rejects a message recipient that is not attached to the task", async () => {
+    const { projectId, taskId } = await seedTask();
+
+    await session.handleFeedSendMessageRequest({
+      type: "tasks.feed.send_message.request",
+      requestId: "r1",
+      projectId,
+      taskId,
+      body: "Please continue",
+      recipientAgentIds: ["agt_missing"],
+    });
+
+    expect(payloadOf(emitted, "rpc_error").error).toMatch(/not attached to this task/);
+    expect(notified).toEqual([]);
+    expect(
+      (await service.listBoardFeed({ projectId })).filter(
+        (entry) => entry.taskId === taskId && entry.entryKind === "message",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("persists failed delivery when an agent prompt cannot be sent", async () => {
+    const { projectId, taskId } = await seedTask();
+    await service.attachAgent({ taskId, agentId: "agt_1", workspaceId: "ws_1" });
+    const failingSession = new TasksSession({
+      host: { emit: (msg) => emitted.push(msg) },
+      taskService: service,
+      transitions: new TaskTransitionEngine({
+        taskService: service,
+        agentManager: { subscribe: () => () => {}, getAgent: () => null },
+        logger,
+      }),
+      notifyAgent: async () => {
+        throw new Error("agent unavailable");
+      },
+      logger,
+    });
+
+    await failingSession.handleFeedSendMessageRequest({
+      type: "tasks.feed.send_message.request",
+      requestId: "r1",
+      projectId,
+      taskId,
+      body: "Please continue",
+      recipientAgentIds: ["agt_1"],
+    });
+
+    expect(payloadOf(emitted, "tasks.feed.send_message.response").entry?.recipients).toEqual([
+      { agentId: "agt_1", workspaceId: "ws_1", deliveryStatus: "failed" },
+    ]);
+  });
+
   /** The note is refused before it posts: waking eleven agents cannot be taken
    * back, so it must not happen as a side effect of a note that stands. */
   it("refuses an everyone that would wake more agents than the limit", async () => {

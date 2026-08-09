@@ -283,6 +283,19 @@ const MIGRATIONS: readonly string[] = [
       CHECK (integration_status IN ('pending', 'conflicted', 'integrated', 'not_applicable'));
     ALTER TABLE tasks ADD COLUMN integration_error TEXT;
   `,
+  `
+    -- Feed messages retain exactly who was addressed and the daemon's prompt
+    -- delivery outcome. A successful prompt enqueue is not a read receipt.
+    ALTER TABLE task_comments ADD COLUMN entry_kind TEXT
+      CHECK (entry_kind IN ('note', 'agent_update', 'system_event', 'message'));
+    ALTER TABLE task_comments ADD COLUMN recipients_json TEXT;
+
+    CREATE TRIGGER task_revision_comment_delivery_update
+      AFTER UPDATE OF recipients_json ON task_comments
+    BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

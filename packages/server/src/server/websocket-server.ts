@@ -1671,6 +1671,8 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(taskExecutionPolicy): added in v0.3.0-beta.2, remove after the
         // daemon floor includes per-task automation overrides.
         taskExecutionPolicy: this.taskService?.isAvailableNow ?? false,
+        // COMPAT(taskMessages): added in v0.3.0-beta.2, remove after 2027-02-09.
+        taskMessages: this.taskService?.isAvailableNow ?? false,
       },
     };
   }

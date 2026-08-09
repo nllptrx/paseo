@@ -80,3 +80,19 @@ export function formatFeedMentionNotification(input: FeedMentionNotificationInpu
     "Reply by commenting on the task so the board keeps the answer.",
   ].join("\n");
 }
+
+/** An explicit task message is an instruction addressed to this agent. Delivery
+ * only proves that the daemon accepted this prompt; agents do not acknowledge
+ * feed messages back to the tracker yet. */
+export function formatTaskMessageNotification(input: FeedMentionNotificationInput): string {
+  const where = input.task
+    ? `${input.project.prefix}-${input.task.number} "${input.task.title}"`
+    : `the ${input.project.name} board`;
+  return [
+    `You received a task message on ${where}.`,
+    "",
+    input.body,
+    "",
+    "Reply with comment_task so the task feed keeps your update.",
+  ].join("\n");
+}

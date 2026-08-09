@@ -175,6 +175,17 @@ export const TaskIntegrationSchema = z.object({
 });
 export type TaskIntegration = z.infer<typeof TaskIntegrationSchema>;
 
+export const TaskMessageRecipientSchema = z.object({
+  /** Stable Paseo agent identity. This is not a task or provider-subagent key. */
+  agentId: z.string(),
+  /** Workspace at the time of send, retained for useful historical display. */
+  workspaceId: z.string().nullable().optional(),
+  /** `delivered` means the daemon accepted the prompt for the agent. Paseo has
+   * no agent acknowledgement callback, so this never implies read or acted on. */
+  deliveryStatus: z.enum(["pending", "delivered", "failed"]),
+});
+export type TaskMessageRecipient = z.infer<typeof TaskMessageRecipientSchema>;
+
 /**
  * One entry in a board's feed. `taskId` is null when the entry belongs to the
  * board rather than to a card — a settle notice, or a note typed at the board.
@@ -191,6 +202,12 @@ export const TaskCommentSchema = z.object({
   body: z.string(),
   attachments: z.array(TaskAttachmentSchema),
   createdAt: z.string(),
+  /** Added after the original comment model. Missing rows are interpreted from
+   * `kind` by presentation code for compatibility with older daemons. */
+  entryKind: z.enum(["note", "agent_update", "system_event", "message"]).optional(),
+  /** Present only for outbound messages. Kept optional so old clients continue
+   * to parse feed entries from a new daemon. */
+  recipients: z.array(TaskMessageRecipientSchema).optional(),
 });
 export type TaskComment = z.infer<typeof TaskCommentSchema>;
 

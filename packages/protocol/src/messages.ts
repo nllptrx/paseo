@@ -98,6 +98,8 @@ import {
   TasksDependencyRemoveResponseSchema,
   TasksFeedPostRequestSchema,
   TasksFeedPostResponseSchema,
+  TasksFeedSendMessageRequestSchema,
+  TasksFeedSendMessageResponseSchema,
   TasksWorkflowSetRequestSchema,
   TasksWorkflowSetResponseSchema,
   TasksWorkflowClearRequestSchema,
@@ -2862,6 +2864,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   TasksUnsubscribeRequestSchema,
   TasksFeedReadRequestSchema,
   TasksFeedPostRequestSchema,
+  TasksFeedSendMessageRequestSchema,
   TasksDependencyAddRequestSchema,
   TasksDependencyRemoveRequestSchema,
   TasksPresetListRequestSchema,
@@ -3149,6 +3152,8 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(taskExecutionPolicy): added in v0.3.0-beta.2, remove after the
         // daemon floor includes per-task automation overrides.
         taskExecutionPolicy: z.boolean().optional(),
+        // COMPAT(taskMessages): added in v0.3.0-beta.2, remove after 2027-02-09.
+        taskMessages: z.boolean().optional(),
       })
       .optional(),
   })
@@ -5843,6 +5848,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   TasksUnsubscribeResponseSchema,
   TasksFeedReadResponseSchema,
   TasksFeedPostResponseSchema,
+  TasksFeedSendMessageResponseSchema,
   TasksDependencyAddResponseSchema,
   TasksDependencyRemoveResponseSchema,
   TasksPresetListResponseSchema,

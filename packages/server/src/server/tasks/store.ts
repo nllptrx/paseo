@@ -23,7 +23,10 @@ import type {
   TaskExecutionPolicy,
   TaskIntegration,
 } from "@getpaseo/protocol/tasks/types";
-import { TaskExecutionPolicySchema } from "@getpaseo/protocol/tasks/types";
+import {
+  TaskExecutionPolicySchema,
+  TaskMessageRecipientSchema,
+} from "@getpaseo/protocol/tasks/types";
 import {
   BlobPathRowSchema,
   CountRowSchema,
@@ -109,6 +112,8 @@ export interface CreateTaskCommentInput {
   agentId?: string | null;
   workspaceId?: string | null;
   body: string;
+  entryKind?: TaskComment["entryKind"];
+  recipients?: TaskComment["recipients"];
 }
 
 export interface CreateTaskAttachmentInput {
@@ -221,11 +226,13 @@ export async function openTaskStore(input: {
   if (input.databasePath !== ":memory:") {
     mkdirSync(dirname(input.databasePath), { recursive: true });
   }
-  return new TaskStore({
+  const store = new TaskStore({
     database: new DatabaseSync(input.databasePath),
     logger: input.logger,
     ...(input.now ? { now: input.now } : {}),
   });
+  store.markPendingMessageDeliveriesFailed();
+  return store;
 }
 
 /**
@@ -943,11 +950,19 @@ export class TaskStore {
   createComment(input: CreateTaskCommentInput): TaskComment {
     const id = generateId("tcmt");
     const createdAt = this.timestamp();
+    let entryKind = input.entryKind;
+    if (entryKind === undefined) {
+      entryKind = input.kind === "agent" ? "agent_update" : "note";
+      if (input.kind === "system") {
+        entryKind = "system_event";
+      }
+    }
     this.db
       .prepare(
         `INSERT INTO task_comments (
-           id, project_id, task_id, kind, author_name, agent_id, workspace_id, body, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           id, project_id, task_id, kind, author_name, agent_id, workspace_id, body,
+           entry_kind, recipients_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -958,6 +973,8 @@ export class TaskStore {
         input.agentId ?? null,
         input.workspaceId ?? null,
         input.body,
+        entryKind,
+        input.recipients ? JSON.stringify(input.recipients) : null,
         createdAt,
       );
     return {
@@ -971,7 +988,54 @@ export class TaskStore {
       body: input.body,
       attachments: [],
       createdAt,
+      entryKind,
+      ...(input.recipients ? { recipients: [...input.recipients] } : {}),
     };
+  }
+
+  updateCommentRecipients(
+    commentId: string,
+    recipients: NonNullable<TaskComment["recipients"]>,
+  ): TaskComment {
+    this.db
+      .prepare("UPDATE task_comments SET recipients_json = ? WHERE id = ?")
+      .run(JSON.stringify(recipients), commentId);
+    const row = selectOne(
+      this.db.prepare("SELECT * FROM task_comments WHERE id = ?"),
+      TaskCommentRowSchema,
+      "task_comments",
+      [commentId],
+    );
+    if (!row) throw new Error(`No feed entry ${commentId}`);
+    return this.toComment(row);
+  }
+
+  markPendingMessageDeliveriesFailed(): number {
+    const rows = selectAll(
+      this.db.prepare(
+        "SELECT * FROM task_comments WHERE entry_kind = 'message' AND recipients_json IS NOT NULL",
+      ),
+      TaskCommentRowSchema,
+      "task_comments",
+    );
+    let updated = 0;
+    for (const row of rows) {
+      const recipients = TaskMessageRecipientSchema.array().parse(JSON.parse(row.recipients_json!));
+      if (!recipients.some((recipient) => recipient.deliveryStatus === "pending")) {
+        continue;
+      }
+      this.updateCommentRecipients(
+        row.id,
+        recipients.map((recipient) =>
+          Object.assign({}, recipient, {
+            deliveryStatus:
+              recipient.deliveryStatus === "pending" ? "failed" : recipient.deliveryStatus,
+          }),
+        ),
+      );
+      updated += 1;
+    }
+    return updated;
   }
 
   /**
@@ -1008,6 +1072,9 @@ export class TaskStore {
   }
 
   private toComment(row: TaskCommentRow): TaskComment {
+    const recipients = row.recipients_json
+      ? TaskMessageRecipientSchema.array().parse(JSON.parse(row.recipients_json))
+      : undefined;
     return {
       id: row.id,
       projectId: row.project_id,
@@ -1019,6 +1086,8 @@ export class TaskStore {
       body: row.body,
       attachments: this.listAttachments({ commentId: row.id }),
       createdAt: row.created_at,
+      ...(row.entry_kind ? { entryKind: row.entry_kind } : {}),
+      ...(recipients ? { recipients } : {}),
     };
   }
 

@@ -3152,6 +3152,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         agentId: callerAgent?.id ?? null,
         workspaceId: callerAgent?.workspaceId ?? null,
         body,
+        entryKind: callerAgent ? "agent_update" : "note",
       });
       return { content: [], structuredContent: ensureValidJson({ comment }) };
     },

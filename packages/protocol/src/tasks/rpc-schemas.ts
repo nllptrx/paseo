@@ -373,10 +373,31 @@ export const TasksFeedPostRequestSchema = z.object({
   /** Also deliver this to the agents working the named card. A note is history
    * by default; sending it is a separate thing to have asked for. */
   notifyTaskAgents: z.boolean().optional(),
+  /** New clients mark notes explicitly so `@` remains plain history. Missing
+   * preserves the released mention/notify behavior for old clients. */
+  entryKind: z.literal("note").optional(),
 });
 
 export const TasksFeedPostResponseSchema = z.object({
   type: z.literal("tasks.feed.post.response"),
+  payload: z.object({
+    requestId: z.string(),
+    entry: TaskCommentSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const TasksFeedSendMessageRequestSchema = z.object({
+  type: z.literal("tasks.feed.send_message.request"),
+  requestId: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  body: z.string().trim().min(1),
+  recipientAgentIds: z.array(z.string().trim().min(1)).min(1).max(10),
+});
+
+export const TasksFeedSendMessageResponseSchema = z.object({
+  type: z.literal("tasks.feed.send_message.response"),
   payload: z.object({
     requestId: z.string(),
     entry: TaskCommentSchema.nullable(),

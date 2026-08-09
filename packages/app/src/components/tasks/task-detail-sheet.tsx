@@ -35,7 +35,12 @@ import {
   type TaskStepAction,
 } from "@/tasks/use-task-workflow";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
-import { useTaskExecutionPolicySupported, useTaskMutations } from "@/tasks/use-tasks";
+import {
+  useTaskExecutionPolicySupported,
+  useTaskMessagesSupported,
+  useTaskMutations,
+} from "@/tasks/use-tasks";
+import { useSessionStore } from "@/stores/session-store";
 import { toErrorMessage } from "@/utils/error-messages";
 import { BoardFeedEntryRow } from "./board-feed-entry";
 import {
@@ -55,7 +60,7 @@ export interface TaskDetailSheetProps {
   dependencies: readonly TaskDependencyEdge[];
   workflows: readonly TaskWorkflow[];
   /** Opens the workflow editor for this task; the board owns that sheet. */
-  onEditWorkflow: (taskId: string) => void;
+  onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
   onClose: () => void;
 }
 
@@ -115,7 +120,7 @@ function OpenTaskDetailSheet({
   tasks: readonly Task[];
   dependencies: readonly TaskDependencyEdge[];
   workflow: TaskWorkflow | null;
-  onEditWorkflow: (taskId: string) => void;
+  onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
   labels: readonly TaskLabel[];
   onClose: () => void;
 }): ReactElement {
@@ -124,8 +129,12 @@ function OpenTaskDetailSheet({
   const { setStatus, setPriority, reviewTask, updateTask, createTask, isReviewing, isBusy } =
     useTaskMutations(serverId);
   const { entries } = useBoardFeed({ serverId, projectId: task.projectId });
-  const { post, isPosting } = useBoardFeedComposer({ serverId, projectId: task.projectId });
-  const [draft, setDraft] = useState("");
+  const { post, sendMessage, isPosting } = useBoardFeedComposer({
+    serverId,
+    projectId: task.projectId,
+  });
+  const supportsMessages = useTaskMessagesSupported(serverId);
+  const [noteDraft, setNoteDraft] = useState("");
   const [reviewFeedback, setReviewFeedback] = useState("");
   const [titleDraft, setTitleDraft] = useState(task.title);
   const [descriptionDraft, setDescriptionDraft] = useState(task.description);
@@ -195,7 +204,10 @@ function OpenTaskDetailSheet({
     },
     [act, task.id, toast],
   );
-  const handleEditWorkflow = useCallback(() => onEditWorkflow(task.id), [onEditWorkflow, task.id]);
+  const handleEditWorkflow = useCallback(
+    () => onEditWorkflow(task.id, workflow?.steps),
+    [onEditWorkflow, task.id, workflow?.steps],
+  );
 
   const taskLabels = useMemo(() => resolveTaskLabels(task, labels), [task, labels]);
   const comments = useMemo(
@@ -254,22 +266,17 @@ function OpenTaskDetailSheet({
     [serverId],
   );
 
-  const submitComment = useCallback(
-    (notifyTaskAgents: boolean) => {
-      const body = draft.trim();
-      if (body.length === 0 || isPosting) {
-        return;
-      }
-      setDraft("");
-      void post({ body, taskId: task.id, notifyTaskAgents }).catch((error) => {
-        setDraft(body);
-        toast.show(toErrorMessage(error));
-      });
-    },
-    [draft, isPosting, post, task.id, toast],
-  );
-  const handleComment = useCallback(() => submitComment(false), [submitComment]);
-  const handleCommentAndSend = useCallback(() => submitComment(true), [submitComment]);
+  const submitNote = useCallback(() => {
+    const body = noteDraft.trim();
+    if (body.length === 0 || isPosting) {
+      return;
+    }
+    setNoteDraft("");
+    void post({ body, taskId: task.id }).catch((error) => {
+      setNoteDraft(body);
+      toast.show(toErrorMessage(error));
+    });
+  }, [isPosting, noteDraft, post, task.id, toast]);
 
   const header = useMemo(() => ({ title: formatTaskKey(project, task) }), [project, task]);
 
@@ -534,14 +541,18 @@ function OpenTaskDetailSheet({
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>{t("tasks.detail.commentsHeading")}</Text>
           {comments.length > 0
-            ? comments.map((entry) => <BoardFeedEntryRow key={entry.id} entry={entry} />)
+            ? comments.map((entry) => (
+                <BoardFeedEntryRow key={entry.id} entry={entry} serverId={serverId} />
+              ))
             : null}
+          <Text style={styles.composerHeading}>Add note</Text>
+          <Text style={styles.sectionHint}>Saved to history. Agents are not notified.</Text>
           <View style={styles.composer}>
             <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              onSubmitEditing={handleComment}
-              placeholder={t("tasks.detail.commentPlaceholder")}
+              value={noteDraft}
+              onChangeText={setNoteDraft}
+              onSubmitEditing={submitNote}
+              placeholder="Write a note"
               placeholderTextColor={styles.placeholder.color}
               style={styles.input}
               multiline
@@ -550,25 +561,22 @@ function OpenTaskDetailSheet({
             <Button
               variant="ghost"
               size="sm"
-              onPress={handleComment}
-              disabled={draft.trim().length === 0 || isPosting}
+              onPress={submitNote}
+              disabled={noteDraft.trim().length === 0 || isPosting}
               testID="task-detail-comment-send"
             >
-              {t("tasks.detail.commentSend")}
+              Add note
             </Button>
-            {task.agents.length > 0 ? (
-              <Button
-                variant="default"
-                size="sm"
-                leftIcon={SendHorizontal}
-                onPress={handleCommentAndSend}
-                disabled={draft.trim().length === 0 || isPosting}
-                testID="task-detail-comment-notify"
-              >
-                {t("tasks.detail.commentNotify", { count: task.agents.length })}
-              </Button>
-            ) : null}
           </View>
+          {task.agents.length > 0 ? (
+            <TaskMessageComposer
+              serverId={serverId}
+              task={task}
+              supportsMessages={supportsMessages}
+              sendMessage={sendMessage}
+              isPosting={isPosting}
+            />
+          ) : null}
         </View>
       </View>
     </AdaptiveModalSheet>
@@ -1190,6 +1198,100 @@ function PriorityMenuItem({
   );
 }
 
+function TaskMessageComposer({
+  serverId,
+  task,
+  supportsMessages,
+  sendMessage,
+  isPosting,
+}: {
+  serverId: string;
+  task: Task;
+  supportsMessages: boolean;
+  sendMessage: (input: {
+    body: string;
+    taskId: string;
+    recipientAgentIds: string[];
+  }) => Promise<void>;
+  isPosting: boolean;
+}): ReactElement {
+  const toast = useToast();
+  const [draft, setDraft] = useState("");
+  const [recipientAgentIds, setRecipientAgentIds] = useState<Set<string>>(() => new Set());
+  const toggleRecipient = useCallback((agentId: string) => {
+    setRecipientAgentIds((current) => {
+      const next = new Set(current);
+      if (next.has(agentId)) {
+        next.delete(agentId);
+      } else {
+        next.add(agentId);
+      }
+      return next;
+    });
+  }, []);
+  const submit = useCallback(() => {
+    const body = draft.trim();
+    const recipients = [...recipientAgentIds];
+    if (!body || recipients.length === 0 || isPosting) {
+      return;
+    }
+    setDraft("");
+    void sendMessage({ body, taskId: task.id, recipientAgentIds: recipients }).catch((error) => {
+      setDraft(body);
+      toast.show(toErrorMessage(error));
+    });
+  }, [draft, isPosting, recipientAgentIds, sendMessage, task.id, toast]);
+
+  return (
+    <View style={styles.messageComposer} testID="task-detail-message-composer">
+      <Text style={styles.composerHeading}>Send message</Text>
+      <Text style={styles.sectionHint}>
+        Select attached agents. Delivered means the daemon accepted the prompt, not that the agent
+        read or acknowledged it.
+      </Text>
+      {supportsMessages ? (
+        <>
+          <View style={styles.recipientPicker}>
+            {task.agents.map((link) => (
+              <RecipientButton
+                key={link.agentId}
+                serverId={serverId}
+                agentId={link.agentId}
+                workspaceId={link.workspaceId}
+                selected={recipientAgentIds.has(link.agentId)}
+                onToggle={toggleRecipient}
+              />
+            ))}
+          </View>
+          <View style={styles.composer}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Write an instruction"
+              placeholderTextColor={styles.placeholder.color}
+              style={styles.input}
+              multiline
+              testID="task-detail-message-input"
+            />
+            <Button
+              variant="default"
+              size="sm"
+              leftIcon={SendHorizontal}
+              onPress={submit}
+              disabled={!draft.trim() || recipientAgentIds.size === 0 || isPosting}
+              testID="task-detail-message-send"
+            >
+              Send
+            </Button>
+          </View>
+        </>
+      ) : (
+        <Text style={styles.emptyComments}>Update this host to send task messages.</Text>
+      )}
+    </View>
+  );
+}
+
 /** A reviewer is named as one: it is on the card to judge the work, not to have
  * done it, and reading the list without that is reading it wrong. */
 function AgentRow({
@@ -1207,8 +1309,10 @@ function AgentRow({
 }): ReactElement {
   const { t } = useTranslation();
   const workspace = useWorkspace(serverId, workspaceId);
-  const name = workspace?.title ?? workspace?.name ?? workspaceId;
-  const label = role === "reviewer" ? `${name} · ${t("tasks.detail.reviewerBadge")}` : name;
+  const agent = useSessionStore((state) => state.sessions[serverId]?.agents.get(agentId));
+  const name = agent?.title ?? workspace?.title ?? workspace?.name ?? "Agent";
+  const identity = `${name} · ${agent?.provider ?? "agent"} · ${agentId}`;
+  const label = role === "reviewer" ? `${identity} · ${t("tasks.detail.reviewerBadge")}` : identity;
   const handlePress = useCallback(
     () => onOpenAgent({ workspaceId, agentId }),
     [agentId, onOpenAgent, workspaceId],
@@ -1223,6 +1327,35 @@ function AgentRow({
       testID={`task-detail-agent-${agentId}`}
     >
       {label}
+    </Button>
+  );
+}
+
+function RecipientButton({
+  serverId,
+  agentId,
+  workspaceId,
+  selected,
+  onToggle,
+}: {
+  serverId: string;
+  agentId: string;
+  workspaceId: string;
+  selected: boolean;
+  onToggle: (agentId: string) => void;
+}): ReactElement {
+  const workspace = useWorkspace(serverId, workspaceId);
+  const agent = useSessionStore((state) => state.sessions[serverId]?.agents.get(agentId));
+  const name = agent?.title ?? workspace?.title ?? workspace?.name ?? "Agent";
+  const handlePress = useCallback(() => onToggle(agentId), [agentId, onToggle]);
+  return (
+    <Button
+      variant={selected ? "default" : "outline"}
+      size="sm"
+      onPress={handlePress}
+      testID={`task-detail-message-recipient-${agentId}`}
+    >
+      {name} · {agent?.provider ?? "agent"} · {agentId}
     </Button>
   );
 }
@@ -1445,6 +1578,23 @@ const styles = StyleSheet.create((theme) => ({
   emptyComments: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
+  },
+  composerHeading: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+  },
+  messageComposer: {
+    gap: theme.spacing[2],
+    marginTop: theme.spacing[2],
+    paddingTop: theme.spacing[3],
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+  },
+  recipientPicker: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing[2],
   },
   composer: {
     flexDirection: "row",

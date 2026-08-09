@@ -266,6 +266,24 @@ describe("TaskStore", () => {
     expect(comments[1]?.agentId).toBe("agt_1");
   });
 
+  it("marks interrupted message delivery as failed", () => {
+    const task = store.createTask({ projectId, title: "Message" });
+    store.createComment({
+      projectId,
+      taskId: task.id,
+      kind: "user",
+      authorName: "me",
+      body: "Please continue",
+      entryKind: "message",
+      recipients: [{ agentId: "agt_1", workspaceId: "ws_1", deliveryStatus: "pending" }],
+    });
+
+    expect(store.markPendingMessageDeliveriesFailed()).toBe(1);
+    expect(store.listComments(task.id)[0]?.recipients).toEqual([
+      { agentId: "agt_1", workspaceId: "ws_1", deliveryStatus: "failed" },
+    ]);
+  });
+
   it("hangs an attachment off either a task or a comment, never both", () => {
     const task = store.createTask({ projectId, title: "Attached" });
     const comment = store.createComment({

@@ -253,17 +253,21 @@ throws when pressed is worse than one that says why it cannot be.
 
 ## 6. Board feed [SHIPPED]
 
-The board's feed is the board's comments. `task_comments` already carried what
-a feed entry is — kind, author, agent, body, time — so the entries live there
-rather than in a chat room beside them: a room would be a second copy, and its
-author is required to be an agent, which a board event and a note you type are
-not.
+The board's feed is its durable history. `task_comments` carries notes, agent
+updates, system events, and messages rather than opening a second chat room.
+Every entry has one kind and an optional task; a task-scoped entry appears in
+the task detail and the board feed.
 
 - Migration 3 rebuilt the table board-scoped: `project_id` required, `task_id`
   nullable. A comment on a card is an entry with a card; a note at the board is
   one without.
-- What lands there: agents' `comment_task` calls, every automatic transition
-  (naming the card and what caused it), and what you type in the composer.
+- What lands there: notes typed by a user, agents' `comment_task` updates, every
+  automatic transition (naming the card and what caused it), and messages sent
+  to selected task agents.
+- A note changes no task state and does not notify agents. A message stores its
+  recipient snapshot and each daemon delivery outcome (`pending`, `delivered`,
+  or `failed`). `delivered` means the daemon accepted the prompt; the protocol
+  has no agent read or acknowledgement callback, so the UI never calls it read.
 - Ordering is `created_at` then rowid. Two entries in the same millisecond are
   ordinary — a move and the note about it — and ids are random hex, so ordering
   by them shuffled a cause after its effect.
@@ -272,16 +276,12 @@ not.
 - Surfaces: a resizable right sidebar on the board page (the slot the
   orchestrator pane left, same panel-store width), a sheet on compact, and a
   **Feed** tab in the explorer sidebar when the workspace's project has a
-  board. RPCs `tasks.feed.read`/`tasks.feed.post`; agents read it with
-  `read_board_feed`.
-- `@mention` wakes the agent it names. Targets come from the agents attached to
-  this board's cards and nowhere else — a board is not a directory of the host,
-  and a note here must not be able to page a stranger. The composer offers them
-  by the card each is working, because nobody types an agent id from memory.
-  `@everyone` means the board's agents, capped at 10: a prompt sent to eleven
-  agents cannot be taken back, so it is refused before the note posts rather
-  than delivered as a side effect of one that stands. A mention matching nobody
-  is a sentence, not an error, and the note still posts.
+  board. RPCs are `tasks.feed.read`, `tasks.feed.post`, and
+  `tasks.feed.send_message`; agents read it with `read_board_feed`.
+- Message recipients come from agents attached to the task. A board is not a
+  directory of the host, and a message cannot target a stranger. Task keys and
+  subtask keys identify work; stable agent IDs identify agents; provider
+  subagents remain children of an agent rather than task identities.
 
 ### 6.1 No standing team-lead agent — daemon rules instead [DECIDED]
 

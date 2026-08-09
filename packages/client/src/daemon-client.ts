@@ -623,6 +623,10 @@ type TasksFeedPostPayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.feed.post.response" }
 >["payload"];
+type TasksFeedSendMessagePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.feed.send_message.response" }
+>["payload"];
 type TasksBoardConfigurePayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.board.configure.response" }
@@ -5617,12 +5621,28 @@ export class DaemonClient {
       taskId?: string | null;
       body: string;
       notifyTaskAgents?: boolean;
+      entryKind?: "note";
     },
     requestId?: string,
   ): Promise<TasksFeedPostPayload> {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.feed.post.response">({
       requestId,
       message: { type: "tasks.feed.post.request", ...options },
+    });
+  }
+
+  async tasksFeedSendMessage(
+    options: {
+      projectId: string;
+      taskId: string;
+      body: string;
+      recipientAgentIds: string[];
+    },
+    requestId?: string,
+  ): Promise<TasksFeedSendMessagePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.feed.send_message.response">({
+      requestId,
+      message: { type: "tasks.feed.send_message.request", ...options },
     });
   }
 

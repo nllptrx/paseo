@@ -30,6 +30,13 @@ export function useTaskExecutionPolicySupported(serverId: string): boolean {
   );
 }
 
+/** Explicit persisted messages require recipient delivery metadata. */
+export function useTaskMessagesSupported(serverId: string): boolean {
+  return useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.taskMessages === true,
+  );
+}
+
 /**
  * Whether a card sits in Working with nothing that would make it move on its
  * own: no plan, no agent already on it, and no subtasks carrying plans of their

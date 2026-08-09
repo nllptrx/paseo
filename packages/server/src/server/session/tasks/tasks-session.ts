@@ -5,7 +5,11 @@ import type { SessionInboundMessage, SessionOutboundMessage } from "../../messag
 import type { TaskService } from "../../tasks/service.js";
 import type { TaskTransitionEngine } from "../../tasks/transitions.js";
 import type { TaskStepIdentifier, TaskWorkflowEngine } from "../../tasks/workflow-engine.js";
-import { formatFeedMentionNotification, resolveFeedMentions } from "../../tasks/feed-mentions.js";
+import {
+  formatFeedMentionNotification,
+  formatTaskMessageNotification,
+  resolveFeedMentions,
+} from "../../tasks/feed-mentions.js";
 
 export interface TasksSessionHost {
   emit(msg: SessionOutboundMessage): void;
@@ -393,38 +397,120 @@ export class TasksSession {
 
   async handleFeedPostRequest(request: Inbound<"tasks.feed.post.request">): Promise<void> {
     try {
-      const mentions = resolveFeedMentions({
-        body: request.body,
-        boardAgentIds: await this.taskService.listBoardAgentIds(request.projectId),
-      });
+      // COMPAT(taskMessages): clients before v0.3.0-beta.2 used mentions and
+      // notifyTaskAgents on this RPC. An explicit note marker opts into the new
+      // history-only behavior; absence retains the released side effect.
+      const legacyDelivery = request.entryKind === undefined;
+      const mentions = legacyDelivery
+        ? resolveFeedMentions({
+            body: request.body,
+            boardAgentIds: await this.taskService.listBoardAgentIds(request.projectId),
+          })
+        : { ok: true as const, agentIds: [] };
       if (!mentions.ok) {
         throw new Error(mentions.error);
       }
 
-      const entry = await this.taskService.createComment({
-        projectId: request.projectId,
-        taskId: request.taskId ?? null,
-        kind: "user",
-        authorName: "user",
-        body: request.body,
-      });
-
       const recipients = new Set(mentions.agentIds);
-      if (request.notifyTaskAgents && request.taskId) {
+      if (legacyDelivery && request.notifyTaskAgents && request.taskId) {
         for (const agentId of await this.taskService.listTaskAgentIds(request.taskId)) {
           recipients.add(agentId);
         }
       }
 
-      await this.notifyMentionedAgents({
+      const recipientSnapshot = [...recipients].map((agentId) => ({
+        agentId,
+        workspaceId: null,
+        deliveryStatus: "pending" as const,
+      }));
+      let entry = await this.taskService.createComment({
+        projectId: request.projectId,
+        taskId: request.taskId ?? null,
+        kind: "user",
+        authorName: "user",
+        body: request.body,
+        entryKind: recipients.size > 0 ? "message" : "note",
+        ...(recipientSnapshot.length > 0 ? { recipients: recipientSnapshot } : {}),
+      });
+
+      const delivery = await this.notifyMentionedAgents({
         projectId: request.projectId,
         taskId: request.taskId ?? null,
         body: request.body,
         agentIds: [...recipients],
       });
+      if (entry.recipients) {
+        entry = await this.taskService.updateCommentRecipients(
+          entry.id,
+          entry.recipients.map((recipient) => ({
+            ...recipient,
+            deliveryStatus: delivery.get(recipient.agentId) ?? "failed",
+          })),
+        );
+      }
 
       this.host.emit({
         type: "tasks.feed.post.response",
+        payload: { requestId: request.requestId, entry, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
+  async handleFeedSendMessageRequest(
+    request: Inbound<"tasks.feed.send_message.request">,
+  ): Promise<void> {
+    try {
+      const task = await this.taskService.getTask(request.taskId);
+      if (!task || task.projectId !== request.projectId) {
+        throw new Error("The message task does not belong to this board");
+      }
+      const links = await this.taskService.listTaskAgents(request.taskId);
+      const linksByAgentId = new Map(links.map((link) => [link.agentId, link]));
+      const recipientIds = [...new Set(request.recipientAgentIds)];
+      const missing = recipientIds.filter((agentId) => !linksByAgentId.has(agentId));
+      if (missing.length > 0) {
+        throw new Error(`Message recipients are not attached to this task: ${missing.join(", ")}`);
+      }
+
+      let entry = await this.taskService.createComment({
+        projectId: request.projectId,
+        taskId: request.taskId,
+        kind: "user",
+        authorName: "user",
+        body: request.body,
+        entryKind: "message",
+        recipients: recipientIds.map((agentId) => ({
+          agentId,
+          workspaceId: linksByAgentId.get(agentId)?.workspaceId ?? null,
+          deliveryStatus: "pending",
+        })),
+      });
+
+      const project = await this.taskService.getProject(request.projectId);
+      const text = project
+        ? formatTaskMessageNotification({ project, task, body: request.body })
+        : request.body;
+      const recipients = await Promise.all(
+        entry.recipients?.map(async (recipient) => {
+          try {
+            if (!this.notifyAgent) throw new Error("Agent delivery is unavailable on this host");
+            await this.notifyAgent({ agentId: recipient.agentId, text });
+            return { ...recipient, deliveryStatus: "delivered" as const };
+          } catch (error) {
+            this.logger.warn(
+              { err: error, agentId: recipient.agentId, taskId: request.taskId },
+              "Could not deliver a task feed message",
+            );
+            return { ...recipient, deliveryStatus: "failed" as const };
+          }
+        }) ?? [],
+      );
+      entry = await this.taskService.updateCommentRecipients(entry.id, recipients);
+
+      this.host.emit({
+        type: "tasks.feed.send_message.response",
         payload: { requestId: request.requestId, entry, error: null },
       });
     } catch (error) {
@@ -442,13 +528,14 @@ export class TasksSession {
     taskId: string | null;
     body: string;
     agentIds: readonly string[];
-  }): Promise<void> {
+  }): Promise<Map<string, "delivered" | "failed">> {
+    const delivery = new Map<string, "delivered" | "failed">();
     if (input.agentIds.length === 0 || !this.notifyAgent) {
-      return;
+      return delivery;
     }
     const project = await this.taskService.getProject(input.projectId);
     if (!project) {
-      return;
+      return delivery;
     }
     const task = input.taskId ? await this.taskService.getTask(input.taskId) : null;
     const text = formatFeedMentionNotification({ project, task, body: input.body });
@@ -457,14 +544,17 @@ export class TasksSession {
       input.agentIds.map(async (agentId) => {
         try {
           await this.notifyAgent?.({ agentId, text });
+          delivery.set(agentId, "delivered");
         } catch (error) {
           this.logger.warn(
             { err: error, agentId },
             "Could not deliver a feed mention to the agent it named",
           );
+          delivery.set(agentId, "failed");
         }
       }),
     );
+    return delivery;
   }
 
   async handleDependencyAddRequest(

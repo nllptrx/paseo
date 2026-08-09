@@ -468,6 +468,16 @@ export class TaskService {
     return comment;
   }
 
+  async updateCommentRecipients(
+    commentId: string,
+    recipients: NonNullable<TaskComment["recipients"]>,
+  ): Promise<TaskComment> {
+    const store = await this.require();
+    const comment = store.updateCommentRecipients(commentId, recipients);
+    this.announce(store);
+    return comment;
+  }
+
   private async resolveFeedProjectId(
     store: TaskStore,
     input: CreateFeedEntryInput,

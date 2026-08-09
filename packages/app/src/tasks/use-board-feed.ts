@@ -6,7 +6,7 @@ import { useFetchQuery } from "@/data/query";
 import { tasksPushRoute } from "@/data/push-router";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { boardFeedQueryKey } from "@/tasks/task-query-keys";
-import { useTasksSupported } from "@/tasks/use-tasks";
+import { useTaskMessagesSupported, useTasksSupported } from "@/tasks/use-tasks";
 
 export { boardFeedQueryBaseKey, boardFeedQueryKey } from "@/tasks/task-query-keys";
 
@@ -64,10 +64,11 @@ export function useBoardFeed(input: {
 }
 
 export interface UseBoardFeedComposerResult {
-  post: (input: {
+  post: (input: { body: string; taskId?: string | null }) => Promise<void>;
+  sendMessage: (input: {
     body: string;
-    taskId?: string | null;
-    notifyTaskAgents?: boolean;
+    taskId: string;
+    recipientAgentIds: string[];
   }) => Promise<void>;
   isPosting: boolean;
 }
@@ -79,6 +80,7 @@ export function useBoardFeedComposer(input: {
   const { serverId, projectId } = input;
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
+  const supportsMessages = useTaskMessagesSupported(serverId);
   const queryClient = useQueryClient();
 
   const invalidate = useCallback(() => {
@@ -88,21 +90,18 @@ export function useBoardFeedComposer(input: {
   }, [projectId, queryClient, serverId]);
 
   const mutation = useMutation({
-    mutationFn: async (entry: {
-      body: string;
-      taskId?: string | null;
-      notifyTaskAgents?: boolean;
-    }) => {
+    mutationFn: async (entry: { body: string; taskId?: string | null }) => {
       if (!client || !projectId) {
         throw new Error(t("common.errors.daemonClientUnavailable"));
+      }
+      if (!supportsMessages && entry.body.includes("@")) {
+        throw new Error(t("tasks.feed.legacyNoteWarning"));
       }
       const payload = await client.tasksFeedPost({
         projectId,
         body: entry.body,
+        ...(supportsMessages ? { entryKind: "note" as const } : {}),
         ...(entry.taskId !== undefined ? { taskId: entry.taskId } : {}),
-        ...(entry.notifyTaskAgents !== undefined
-          ? { notifyTaskAgents: entry.notifyTaskAgents }
-          : {}),
       });
       if (payload.error) {
         throw new Error(payload.error);
@@ -111,10 +110,24 @@ export function useBoardFeedComposer(input: {
     onSettled: invalidate,
   });
 
+  const messageMutation = useMutation({
+    mutationFn: async (message: { body: string; taskId: string; recipientAgentIds: string[] }) => {
+      if (!client || !projectId) {
+        throw new Error(t("common.errors.daemonClientUnavailable"));
+      }
+      const payload = await client.tasksFeedSendMessage({ projectId, ...message });
+      if (payload.error) throw new Error(payload.error);
+    },
+    onSettled: invalidate,
+  });
+
   return {
     post: async (entry) => {
       await mutation.mutateAsync(entry);
     },
-    isPosting: mutation.isPending,
+    sendMessage: async (message) => {
+      await messageMutation.mutateAsync(message);
+    },
+    isPosting: mutation.isPending || messageMutation.isPending,
   };
 }

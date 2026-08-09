@@ -2,6 +2,8 @@ import { useCallback, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { TaskComment } from "@getpaseo/protocol/tasks/types";
+import { useWorkspace } from "@/stores/session-store-hooks";
+import { useSessionStore } from "@/stores/session-store";
 
 /** Wall-clock time only: a feed you read top to bottom already carries the day. */
 export function formatEntryTime(createdAt: string): string {
@@ -11,6 +13,22 @@ export function formatEntryTime(createdAt: string): string {
   }
   return at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
+
+export function resolveFeedEntryKind(
+  entry: Pick<TaskComment, "kind" | "entryKind">,
+): NonNullable<TaskComment["entryKind"]> {
+  if (entry.entryKind) return entry.entryKind;
+  if (entry.kind === "agent") return "agent_update";
+  if (entry.kind === "system") return "system_event";
+  return "note";
+}
+
+const ENTRY_KIND_LABELS: Record<NonNullable<TaskComment["entryKind"]>, string> = {
+  note: "Note",
+  agent_update: "Agent update",
+  system_event: "System event",
+  message: "Message",
+};
 
 /**
  * One feed entry — author, optional card key, time, body. Shared by the
@@ -25,10 +43,12 @@ export function BoardFeedEntryRow({
   entry,
   taskKey,
   onOpenTask,
+  serverId,
 }: {
   entry: TaskComment;
   taskKey?: string | undefined;
   onOpenTask?: ((taskId: string) => void) | undefined;
+  serverId?: string | undefined;
 }): ReactElement {
   const taskId = entry.taskId;
   const canOpenTask = taskId !== null && onOpenTask !== undefined;
@@ -39,9 +59,13 @@ export function BoardFeedEntryRow({
   }, [taskId, onOpenTask]);
 
   const isSystem = entry.kind === "system";
+  const entryKind = resolveFeedEntryKind(entry);
   return (
     <View style={styles.entry} testID={`board-feed-entry-${entry.id}`}>
       <View style={styles.entryHeader}>
+        <Text style={[styles.kind, styles[`kind_${entryKind}`]]}>
+          {ENTRY_KIND_LABELS[entryKind]}
+        </Text>
         <Text style={[styles.author, isSystem && styles.authorSystem]} numberOfLines={1}>
           {entry.authorName}
         </Text>
@@ -53,6 +77,45 @@ export function BoardFeedEntryRow({
         <Text style={styles.time}>{formatEntryTime(entry.createdAt)}</Text>
       </View>
       <Text style={[styles.body, isSystem && styles.bodySystem]}>{entry.body}</Text>
+      {entryKind === "message" && entry.recipients ? (
+        <View style={styles.recipients}>
+          {entry.recipients.map((recipient) => (
+            <MessageRecipientRow
+              key={recipient.agentId}
+              serverId={serverId}
+              recipient={recipient}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function MessageRecipientRow({
+  serverId,
+  recipient,
+}: {
+  serverId: string | undefined;
+  recipient: NonNullable<TaskComment["recipients"]>[number];
+}): ReactElement {
+  const workspace = useWorkspace(serverId ?? null, recipient.workspaceId ?? null);
+  const agent = useSessionStore((state) =>
+    serverId ? state.sessions[serverId]?.agents.get(recipient.agentId) : undefined,
+  );
+  const name = agent?.title ?? workspace?.title ?? workspace?.name ?? agent?.provider ?? "Agent";
+  const provider = agent?.provider ? ` · ${agent.provider}` : "";
+  return (
+    <View style={styles.recipientRow} testID={`board-feed-recipient-${recipient.agentId}`}>
+      <Text style={styles.recipientIdentity} numberOfLines={1}>
+        To {name}
+        {provider} · {recipient.agentId}
+      </Text>
+      <Text
+        style={[styles.delivery, recipient.deliveryStatus === "failed" && styles.deliveryFailed]}
+      >
+        {recipient.deliveryStatus}
+      </Text>
     </View>
   );
 }
@@ -100,6 +163,26 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
   },
+  kind: {
+    paddingHorizontal: theme.spacing[1],
+    paddingVertical: 2,
+    borderRadius: theme.borderRadius.sm,
+    color: theme.colors.foregroundMuted,
+    backgroundColor: theme.colors.surface1,
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.medium,
+  },
+  kind_note: {},
+  kind_agent_update: {
+    color: theme.colors.accent,
+  },
+  kind_system_event: {
+    fontStyle: "italic",
+  },
+  kind_message: {
+    color: theme.colors.foreground,
+    backgroundColor: theme.colors.surface2,
+  },
   author: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.xs,
@@ -126,5 +209,27 @@ const styles = StyleSheet.create((theme) => ({
   bodySystem: {
     color: theme.colors.foregroundMuted,
     fontStyle: "italic",
+  },
+  recipients: {
+    gap: theme.spacing[1],
+    paddingTop: theme.spacing[1],
+  },
+  recipientRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  recipientIdentity: {
+    flex: 1,
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  delivery: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    textTransform: "capitalize",
+  },
+  deliveryFailed: {
+    color: theme.colors.statusDanger,
   },
 }));
