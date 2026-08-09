@@ -92,21 +92,6 @@ async function seedTrackerTask(
   return { projectId: project.project.id, taskId: task.task.id };
 }
 
-async function attachAgentToTask(
-  workspace: SeededWorkspace,
-  taskId: string,
-  agentId: string,
-): Promise<void> {
-  const result = await trackerClient(workspace).tasksAgentAttach({
-    taskId,
-    agentId,
-    workspaceId: workspace.workspaceId,
-  });
-  if (result.error) {
-    throw new Error(`Failed to attach ${agentId}: ${result.error}`);
-  }
-}
-
 async function readTaskStatus(workspace: SeededWorkspace, taskId: string): Promise<string | null> {
   const payload = await trackerClient(workspace).tasksSnapshot();
   return payload.snapshot?.tasks.find((task) => task.id === taskId)?.status ?? null;
@@ -654,16 +639,10 @@ test.describe("Kanbans board", () => {
     await expect(page.getByTestId("app-toast-message")).toHaveCount(0);
   });
 
-  /** A mention has to be pickable: nobody types an agent id from memory, so the
-   * composer offers the agents on this board by the card each is working. */
-  test("the feed composer offers the board's agents to mention", async ({ page }) => {
-    const workspace = await seedWorkspace({ repoPrefix: "kanban-mention-" });
+  test("the feed composer records a board note without mention actions", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-note-" });
     cleanupTasks.push(() => workspace.cleanup());
-    const seeded = await seedTrackerTask(workspace, `Mention task ${Date.now()}`);
-    // The daemon's agent subscription validates the id, so a fake agent still
-    // has to look like one.
-    const agentId = "11111111-2222-4333-8444-555555555555";
-    await attachAgentToTask(workspace, seeded.taskId, agentId);
+    const seeded = await seedTrackerTask(workspace, `Note task ${Date.now()}`);
 
     await openBoard(page, seeded.projectId);
     const feed = page.getByTestId("board-feed-pane");
@@ -672,14 +651,10 @@ test.describe("Kanbans board", () => {
     }
     await expect(feed).toBeVisible({ timeout: 10_000 });
 
-    await page.getByTestId("board-feed-composer-input").fill("ping @");
-    const option = page.getByTestId(`board-feed-mention-${agentId}`);
-    await expect(option).toBeVisible({ timeout: 10_000 });
-    await option.click();
-
-    await expect(page.getByTestId("board-feed-composer-input")).toHaveValue(
-      new RegExp(`@${agentId}`),
-    );
+    const note = `Board note ${Date.now()}`;
+    await page.getByTestId("board-feed-composer-input").fill(note);
+    await page.getByTestId("board-feed-send").click();
+    await expect(feed).toContainText(note, { timeout: 30_000 });
   });
 
   /** A press always opens the card, whatever is attached to it. The old rule —
