@@ -1130,6 +1130,81 @@ describe("Suite G: Task Tools", () => {
     }
   }, 20_000);
 
+  test("an agent delivers a board comment to a sibling card's attached agent", async () => {
+    const project = await callToolStructured(topLevelClient, "create_task_project", {
+      name: "Delivery tracker",
+      prefix: "dvr",
+    });
+    const projectId = str(project.projectId);
+    const source = await callToolStructured(topLevelClient, "create_task", {
+      projectId,
+      title: "Source card",
+    });
+    const target = await callToolStructured(topLevelClient, "create_task", {
+      projectId,
+      title: "Target card",
+    });
+    const sourceTaskId = str((source.task as StructuredContent).id);
+    const targetTaskId = str((target.task as StructuredContent).id);
+
+    let sourceAgentId: string | null = null;
+    let targetAgentId: string | null = null;
+    let sourceClient: McpClient | null = null;
+    let targetClient: McpClient | null = null;
+    try {
+      sourceAgentId = await createTopLevelAgent({ title: "Source worker" });
+      targetAgentId = await createTopLevelAgent({ title: "Target worker" });
+      sourceClient = await createMcpClient(
+        `http://127.0.0.1:${daemonHandle.port}/mcp/agents?callerAgentId=${encodeURIComponent(sourceAgentId)}`,
+      );
+      targetClient = await createMcpClient(
+        `http://127.0.0.1:${daemonHandle.port}/mcp/agents?callerAgentId=${encodeURIComponent(targetAgentId)}`,
+      );
+      await callToolStructured(sourceClient, "attach_task_agent", { taskId: sourceTaskId });
+      await callToolStructured(targetClient, "attach_task_agent", { taskId: targetTaskId });
+
+      const otherProject = await callToolStructured(topLevelClient, "create_task_project", {
+        name: "Other delivery tracker",
+        prefix: "odv",
+      });
+      const otherTask = await callToolStructured(topLevelClient, "create_task", {
+        projectId: str(otherProject.projectId),
+        title: "Outside card",
+      });
+      await expectToolError(
+        sourceClient,
+        "comment_task",
+        {
+          taskId: str((otherTask.task as StructuredContent).id),
+          body: "This must stay on its own board.",
+          deliver: true,
+        },
+        /not on a board attached to agent/i,
+      );
+
+      const delivered = await callToolStructured(sourceClient, "comment_task", {
+        taskId: targetTaskId,
+        body: "The shared API changed; update your caller.",
+        deliver: true,
+      });
+      const comment = delivered.comment as StructuredContent;
+      expect(comment.kind).toBe("agent");
+      expect(comment.agentId).toBe(sourceAgentId);
+      expect(comment.entryKind).toBe("message");
+      expect(recordArr(comment.recipients)).toEqual([
+        expect.objectContaining({
+          agentId: targetAgentId,
+          deliveryStatus: "delivered",
+        }),
+      ]);
+    } finally {
+      await sourceClient?.close();
+      await targetClient?.close();
+      await archiveAgentIfPresent(sourceAgentId);
+      await archiveAgentIfPresent(targetAgentId);
+    }
+  }, 20_000);
+
   test("refuses to run a blocked workflow before an agent starts", async () => {
     const project = await callToolStructured(topLevelClient, "create_task_project", {
       name: "Blocked workflow",

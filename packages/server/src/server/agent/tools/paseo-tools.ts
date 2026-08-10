@@ -60,10 +60,11 @@ import {
   waitForAgentWithTimeout,
 } from "../mcp-shared.js";
 import { sendPromptToAgent, setupFinishNotification } from "../agent-prompt.js";
-import type { TaskService } from "../../tasks/service.js";
+import type { CreateFeedEntryInput, TaskService } from "../../tasks/service.js";
 import type { TaskTransitionEngine } from "../../tasks/transitions.js";
 import type { TaskWorkflowEngine } from "../../tasks/workflow-engine.js";
 import { getTaskContext, TaskContextSchema } from "../../tasks/task-context.js";
+import { formatTaskMessageNotification } from "../../tasks/feed-mentions.js";
 import {
   StepInputSchema,
   StepSchema,
@@ -126,6 +127,7 @@ export interface PaseoToolHostDependencies {
     | "createTask"
     | "updateTask"
     | "createComment"
+    | "writeFeedEntry"
     | "attachAgent"
     | "listTaskAgents"
     | "listSubtasks"
@@ -133,6 +135,7 @@ export interface PaseoToolHostDependencies {
     | "listBoardFeed"
     | "listTaskAgentIds"
     | "listTaskWorkerIds"
+    | "findTasksByAgent"
     | "addDependency"
     | "removeDependency"
     | "listBlockers"
@@ -3176,16 +3179,19 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     "comment_task",
     {
       title: "Comment on task",
-      description: "Add a comment to a task. Agent comments carry the calling agent's identity.",
+      description:
+        "Add a comment to a task. Agent comments carry the calling agent's identity. Set deliver only when the entry blocks or invalidates work on another card; delivery goes through the board to that card's attached agents.",
       inputSchema: {
         taskId: z.string().trim().min(1),
         body: z.string().trim().min(1),
+        deliver: z.boolean().optional().default(false),
       },
       outputSchema: { comment: TaskCommentSchema },
     },
-    async ({ taskId, body }) => {
+    async ({ taskId, body, deliver }) => {
+      const service = requireTaskService();
       const callerAgent = resolveCallerAgent();
-      const comment = await requireTaskService().createComment({
+      const author: CreateFeedEntryInput = {
         taskId,
         kind: callerAgent ? "agent" : "user",
         authorName: callerAgent?.config.title ?? callerAgent?.id ?? "user",
@@ -3193,6 +3199,34 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         workspaceId: callerAgent?.workspaceId ?? null,
         body,
         entryKind: callerAgent ? "agent_update" : "note",
+      };
+      if (!deliver) {
+        const comment = await service.createComment(author);
+        return { content: [], structuredContent: ensureValidJson({ comment }) };
+      }
+      const task = await service.getTask(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+      if (callerAgent) {
+        const callerTaskIds = await service.findTasksByAgent(callerAgent.id);
+        const callerTasks = await Promise.all(callerTaskIds.map((id) => service.getTask(id)));
+        const sharesBoard = callerTasks.some(
+          (candidate) => candidate?.projectId === task.projectId,
+        );
+        if (!sharesBoard) {
+          throw new Error(`Task ${taskId} is not on a board attached to agent ${callerAgent.id}`);
+        }
+      }
+      const project = await service.getProject(task.projectId);
+      if (!project) {
+        throw new Error(`Task project not found: ${task.projectId}`);
+      }
+      const recipientAgentIds = await service.listTaskAgentIds(taskId);
+      const text = formatTaskMessageNotification({ project, task, body });
+      const comment = await service.writeFeedEntry({
+        ...author,
+        delivery: { scope: "task", agentIds: recipientAgentIds, text },
       });
       return { content: [], structuredContent: ensureValidJson({ comment }) };
     },
