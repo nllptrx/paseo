@@ -71,6 +71,8 @@ interface WorktreeWorkspaceInput {
 
 export interface TaskGitIntegration {
   isRepository(cwd: string): Promise<boolean>;
+  /** A repository on an unborn branch has no ref any branch can start from. */
+  hasCommits(cwd: string): Promise<boolean>;
   resolveDefaultBranch(cwd: string): Promise<string>;
   branchExists(cwd: string, branch: string): Promise<boolean>;
   createBranch(cwd: string, branch: string, baseBranch: string): Promise<void>;
@@ -113,6 +115,8 @@ export interface TaskWorkflowEngineDeps {
   createWorktreeWorkspace: (
     input: WorktreeWorkspaceInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
+  /** Opens the folder itself as a workspace, for projects Git cannot back. */
+  createDirectoryWorkspace: (input: WorktreeWorkspaceInput) => Promise<PersistedWorkspaceRecord>;
   archiveWorkspace: (workspaceId: string) => Promise<void>;
   resumeAgent?: (input: { agentId: string; prompt: string }) => Promise<void>;
   logger: Logger;
@@ -180,13 +184,35 @@ export const defaultTaskGitIntegration: TaskGitIntegration = {
     });
     return result.exitCode === 0;
   },
+  async hasCommits(cwd) {
+    const head = await runGitCommand(["rev-parse", "--verify", "--quiet", "HEAD"], {
+      cwd,
+      acceptExitCodes: [0, 1, 128],
+    });
+    return head.stdout.trim().length > 0;
+  },
   async resolveDefaultBranch(cwd) {
     const remote = await runGitCommand(
       ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
       { cwd, acceptExitCodes: [0, 1, 128] },
     );
-    if (remote.exitCode === 0 && remote.stdout.trim()) {
-      return remote.stdout.trim().replace(/^origin\//, "");
+    const remoteRef = remote.exitCode === 0 ? remote.stdout.trim() : "";
+    if (remoteRef) {
+      const localName = remoteRef.replace(/^origin\//, "");
+      const local = await runGitCommand(
+        ["show-ref", "--verify", "--quiet", `refs/heads/${localName}`],
+        { cwd, acceptExitCodes: [0, 1] },
+      );
+      return local.exitCode === 0 ? localName : remoteRef;
+    }
+    const head = await runGitCommand(["rev-parse", "--verify", "--quiet", "HEAD"], {
+      cwd,
+      acceptExitCodes: [0, 1, 128],
+    });
+    if (!head.stdout.trim()) {
+      throw new Error(
+        `The project repository at ${cwd} has no commits yet, so agent work has nothing to branch from. Make an initial commit and try again.`,
+      );
     }
     const current = await runGitCommand(["branch", "--show-current"], { cwd });
     if (!current.stdout.trim()) throw new Error("Unable to determine the project's default branch");
@@ -314,6 +340,9 @@ export class TaskWorkflowEngine {
   private readonly createWorktreeWorkspace: (
     input: WorktreeWorkspaceInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
+  private readonly createDirectoryWorkspace: (
+    input: WorktreeWorkspaceInput,
+  ) => Promise<PersistedWorkspaceRecord>;
   private readonly archiveWorkspace: (workspaceId: string) => Promise<void>;
   private readonly resumeAgent: TaskWorkflowEngineDeps["resumeAgent"];
   private readonly taskGit: TaskGitIntegration;
@@ -335,6 +364,7 @@ export class TaskWorkflowEngine {
     this.getWorkspace = deps.getWorkspace;
     this.getProjectRootCwd = deps.getProjectRootCwd;
     this.createWorktreeWorkspace = deps.createWorktreeWorkspace;
+    this.createDirectoryWorkspace = deps.createDirectoryWorkspace;
     this.archiveWorkspace = deps.archiveWorkspace;
     this.resumeAgent = deps.resumeAgent;
     this.taskGit = deps.taskGit ?? defaultTaskGitIntegration;
@@ -690,7 +720,8 @@ export class TaskWorkflowEngine {
     return null;
   }
 
-  private async resolveProjectRootCwd(taskId: string): Promise<string> {
+  /** The folder the task's work belongs in, whether or not Git backs it. */
+  private async resolveTaskWorkCwd(taskId: string): Promise<string> {
     const task = await this.taskService.getTask(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -701,13 +732,42 @@ export class TaskWorkflowEngine {
     }
     for (const link of await this.taskService.listTaskAgents(taskId)) {
       const workspace = await this.getWorkspace(link.workspaceId);
-      if (workspace && !workspace.archivedAt && (await this.taskGit.isRepository(workspace.cwd))) {
+      if (workspace && !workspace.archivedAt) {
         return workspace.cwd;
       }
     }
     throw new Error(
-      `Task ${taskId} cannot create a worktree: its board is not linked to a Git workspace`,
+      `Task ${taskId} has no folder to work in: link its board to a project, or start the task from a workspace`,
     );
+  }
+
+  /**
+   * The task's Git delivery boundary, or null when the folder cannot provide
+   * one. A folder outside Git, or a repository whose first commit does not exist
+   * yet, still hosts agent work — it just cannot carry a branch per task.
+   */
+  private async resolveTaskGitBase(
+    taskId: string,
+    requestedBaseBranch?: string,
+  ): Promise<{ cwd: string; baseBranch: string } | null> {
+    const cwd = await this.resolveTaskWorkCwd(taskId);
+    if (!(await this.taskGit.isRepository(cwd))) return null;
+    if (!(await this.taskGit.hasCommits(cwd))) return null;
+    return { cwd, baseBranch: await this.ensureTaskIntegrationBranch(taskId, requestedBaseBranch) };
+  }
+
+  /** Reuses the task's own folder workspace, opening it the first time. */
+  private async resolveDirectoryTarget(taskId: string, prompt: string): Promise<AgentTarget> {
+    const cwd = await this.resolveTaskWorkCwd(taskId);
+    const existing = await this.resolveExistingTaskWorkspace(taskId);
+    if (existing && existing.cwd === cwd) {
+      return existing;
+    }
+    const workspace = await this.createDirectoryWorkspace({
+      cwd,
+      firstAgentContext: { prompt },
+    });
+    return { cwd: workspace.cwd, workspaceId: workspace.workspaceId };
   }
 
   /** Assigns one stable ref to the task. Agent branches can come and go; this
@@ -728,7 +788,7 @@ export class TaskWorkflowEngine {
   ): Promise<string> {
     const task = await this.taskService.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
-    const cwd = await this.resolveProjectRootCwd(taskId);
+    const cwd = await this.resolveTaskWorkCwd(taskId);
     if (task.integration?.branch) {
       if (!(await this.taskGit.branchExists(cwd, task.integration.branch))) {
         throw new Error(`Task branch is missing: ${task.integration.branch}`);
@@ -780,7 +840,11 @@ export class TaskWorkflowEngine {
         if (!hasGitWorker) return;
       }
     }
-    const branch = await this.ensureTaskIntegrationBranch(taskId);
+    const gitBase = await this.resolveTaskGitBase(taskId);
+    // Work done in a folder Git cannot back is already where the person can see
+    // it; there is no branch to merge it into.
+    if (!gitBase) return;
+    const branch = gitBase.baseBranch;
     const seenWorkspaces = new Set<string>();
     try {
       for (const worker of workers) {
@@ -822,7 +886,7 @@ export class TaskWorkflowEngine {
     if (!task.parentTaskId) return;
     const parentBranch = await this.ensureTaskIntegrationBranch(task.parentTaskId);
     const sourceBranch = task.integration.branch;
-    const cwd = await this.resolveProjectRootCwd(taskId);
+    const cwd = await this.resolveTaskWorkCwd(taskId);
     try {
       await this.withIntegrationBranchLock(parentBranch, () =>
         this.taskGit.integrateBranch(
@@ -1055,19 +1119,18 @@ export class TaskWorkflowEngine {
     if (environmentKind === "project_default") {
       const existing = await this.resolveExistingTaskWorkspace(taskId);
       if (existing) {
-        await this.ensureTaskIntegrationBranch(taskId, preset.baseBranch ?? undefined);
+        await this.resolveTaskGitBase(taskId, preset.baseBranch ?? undefined);
         return existing;
       }
     }
-    const sourceCwd = await this.resolveProjectRootCwd(taskId);
-    const baseBranch = await this.ensureTaskIntegrationBranch(
-      taskId,
-      preset.baseBranch ?? undefined,
-    );
+    const gitBase = await this.resolveTaskGitBase(taskId, preset.baseBranch ?? undefined);
+    if (!gitBase) {
+      return this.resolveDirectoryTarget(taskId, prompt);
+    }
     const created = await this.createWorktreeWorkspace({
-      cwd: sourceCwd,
+      cwd: gitBase.cwd,
       firstAgentContext: { prompt },
-      baseBranch,
+      baseBranch: gitBase.baseBranch,
     });
     return {
       cwd: created.workspace.cwd,
@@ -1116,17 +1179,19 @@ export class TaskWorkflowEngine {
       projectPrefix: project.prefix,
       instructions: preset.instructions,
     });
-    const sourceCwd = await this.resolveProjectRootCwd(taskId);
-    const taskBranch = await this.ensureTaskIntegrationBranch(taskId);
-    const reviewWorkspace = await this.createWorktreeWorkspace({
-      cwd: sourceCwd,
-      baseBranch: taskBranch,
-      firstAgentContext: { prompt },
-    });
-    const workspace = {
-      cwd: reviewWorkspace.workspace.cwd,
-      workspaceId: reviewWorkspace.workspace.workspaceId,
-    };
+    const gitBase = await this.resolveTaskGitBase(taskId);
+    // Without a branch there is no separate checkout to review; the reviewer
+    // reads the same folder the work happened in.
+    const workspace = gitBase
+      ? await this.createWorktreeWorkspace({
+          cwd: gitBase.cwd,
+          baseBranch: gitBase.baseBranch,
+          firstAgentContext: { prompt },
+        }).then((created) => ({
+          cwd: created.workspace.cwd,
+          workspaceId: created.workspace.workspaceId,
+        }))
+      : await this.resolveDirectoryTarget(taskId, prompt);
 
     let createdAgentId: string | null = null;
     try {
@@ -1315,7 +1380,7 @@ export class TaskWorkflowEngine {
         if (!workspace || workspace.archivedAt) {
           throw new Error(`Workspace not found: ${step.workspace.workspaceId}`);
         }
-        await this.ensureTaskIntegrationBranch(identifier.taskId, workspace.branch ?? undefined);
+        await this.resolveTaskGitBase(identifier.taskId, workspace.branch ?? undefined);
         return Array.from({ length: agentCount }, () => ({
           cwd: workspace.cwd,
           workspaceId: workspace.workspaceId,
@@ -1330,12 +1395,15 @@ export class TaskWorkflowEngine {
             `Step ${step.id} fans out to ${agentCount} agents but shares one worktree; use worktree_per_agent`,
           );
         }
-        const sourceCwd = await this.resolveProjectRootCwd(identifier.taskId);
-        const baseBranch = await this.ensureTaskIntegrationBranch(identifier.taskId);
+        const gitBase = await this.resolveTaskGitBase(identifier.taskId);
+        if (!gitBase) {
+          const target = await this.resolveDirectoryTarget(identifier.taskId, firstAgentPrompt);
+          return Array.from({ length: agentCount }, () => target);
+        }
         const created = await this.createWorktreeWorkspace({
-          cwd: sourceCwd,
+          cwd: gitBase.cwd,
           firstAgentContext: { prompt: firstAgentPrompt },
-          baseBranch,
+          baseBranch: gitBase.baseBranch,
         });
         return Array.from({ length: agentCount }, () => ({
           cwd: created.workspace.cwd,
@@ -1343,14 +1411,20 @@ export class TaskWorkflowEngine {
         }));
       }
       case "worktree_per_agent": {
-        const sourceCwd = await this.resolveProjectRootCwd(identifier.taskId);
-        const baseBranch = await this.ensureTaskIntegrationBranch(identifier.taskId);
+        const gitBase = await this.resolveTaskGitBase(identifier.taskId);
+        // Several agents can only be kept apart by separate checkouts, and
+        // separate checkouts need Git. Sharing one folder would be a race.
+        if (!gitBase) {
+          throw new Error(
+            `Step ${step.id} gives each of its ${agentCount} agents its own worktree, which needs a Git repository with at least one commit. Commit the project first, or run the step with one agent.`,
+          );
+        }
         const targets: AgentTarget[] = [];
         for (let i = 0; i < agentCount; i++) {
           const created = await this.createWorktreeWorkspace({
-            cwd: sourceCwd,
+            cwd: gitBase.cwd,
             firstAgentContext: { prompt: firstAgentPrompt },
-            baseBranch,
+            baseBranch: gitBase.baseBranch,
           });
           targets.push({ cwd: created.workspace.cwd, workspaceId: created.workspace.workspaceId });
         }

@@ -1252,6 +1252,7 @@ export async function createPaseoDaemon(
       return project.rootPath;
     },
     createWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
+    createDirectoryWorkspace: createScheduleLocalWorkspaceExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
     resumeAgent: async ({ agentId, prompt }) => {
       await sendPromptToAgent({ agentManager, agentStorage, agentId, prompt, logger });

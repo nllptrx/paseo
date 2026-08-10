@@ -97,6 +97,14 @@ function makeStepInput(overrides: Partial<StepInput> = {}): StepInput {
   };
 }
 
+function requireTaskGit(
+  deps: ConstructorParameters<typeof TaskWorkflowEngine>[0],
+): NonNullable<ConstructorParameters<typeof TaskWorkflowEngine>[0]["taskGit"]> {
+  const taskGit = deps.taskGit;
+  if (!taskGit) throw new Error("test task Git adapter is missing");
+  return taskGit;
+}
+
 function stamp(steps: StepInput[]): Step[] {
   return steps.map((step, index) => ({ ...step, id: `stp_${index + 1}`, runs: [] }));
 }
@@ -110,6 +118,7 @@ describe("TaskWorkflowEngine", () => {
   let archivedWorkspaceIds: string[];
   let settledTaskIds: string[];
   let worktreeBaseBranches: Array<string | null>;
+  let directoryWorkspaceCwds: string[];
   let taskBranches: Set<string>;
   let taskBranchBases: Array<{ branch: string; baseBranch: string }>;
   let integratedWorkspaces: Array<{ cwd: string; targetBranch: string }>;
@@ -143,6 +152,7 @@ describe("TaskWorkflowEngine", () => {
     archivedWorkspaceIds = [];
     settledTaskIds = [];
     worktreeBaseBranches = [];
+    directoryWorkspaceCwds = [];
     taskBranches = new Set(["main"]);
     taskBranchBases = [];
     integratedWorkspaces = [];
@@ -194,6 +204,19 @@ describe("TaskWorkflowEngine", () => {
         workspaces.set(workspaceId, workspace);
         return { workspace } as unknown as CreatePaseoWorktreeWorkflowResult;
       },
+      createDirectoryWorkspace: async (input) => {
+        const workspaceId = `ws_dir_${input.cwd.replaceAll("/", "_")}`;
+        const workspace = {
+          workspaceId,
+          cwd: input.cwd,
+          branch: null,
+          isPaseoOwnedWorktree: false,
+          archivedAt: null,
+        };
+        workspaces.set(workspaceId, workspace);
+        directoryWorkspaceCwds.push(input.cwd);
+        return workspace as unknown as PersistedWorkspaceRecord;
+      },
       archiveWorkspace: async (workspaceId: string) => {
         archivedWorkspaceIds.push(workspaceId);
         const workspace = workspaces.get(workspaceId);
@@ -201,6 +224,7 @@ describe("TaskWorkflowEngine", () => {
       },
       taskGit: {
         isRepository: async () => true,
+        hasCommits: async () => true,
         resolveDefaultBranch: async () => "main",
         branchExists: async (_cwd, branch) => taskBranches.has(branch),
         createBranch: async (_cwd, branch, baseBranch) => {
@@ -481,8 +505,8 @@ describe("TaskWorkflowEngine", () => {
     expect(archivedWorkspaceIds).toContain(workspaceId);
   });
 
-  /** A worktree needs a checkout to branch from, and a tracker project can exist
-   * before any code does. The failure has to name that, not surface as a
+  /** Work needs a folder to happen in, and a tracker project can exist before
+   * any code does. The failure has to name that, not surface as a
    * missing-workspace error further down. */
   test("refuses a worktree step when the board is not linked to a Paseo project", async () => {
     const project = await service.createProject({ name: "Loose", prefix: "LSE", color: "#fff" });
@@ -493,7 +517,43 @@ describe("TaskWorkflowEngine", () => {
     });
 
     await expect(engine.runStep({ taskId: task.id, stepId: workflow.steps[0].id })).rejects.toThrow(
-      /not linked to a Git workspace/,
+      /has no folder to work in/,
+    );
+  });
+
+  /** A folder Git cannot back still hosts work: the agent runs in the project
+   * folder, and no task branch is invented for it. */
+  test("runs a worktree step in the project folder when Git cannot back it", async () => {
+    const { taskId, stepIds } = await seedWorkflow([
+      makeStepInput({ workspace: { mode: "worktree" } }),
+    ]);
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      taskGit: { ...requireTaskGit(engineDeps()), isRepository: async () => false },
+    });
+
+    const running = await engine.runStep({ taskId, stepId: stepIds[0] });
+
+    expect(directoryWorkspaceCwds).toEqual(["/repo"]);
+    expect(workspaces.get(running.runs[0].workspaceIds[0])?.cwd).toBe("/repo");
+    expect([...taskBranches].filter((branch) => branch.startsWith("paseo/tasks/"))).toEqual([]);
+    expect((await service.getTask(taskId))?.integration ?? null).toBeNull();
+  });
+
+  test("refuses to fan out into worktrees when Git cannot back the folder", async () => {
+    const { taskId, stepIds } = await seedWorkflow([
+      makeStepInput({
+        workspace: { mode: "worktree_per_agent" },
+        agents: [{ provider: "claude" }, { provider: "claude" }],
+      }),
+    ]);
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      taskGit: { ...requireTaskGit(engineDeps()), hasCommits: async () => false },
+    });
+
+    await expect(engine.runStep({ taskId, stepId: stepIds[0] })).rejects.toThrow(
+      /needs a Git repository with at least one commit/,
     );
   });
 
