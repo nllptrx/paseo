@@ -3222,7 +3222,14 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       if (!project) {
         throw new Error(`Task project not found: ${task.projectId}`);
       }
-      const recipientAgentIds = await service.listTaskAgentIds(taskId);
+      const recipientAgentIds = (await service.listTaskAgentIds(taskId)).filter(
+        (agentId) => agentId !== callerAgent?.id,
+      );
+      if (recipientAgentIds.length === 0) {
+        throw new Error(
+          "Task message delivery needs another attached agent; record this update without deliver instead",
+        );
+      }
       const text = formatTaskMessageNotification({ project, task, body });
       const comment = await service.writeFeedEntry({
         ...author,

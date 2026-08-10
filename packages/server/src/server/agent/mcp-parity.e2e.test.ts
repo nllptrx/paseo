@@ -1162,6 +1162,17 @@ describe("Suite G: Task Tools", () => {
       );
       await callToolStructured(sourceClient, "attach_task_agent", { taskId: sourceTaskId });
       await callToolStructured(targetClient, "attach_task_agent", { taskId: targetTaskId });
+      await expectToolError(
+        sourceClient,
+        "comment_task",
+        {
+          taskId: sourceTaskId,
+          body: "Do not send this back to me.",
+          deliver: true,
+        },
+        /needs another attached agent/i,
+      );
+      await callToolStructured(sourceClient, "attach_task_agent", { taskId: targetTaskId });
 
       const otherProject = await callToolStructured(topLevelClient, "create_task_project", {
         name: "Other delivery tracker",
