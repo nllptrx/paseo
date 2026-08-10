@@ -9,6 +9,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { useWindowDimensions } from "react-native";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
@@ -621,6 +622,9 @@ function FeedSidebar({
   });
   const startWidthRef = useRef(visibleWidth);
   const resizeWidth = useSharedValue(visibleWidth);
+  const [resizePressed, setResizePressed] = useState(false);
+  const showResizeGrip = useCallback(() => setResizePressed(true), []);
+  const hideResizeGrip = useCallback(() => setResizePressed(false), []);
 
   useEffect(() => {
     resizeWidth.value = visibleWidth;
@@ -631,6 +635,9 @@ function FeedSidebar({
       Gesture.Pan()
         .enabled(true)
         .hitSlop({ left: 8, right: 8, top: 0, bottom: 0 })
+        .onBegin(() => {
+          scheduleOnRN(showResizeGrip);
+        })
         .onStart(() => {
           startWidthRef.current = visibleWidth;
           resizeWidth.value = visibleWidth;
@@ -644,8 +651,11 @@ function FeedSidebar({
         })
         .onEnd(() => {
           runOnJS(setFeedWidth)(resizeWidth.value);
+        })
+        .onFinalize(() => {
+          scheduleOnRN(hideResizeGrip);
         }),
-    [resizeWidth, setFeedWidth, viewportWidth, visibleWidth],
+    [hideResizeGrip, resizeWidth, setFeedWidth, showResizeGrip, viewportWidth, visibleWidth],
   );
 
   const resizeAnimatedStyle = useAnimatedStyle(() => ({ width: resizeWidth.value }));
@@ -658,6 +668,7 @@ function FeedSidebar({
         <SidebarResizeHandle
           edge="left"
           gesture={resizeGesture}
+          pressed={resizePressed}
           testID="board-feed-resize-handle"
         />
         <BoardFeedPane
