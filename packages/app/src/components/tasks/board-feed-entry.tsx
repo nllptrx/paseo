@@ -1,9 +1,19 @@
-import { useCallback, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { TaskComment } from "@getpaseo/protocol/tasks/types";
+import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import { useSessionStore } from "@/stores/session-store";
+import {
+  activityFeedEntryCanCollapse,
+  COLLAPSED_FEED_BODY_LINES,
+  feedEntryCanCollapse,
+  flattenMarkdownForFeed,
+  resolveFeedEntryKind,
+} from "./board-feed-entry.logic";
+
+export { resolveFeedEntryKind } from "./board-feed-entry.logic";
 
 /** Wall-clock time only: a feed you read top to bottom already carries the day. */
 export function formatEntryTime(createdAt: string): string {
@@ -11,16 +21,7 @@ export function formatEntryTime(createdAt: string): string {
   if (Number.isNaN(at.getTime())) {
     return "";
   }
-  return at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
-export function resolveFeedEntryKind(
-  entry: Pick<TaskComment, "kind" | "entryKind">,
-): NonNullable<TaskComment["entryKind"]> {
-  if (entry.entryKind) return entry.entryKind;
-  if (entry.kind === "agent") return "agent_update";
-  if (entry.kind === "system") return "system_event";
-  return "note";
+  return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
 }
 
 const ENTRY_KIND_LABELS: Record<NonNullable<TaskComment["entryKind"]>, string> = {
@@ -39,17 +40,39 @@ const ENTRY_KIND_LABELS: Record<NonNullable<TaskComment["entryKind"]>, string> =
  * than padding the text out of the row it sits in. */
 const INLINE_HIT_SLOP = 8;
 
+const ACTIVITY_LINE_HEIGHT = 20;
+const ACTIVITY_PIP_SIZE = 7;
+
 export function BoardFeedEntryRow({
   entry,
   taskKey,
   onOpenTask,
   serverId,
+  collapsible = false,
+  appearance = "standard",
+  activityRepeatCount = 1,
+  activityFirstCreatedAt,
+  activityShowHeader = true,
+  activityIsFirst = false,
+  activityIsLast = false,
 }: {
   entry: TaskComment;
   taskKey?: string | undefined;
   onOpenTask?: ((taskId: string) => void) | undefined;
   serverId?: string | undefined;
+  /** Keeps verbose agent reports from taking over compact task surfaces. */
+  collapsible?: boolean | undefined;
+  /** Task Activity is a chronological stream, not a stack of feed cards. */
+  appearance?: "standard" | "activity" | undefined;
+  activityRepeatCount?: number | undefined;
+  activityFirstCreatedAt?: string | undefined;
+  /** False on entries that continue a same-author run — the run's first entry
+   * already named the author. */
+  activityShowHeader?: boolean | undefined;
+  activityIsFirst?: boolean | undefined;
+  activityIsLast?: boolean | undefined;
 }): ReactElement {
+  const [isExpanded, setIsExpanded] = useState(false);
   const taskId = entry.taskId;
   const canOpenTask = taskId !== null && onOpenTask !== undefined;
   const handlePress = useCallback(() => {
@@ -60,6 +83,34 @@ export function BoardFeedEntryRow({
 
   const isSystem = entry.kind === "system";
   const entryKind = resolveFeedEntryKind(entry);
+  const activityBody = useMemo(
+    () => (appearance === "activity" ? flattenMarkdownForFeed(entry.body) : entry.body),
+    [appearance, entry.body],
+  );
+  const canCollapse =
+    collapsible &&
+    (appearance === "activity"
+      ? activityFeedEntryCanCollapse(activityBody)
+      : feedEntryCanCollapse(entry.body));
+  const toggleExpanded = useCallback(() => setIsExpanded((current) => !current), []);
+  if (appearance === "activity") {
+    return (
+      <ActivityFeedEntry
+        entry={entry}
+        body={activityBody}
+        entryKind={entryKind}
+        serverId={serverId}
+        canCollapse={canCollapse}
+        isExpanded={isExpanded}
+        onToggleExpanded={toggleExpanded}
+        repeatCount={activityRepeatCount}
+        firstCreatedAt={activityFirstCreatedAt}
+        showHeader={activityShowHeader}
+        isFirst={activityIsFirst}
+        isLast={activityIsLast}
+      />
+    );
+  }
   return (
     <View style={styles.entry} testID={`board-feed-entry-${entry.id}`}>
       <View style={styles.entryHeader}>
@@ -76,7 +127,23 @@ export function BoardFeedEntryRow({
         />
         <Text style={styles.time}>{formatEntryTime(entry.createdAt)}</Text>
       </View>
-      <Text style={[styles.body, isSystem && styles.bodySystem]}>{entry.body}</Text>
+      <Text
+        style={[styles.body, isSystem && styles.bodySystem]}
+        numberOfLines={canCollapse && !isExpanded ? COLLAPSED_FEED_BODY_LINES : undefined}
+      >
+        {entry.body}
+      </Text>
+      {canCollapse ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          onPress={toggleExpanded}
+          style={styles.expandButton}
+          testID={`board-feed-entry-${entry.id}-expand`}
+        >
+          {isExpanded ? "Show less" : "Show more"}
+        </Button>
+      ) : null}
       {entryKind === "message" && entry.recipients ? (
         <View style={styles.recipients}>
           {entry.recipients.map((recipient) => (
@@ -88,6 +155,113 @@ export function BoardFeedEntryRow({
           ))}
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function ActivityFeedEntry({
+  entry,
+  body,
+  entryKind,
+  serverId,
+  canCollapse,
+  isExpanded,
+  onToggleExpanded,
+  repeatCount,
+  firstCreatedAt,
+  showHeader,
+  isFirst,
+  isLast,
+}: {
+  entry: TaskComment;
+  body: string;
+  entryKind: NonNullable<TaskComment["entryKind"]>;
+  serverId: string | undefined;
+  canCollapse: boolean;
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
+  repeatCount: number;
+  firstCreatedAt: string | undefined;
+  showHeader: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+}): ReactElement {
+  const isSystem = entryKind === "system_event";
+  const hasHeader = showHeader && !isSystem;
+  const time = formatEntryTime(entry.createdAt);
+  const bodyText = (
+    <Text
+      style={[styles.activityBody, isSystem && styles.activityBodySystem, styles.activityBodyFlex]}
+      numberOfLines={canCollapse && !isExpanded ? 3 : undefined}
+    >
+      {body}
+    </Text>
+  );
+  return (
+    <View style={styles.activityEntry} testID={`board-feed-entry-${entry.id}`}>
+      <View style={styles.activityMarker}>
+        <View
+          style={[
+            styles.activityRail,
+            styles.activityRailTop,
+            isFirst && styles.activityRailHidden,
+          ]}
+        />
+        <View style={[styles.activityPip, styles[`activityPip_${entryKind}`]]} />
+        <View
+          style={[
+            styles.activityRail,
+            styles.activityRailBottom,
+            isLast && styles.activityRailHidden,
+          ]}
+        />
+      </View>
+      <View style={styles.activityContent}>
+        {hasHeader ? (
+          <View style={styles.activityHeader}>
+            <Text style={styles.activityAuthor} numberOfLines={1}>
+              {entry.authorName}
+            </Text>
+            <Text style={styles.activityKind}>{ENTRY_KIND_LABELS[entryKind]}</Text>
+            <Text style={styles.activityTime}>{time}</Text>
+          </View>
+        ) : null}
+        {hasHeader ? (
+          bodyText
+        ) : (
+          <View style={styles.activityBodyRow}>
+            {bodyText}
+            <Text style={styles.activityTime}>{time}</Text>
+          </View>
+        )}
+        {repeatCount > 1 && firstCreatedAt ? (
+          <Text style={styles.activityRepeat}>
+            ×{repeatCount} since {formatEntryTime(firstCreatedAt)}
+          </Text>
+        ) : null}
+        {canCollapse ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            onPress={onToggleExpanded}
+            style={styles.activityExpandButton}
+            testID={`board-feed-entry-${entry.id}-expand`}
+          >
+            {isExpanded ? "Show less" : "Show more"}
+          </Button>
+        ) : null}
+        {entryKind === "message" && entry.recipients ? (
+          <View style={styles.activityRecipients}>
+            {entry.recipients.map((recipient) => (
+              <MessageRecipientRow
+                key={recipient.agentId}
+                serverId={serverId}
+                recipient={recipient}
+              />
+            ))}
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -210,6 +384,10 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontStyle: "italic",
   },
+  expandButton: {
+    alignSelf: "flex-start",
+    marginLeft: -theme.spacing[2],
+  },
   recipients: {
     gap: theme.spacing[1],
     paddingTop: theme.spacing[1],
@@ -231,5 +409,110 @@ const styles = StyleSheet.create((theme) => ({
   },
   deliveryFailed: {
     color: theme.colors.statusDanger,
+  },
+  activityEntry: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  activityTime: {
+    marginLeft: "auto",
+    color: theme.colors.foregroundExtraMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
+    lineHeight: ACTIVITY_LINE_HEIGHT,
+    textAlign: "right",
+  },
+  activityBodyRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: theme.spacing[2],
+  },
+  activityBodyFlex: {
+    flexShrink: 1,
+    flexGrow: 1,
+  },
+  activityMarker: {
+    width: 20,
+    alignItems: "center",
+  },
+  activityRail: {
+    width: 1,
+    backgroundColor: theme.colors.border,
+  },
+  activityRailTop: {
+    // Entry top padding (8) plus the offset that centers the 7px pip on the
+    // 20px first text line.
+    height: theme.spacing[2] + (ACTIVITY_LINE_HEIGHT - ACTIVITY_PIP_SIZE) / 2,
+  },
+  activityRailBottom: {
+    flex: 1,
+  },
+  activityRailHidden: {
+    backgroundColor: "transparent",
+  },
+  activityPip: {
+    width: ACTIVITY_PIP_SIZE,
+    height: ACTIVITY_PIP_SIZE,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.foregroundExtraMuted,
+  },
+  activityPip_note: {
+    backgroundColor: theme.colors.foregroundMuted,
+  },
+  activityPip_agent_update: {
+    backgroundColor: theme.colors.accentBright,
+  },
+  activityPip_system_event: {
+    backgroundColor: theme.colors.foregroundExtraMuted,
+  },
+  activityPip_message: {
+    backgroundColor: theme.colors.statusDotRunning,
+  },
+  activityContent: {
+    flex: 1,
+    minWidth: 0,
+    gap: theme.spacing[1],
+    paddingVertical: theme.spacing[2],
+    paddingRight: theme.spacing[2],
+  },
+  activityHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: theme.spacing[2],
+  },
+  activityAuthor: {
+    flexShrink: 1,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    lineHeight: ACTIVITY_LINE_HEIGHT,
+  },
+  activityKind: {
+    color: theme.colors.foregroundExtraMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
+  },
+  activityBody: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    lineHeight: ACTIVITY_LINE_HEIGHT,
+  },
+  activityBodySystem: {
+    color: theme.colors.foregroundMuted,
+  },
+  activityRepeat: {
+    color: theme.colors.foregroundExtraMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
+  },
+  activityExpandButton: {
+    alignSelf: "flex-start",
+    // Button xs carries spacing[3] horizontal padding; pull it back so the
+    // label ink sits on the content rail.
+    marginLeft: -theme.spacing[3],
+  },
+  activityRecipients: {
+    gap: theme.spacing[1],
+    paddingTop: theme.spacing[1],
   },
 }));
