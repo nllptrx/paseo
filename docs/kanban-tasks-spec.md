@@ -38,6 +38,9 @@ keys, capture) and `Emanuele-web04/synara` (board behaviour).
 - **Derived** (execution): attached agents' live state, read off the agents. A
   task can link several agents across several workspaces; the exact agent links
   define task membership, not every agent that happens to share a workspace.
+  **[DECIDED]** A link whose agent was deleted or archived is pruned when the
+  daemon notices — at boot and when the agent goes away. A card must never
+  show ghosts.
 - Task project ↔ Paseo project via `paseoProjectId`; prefix unique per host.
 - Sync: push `tasks.update { revision }`; a client at the same revision does
   nothing, a client behind refetches. Push-router domain `tasks` app-side.
@@ -170,6 +173,17 @@ are independent writes from different call sites, which is how they drift.
   `review_task`. If no worker can be resumed, the card returns to review
   with the failure in the feed; it never stays in Working with no correction
   running.
+- **[DECIDED]** A reviewer cannot start without the task tools: when the
+  daemon is not injecting its MCP server into agents, starting one would
+  produce a review that cannot record its verdict, so the board refuses and
+  says why in the feed instead of burning the run.
+- **[DECIDED]** A reviewer that ends without a verdict strands its findings in
+  a chat nobody reads. Its final message is posted to the task feed, so a
+  human can turn it into a rejection with feedback — the findings reach the
+  workers either way.
+- **[DECIDED]** A card sitting in review with no live reviewer offers one
+  gesture — Start review — on the card menu and the detail sheet, the same
+  arming a manual move into review performs.
 - A reviewer that ends without a verdict is recorded in the feed and replaced
   once; the second one ending the same way leaves the card to a human. A
   reviewer that neither answers nor stops is cancelled at a 30-minute ceiling
@@ -231,6 +245,13 @@ one-move undo is what prevents it.
 - **Columns** are the statuses. Canceled appears only when populated. Columns
   flex 264–360 wide and scroll vertically on their own inside one horizontal
   board; compact shows one column behind a scrollable segmented picker.
+- **[DECIDED] Threads view** joins the view picker: every attached agent and
+  untracked chat in the project as one live list, grouped by task, newest
+  activity first — role, model, exact execution state, last update. A row
+  opens the chat. The board answers "where is everything", Threads answers
+  "what is running right now"; same data, third projection, no route of its
+  own. This is the surface synara gets right — threads nested and always
+  visible — and cards alone do not give.
 - **View picker** switches between Kanban and Tasks in place. Tasks is the same
   project data grouped by status as dense rows, with one capture action and the
   same detail and menu actions as cards. Search, status/priority/label filters,
