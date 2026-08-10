@@ -41,7 +41,7 @@ export interface CheckStepEvidenceInput {
 export async function checkStepEvidence(
   input: CheckStepEvidenceInput,
 ): Promise<StepEvidenceResult> {
-  if (input.requireChanges) {
+  if (input.requireChanges && (await isGitCheckout(input.cwd))) {
     const changed = await workspaceHasChanges(input.cwd, input.startCommit ?? null);
     if (!changed) {
       return {
@@ -59,6 +59,24 @@ export async function checkStepEvidence(
     verify: input.verify,
     ...(input.signal ? { signal: input.signal } : {}),
   });
+}
+
+/**
+ * Whether Git backs this checkout at all. A project does not have to be a
+ * repository, and a workspace without one has no diff to read: the
+ * changed-anything gate has nothing to measure there and lets the run pass
+ * rather than failing it for a check that cannot apply.
+ */
+async function isGitCheckout(cwd: string): Promise<boolean> {
+  try {
+    const result = await runGitCommand(["rev-parse", "--is-inside-work-tree"], {
+      cwd,
+      acceptExitCodes: [0, 128],
+    });
+    return result.exitCode === 0 && result.stdout.trim() === "true";
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -36,6 +36,18 @@ describe("checkStepEvidence", () => {
     expect(result).toEqual({ ok: true, error: null });
   });
 
+  /** A project does not have to be a repository; the changed-anything gate has
+   * no diff to read there and must not fail the run for it. */
+  it("passes the changes gate in a workspace Git does not back", async () => {
+    const bare = mkdtempSync(join(tmpdir(), "paseo-step-evidence-nogit-"));
+    try {
+      const result = await checkStepEvidence({ cwd: bare, requireChanges: true, verify: null });
+      expect(result).toEqual({ ok: true, error: null });
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
   /** Committing is the tidier habit; requiring a dirty tree would punish it. */
   it("counts committed work as a change", async () => {
     const before = await readHeadCommit(cwd);
