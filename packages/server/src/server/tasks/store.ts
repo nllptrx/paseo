@@ -66,6 +66,14 @@ const POSITION_STEP = 1024;
  * not to scroll further. */
 const DEFAULT_FEED_LIMIT = 200;
 
+function assertValidDueDate(dueDate: string | null | undefined): void {
+  if (dueDate === null || dueDate === undefined) return;
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? new Date(`${dueDate}T00:00:00.000Z`) : null;
+  if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dueDate) {
+    throw new Error("Due date must use YYYY-MM-DD and name a real calendar date");
+  }
+}
+
 /** Where a captured task lands unless the caller names a status. */
 export const DEFAULT_TASK_STATUS: TaskStatus = "backlog";
 
@@ -312,6 +320,15 @@ export class TaskStore {
     const id = generateId("tprj");
     const prefix = input.prefix.trim().toUpperCase();
     const name = input.name.trim();
+    const duplicate = selectOne(
+      this.db.prepare("SELECT * FROM task_projects WHERE prefix = ? COLLATE NOCASE"),
+      TaskProjectRowSchema,
+      "task_projects",
+      [prefix],
+    );
+    if (duplicate) {
+      throw new Error(`A task project with prefix ${prefix} already exists`);
+    }
     const createdAt = this.timestamp();
     this.db
       .prepare(
@@ -442,6 +459,7 @@ export class TaskStore {
   // --- Tasks ---
 
   createTask(input: CreateTaskInput): Task {
+    assertValidDueDate(input.dueDate);
     return this.transaction(() => {
       const projectRow = selectOne(
         this.db.prepare("SELECT next_task_number FROM task_projects WHERE id = ?"),
@@ -574,6 +592,7 @@ export class TaskStore {
   }
 
   updateTask(input: UpdateTaskInput): Task {
+    assertValidDueDate(input.dueDate);
     return this.transaction(() => {
       const current = this.requireTaskRow(input.taskId);
       // Moving between statuses lands the task at the end of its new column;
@@ -1152,7 +1171,7 @@ export class TaskStore {
    * random hex, so ordering by them would shuffle a cause after its effect.
    */
   listBoardFeed(input: { projectId: string; limit?: number }): TaskComment[] {
-    const limit = input.limit ?? DEFAULT_FEED_LIMIT;
+    const limit = Math.min(input.limit ?? DEFAULT_FEED_LIMIT, DEFAULT_FEED_LIMIT);
     const rows = selectAll(
       this.db.prepare(
         `SELECT * FROM task_comments
@@ -1262,6 +1281,16 @@ export class TaskStore {
 
   createPreset(input: CreateTaskPresetInput): TaskPreset {
     const id = generateId("tpst");
+    const name = input.name.trim();
+    const duplicate = selectOne(
+      this.db.prepare("SELECT id FROM task_presets WHERE name = ? COLLATE NOCASE"),
+      z.object({ id: z.string() }),
+      "task_presets",
+      [name],
+    );
+    if (duplicate) {
+      throw new Error(`A task preset named "${name}" already exists`);
+    }
     this.db
       .prepare(
         `INSERT INTO task_presets (
@@ -1271,7 +1300,7 @@ export class TaskStore {
       )
       .run(
         id,
-        input.name.trim(),
+        name,
         input.provider,
         input.model ?? null,
         input.modeId ?? null,

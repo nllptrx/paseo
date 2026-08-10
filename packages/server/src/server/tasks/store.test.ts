@@ -29,7 +29,9 @@ describe("TaskStore", () => {
 
   it("uppercases the prefix and refuses a duplicate", () => {
     expect(store.listProjects()[0]?.prefix).toBe("PSE");
-    expect(() => store.createProject({ name: "Other", prefix: "PSE", color: "#000" })).toThrow();
+    expect(() => store.createProject({ name: "Other", prefix: "pse", color: "#000" })).toThrow(
+      "A task project with prefix PSE already exists",
+    );
   });
 
   it("reuses the board already linked to a Paseo project", () => {
@@ -73,6 +75,22 @@ describe("TaskStore", () => {
     expect(task.priority).toBe("none");
     expect(task.agents).toEqual([]);
     expect(task.commentCount).toBe(0);
+  });
+
+  it("validates due dates before SQLite writes or task-number allocation", () => {
+    expect(() =>
+      store.createTask({ projectId, title: "Timestamp", dueDate: "2026-09-01T10:00:00.000Z" }),
+    ).toThrow("Due date must use YYYY-MM-DD");
+    expect(() =>
+      store.createTask({ projectId, title: "Impossible", dueDate: "2026-02-30" }),
+    ).toThrow("real calendar date");
+
+    const valid = store.createTask({ projectId, title: "Leap day", dueDate: "2028-02-29" });
+    expect(valid.number).toBe(1);
+    expect(() => store.updateTask({ taskId: valid.id, dueDate: "tomorrow" })).toThrow(
+      "Due date must use YYYY-MM-DD",
+    );
+    expect(store.getTask(valid.id)?.dueDate).toBe("2028-02-29");
   });
 
   it("stores task execution exceptions and can return to board defaults", () => {
@@ -505,7 +523,7 @@ describe("TaskStore", () => {
         provider: "codex",
         environmentKind: "project_default",
       }),
-    ).toThrow();
+    ).toThrow('A task preset named "reviewer" already exists');
   });
 
   it("refuses a task on an unknown project without consuming a number", () => {
@@ -704,7 +722,7 @@ describe("TaskStore row shape", () => {
     const store = await openTaskStore({ databasePath: join(directory, "tasks.db"), logger });
     try {
       const projectId = store.createProject({ name: "Paseo", prefix: "PSE", color: "#fff" }).id;
-      for (let index = 0; index < 5; index++) {
+      for (let index = 0; index < 205; index++) {
         store.createComment({
           projectId,
           kind: "user",
@@ -712,8 +730,10 @@ describe("TaskStore row shape", () => {
           body: `entry ${index}`,
         });
       }
-      const feed = store.listBoardFeed({ projectId, limit: 2 });
-      expect(feed.map((entry) => entry.body)).toEqual(["entry 3", "entry 4"]);
+      const feed = store.listBoardFeed({ projectId, limit: 500 });
+      expect(feed).toHaveLength(200);
+      expect(feed[0]?.body).toBe("entry 5");
+      expect(feed.at(-1)?.body).toBe("entry 204");
     } finally {
       store.close();
     }
