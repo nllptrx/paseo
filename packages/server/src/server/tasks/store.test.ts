@@ -511,11 +511,19 @@ describe("TaskStore", () => {
       name: "Reviewer",
       provider: "claude",
       model: "opus",
+      modeId: "bypassPermissions",
+      thinkingOptionId: "high",
+      featureValues: { fast_mode: true },
       environmentKind: "new_worktree",
       baseBranch: "main",
     });
 
     expect(store.getPreset(preset.id)?.model).toBe("opus");
+    expect(store.getPreset(preset.id)).toMatchObject({
+      modeId: "bypassPermissions",
+      thinkingOptionId: "high",
+      featureValues: { fast_mode: true },
+    });
     expect(store.listPresets().map((entry) => entry.name)).toEqual(["Reviewer"]);
     expect(() =>
       store.createPreset({

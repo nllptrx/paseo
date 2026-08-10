@@ -308,6 +308,11 @@ const MIGRATIONS: readonly string[] = [
     -- and rows written by older daemons unchanged.
     ALTER TABLE task_comments ADD COLUMN event_json TEXT;
   `,
+  `
+    -- Presets use the same provider feature map as one-off and workflow agents.
+    -- JSON keeps provider-owned feature ids out of the tracker schema.
+    ALTER TABLE task_presets ADD COLUMN feature_values TEXT;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

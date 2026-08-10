@@ -484,6 +484,7 @@ export const TasksDelegateRequestSchema = z.object({
       model: z.string().trim().min(1).nullable().optional(),
       modeId: z.string().trim().min(1).nullable().optional(),
       thinkingOptionId: z.string().trim().min(1).nullable().optional(),
+      featureValues: z.record(z.string(), z.unknown()).optional(),
       instructions: z.string().optional(),
       environmentKind: z.enum(["project_default", "new_worktree"]).optional(),
     })
@@ -507,6 +508,7 @@ export const TasksPresetCreateRequestSchema = z.object({
   model: z.string().trim().min(1).nullable().optional(),
   modeId: z.string().trim().min(1).nullable().optional(),
   thinkingOptionId: z.string().trim().min(1).nullable().optional(),
+  featureValues: z.record(z.string(), z.unknown()).optional(),
   instructions: z.string().optional(),
   environmentKind: z.enum(["project_default", "new_worktree"]),
   baseBranch: z.string().trim().min(1).nullable().optional(),

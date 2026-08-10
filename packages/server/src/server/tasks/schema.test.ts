@@ -11,6 +11,8 @@ import { migrateTasksDatabase } from "./schema.js";
  * tasks.db is the one database the daemon cannot recreate.
  */
 function rewindToVersion1(db: DatabaseSync): void {
+  db.exec("ALTER TABLE task_presets DROP COLUMN feature_values");
+  db.exec("DELETE FROM schema_version WHERE version = 12");
   db.exec("DELETE FROM schema_version WHERE version = 11");
   db.exec("DROP TRIGGER task_revision_comment_delivery_update");
   db.exec("DELETE FROM schema_version WHERE version = 9");
@@ -106,7 +108,7 @@ describe("migrateTasksDatabase", () => {
         .prepare("SELECT version FROM schema_version ORDER BY version")
         .all()
         .map((row) => (row as { version: number }).version);
-      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
       const project = second.prepare("SELECT * FROM task_projects WHERE id = 'tprj_1'").get() as {
         name: string;
@@ -157,7 +159,7 @@ describe("migrateTasksDatabase", () => {
       const applied = second.prepare("SELECT count(*) AS total FROM schema_version").get() as {
         total: number;
       };
-      expect(applied.total).toBe(11);
+      expect(applied.total).toBe(12);
     } finally {
       second.close();
     }

@@ -48,6 +48,7 @@ export interface TaskDelegateSpec {
   model?: string | null;
   modeId?: string | null;
   thinkingOptionId?: string | null;
+  featureValues?: Record<string, unknown>;
   instructions?: string;
   environmentKind?: "project_default" | "new_worktree";
 }
@@ -59,6 +60,7 @@ interface ResolvedDelegateSpec {
   model: string | null;
   modeId: string | null;
   thinkingOptionId: string | null;
+  featureValues?: Record<string, unknown>;
   instructions: string;
   environmentKind: "project_default" | "new_worktree";
   baseBranch: string | null;
@@ -1237,7 +1239,14 @@ export class TaskWorkflowEngine {
     taskId: string;
     preset: Pick<
       ResolvedDelegateSpec,
-      "id" | "provider" | "model" | "modeId" | "thinkingOptionId" | "environmentKind" | "baseBranch"
+      | "id"
+      | "provider"
+      | "model"
+      | "modeId"
+      | "thinkingOptionId"
+      | "featureValues"
+      | "environmentKind"
+      | "baseBranch"
     >;
     prompt: string;
     title: string;
@@ -1256,6 +1265,7 @@ export class TaskWorkflowEngine {
       workspaceId: target.workspaceId,
       mode: input.preset.modeId ?? undefined,
       thinking: input.preset.thinkingOptionId ?? undefined,
+      features: input.preset.featureValues,
       unattended: false,
       promptFailure: "return-error",
       background: true,
@@ -1322,6 +1332,7 @@ export class TaskWorkflowEngine {
       model: input.agent.model ?? null,
       modeId: input.agent.modeId ?? null,
       thinkingOptionId: input.agent.thinkingOptionId ?? null,
+      featureValues: input.agent.featureValues,
       instructions: input.agent.instructions ?? "",
       environmentKind: input.agent.environmentKind ?? "new_worktree",
       baseBranch: null,
@@ -1456,6 +1467,7 @@ export class TaskWorkflowEngine {
         workspaceId: workspace.workspaceId,
         mode: preset.modeId ?? undefined,
         thinking: preset.thinkingOptionId ?? undefined,
+        features: preset.featureValues,
         unattended: true,
         promptFailure: "return-error",
         background: true,

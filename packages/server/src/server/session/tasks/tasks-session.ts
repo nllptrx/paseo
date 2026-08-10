@@ -600,6 +600,7 @@ export class TasksSession {
         model: request.model ?? null,
         modeId: request.modeId ?? null,
         thinkingOptionId: request.thinkingOptionId ?? null,
+        featureValues: request.featureValues,
         instructions: request.instructions ?? "",
         environmentKind: request.environmentKind,
         baseBranch: request.baseBranch ?? null,

@@ -309,6 +309,9 @@ export const TaskPresetSchema = z.object({
   model: z.string().nullable(),
   modeId: z.string().nullable(),
   thinkingOptionId: z.string().nullable(),
+  /** Provider feature overrides, such as Codex fast mode. Optional so a new
+   * client can still read presets from a host that predates feature presets. */
+  featureValues: z.record(z.string(), z.unknown()).optional(),
   /** Prepended to the prompt every time this preset dispatches. */
   instructions: z.string(),
   environmentKind: z.enum(["project_default", "new_worktree"]),

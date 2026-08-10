@@ -126,6 +126,7 @@ describe("TaskWorkflowEngine", () => {
   let integratedWorkspaces: Array<{ cwd: string; targetBranch: string }>;
   let integratedBranches: Array<{ sourceBranch: string; targetBranch: string }>;
   let createdAgentPrompts: string[];
+  let createdAgentFeatures: Array<Record<string, unknown> | undefined>;
   let engineDeps: () => ConstructorParameters<typeof TaskWorkflowEngine>[0];
   let workspaces: Map<
     string,
@@ -160,6 +161,7 @@ describe("TaskWorkflowEngine", () => {
     integratedWorkspaces = [];
     integratedBranches = [];
     createdAgentPrompts = [];
+    createdAgentFeatures = [];
     workspaces = new Map([
       [
         "ws_shared",
@@ -177,6 +179,7 @@ describe("TaskWorkflowEngine", () => {
       agentManager: agentManager.asAgentManager(),
       createAgent: async (input) => {
         createdAgentPrompts.push(input.initialPrompt ?? "");
+        createdAgentFeatures.push(input.features);
         createdAgentCounter += 1;
         const agentId = `agt_${createdAgentCounter}`;
         agentManager.register(agentId, "initializing");
@@ -802,6 +805,7 @@ describe("TaskWorkflowEngine", () => {
       provider: "claude",
       environmentKind: "new_worktree",
       instructions: "Follow the house style.",
+      featureValues: { fast_mode: true },
     });
 
     const { agentId } = await engine.delegate({ taskId, presetId: preset.id });
@@ -813,6 +817,7 @@ describe("TaskWorkflowEngine", () => {
     expect(createdAgentPrompts.at(-1)).toContain(taskId);
     expect(createdAgentPrompts.at(-1)).toContain("Paseo task environment");
     expect(createdAgentPrompts.at(-1)).toContain("Role: worker attached to this card");
+    expect(createdAgentFeatures.at(-1)).toEqual({ fast_mode: true });
     void projectId;
   });
 

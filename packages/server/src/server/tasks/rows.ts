@@ -123,6 +123,7 @@ export const TaskPresetRowSchema = z.object({
   model: z.string().nullable(),
   mode_id: z.string().nullable(),
   thinking_option_id: z.string().nullable(),
+  feature_values: z.string().nullable(),
   instructions: z.string(),
   environment_kind: z.enum(["project_default", "new_worktree"]),
   base_branch: z.string().nullable(),

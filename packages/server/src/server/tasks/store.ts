@@ -152,6 +152,7 @@ export interface CreateTaskPresetInput {
   model?: string | null;
   modeId?: string | null;
   thinkingOptionId?: string | null;
+  featureValues?: Record<string, unknown>;
   instructions?: string;
   environmentKind: TaskPreset["environmentKind"];
   baseBranch?: string | null;
@@ -221,6 +222,9 @@ function toPreset(row: TaskPresetRow): TaskPreset {
     model: row.model,
     modeId: row.mode_id,
     thinkingOptionId: row.thinking_option_id,
+    ...(row.feature_values
+      ? { featureValues: z.record(z.string(), z.unknown()).parse(JSON.parse(row.feature_values)) }
+      : {}),
     instructions: row.instructions,
     environmentKind: row.environment_kind,
     baseBranch: row.base_branch,
@@ -1294,9 +1298,9 @@ export class TaskStore {
     this.db
       .prepare(
         `INSERT INTO task_presets (
-           id, name, provider, model, mode_id, thinking_option_id, instructions,
-           environment_kind, base_branch, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           id, name, provider, model, mode_id, thinking_option_id, feature_values,
+           instructions, environment_kind, base_branch, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -1305,6 +1309,7 @@ export class TaskStore {
         input.model ?? null,
         input.modeId ?? null,
         input.thinkingOptionId ?? null,
+        input.featureValues ? JSON.stringify(input.featureValues) : null,
         input.instructions ?? "",
         input.environmentKind,
         input.baseBranch ?? null,

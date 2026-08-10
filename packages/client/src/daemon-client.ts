@@ -5571,6 +5571,7 @@ export class DaemonClient {
       model?: string | null;
       modeId?: string | null;
       thinkingOptionId?: string | null;
+      featureValues?: Record<string, unknown>;
       instructions?: string;
       environmentKind: "project_default" | "new_worktree";
       baseBranch?: string | null;
