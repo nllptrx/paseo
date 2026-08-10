@@ -66,6 +66,15 @@ triggers, hard gates, schedules — survives unchanged and re-homes: **steps
 attach to a task**. Plan `title`/`description` and nested plans go; the task
 carries them. The UI calls this ordered list an **agent plan**.
 
+The hierarchy is task → plan → steps. A subtask is another task, so it can own
+its own plan and steps. A step is never presented as a subtask and has no task
+status or review policy of its own.
+
+**[DECIDED]** Steps sequence agents inside one leaf task — same task branch,
+one delivery, no board presence. A multi-phase plan that wants per-phase review
+or per-phase branches is a subtask chain (§2.5), not a workflow. Steps gain no
+further task-like features.
+
 `derivePlanColumn` goes with them. A task's stored status and the transition
 engine are the only column truth.
 
@@ -73,16 +82,52 @@ A scheduled step has one agent. Schedule lifecycle events attach that agent to
 the task and settle the workflow step; scheduled fan-out is rejected when the
 workflow is saved because one schedule run has one agent target.
 
+The plan form exposes **Continue automatically**, on by default. The first step
+waits for the task to start; ordinary later steps use `immediate` while the
+switch is on and `manual` while it is off. Scheduled steps retain their cadence.
+Editing a plan preserves each retained step's identity and run history. Turning
+automatic continuation on also starts the first eligible unstarted step when
+its predecessor already succeeded.
+An intermediate workflow-owned agent finishing reads **Step complete**, not
+**Ready to review**. Task review begins only after the final step settles; the
+board then starts its configured reviewer or waits for a person.
+
 ### 2.3 Hierarchy and dependencies [SHIPPED]
 
 Tasks carry `parentTaskId` (subtasks) and dependency edges in
 `task_dependencies`. The snapshot carries the edges so a client can draw them.
 A subtask is a task in every other respect — same statuses, same board.
 
-A parent can limit how many newly created subtasks are ready together. Creation
-links later siblings to earlier siblings in dependency waves. A limit of two
-makes child 3 wait for child 1 and child 4 wait for child 2. Removing the limit
-adds no dependency; it does not remove dependencies already stored.
+**[SUPERSEDED]** A parent can limit how many newly created subtasks are ready
+together (`maxParallelSubtasks`, dependency waves). Replaced by the sequential
+default below: parallelism becomes a per-subtask choice, not a throttle.
+
+**[DECIDED]** New subtasks chain sequentially: creation adds a dependency on
+the previous sibling. A subtask created with the parallel flag skips that edge
+and is ready with its predecessor. Later edits never rewrite edges already
+stored.
+
+### 2.5 Leaf executes, parent aggregates [DECIDED]
+
+A task without subtasks is a leaf: workers attach to it, its plan runs on it,
+its status moves as §3 says. A task with subtasks is an aggregate: it holds no
+workers of its own, and the transition engine writes its status from its
+children — the first subtask starting moves it to `in_progress`; the last
+subtask merging moves it to `in_review` or `done` per its effective review
+policy. Attaching a worker to an aggregate is refused, naming the reason. The
+decomposer (§6.1) is the only agent that belongs on one, and it authors
+subtasks, not code.
+
+A subtask can carry an execution spec — a preset or agent spec chosen at
+creation — and the `on_unblocked` trigger: the spec starts when the last open
+blocker reaches `done` or `canceled`. That is what lets a chain run hands-free;
+each phase starts itself when its predecessor settles. Skipping a phase is
+canceling its subtask — canceled already unblocks (§6.1).
+
+Workspace strategy is a group concern. A sequential chain can share one
+worktree, each phase reusing its predecessor's; parallel phases get their own.
+Shared worktrees are released when the aggregate settles, not at each
+subtask's Done (§6.2).
 
 ### 2.4 Board event bus [DECIDED]
 
@@ -133,6 +178,24 @@ are independent writes from different call sites, which is how they drift.
 - Manual moves write the same stored field through the same RPC, so automation
   and hand cannot disagree.
 
+**[DECIDED]** Review runs at two levels of the hierarchy (§2.5):
+
+- A subtask's review policy resolves subtask override ?? parent override ??
+  board default. The parent tier is new; a plan-wide review mode — final only,
+  each subtask and final, each subtask only — writes it, and a per-subtask
+  toggle still overrides it.
+- A subtask in review is judged on its own task branch. Approve merges it into
+  the parent branch and unblocks its dependents; reject resumes its workers
+  with the findings, within its own correction limit.
+- The aggregate's review is the final review. It starts when the last subtask
+  merges and reads the integrated parent branch. Its reviewer receives the
+  child verdicts from the feed and judges the integration, not each diff again.
+- Rejection corrects on the branch the review judged. A subtask's findings go
+  to its workers on the subtask branch. The final review's findings go to the
+  aggregate's most recent worker — resumed, or a fresh corrector when none can
+  resume — on the parent branch. Subtasks already Done are not reopened. Each
+  level counts its own correction rounds against its own limit.
+
 Every automatic move posts to the feed naming what
 caused it, and stays reversible by hand. Boards that moved cards silently
 shipped ping-pong bugs between In Progress and In Review; attribution plus a
@@ -172,12 +235,16 @@ one-move undo is what prevents it.
 - **Card**: key, priority label (colour-coded urgent/high), title, label chips,
   direct subtask/blocker counts, and a compact execution summary from every
   exact attached agent. The summary preserves actionable states — needs input,
-  failed, starting, working, ready to review, done — instead of collapsing
+  failed, starting, working, ready to review, step complete, done — instead of collapsing
   several agents to one workspace status. A press opens the detail sheet
   (§5.4). Kebab and right-click context menu carry the same list: Details,
   Approve/Reject when in review, Add agent plan, Open agent per attachment,
   move-to-status, Delete. Subtasks indent under their parent when the parent is
-  in the same column.
+  in the same column. **[DECIDED]** An aggregate's card shows derived child
+  counts — running, ready to review, done — and the board collapses its
+  subtasks under it by default. Expanding them into their own columns is a view
+  projection toggle, stored with the other surface preferences; the stored
+  statuses stay the only column truth.
 - **Capture**: every column's "+" opens the minimal sheet — title only. The
   first capture also creates the tracker project, prefilled and linked. Form
   model per [docs/forms.md](forms.md), unit-tested.
@@ -233,15 +300,23 @@ attachments, agents, the agent plan and review actions. Attached agents are
 grouped by workspace; each workspace shows its branch, pull request and every
 agent's exact execution state. Automation is summarized in plain language and
 expands to task-specific controls; the board menu only sets defaults. The
-agent-plan form shows the common choices first and keeps workspace, trigger,
-evidence, verification command and timeout behind Advanced. Rejecting from the
-sheet accepts correction feedback that is sent to the resumed worker. This also
-settles what a card press does:
+agent-plan form names steps consistently, places automatic continuation above
+the step list, and keeps workspace, evidence, verification command and timeout
+behind Advanced. A step with a run opens that run's latest agent chat when its
+row is pressed; Run, Cancel and overflow remain separate controls. Rejecting
+from the sheet accepts correction feedback that is sent to the resumed worker.
+This also settles what a card press does:
 
 - **press → detail sheet, always**, whatever the number of attached agents.
   Attached agents are rows in the sheet; opening a conversation is a tap on a
   row. Today's behaviour — open the chat when exactly one agent is attached,
   silently do nothing otherwise — has no rule a user can learn.
+
+**[DECIDED]** The subtask list stops being title-only. A subtask can be
+created with a preset or agent spec and the parallel flag (§2.5), and each row
+expands to its live state and review actions — Approve and Reject inline, with
+correction feedback on reject. The parent's review control offers the three
+modes from §3 and writes the parent tier of the policy.
 
 ### 5.5 Presets and delegate [SHIPPED]
 
@@ -336,6 +411,10 @@ overwritten outputs, ~75x the tokens).
   resolution prompt. Finishing again retries the gate.
 - Done is the dependency-unblocking state, so an unintegrated subtask cannot
   unblock its dependents. Depth beyond one level uses the same rule.
+- **[DECIDED]** A worktree shared by a subtask chain outlives each subtask's
+  Done: `archiveWorkspacesOnDone` runs when the aggregate settles, because the
+  next phase still needs the checkout. Parallel phases with their own worktrees
+  keep the per-task timing.
 
 ## 7. Build order
 
@@ -353,11 +432,19 @@ and the board e2e.
    Feed tab.
 4. **Hierarchy and rules** (§2.3, §6.1, §6.2). **Done.**
 5. **Detail sheet and delegate** (§5.4, §5.5). **Done.**
+6. **Leaf/aggregate model** (§2.3, §2.5, §3 two-level review). Aggregation
+   transitions, sequential-default subtask creation, execution spec and
+   `on_unblocked` trigger, review inheritance tier and modes, correction per
+   level, shared-worktree release, board collapse projection, subtask rows in
+   the sheet.
 
 ## 8. Invariants
 
 - Store intent, derive everything else. Task status is stored; agent liveness
   and run outcomes are read, never copied.
+- A leaf executes, an aggregate aggregates. Workers attach to leaves; a task
+  with subtasks is moved by its children through the transition engine, never
+  by workers of its own.
 - One destination per object. The kanban is the tasks' board view; no parallel
   route or screen shows the same thing.
 - The protocol stays backward compatible. The tracker gates on
