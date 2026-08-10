@@ -460,7 +460,7 @@ export function TaskCard({
 
   const body = (
     <>
-      <View style={styles.cardHeader}>
+      <View style={[styles.cardHeader, !isOverlay && styles.cardHeaderWithMenu]}>
         <Text style={styles.cardKey}>{formatTaskKey(project, task)}</Text>
         {task.priority !== "none" ? (
           <Text
@@ -473,35 +473,6 @@ export function TaskCard({
             {t(TASK_PRIORITY_LABEL_KEYS[task.priority])}
           </Text>
         ) : null}
-        {isOverlay ? null : (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              style={styles.menuTrigger}
-              testID={`task-card-status-${task.id}`}
-              accessibilityRole="button"
-              accessibilityLabel={t("tasks.board.changeStatus")}
-            >
-              {({ hovered }) => (
-                <ThemedMoreVertical
-                  size={ICON_SIZE.sm}
-                  uniProps={hovered ? foregroundIconMapping : mutedIconMapping}
-                />
-              )}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="end">
-              {actions.map((action) => (
-                <DropdownMenuItem
-                  key={action.key}
-                  testID={action.testID}
-                  disabled={action.disabled}
-                  onSelect={action.onSelect}
-                >
-                  {action.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
       </View>
       <Text style={styles.cardTitle} numberOfLines={3}>
         {task.title}
@@ -510,18 +481,6 @@ export function TaskCard({
       <TaskAggregateChildStates task={task} relationships={relationships} />
       <TaskLabelChips labels={taskLabels} />
       <TaskCardCounts task={task} relationships={relationships} />
-      {lacksPlan && onCreateWorkflowForTask && !isOverlay ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          leftIcon={Plus}
-          onPress={handleAddWorkflow}
-          style={styles.addPlan}
-          testID={`task-card-add-plan-${task.id}`}
-        >
-          {t("tasks.workflow.addToTask")}
-        </Button>
-      ) : null}
     </>
   );
 
@@ -542,15 +501,56 @@ export function TaskCard({
   // Long press is left alone: on a touch board it is how a card is picked up.
   return (
     <ContextMenu>
-      <ContextMenuTrigger
-        onPress={handlePress}
-        style={cardStyle}
-        testID={`task-card-${task.id}`}
-        accessibilityRole="button"
-        enabledOnMobile={false}
-      >
-        {body}
-      </ContextMenuTrigger>
+      <View style={cardStyle}>
+        <ContextMenuTrigger
+          onPress={handlePress}
+          style={styles.cardPressTarget}
+          testID={`task-card-${task.id}`}
+          accessibilityRole="button"
+          enabledOnMobile={false}
+        >
+          {body}
+        </ContextMenuTrigger>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            style={styles.menuTrigger}
+            testID={`task-card-status-${task.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={t("tasks.board.changeStatus")}
+          >
+            {({ hovered }) => (
+              <ThemedMoreVertical
+                size={ICON_SIZE.sm}
+                uniProps={hovered ? foregroundIconMapping : mutedIconMapping}
+              />
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="bottom" align="end">
+            {actions.map((action) => (
+              <DropdownMenuItem
+                key={action.key}
+                testID={action.testID}
+                disabled={action.disabled}
+                onSelect={action.onSelect}
+              >
+                {action.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {lacksPlan && onCreateWorkflowForTask ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={Plus}
+            onPress={handleAddWorkflow}
+            style={styles.addPlan}
+            testID={`task-card-add-plan-${task.id}`}
+          >
+            {t("tasks.workflow.addToTask")}
+          </Button>
+        ) : null}
+      </View>
       <ContextMenuContent align="start" width={220} testID={`task-card-context-menu-${task.id}`}>
         {actions.map((action) => (
           <ContextMenuItem
@@ -723,6 +723,7 @@ const styles = StyleSheet.create((theme) => ({
     borderColor: theme.colors.borderAccent,
   },
   card: {
+    position: "relative",
     width: "100%",
     backgroundColor: theme.colors.surface1,
     borderWidth: theme.borderWidth[1],
@@ -732,6 +733,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[2],
     gap: theme.spacing[1.5],
   },
+  cardPressTarget: { gap: theme.spacing[1.5] },
   cardOverlay: {
     backgroundColor: theme.colors.surface2,
     borderColor: theme.colors.borderAccent,
@@ -744,12 +746,16 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
   },
+  cardHeaderWithMenu: { paddingRight: theme.spacing[6] },
   cardKey: {
     flex: 1,
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
   },
   menuTrigger: {
+    position: "absolute",
+    top: theme.spacing[2],
+    right: theme.spacing[2],
     width: 24,
     height: 24,
     alignItems: "center",

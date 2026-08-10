@@ -266,6 +266,7 @@ test.describe("Kanbans board", () => {
     const board = page.getByTestId(`kanban-board-${seeded.projectId}`);
     const card = board.getByTestId(`task-card-${seeded.taskId}`);
     await expect(card).toBeVisible({ timeout: 30_000 });
+    await expect(card.locator("button")).toHaveCount(0);
     await expect(card).toContainText(seededTitle);
     await expect(board.getByTestId("task-column-backlog")).toContainText(seededTitle);
 
