@@ -292,12 +292,36 @@ test.describe("Kanbans board", () => {
     await expect(taskList.getByText(seededTitle)).toBeVisible();
     await expect(taskList.getByTestId("task-list-group-todo")).toBeVisible();
     await expect(taskList.getByText(capturedTitle)).toBeVisible();
+    await expect(taskList.getByTestId(`task-list-key-${seeded.taskId}`)).toHaveCSS(
+      "white-space",
+      "nowrap",
+    );
     await board.getByTestId("task-search").fill(seededTitle);
     await expect(taskList.getByText(capturedTitle)).toHaveCount(0);
     await board.getByTestId("task-filters-clear").click();
     await expect(taskList.getByText(capturedTitle)).toBeVisible();
     await taskList.getByTestId(`task-list-row-${seeded.taskId}`).click();
     await expect(page.getByTestId("task-detail-sheet")).toBeVisible();
+
+    await page.getByTestId("task-detail-sheet").getByRole("button", { name: "Close" }).click();
+    await board.getByTestId("task-view-kanban").click();
+    await board.getByTestId("task-search").fill(seededTitle);
+    await expect(card).toBeEnabled();
+    await card.click();
+    await expect(page.getByTestId("task-detail-sheet")).toBeVisible();
+
+    await page.getByTestId("task-detail-sheet").getByRole("button", { name: "Close" }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await board.getByTestId("task-filters-clear").click();
+    const columnPicker = board.getByTestId("task-board-column-picker");
+    await expect(columnPicker).toBeVisible();
+    const pickerBox = await columnPicker.boundingBox();
+    const backlogBox = await board.getByTestId("task-column-backlog").boundingBox();
+    expect(pickerBox).not.toBeNull();
+    expect(backlogBox).not.toBeNull();
+    expect(pickerBox!.y + pickerBox!.height).toBeLessThanOrEqual(backlogBox!.y);
+    await columnPicker.getByRole("button", { name: "Todo" }).click();
+    await expect(board.getByTestId("task-column-todo")).toContainText(capturedTitle);
   });
 
   test("dragging a card onto another column writes the status through", async ({ page }) => {

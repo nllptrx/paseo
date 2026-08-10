@@ -248,7 +248,11 @@ export function TaskBoard({
     const active = statuses.includes(selectedColumn) ? selectedColumn : statuses[0];
     return (
       <View style={styles.compact} testID="task-board">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.columnPickerScroll}
+        >
           <SegmentedControl
             size="sm"
             value={active ?? "backlog"}
@@ -464,7 +468,12 @@ function SortableTaskCard({
     [isDragging, isDragSource, transform, transition],
   );
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...(disabled ? {} : attributes)}
+      {...(disabled ? {} : listeners)}
+    >
       {children}
     </div>
   );
@@ -477,6 +486,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[3],
     padding: theme.spacing[3],
   },
+  columnPickerScroll: { flexGrow: 0, flexShrink: 0, height: 32 },
   boardScroll: { flex: 1, minHeight: 0 },
   wideRow: {
     flexGrow: 1,

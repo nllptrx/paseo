@@ -278,7 +278,9 @@ function TaskListRow({
       <TaskPriorityEditor task={task} onSetPriority={onSetPriority} />
       <Pressable onPress={handleOpenTask} style={rowMainStyle} accessibilityRole="button">
         <View style={styles.identity}>
-          <Text style={styles.key}>{formatTaskKey(project, task)}</Text>
+          <Text style={styles.key} numberOfLines={1} testID={`task-list-key-${task.id}`}>
+            {formatTaskKey(project, task)}
+          </Text>
         </View>
         <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={1}>
           {task.title}
@@ -578,7 +580,7 @@ const styles = StyleSheet.create((theme) => ({
   rowMainHover: { backgroundColor: theme.colors.surface1 },
   rowMainPressed: { backgroundColor: theme.colors.surface2 },
   key: {
-    width: 58,
+    width: 88,
     flexShrink: 0,
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
