@@ -859,6 +859,37 @@ export class TaskStore {
   // --- Dependencies ---
 
   addDependency(input: { taskId: string; dependsOnTaskId: string }): void {
+    const task = this.requireTaskRow(input.taskId);
+    const dependency = this.requireTaskRow(input.dependsOnTaskId);
+    if (task.id === dependency.id) {
+      throw new Error("A task cannot depend on itself");
+    }
+    if (task.project_id !== dependency.project_id) {
+      throw new Error("A task and its dependencies must belong to the same project");
+    }
+    const createsCycle = selectOne(
+      this.db.prepare(
+        `WITH RECURSIVE reachable(task_id) AS (
+           SELECT depends_on_task_id
+           FROM task_dependencies
+           WHERE task_id = ?
+           UNION
+           SELECT dependency.depends_on_task_id
+           FROM task_dependencies dependency
+           JOIN reachable ON dependency.task_id = reachable.task_id
+         )
+         SELECT 1 AS found
+         FROM reachable
+         WHERE task_id = ?
+         LIMIT 1`,
+      ),
+      z.object({ found: z.literal(1) }),
+      "task_dependencies",
+      [input.dependsOnTaskId, input.taskId],
+    );
+    if (createsCycle) {
+      throw new Error("A task dependency cannot create a cycle");
+    }
     this.db
       .prepare(
         `INSERT INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)

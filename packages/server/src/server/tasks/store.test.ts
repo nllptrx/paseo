@@ -200,6 +200,35 @@ describe("TaskStore", () => {
     );
   });
 
+  it("keeps dependencies within one acyclic board graph", () => {
+    const first = store.createTask({ projectId, title: "First" });
+    const second = store.createTask({ projectId, title: "Second" });
+    const third = store.createTask({ projectId, title: "Third" });
+    const otherProjectId = store.createProject({
+      name: "Other",
+      prefix: "OTH",
+      color: "#000",
+    }).id;
+    const outside = store.createTask({ projectId: otherProjectId, title: "Outside" });
+
+    store.addDependency({ taskId: second.id, dependsOnTaskId: first.id });
+    store.addDependency({ taskId: third.id, dependsOnTaskId: second.id });
+
+    expect(() => store.addDependency({ taskId: first.id, dependsOnTaskId: third.id })).toThrow(
+      "cannot create a cycle",
+    );
+    expect(() => store.addDependency({ taskId: first.id, dependsOnTaskId: first.id })).toThrow(
+      "cannot depend on itself",
+    );
+    expect(() => store.addDependency({ taskId: first.id, dependsOnTaskId: outside.id })).toThrow(
+      "must belong to the same project",
+    );
+    expect(store.listDependencies()).toEqual([
+      { taskId: second.id, dependsOnTaskId: first.id },
+      { taskId: third.id, dependsOnTaskId: second.id },
+    ]);
+  });
+
   it("appends to the end of a column and moves between two neighbours", () => {
     const first = store.createTask({ projectId, title: "One", status: "todo" });
     const second = store.createTask({ projectId, title: "Two", status: "todo" });
