@@ -5,7 +5,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { visibleBoardStatuses } from "@/tasks/task-views";
+import { projectBoardColumns, visibleBoardStatuses } from "@/tasks/task-views";
 import {
   TASK_STATUS_LABEL_KEYS,
   TaskColumn,
@@ -43,12 +43,18 @@ export function TaskBoard({
   onCreateWorkflowForTask,
   selectedColumn,
   onSelectColumn,
+  expandSubtasks,
   dragDisabled: _dragDisabled,
 }: TaskBoardProps): ReactElement {
   const { t } = useTranslation();
   const isCompact = useIsCompactFormFactor();
   const statuses = useMemo(() => visibleBoardStatuses(tasks), [tasks]);
+  // Stored statuses for where a move lands, the projection for what is drawn.
   const byStatus = useMemo(() => groupBoardTasks(statuses, tasks), [statuses, tasks]);
+  const rowsByStatus = useMemo(
+    () => projectBoardColumns({ statuses, tasks, expandSubtasks }),
+    [expandSubtasks, statuses, tasks],
+  );
   const handleMoveToStatus = useMoveToStatusEnd(byStatus, onMoveTask);
 
   const handleSelectColumn = useCallback(
@@ -87,7 +93,8 @@ export function TaskBoard({
           <TaskColumn
             serverId={serverId}
             status={active}
-            tasks={byStatus.get(active) ?? []}
+            rows={rowsByStatus.get(active)?.rows ?? []}
+            count={rowsByStatus.get(active)?.storedCount ?? 0}
             labels={labels}
             projectsById={projectsById}
             executionByTaskId={executionByTaskId}
@@ -117,7 +124,8 @@ export function TaskBoard({
           key={status}
           serverId={serverId}
           status={status}
-          tasks={byStatus.get(status) ?? []}
+          rows={rowsByStatus.get(status)?.rows ?? []}
+          count={rowsByStatus.get(status)?.storedCount ?? 0}
           labels={labels}
           projectsById={projectsById}
           executionByTaskId={executionByTaskId}

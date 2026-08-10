@@ -252,6 +252,7 @@ function TaskListRow({
   const partitionedLabels = useMemo(() => partitionTaskLabels(taskLabels, 2), [taskLabels]);
   const actions = useTaskActions({
     task,
+    hasSubtasks: (relationships?.subtaskCount ?? 0) > 0,
     onMoveToStatus,
     onOpenAgent,
     onOpenTask,

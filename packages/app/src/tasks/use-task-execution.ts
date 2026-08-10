@@ -16,7 +16,7 @@ type SessionState = ReturnType<typeof useSessionStore.getState>["sessions"][stri
 
 function buildLinkedTaskExecutionSummaries(
   session: SessionState,
-  tasks: readonly Pick<Task, "id" | "agents">[],
+  tasks: readonly Pick<Task, "id" | "status" | "agents">[],
 ): ReadonlyMap<string, TaskExecutionSummary> {
   const agentSources = new Map<string, TaskExecutionAgentSource>();
   const workspaceSources = new Map<string, TaskExecutionWorkspaceSource>();
@@ -55,7 +55,7 @@ function buildLinkedTaskExecutionSummaries(
 
 export function useTaskExecutionSummaries(
   serverId: string,
-  tasks: readonly Pick<Task, "id" | "agents">[],
+  tasks: readonly Pick<Task, "id" | "status" | "agents">[],
 ): ReadonlyMap<string, TaskExecutionSummary> {
   const selectSummaries = useMemo(() => {
     let previousAgents: unknown;

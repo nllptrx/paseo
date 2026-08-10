@@ -71,7 +71,7 @@ describe("resolveTaskExecutionState", () => {
 describe("buildTaskExecutionSummaries", () => {
   it("reads exact task agent links and ignores unrelated agents in the same workspace", () => {
     const tasks: TaskExecutionTaskSource[] = [
-      { id: "task-1", agents: [link("attached", "workspace-1")] },
+      { id: "task-1", status: "in_progress", agents: [link("attached", "workspace-1")] },
     ];
     const agents = new Map<string, TaskExecutionAgentSource>([
       ["attached", agent("attached", { status: "idle", requiresAttention: true })],
@@ -100,6 +100,7 @@ describe("buildTaskExecutionSummaries", () => {
         starting: 0,
         running: 0,
         attention: 1,
+        step_complete: 0,
         done: 0,
       },
       entries: [
@@ -120,7 +121,7 @@ describe("buildTaskExecutionSummaries", () => {
 
   it("shows a fresh attachment as starting until its agent record arrives", () => {
     const tasks: TaskExecutionTaskSource[] = [
-      { id: "task-1", agents: [link("pending-agent", "workspace-1")] },
+      { id: "task-1", status: "in_progress", agents: [link("pending-agent", "workspace-1")] },
     ];
 
     const summary = buildTaskExecutionSummaries({
@@ -133,10 +134,39 @@ describe("buildTaskExecutionSummaries", () => {
     expect(summary?.entries[0]?.state).toBe("starting");
   });
 
+  it("shows a finished intermediate workflow agent as step complete, not ready to review", () => {
+    const workflowLink = {
+      ...link("agent-1", "workspace-1"),
+      completionOwner: "workflow" as const,
+    };
+    const tasks: TaskExecutionTaskSource[] = [
+      { id: "task-1", status: "in_progress", agents: [workflowLink] },
+    ];
+    const agents = new Map<string, TaskExecutionAgentSource>([
+      [
+        "agent-1",
+        agent("agent-1", {
+          status: "idle",
+          requiresAttention: true,
+          attentionReason: "finished",
+        }),
+      ],
+    ]);
+
+    const summary = buildTaskExecutionSummaries({ tasks, agents, workspaces: new Map() }).get(
+      "task-1",
+    );
+
+    expect(summary?.entries[0]?.state).toBe("step_complete");
+    expect(summary?.counts.attention).toBe(0);
+    expect(summary?.counts.step_complete).toBe(1);
+  });
+
   it("groups several attached agents under their execution workspace", () => {
     const tasks: TaskExecutionTaskSource[] = [
       {
         id: "task-1",
+        status: "in_progress",
         agents: [link("agent-1", "workspace-1"), link("agent-2", "workspace-1")],
       },
     ];

@@ -36,7 +36,12 @@ import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { getDragActivationConstraints } from "@/components/drag-reorder";
-import { resolveTaskDropNeighbours, visibleBoardStatuses } from "@/tasks/task-views";
+import {
+  projectBoardColumns,
+  resolveTaskDropNeighbours,
+  visibleBoardStatuses,
+  type TaskBoardRow,
+} from "@/tasks/task-views";
 import {
   TASK_STATUS_LABEL_KEYS,
   TaskCard,
@@ -116,6 +121,7 @@ export function TaskBoard({
   onCreateWorkflowForTask,
   selectedColumn,
   onSelectColumn,
+  expandSubtasks,
   dragDisabled = false,
 }: TaskBoardProps): ReactElement {
   const { t } = useTranslation();
@@ -126,7 +132,14 @@ export function TaskBoard({
   const suppressClickRef = useRef(false);
 
   const statuses = useMemo(() => visibleBoardStatuses(tasks), [tasks]);
+  // A drop is resolved against the stored statuses, never the projection: a
+  // subtask drawn under its parent sits in a column it is not stored in, and a
+  // position read there would mean nothing.
   const byStatus = useMemo(() => groupBoardTasks(statuses, tasks), [statuses, tasks]);
+  const rowsByStatus = useMemo(
+    () => projectBoardColumns({ statuses, tasks, expandSubtasks }),
+    [expandSubtasks, statuses, tasks],
+  );
   const handleMoveToStatus = useMoveToStatusEnd(byStatus, onMoveTask);
 
   const activationConstraints = getDragActivationConstraints(false, DRAG_ACTIVATION_CONFIG);
@@ -250,7 +263,8 @@ export function TaskBoard({
           <TaskColumn
             serverId={serverId}
             status={active}
-            tasks={byStatus.get(active) ?? []}
+            rows={rowsByStatus.get(active)?.rows ?? []}
+            count={rowsByStatus.get(active)?.storedCount ?? 0}
             labels={labels}
             projectsById={projectsById}
             executionByTaskId={executionByTaskId}
@@ -287,7 +301,8 @@ export function TaskBoard({
             key={status}
             serverId={serverId}
             status={status}
-            tasks={byStatus.get(status) ?? []}
+            rows={rowsByStatus.get(status)?.rows ?? []}
+            count={rowsByStatus.get(status)?.storedCount ?? 0}
             labels={labels}
             projectsById={projectsById}
             executionByTaskId={executionByTaskId}
@@ -333,7 +348,8 @@ export function TaskBoard({
 function DroppableTaskColumn({
   serverId,
   status,
-  tasks,
+  rows,
+  count,
   labels,
   projectsById,
   executionByTaskId,
@@ -350,7 +366,8 @@ function DroppableTaskColumn({
 }: {
   serverId: string;
   status: TaskStatus;
-  tasks: readonly Task[];
+  rows: readonly TaskBoardRow[];
+  count: number;
   labels: TaskBoardProps["labels"];
   projectsById: TaskBoardProps["projectsById"];
   executionByTaskId: TaskBoardProps["executionByTaskId"];
@@ -366,19 +383,27 @@ function DroppableTaskColumn({
   dragDisabled: boolean;
 }): ReactElement {
   const { isOver, setNodeRef } = useDroppable({ id: columnDropId(status) });
-  const sortableIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
+  const sortableIds = useMemo(
+    () => rows.filter((row) => !row.collapsed).map((row) => row.task.id),
+    [rows],
+  );
 
+  // A card collapsed under its parent is registered as neither draggable nor
+  // droppable: its slot here says nothing about where the task is stored.
   const renderCard = useCallback(
-    (task: Task, card: ReactElement) => (
-      <SortableTaskCard
-        key={task.id}
-        taskId={task.id}
-        isDragSource={task.id === activeTaskId}
-        disabled={dragDisabled}
-      >
-        {card}
-      </SortableTaskCard>
-    ),
+    (row: TaskBoardRow, card: ReactElement) =>
+      row.collapsed ? (
+        card
+      ) : (
+        <SortableTaskCard
+          key={row.task.id}
+          taskId={row.task.id}
+          isDragSource={row.task.id === activeTaskId}
+          disabled={dragDisabled}
+        >
+          {card}
+        </SortableTaskCard>
+      ),
     [activeTaskId, dragDisabled],
   );
 
@@ -387,7 +412,8 @@ function DroppableTaskColumn({
       <TaskColumn
         serverId={serverId}
         status={status}
-        tasks={tasks}
+        rows={rows}
+        count={count}
         labels={labels}
         projectsById={projectsById}
         executionByTaskId={executionByTaskId}

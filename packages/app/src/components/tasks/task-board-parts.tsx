@@ -26,9 +26,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { useTaskLacksPlan } from "@/tasks/use-tasks";
 import {
+  formatAggregateChildStates,
   formatTaskKey,
-  groupSubtasksUnderParents,
   resolveTaskLabels,
+  type TaskBoardRow,
   type TaskRelationshipSummary,
 } from "@/tasks/task-views";
 import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
@@ -48,10 +49,14 @@ export interface TaskCardAction {
   label: string;
   testID: string;
   onSelect: () => void;
+  /** Offered but refused: the daemon would say no, and a menu that hides the row
+   * teaches nothing about why. */
+  disabled?: boolean;
 }
 
 export function useTaskActions({
   task,
+  hasSubtasks,
   onMoveToStatus,
   onOpenAgent,
   onOpenTask,
@@ -60,6 +65,9 @@ export function useTaskActions({
   onCreateWorkflowForTask,
 }: {
   task: Task;
+  /** A task with subtasks is an aggregate: it holds no workers of its own, so a
+   * plan cannot run on it. */
+  hasSubtasks: boolean;
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenTask?: ((taskId: string) => void) | undefined;
@@ -104,6 +112,7 @@ export function useTaskActions({
         label: t("tasks.workflow.addToTask"),
         testID: `task-card-add-workflow-${task.id}`,
         onSelect: () => onCreateWorkflowForTask(task.id),
+        disabled: hasSubtasks,
       });
     }
     for (const link of task.agents) {
@@ -133,6 +142,7 @@ export function useTaskActions({
     });
     return entries;
   }, [
+    hasSubtasks,
     onCreateWorkflowForTask,
     onDeleteTask,
     onMoveToStatus,
@@ -203,6 +213,8 @@ export interface TaskBoardProps {
   onCreateWorkflowForTask?: (taskId: string) => void;
   selectedColumn: TaskStatus;
   onSelectColumn: (status: TaskStatus) => void;
+  /** Draws subtasks in their own status columns instead of under their parent. */
+  expandSubtasks: boolean;
   /** Filtered or computed ordering cannot be persisted as a manual drop. */
   dragDisabled?: boolean;
 }
@@ -248,7 +260,8 @@ export function useMoveToStatusEnd(
 export function TaskColumn({
   serverId,
   status,
-  tasks,
+  rows,
+  count,
   labels,
   projectsById,
   executionByTaskId,
@@ -266,7 +279,12 @@ export function TaskColumn({
 }: {
   serverId: string;
   status: TaskStatus;
-  tasks: readonly Task[];
+  /** Already projected by the caller: which cards this column draws, and how
+   * deep each one sits under its parent. */
+  rows: readonly TaskBoardRow[];
+  /** Tasks stored in this status. Independent of the projection, so a card drawn
+   * under a parent in another column is still counted here and only here. */
+  count: number;
   labels: readonly TaskLabel[];
   projectsById: ReadonlyMap<string, TaskProject>;
   executionByTaskId: TaskBoardProps["executionByTaskId"];
@@ -280,7 +298,7 @@ export function TaskColumn({
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
   isOver?: boolean;
   /** Lets the web board wrap each card in a sortable without forking the column. */
-  renderCard?: (task: Task, card: ReactElement) => ReactElement;
+  renderCard?: (row: TaskBoardRow, card: ReactElement) => ReactElement;
   /** Registers the column body as a drop target on web. */
   bodyRef?: (element: never) => void;
 }): ReactElement {
@@ -291,7 +309,7 @@ export function TaskColumn({
     <View style={styles.column} testID={`task-column-${status}`}>
       <View style={styles.columnHeader}>
         <Text style={styles.columnTitle}>{t(TASK_STATUS_LABEL_KEYS[status])}</Text>
-        <Text style={styles.columnCount}>{tasks.length}</Text>
+        <Text style={styles.columnCount}>{count}</Text>
         <Button
           variant="ghost"
           size="sm"
@@ -312,16 +330,16 @@ export function TaskColumn({
           contentContainerStyle={styles.columnCards}
           showsVerticalScrollIndicator={false}
         >
-          {groupSubtasksUnderParents(tasks).map(({ task, depth }) => {
+          {rows.map((row) => {
             const card = (
               <TaskCard
-                key={task.id}
+                key={row.task.id}
                 serverId={serverId}
-                task={task}
-                depth={depth}
-                project={projectsById.get(task.projectId)}
-                execution={executionByTaskId.get(task.id)}
-                relationships={relationshipsByTaskId.get(task.id)}
+                task={row.task}
+                depth={row.depth}
+                project={projectsById.get(row.task.projectId)}
+                execution={executionByTaskId.get(row.task.id)}
+                relationships={relationshipsByTaskId.get(row.task.id)}
                 labels={labels}
                 onMoveToStatus={onMoveToStatus}
                 onOpenAgent={onOpenAgent}
@@ -331,9 +349,9 @@ export function TaskColumn({
                 onCreateWorkflowForTask={onCreateWorkflowForTask}
               />
             );
-            return renderCard ? renderCard(task, card) : card;
+            return renderCard ? renderCard(row, card) : card;
           })}
-          {tasks.length === 0 ? (
+          {rows.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>{t("tasks.board.emptyColumn")}</Text>
             </View>
@@ -363,8 +381,8 @@ export function TaskCard({
 }: {
   serverId: string;
   task: Task;
-  /** How far under its parent this card sits, when the parent is in the same
-   * column. Indent only — a subtask is a task in every other respect. */
+  /** How far under its parent this card sits in the column it was projected
+   * into. Indent only — a subtask is a task in every other respect. */
   depth?: number;
   project: TaskProject | undefined;
   execution: TaskExecutionSummaryModel | undefined;
@@ -399,6 +417,7 @@ export function TaskCard({
   // the way any other card on this platform is.
   const actions = useTaskActions({
     task,
+    hasSubtasks: (relationships?.subtaskCount ?? 0) > 0,
     onMoveToStatus,
     onOpenAgent,
     onOpenTask,
@@ -442,6 +461,7 @@ export function TaskCard({
                 <DropdownMenuItem
                   key={action.key}
                   testID={action.testID}
+                  disabled={action.disabled}
                   onSelect={action.onSelect}
                 >
                   {action.label}
@@ -455,6 +475,7 @@ export function TaskCard({
         {task.title}
       </Text>
       <TaskExecutionSummary summary={execution} />
+      <TaskAggregateChildStates task={task} relationships={relationships} />
       <TaskLabelChips labels={taskLabels} />
       <TaskCardCounts task={task} relationships={relationships} />
       {lacksPlan && onCreateWorkflowForTask && !isOverlay ? (
@@ -503,6 +524,7 @@ export function TaskCard({
           <ContextMenuItem
             key={action.key}
             testID={`task-card-context-action-${task.id}-${action.key}`}
+            disabled={action.disabled}
             onSelect={action.onSelect}
           >
             {action.label}
@@ -510,6 +532,26 @@ export function TaskCard({
         ))}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** An aggregate has no execution of its own to summarize, so its card reads the
+ * state of its children instead. */
+function TaskAggregateChildStates({
+  task,
+  relationships,
+}: {
+  task: Task;
+  relationships: TaskRelationshipSummary | undefined;
+}): ReactElement | null {
+  const states = formatAggregateChildStates(relationships);
+  if (!states) {
+    return null;
+  }
+  return (
+    <Text style={styles.countText} testID={`task-card-child-states-${task.id}`}>
+      {states}
+    </Text>
   );
 }
 

@@ -13,6 +13,10 @@ export interface TaskSurfacePreferences {
   priorities: TaskPriority[];
   labelNames: string[];
   sort: TaskSort;
+  /** Draws every subtask in its own status column instead of under its parent
+   * card. A projection of the same stored statuses, so it persists with the
+   * other surface preferences rather than being asked again each visit. */
+  expandSubtasks: boolean;
   scrollOffset: number;
 }
 
@@ -23,6 +27,7 @@ export const DEFAULT_TASK_SURFACE_PREFERENCES: TaskSurfacePreferences = {
   priorities: [],
   labelNames: [],
   sort: "manual",
+  expandSubtasks: false,
   scrollOffset: 0,
 };
 

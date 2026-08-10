@@ -15,6 +15,7 @@ interface TrackerSeedClient {
     projectId: string;
     title: string;
     status?: string;
+    parentTaskId?: string;
   }): Promise<{ task: { id: string; status: string } | null; error: string | null }>;
   tasksAgentAttach(input: {
     taskId: string;
@@ -44,7 +45,6 @@ interface TrackerSeedClient {
         executionPolicy?: {
           review?: string;
           workspace?: string;
-          maxParallelSubtasks?: number;
         };
       }>;
       dependencies: Array<{ taskId: string; dependsOnTaskId: string }>;
@@ -90,6 +90,17 @@ async function seedTrackerTask(
     throw new Error(task.error ?? "Failed to create task");
   }
   return { projectId: project.project.id, taskId: task.task.id };
+}
+
+async function seedSubtask(
+  workspace: SeededWorkspace,
+  input: { projectId: string; parentTaskId: string; title: string; status?: string },
+): Promise<{ taskId: string }> {
+  const task = await trackerClient(workspace).tasksCreate(input);
+  if (!task.task) {
+    throw new Error(task.error ?? "Failed to create subtask");
+  }
+  return { taskId: task.task.id };
 }
 
 async function readTaskStatus(workspace: SeededWorkspace, taskId: string): Promise<string | null> {
@@ -702,15 +713,12 @@ test.describe("Kanbans board", () => {
     await page.getByTestId("task-detail-policy-review-required").click();
     await sheet.getByTestId("task-detail-policy-workspace").click();
     await page.getByTestId("task-detail-policy-workspace-dedicated").click();
-    await sheet.getByTestId("task-detail-policy-subtasks").click();
-    await page.getByTestId("task-detail-policy-subtasks-1").click();
-
     await expect
       .poll(() => readTaskBriefAndPolicy(workspace, seeded.taskId))
       .toEqual({
         title: refinedTitle,
         description: "Implement this outcome with the constraints in the task.",
-        policy: { review: "required", workspace: "dedicated", maxParallelSubtasks: 1 },
+        policy: { review: "required", workspace: "dedicated" },
       });
 
     const firstTitle = `First child ${Date.now()}`;
@@ -763,6 +771,89 @@ test.describe("Kanbans board", () => {
     await page.getByTestId("board-feed-composer-input").fill(note);
     await page.getByTestId("board-feed-send").click();
     await expect(feed).toContainText(note, { timeout: 30_000 });
+  });
+
+  /** Collapsed is the default: an aggregate's children are drawn under its own
+   * card, in its own column, whatever their stored status is. The stored
+   * status is still the only column truth, so a done child collapsed under a
+   * working parent counts in Done without a card of its own there. */
+  test("collapses an aggregate's children under its card and counts their stored statuses", async ({
+    page,
+  }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-aggregate-collapse-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const parentTitle = `Aggregate parent ${Date.now()}`;
+    const parent = await seedTrackerTask(workspace, parentTitle, "in_progress");
+    // A second, still-running child keeps the parent in Working once the first
+    // one merges — otherwise the last subtask settling would also settle the
+    // parent, and there would be no working parent left to collapse under.
+    const runningChildTitle = `Aggregate running child ${Date.now()}`;
+    const runningChild = await seedSubtask(workspace, {
+      projectId: parent.projectId,
+      parentTaskId: parent.taskId,
+      title: runningChildTitle,
+      status: "in_progress",
+    });
+    const childTitle = `Aggregate child ${Date.now()}`;
+    const child = await seedSubtask(workspace, {
+      projectId: parent.projectId,
+      parentTaskId: parent.taskId,
+      title: childTitle,
+      status: "in_review",
+    });
+
+    await openBoard(page, parent.projectId);
+    const board = page.getByTestId(`kanban-board-${parent.projectId}`);
+    const parentCard = board.getByTestId(`task-card-${parent.taskId}`);
+    await expect(parentCard).toBeVisible({ timeout: 30_000 });
+
+    // A tracker-only child merges without a worktree: approving it is what
+    // gets it to Done, the same completion gate as any other subtask.
+    const inProgressBody = board.getByTestId("task-column-body-in_progress");
+    await inProgressBody.getByTestId(`task-card-status-${child.taskId}`).click();
+    await page.getByTestId(`task-card-approve-${child.taskId}`).click();
+    await expect
+      .poll(() => readTaskStatus(workspace, child.taskId), { timeout: 30_000 })
+      .toBe("done");
+    // The running sibling kept the parent out of the aggregation transition.
+    await expect
+      .poll(() => readTaskStatus(workspace, parent.taskId), { timeout: 10_000 })
+      .toBe("in_progress");
+
+    // Collapsed: the merged child is drawn nested under the parent in the
+    // parent's own column, not as a card of its own in Done.
+    await expect(inProgressBody.getByTestId(`task-card-${child.taskId}`)).toBeVisible();
+    await expect(inProgressBody.getByTestId(`task-card-${runningChild.taskId}`)).toBeVisible();
+    await expect(
+      board.getByTestId("task-column-body-done").getByTestId(`task-card-${child.taskId}`),
+    ).toHaveCount(0);
+    await expect(parentCard.getByTestId(`task-card-child-states-${parent.taskId}`)).toContainText(
+      "1 running",
+    );
+    await expect(parentCard.getByTestId(`task-card-child-states-${parent.taskId}`)).toContainText(
+      "1 done",
+    );
+    // The stored status is the only column truth: Done's badge counts the
+    // child even though nothing is drawn in Done's own body.
+    await expect(board.getByTestId("task-column-done")).toContainText("1");
+
+    // Expanding puts every task in its own status column, and the choice
+    // persists per board.
+    await board.getByTestId("task-board-subtasks-projection").click();
+    await expect(
+      board.getByTestId("task-column-body-done").getByTestId(`task-card-${child.taskId}`),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(inProgressBody.getByTestId(`task-card-${child.taskId}`)).toHaveCount(0);
+
+    await page.reload();
+    await waitForSidebarHydration(page);
+    const reloadedBoard = page.getByTestId(`kanban-board-${parent.projectId}`);
+    await expect(
+      reloadedBoard.getByTestId("task-column-body-done").getByTestId(`task-card-${child.taskId}`),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(reloadedBoard.getByTestId("task-board-subtasks-projection")).toContainText(
+      "Subtasks in columns",
+    );
   });
 
   test("consuming a task query does not reopen the task after reload", async ({ page }) => {

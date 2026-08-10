@@ -1,6 +1,6 @@
 import { useCallback, type ReactElement } from "react";
 import { Text, TextInput, View } from "react-native";
-import { Filter, Plus, Search, SlidersHorizontal } from "lucide-react-native";
+import { Filter, ListTree, Plus, Search, SlidersHorizontal } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskLabel } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,11 @@ export function TaskSurfaceToolbar({
   const handleView = useCallback((view: TaskSurfaceView) => onPatch({ view }), [onPatch]);
   const handleQuery = useCallback((query: string) => onPatch({ query }), [onPatch]);
   const handleSort = useCallback((sort: TaskSort) => onPatch({ sort }), [onPatch]);
+  const expandSubtasks = preferences.expandSubtasks === true;
+  const handleToggleSubtasks = useCallback(
+    () => onPatch({ expandSubtasks: !expandSubtasks }),
+    [expandSubtasks, onPatch],
+  );
 
   return (
     <View style={styles.toolbar} testID="task-surface-toolbar">
@@ -107,6 +112,17 @@ export function TaskSurfaceToolbar({
         />
       ) : null}
       <SortMenu sort={preferences.sort} onSelect={handleSort} />
+      {preferences.view === "kanban" ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={ListTree}
+          onPress={handleToggleSubtasks}
+          testID="task-board-subtasks-projection"
+        >
+          {expandSubtasks ? "Subtasks in columns" : "Subtasks under parents"}
+        </Button>
+      ) : null}
       {hasFilters ? (
         <Button variant="ghost" size="xs" onPress={onClearFilters} testID="task-filters-clear">
           Clear

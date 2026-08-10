@@ -448,6 +448,7 @@ export function TaskBoardSurface({
           onCreateWorkflowForTask={onCreateWorkflowForTask}
           selectedColumn={selectedColumn}
           onSelectColumn={setSelectedColumn}
+          expandSubtasks={preferences.expandSubtasks === true}
           dragDisabled={isReorderDisabled}
         />
       ) : (
@@ -564,6 +565,7 @@ function SurfaceTaskDetail({
       dependencies={snapshot?.dependencies ?? EMPTY_DEPENDENCIES}
       workflows={snapshot?.workflows ?? EMPTY_WORKFLOWS}
       executionSummary={executionSummary}
+      executionByTaskId={executionByTaskId}
       onEditWorkflow={onEditWorkflow}
       onClose={onClose}
     />

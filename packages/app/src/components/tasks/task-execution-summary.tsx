@@ -67,7 +67,7 @@ export function TaskExecutionStateDot({ state }: { state: TaskExecutionState }):
   if (state === "starting" || state === "running") {
     return <AgentStatusDot status="running" requiresAttention={false} showInactive />;
   }
-  if (state === "attention") {
+  if (state === "attention" || state === "step_complete") {
     return (
       <AgentStatusDot status="idle" requiresAttention attentionReason="finished" showInactive />
     );

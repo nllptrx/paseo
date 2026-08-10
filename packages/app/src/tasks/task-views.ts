@@ -320,6 +320,11 @@ export interface TaskDependencyEdge {
 export interface TaskRelationshipSummary {
   subtaskCount: number;
   blockerCount: number;
+  /** Direct children by stored status. An aggregate holds no work of its own, so
+   * this is the only thing on its card that says how the work is going. */
+  childRunningCount: number;
+  childReviewCount: number;
+  childDoneCount: number;
 }
 
 export function buildTaskRelationshipSummaries(input: {
@@ -329,12 +334,22 @@ export function buildTaskRelationshipSummaries(input: {
   const summaries = new Map<string, TaskRelationshipSummary>();
   const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
   for (const task of input.tasks) {
-    summaries.set(task.id, { subtaskCount: 0, blockerCount: 0 });
+    summaries.set(task.id, {
+      subtaskCount: 0,
+      blockerCount: 0,
+      childRunningCount: 0,
+      childReviewCount: 0,
+      childDoneCount: 0,
+    });
   }
   for (const task of input.tasks) {
     if (!task.parentTaskId) continue;
     const parent = summaries.get(task.parentTaskId);
-    if (parent) parent.subtaskCount += 1;
+    if (!parent) continue;
+    parent.subtaskCount += 1;
+    if (task.status === "in_progress") parent.childRunningCount += 1;
+    if (task.status === "in_review") parent.childReviewCount += 1;
+    if (task.status === "done") parent.childDoneCount += 1;
   }
   for (const edge of input.dependencies) {
     const blocker = tasksById.get(edge.dependsOnTaskId);
@@ -367,6 +382,117 @@ export function selectBlockers(input: {
       }
       return [blocker];
     });
+}
+
+/**
+ * What an aggregate's card says about its children, in the order someone scans
+ * for: what is moving, what is waiting on them, what is finished. Empty when the
+ * task has no children or none of them has reached one of those statuses.
+ */
+export function formatAggregateChildStates(
+  summary: TaskRelationshipSummary | undefined,
+): string | null {
+  if (!summary || summary.subtaskCount === 0) {
+    return null;
+  }
+  const parts: string[] = [];
+  if (summary.childRunningCount > 0) parts.push(`${summary.childRunningCount} running`);
+  if (summary.childReviewCount > 0) parts.push(`${summary.childReviewCount} ready to review`);
+  if (summary.childDoneCount > 0) parts.push(`${summary.childDoneCount} done`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+export interface TaskBoardRow {
+  task: Task;
+  depth: number;
+  /**
+   * The row sits in its parent's column rather than the one its own status
+   * names. Such a row is not a drop slot: its position would be read against a
+   * column it is not stored in.
+   */
+  collapsed: boolean;
+}
+
+export interface TaskColumnProjection {
+  rows: TaskBoardRow[];
+  /**
+   * How many tasks are stored in this status, whatever column the projection
+   * draws them in. The column badge counts these: the stored statuses are the
+   * only column truth, so a child collapsed under a parent elsewhere must not
+   * inflate that column nor vanish from its own.
+   */
+  storedCount: number;
+}
+
+/**
+ * The cards each column renders. Columns stay the stored statuses; what the
+ * projection decides is where a subtask is drawn.
+ *
+ * Collapsed (the default), an aggregate keeps its children under its own card
+ * whatever column their status would put them in — the parent is the unit of
+ * work, and a chain of five phases scattered across five columns reads as five
+ * unrelated cards. Expanded, every task is drawn in its own status column and
+ * only nests where its parent is in the same one.
+ */
+export function projectBoardColumns(input: {
+  statuses: readonly TaskStatus[];
+  tasks: readonly Task[];
+  expandSubtasks: boolean;
+}): Map<TaskStatus, TaskColumnProjection> {
+  const columns = new Map<TaskStatus, TaskColumnProjection>(
+    input.statuses.map((status) => [status, { rows: [], storedCount: 0 }]),
+  );
+  for (const task of input.tasks) {
+    const column = columns.get(task.status);
+    if (column) column.storedCount += 1;
+  }
+  const bucket = (status: TaskStatus): TaskBoardRow[] | undefined => columns.get(status)?.rows;
+
+  if (input.expandSubtasks) {
+    for (const status of input.statuses) {
+      const inColumn = input.tasks.filter((task) => task.status === status);
+      const rows = bucket(status);
+      for (const row of groupSubtasksUnderParents(inColumn)) {
+        rows?.push({ task: row.task, depth: row.depth, collapsed: false });
+      }
+    }
+    return columns;
+  }
+
+  const present = new Set(input.tasks.map((task) => task.id));
+  const childrenByParent = new Map<string, Task[]>();
+  const roots: Task[] = [];
+  for (const task of input.tasks) {
+    if (task.parentTaskId && present.has(task.parentTaskId)) {
+      const siblings = childrenByParent.get(task.parentTaskId) ?? [];
+      siblings.push(task);
+      childrenByParent.set(task.parentTaskId, siblings);
+      continue;
+    }
+    roots.push(task);
+  }
+
+  const drawn = new Set<string>();
+  const visit = (task: Task, status: TaskStatus, depth: number): void => {
+    if (drawn.has(task.id)) {
+      return;
+    }
+    drawn.add(task.id);
+    bucket(status)?.push({ task, depth, collapsed: task.status !== status });
+    for (const child of childrenByParent.get(task.id) ?? []) {
+      visit(child, status, depth + 1);
+    }
+  };
+  for (const root of roots) {
+    visit(root, root.status, 0);
+  }
+  // Parent links can form a cycle, and every card in one is somebody's child and
+  // so never a root. Drawing them in their own column loses the nesting; not
+  // drawing them loses the work.
+  for (const task of input.tasks) {
+    visit(task, task.status, 0);
+  }
+  return columns;
 }
 
 /** Subtasks render under their parent, so a column orders parents and hands

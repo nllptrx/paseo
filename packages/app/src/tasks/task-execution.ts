@@ -5,7 +5,7 @@ import {
 } from "@getpaseo/protocol/agent-state-bucket";
 import type { Task, TaskAgentLink } from "@getpaseo/protocol/tasks/types";
 
-export type TaskExecutionState = WorkspaceStateBucket | "starting";
+export type TaskExecutionState = WorkspaceStateBucket | "starting" | "step_complete";
 
 export const TASK_EXECUTION_STATE_ORDER: readonly TaskExecutionState[] = [
   "needs_input",
@@ -13,6 +13,7 @@ export const TASK_EXECUTION_STATE_ORDER: readonly TaskExecutionState[] = [
   "starting",
   "running",
   "attention",
+  "step_complete",
   "done",
 ];
 
@@ -22,6 +23,7 @@ export const TASK_EXECUTION_STATE_LABELS: Record<TaskExecutionState, string> = {
   starting: "Starting",
   running: "Working",
   attention: "Ready to review",
+  step_complete: "Step complete",
   done: "Done",
 };
 
@@ -43,7 +45,7 @@ export interface TaskExecutionWorkspaceSource {
   pullRequestNumber: number | null;
 }
 
-export type TaskExecutionTaskSource = Pick<Task, "id"> & {
+export type TaskExecutionTaskSource = Pick<Task, "id" | "status"> & {
   agents: readonly TaskAgentLink[];
 };
 
@@ -93,6 +95,7 @@ function emptyCounts(): TaskExecutionCounts {
     starting: 0,
     running: 0,
     attention: 0,
+    step_complete: 0,
     done: 0,
   };
 }
@@ -104,17 +107,26 @@ export function resolveTaskExecutionState(agent: TaskExecutionAgentSource): Task
 
 function executionEntry(input: {
   link: TaskAgentLink;
+  taskStatus: Task["status"];
   agent: TaskExecutionAgentSource | undefined;
   workspace: TaskExecutionWorkspaceSource | undefined;
 }): TaskExecutionEntry {
   const { link, agent, workspace } = input;
+  const agentState = agent ? resolveTaskExecutionState(agent) : "starting";
+  const state =
+    agentState === "attention" &&
+    input.taskStatus === "in_progress" &&
+    (link.role ?? "worker") === "worker" &&
+    link.completionOwner === "workflow"
+      ? "step_complete"
+      : agentState;
   return {
     agentId: link.agentId,
     workspaceId: link.workspaceId,
     provider: agent?.provider ?? "agent",
     title: agent?.title ?? null,
     role: link.role ?? "worker",
-    state: agent ? resolveTaskExecutionState(agent) : "starting",
+    state,
     workspaceName: workspace?.title ?? workspace?.name ?? "Workspace",
     branch: workspace?.branch ?? null,
     pullRequestNumber: workspace?.pullRequestNumber ?? null,
@@ -132,6 +144,7 @@ export function buildTaskExecutionSummaries(input: {
     const entries = task.agents.map((link) =>
       executionEntry({
         link,
+        taskStatus: task.status,
         agent: input.agents.get(link.agentId),
         workspace: input.workspaces.get(link.workspaceId),
       }),

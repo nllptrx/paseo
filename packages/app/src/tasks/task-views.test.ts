@@ -14,7 +14,9 @@ import {
   selectOverviewTasks,
   selectBlockers,
   buildTaskRelationshipSummaries,
+  formatAggregateChildStates,
   groupSubtasksUnderParents,
+  projectBoardColumns,
 } from "./task-views";
 
 function task(overrides: Partial<Task> = {}): Task {
@@ -228,8 +230,167 @@ describe("buildTaskRelationshipSummaries", () => {
       ],
     });
 
-    expect(summaries.get("parent")).toEqual({ subtaskCount: 2, blockerCount: 1 });
-    expect(summaries.get("child-1")).toEqual({ subtaskCount: 0, blockerCount: 0 });
+    expect(summaries.get("parent")).toMatchObject({ subtaskCount: 2, blockerCount: 1 });
+    expect(summaries.get("child-1")).toMatchObject({ subtaskCount: 0, blockerCount: 0 });
+  });
+
+  /** An aggregate holds no work of its own, so its card reads its children. */
+  it("counts a parent's children by the status they are stored in", () => {
+    const summaries = buildTaskRelationshipSummaries({
+      tasks: [
+        task({ id: "parent" }),
+        task({ id: "a", parentTaskId: "parent", status: "in_progress" }),
+        task({ id: "b", parentTaskId: "parent", status: "in_review" }),
+        task({ id: "c", parentTaskId: "parent", status: "done" }),
+        task({ id: "d", parentTaskId: "parent", status: "done" }),
+        task({ id: "e", parentTaskId: "parent", status: "todo" }),
+      ],
+      dependencies: [],
+    });
+
+    expect(summaries.get("parent")).toEqual({
+      subtaskCount: 5,
+      blockerCount: 0,
+      childRunningCount: 1,
+      childReviewCount: 1,
+      childDoneCount: 2,
+    });
+  });
+});
+
+describe("formatAggregateChildStates", () => {
+  it("names only the states children are actually in", () => {
+    expect(
+      formatAggregateChildStates({
+        subtaskCount: 4,
+        blockerCount: 0,
+        childRunningCount: 1,
+        childReviewCount: 0,
+        childDoneCount: 2,
+      }),
+    ).toBe("1 running · 2 done");
+  });
+
+  it("says nothing for a task without children, and nothing for children that have not started", () => {
+    expect(
+      formatAggregateChildStates({
+        subtaskCount: 0,
+        blockerCount: 0,
+        childRunningCount: 0,
+        childReviewCount: 0,
+        childDoneCount: 0,
+      }),
+    ).toBeNull();
+    expect(
+      formatAggregateChildStates({
+        subtaskCount: 2,
+        blockerCount: 0,
+        childRunningCount: 0,
+        childReviewCount: 0,
+        childDoneCount: 0,
+      }),
+    ).toBeNull();
+    expect(formatAggregateChildStates(undefined)).toBeNull();
+  });
+});
+
+describe("projectBoardColumns", () => {
+  const statuses: TaskStatus[] = ["backlog", "todo", "in_progress", "in_review", "done"];
+
+  it("keeps an aggregate's children under its card whatever column their status names", () => {
+    const columns = projectBoardColumns({
+      statuses,
+      expandSubtasks: false,
+      tasks: [
+        task({ id: "parent", status: "in_progress" }),
+        task({ id: "child-done", parentTaskId: "parent", status: "done" }),
+        task({ id: "child-review", parentTaskId: "parent", status: "in_review" }),
+        task({ id: "loner", status: "done" }),
+      ],
+    });
+
+    expect(
+      columns.get("in_progress")?.rows.map((row) => [row.task.id, row.depth, row.collapsed]),
+    ).toEqual([
+      ["parent", 0, false],
+      ["child-done", 1, true],
+      ["child-review", 1, true],
+    ]);
+    expect(columns.get("done")?.rows.map((row) => row.task.id)).toEqual(["loner"]);
+    expect(columns.get("in_review")?.rows).toEqual([]);
+  });
+
+  /** The badge counts what a column stores, not what the projection drew there:
+   * a done child collapsed under a working parent still counts in Done. */
+  it("counts every column by the status its tasks are stored in", () => {
+    const columns = projectBoardColumns({
+      statuses,
+      expandSubtasks: false,
+      tasks: [
+        task({ id: "parent", status: "in_progress" }),
+        task({ id: "child-done", parentTaskId: "parent", status: "done" }),
+        task({ id: "child-review", parentTaskId: "parent", status: "in_review" }),
+        task({ id: "loner", status: "done" }),
+      ],
+    });
+
+    expect(columns.get("in_progress")?.storedCount).toBe(1);
+    expect(columns.get("done")?.storedCount).toBe(2);
+    expect(columns.get("in_review")?.storedCount).toBe(1);
+    expect(columns.get("todo")?.storedCount).toBe(0);
+  });
+
+  it("draws every task in its own status column when expanded, nesting only within one", () => {
+    const columns = projectBoardColumns({
+      statuses,
+      expandSubtasks: true,
+      tasks: [
+        task({ id: "parent", status: "in_progress" }),
+        task({ id: "sibling", parentTaskId: "parent", status: "in_progress" }),
+        task({ id: "elsewhere", parentTaskId: "parent", status: "done" }),
+      ],
+    });
+
+    expect(columns.get("in_progress")?.rows.map((row) => [row.task.id, row.depth])).toEqual([
+      ["parent", 0],
+      ["sibling", 1],
+    ]);
+    expect(columns.get("done")?.rows.map((row) => [row.task.id, row.depth, row.collapsed])).toEqual(
+      [["elsewhere", 0, false]],
+    );
+    expect(columns.get("in_progress")?.storedCount).toBe(2);
+  });
+
+  /** A parent that is filtered out of the view cannot hold anything up. */
+  it("draws a child whose parent is not in the view as a card of its own", () => {
+    const columns = projectBoardColumns({
+      statuses,
+      expandSubtasks: false,
+      tasks: [task({ id: "orphan", parentTaskId: "filtered-out", status: "todo" })],
+    });
+
+    expect(columns.get("todo")?.rows.map((row) => [row.task.id, row.depth, row.collapsed])).toEqual(
+      [["orphan", 0, false]],
+    );
+  });
+
+  /** Parent links can form a cycle; every card in one is somebody's child. */
+  it("still draws a cycle rather than losing the work", () => {
+    const columns = projectBoardColumns({
+      statuses,
+      expandSubtasks: false,
+      tasks: [
+        task({ id: "a", parentTaskId: "b", status: "todo" }),
+        task({ id: "b", parentTaskId: "a", status: "todo" }),
+      ],
+    });
+
+    expect(
+      columns
+        .get("todo")
+        ?.rows.map((row) => row.task.id)
+        .sort(),
+    ).toEqual(["a", "b"]);
   });
 });
 
