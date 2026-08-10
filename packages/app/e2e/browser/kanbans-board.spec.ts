@@ -487,21 +487,24 @@ test.describe("Kanbans board", () => {
       "Read the relevant files before making changes.",
     );
     const promptInput = form.getByTestId("task-workflow-form-step-prompt-input-0");
-    await expect(promptInput).toHaveCSS("resize", "vertical");
+    await expect(promptInput).toHaveCSS("resize", "none");
     await expect(promptInput).toHaveCSS("overflow-y", "auto");
-    await expect(
-      form.getByTestId("task-workflow-form-step-prompt-input-0-resize-handle"),
-    ).toHaveCount(1);
+    const promptResizeHandle = form.getByTestId(
+      "task-workflow-form-step-prompt-input-0-resize-handle",
+    );
+    await expect(promptResizeHandle).toHaveCount(1);
     const beforeResize = await promptInput.boundingBox();
+    const resizeHandleBox = await promptResizeHandle.boundingBox();
     if (!beforeResize) throw new Error("Agent brief is not laid out");
+    if (!resizeHandleBox) throw new Error("Agent brief resize handle is not laid out");
     await page.mouse.move(
-      beforeResize.x + beforeResize.width - 2,
-      beforeResize.y + beforeResize.height - 2,
+      resizeHandleBox.x + resizeHandleBox.width / 2,
+      resizeHandleBox.y + resizeHandleBox.height / 2,
     );
     await page.mouse.down();
     await page.mouse.move(
-      beforeResize.x + beforeResize.width - 2,
-      beforeResize.y + beforeResize.height + 80,
+      resizeHandleBox.x + resizeHandleBox.width / 2,
+      resizeHandleBox.y + resizeHandleBox.height / 2 + 80,
     );
     await page.mouse.up();
     await expect
@@ -510,22 +513,25 @@ test.describe("Kanbans board", () => {
 
     await form.getByTestId("task-workflow-form-add-step").click();
     const secondPromptInput = form.getByTestId("task-workflow-form-step-prompt-input-1");
-    await expect(secondPromptInput).toHaveCSS("resize", "vertical");
+    await expect(secondPromptInput).toHaveCSS("resize", "none");
     await expect(secondPromptInput).toHaveCSS("overflow-y", "auto");
-    await expect(
-      form.getByTestId("task-workflow-form-step-prompt-input-1-resize-handle"),
-    ).toHaveCount(1);
+    const secondPromptResizeHandle = form.getByTestId(
+      "task-workflow-form-step-prompt-input-1-resize-handle",
+    );
+    await expect(secondPromptResizeHandle).toHaveCount(1);
     await secondPromptInput.scrollIntoViewIfNeeded();
     const secondBeforeResize = await secondPromptInput.boundingBox();
+    const secondResizeHandleBox = await secondPromptResizeHandle.boundingBox();
     if (!secondBeforeResize) throw new Error("Second agent brief is not laid out");
+    if (!secondResizeHandleBox) throw new Error("Second agent brief resize handle is not laid out");
     await page.mouse.move(
-      secondBeforeResize.x + secondBeforeResize.width - 2,
-      secondBeforeResize.y + secondBeforeResize.height - 2,
+      secondResizeHandleBox.x + secondResizeHandleBox.width / 2,
+      secondResizeHandleBox.y + secondResizeHandleBox.height / 2,
     );
     await page.mouse.down();
     await page.mouse.move(
-      secondBeforeResize.x + secondBeforeResize.width - 2,
-      secondBeforeResize.y + secondBeforeResize.height + 80,
+      secondResizeHandleBox.x + secondResizeHandleBox.width / 2,
+      secondResizeHandleBox.y + secondResizeHandleBox.height / 2 + 80,
     );
     await page.mouse.up();
     await expect
