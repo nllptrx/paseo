@@ -5,6 +5,7 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import type {
   Task,
   TaskExecutionPolicy,
+  TaskExecutionSpec,
   TaskPriority,
   TaskSnapshot,
   TaskStatus,
@@ -148,6 +149,9 @@ export interface UseTaskMutationsResult {
     status?: TaskStatus;
     parentTaskId?: string | null;
     executionPolicy?: TaskExecutionPolicy;
+    executionSpec?: TaskExecutionSpec;
+    /** Subtasks chain onto the previous sibling unless this says otherwise. */
+    parallel?: boolean;
   }) => Promise<string>;
   attachAgent: (input: {
     taskId: string;
@@ -231,6 +235,8 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
       status?: TaskStatus;
       parentTaskId?: string | null;
       executionPolicy?: TaskExecutionPolicy;
+      executionSpec?: TaskExecutionSpec;
+      parallel?: boolean;
     }) => {
       const payload = await require().tasksCreate(input);
       if (payload.error || !payload.task) {

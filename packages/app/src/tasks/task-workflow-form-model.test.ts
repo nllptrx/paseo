@@ -41,8 +41,53 @@ describe("task workflow form model", () => {
     expect(state.providerOptions).toEqual([]);
     expect(state.steps).toHaveLength(1);
     expect(state.steps[0]?.provider).toBeNull();
+    expect(state.autoContinue).toBe(true);
     expect(state.providerResolutionStatus).toBe("pending");
     expect(state.canSubmit).toBe(false);
+  });
+
+  it("continues new plans automatically unless the author turns it off", () => {
+    const model = openTaskWorkflowForm({ ...SNAPSHOT, availableProviders: PROVIDERS });
+    completeFirstStep(model);
+    model.addStep();
+
+    expect(model.getState().steps.map((step) => step.trigger)).toEqual(["manual", "immediate"]);
+
+    model.setAutoContinue(false);
+    expect(model.getState().steps.map((step) => step.trigger)).toEqual(["manual", "manual"]);
+
+    model.setAutoContinue(true);
+    expect(model.getState().steps.map((step) => step.trigger)).toEqual(["manual", "immediate"]);
+  });
+
+  it("reads automatic continuation from an existing plan", () => {
+    const storedStep = {
+      id: "stp_1",
+      name: "Build",
+      prompt: "Build it",
+      agents: [{ provider: "claude" as const }],
+      completion: "all" as const,
+      workspace: { mode: "worktree" as const },
+      requireChanges: true,
+      runs: [],
+    };
+    const automatic = openTaskWorkflowForm({
+      ...SNAPSHOT,
+      existingSteps: [
+        { ...storedStep, trigger: { type: "manual" as const } },
+        { ...storedStep, id: "stp_2", trigger: { type: "immediate" as const } },
+      ],
+    });
+    const paused = openTaskWorkflowForm({
+      ...SNAPSHOT,
+      existingSteps: [
+        { ...storedStep, trigger: { type: "manual" as const } },
+        { ...storedStep, id: "stp_2", trigger: { type: "manual" as const } },
+      ],
+    });
+
+    expect(automatic.getState().autoContinue).toBe(true);
+    expect(paused.getState().autoContinue).toBe(false);
   });
 
   it("seeds the opening step's provider from a snapshot that is already known", () => {
@@ -100,7 +145,6 @@ describe("task workflow form model", () => {
     model.addStep();
     const second = model.getState().steps[1]?.key ?? "";
     model.setStepWorkspaceMode(second, "reuse_previous");
-    model.setStepTrigger(second, "immediate");
 
     model.moveStep(second, -1);
 
@@ -108,6 +152,7 @@ describe("task workflow form model", () => {
     expect(moved?.key).toBe(second);
     expect(moved?.workspaceMode).toBe("worktree");
     expect(moved?.trigger).toBe("manual");
+    expect(model.getState().steps[1]?.trigger).toBe("immediate");
   });
 
   it("requires every step complete before it can submit", () => {
@@ -180,7 +225,6 @@ describe("task workflow form model", () => {
     model.setStepPrompt(second, "check the work");
     model.setStepAgent(second, { provider: "copilot", model: null });
     model.setStepWorkspaceMode(second, "reuse_previous");
-    model.setStepTrigger(second, "immediate");
 
     expect(buildTaskWorkflowSteps(model.getState())).toEqual([
       {
@@ -366,6 +410,7 @@ describe("task workflow form model", () => {
     model.setStepName(key, "Build it");
 
     const [saved] = buildTaskWorkflowSteps(model.getState()) ?? [];
+    expect(saved.existingStepId).toBe("stp_1");
     expect(saved.name).toBe("Build it");
     expect(saved.agents).toHaveLength(2);
     expect(saved.agents[0]).toMatchObject({ modeId: "plan", thinkingOptionId: "high" });

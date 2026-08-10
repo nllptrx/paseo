@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
 import { FormTextInput } from "@/components/ui/form-field";
+import { Switch } from "@/components/ui/switch";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -32,12 +33,29 @@ import {
   selectBlockers,
   type TaskDependencyEdge,
 } from "@/tasks/task-views";
+import {
+  AGGREGATE_WORK_REFUSAL,
+  applyReviewMode,
+  canCreateSubtask,
+  EMPTY_SUBTASK_DRAFT,
+  formatReviewModeSummary,
+  resolveReviewMode,
+  REVIEW_MODE_LABELS,
+  REVIEW_MODES,
+  toSubtaskCreateInput,
+  withSubtaskParallel,
+  withSubtaskPreset,
+  withSubtaskTitle,
+  type ReviewMode,
+  type SubtaskDraft,
+} from "@/tasks/task-aggregate";
 import { useTaskDelegate, useTaskPresets } from "@/tasks/use-task-delegate";
 import {
   resolveStepState,
   useTaskStepActions,
   type TaskStepAction,
 } from "@/tasks/use-task-workflow";
+import { resolveStepAgentTarget } from "@/tasks/task-workflow-view";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import {
   useTaskExecutionPolicySupported,
@@ -77,6 +95,9 @@ export interface TaskDetailSheetProps {
   dependencies: readonly TaskDependencyEdge[];
   workflows: readonly TaskWorkflow[];
   executionSummary?: TaskExecutionSummary | undefined;
+  /** Every card's live execution, so a subtask row can show its own state
+   * without the sheet refetching what the board already read. */
+  executionByTaskId?: ReadonlyMap<string, TaskExecutionSummary> | undefined;
   /** Opens the workflow editor for this task; the board owns that sheet. */
   onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
   onClose: () => void;
@@ -96,6 +117,7 @@ export function TaskDetailSheet({
   dependencies,
   workflows,
   executionSummary,
+  executionByTaskId,
   onEditWorkflow,
   onClose,
 }: TaskDetailSheetProps): ReactElement | null {
@@ -114,6 +136,7 @@ export function TaskDetailSheet({
       dependencies={dependencies}
       workflow={workflows.find((entry) => entry.taskId === task.id) ?? null}
       executionSummary={executionSummary}
+      executionByTaskId={executionByTaskId}
       onEditWorkflow={onEditWorkflow}
       labels={labels}
       onClose={onClose}
@@ -130,6 +153,7 @@ function OpenTaskDetailSheet({
   dependencies,
   workflow,
   executionSummary,
+  executionByTaskId,
   onEditWorkflow,
   labels,
   onClose,
@@ -142,6 +166,7 @@ function OpenTaskDetailSheet({
   dependencies: readonly TaskDependencyEdge[];
   workflow: TaskWorkflow | null;
   executionSummary?: TaskExecutionSummary | undefined;
+  executionByTaskId?: ReadonlyMap<string, TaskExecutionSummary> | undefined;
   onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
   labels: readonly TaskLabel[];
   onClose: () => void;
@@ -160,7 +185,7 @@ function OpenTaskDetailSheet({
   const [reviewFeedback, setReviewFeedback] = useState("");
   const [titleDraft, setTitleDraft] = useState(task.title);
   const [descriptionDraft, setDescriptionDraft] = useState(task.description);
-  const [subtaskDraft, setSubtaskDraft] = useState("");
+  const [subtaskDraft, setSubtaskDraft] = useState<SubtaskDraft>(EMPTY_SUBTASK_DRAFT);
   const [noteResetKey, setNoteResetKey] = useState(0);
   const [subtaskResetKey, setSubtaskResetKey] = useState(0);
   const executionGroups = useMemo(
@@ -189,27 +214,35 @@ function OpenTaskDetailSheet({
         .filter((candidate): candidate is Task => Boolean(candidate)),
     [dependencies, task.id, tasks],
   );
+  // Subtasks have a section of their own: they are worked, reviewed and started
+  // from here, which a one-line relationship row cannot carry.
   const relationships = useMemo<readonly { label: string; task: Task }[]>(
     () => [
       ...(parent ? [{ label: "Parent", task: parent }] : []),
       ...dependenciesForTask.map((dependency) => ({ label: "Waits for", task: dependency })),
-      ...subtasks.map((subtask) => ({ label: "Subtask", task: subtask })),
     ],
-    [dependenciesForTask, parent, subtasks],
+    [dependenciesForTask, parent],
   );
+  const isAggregate = subtasks.length > 0;
   // The verdict belongs where the change is read, not only in the card's menu:
   // someone who opened the task to judge it should not have to close it again to
-  // say what they decided.
-  const handleReview = useCallback(
-    (verdict: "approve" | "reject") => {
+  // say what they decided. A subtask is the same write on another card, so the
+  // parent's sheet can settle a child without opening it.
+  const submitReview = useCallback(
+    (input: {
+      taskId: string;
+      verdict: "approve" | "reject";
+      feedback?: string;
+      subject: string;
+    }) => {
       void reviewTask({
-        taskId: task.id,
-        verdict,
-        feedback: verdict === "reject" ? reviewFeedback.trim() || undefined : undefined,
+        taskId: input.taskId,
+        verdict: input.verdict,
+        ...(input.feedback ? { feedback: input.feedback } : {}),
       })
         .then((reviewedTask) => {
-          if (verdict === "reject" && reviewedTask.status === "in_review") {
-            toast.show("The task remains in Review; no correction round was started.");
+          if (input.verdict === "reject" && reviewedTask.status === "in_review") {
+            toast.show(`The ${input.subject} remains in Review; no correction round was started.`);
           }
           return reviewedTask;
         })
@@ -217,10 +250,27 @@ function OpenTaskDetailSheet({
           toast.show(toErrorMessage(error));
         });
     },
-    [reviewFeedback, reviewTask, task.id, toast],
+    [reviewTask, toast],
   );
-  const handleApprove = useCallback(() => handleReview("approve"), [handleReview]);
-  const handleReject = useCallback(() => handleReview("reject"), [handleReview]);
+  const handleApprove = useCallback(
+    () => submitReview({ taskId: task.id, verdict: "approve", subject: "task" }),
+    [submitReview, task.id],
+  );
+  const handleReject = useCallback(
+    () =>
+      submitReview({
+        taskId: task.id,
+        verdict: "reject",
+        feedback: reviewFeedback.trim() || undefined,
+        subject: "task",
+      }),
+    [reviewFeedback, submitReview, task.id],
+  );
+  const handleReviewSubtask = useCallback(
+    (input: { taskId: string; verdict: "approve" | "reject"; feedback?: string }) =>
+      submitReview({ ...input, subject: "subtask" }),
+    [submitReview],
+  );
 
   const handleDelegate = useCallback(
     (presetId: string) => {
@@ -280,18 +330,19 @@ function OpenTaskDetailSheet({
   }, [descriptionDraft, task.description, task.id, task.title, titleDraft, toast, updateTask]);
 
   const createSubtask = useCallback(() => {
-    const title = subtaskDraft.trim();
-    if (!title) {
+    const input = toSubtaskCreateInput(subtaskDraft, task);
+    if (!input) {
       return;
     }
-    setSubtaskDraft("");
+    const submitted = subtaskDraft;
+    setSubtaskDraft(withSubtaskTitle(submitted, ""));
     setSubtaskResetKey((current) => current + 1);
-    void createTask({ projectId: task.projectId, title, parentTaskId: task.id }).catch((error) => {
-      setSubtaskDraft(title);
+    void createTask(input).catch((error) => {
+      setSubtaskDraft(submitted);
       setSubtaskResetKey((current) => current + 1);
       toast.show(toErrorMessage(error));
     });
-  }, [createTask, subtaskDraft, task.id, task.projectId, toast]);
+  }, [createTask, subtaskDraft, task, toast]);
 
   const handleOpenAgent = useCallback(
     (input: { workspaceId: string; agentId: string }) => {
@@ -319,19 +370,6 @@ function OpenTaskDetailSheet({
   }, [isPosting, noteDraft, post, task.id, toast]);
 
   const header = useMemo(() => ({ title: formatTaskKey(project, task) }), [project, task]);
-  const workflowTrailing = useMemo(
-    () => (
-      <Button
-        variant="ghost"
-        size="sm"
-        onPress={handleEditWorkflow}
-        testID="task-detail-workflow-edit"
-      >
-        {workflow ? "Edit" : "Add plan"}
-      </Button>
-    ),
-    [handleEditWorkflow, workflow],
-  );
 
   return (
     <AdaptiveModalSheet
@@ -480,89 +518,68 @@ function OpenTaskDetailSheet({
                 <PresetButton
                   key={preset.id}
                   preset={preset}
-                  disabled={blockers.length > 0 || isDelegating}
+                  disabled={isAggregate || blockers.length > 0 || isDelegating}
                   onStart={handleDelegate}
                 />
               ))}
             </View>
+            {isAggregate ? (
+              <Text style={settingsStyles.rowHint} testID="task-detail-aggregate-refusal">
+                {AGGREGATE_WORK_REFUSAL}
+              </Text>
+            ) : null}
           </SettingsSection>
         ) : null}
 
-        <SettingsSection
-          title="Agent plan"
-          flush
-          testID="task-detail-workflow"
-          trailing={workflowTrailing}
-        >
-          <Text style={settingsStyles.rowHint}>
-            The task brief is sent with every step. Add instructions only where they differ.
-          </Text>
-          {workflow && workflow.steps.length > 0 ? (
-            <View style={settingsStyles.card}>
-              {workflow.steps.map((step, index) => (
-                <WorkflowStepRow
-                  key={step.id}
-                  step={step}
-                  index={index}
-                  disabled={isActing}
-                  onAct={handleStepAction}
-                />
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.emptyComments}>
-              No saved plan. Start from a preset, or add a multi-step agent plan.
-            </Text>
-          )}
-        </SettingsSection>
+        <TaskPlanSection
+          workflow={workflow}
+          isAggregate={isAggregate}
+          isActing={isActing}
+          onEdit={handleEditWorkflow}
+          onAct={handleStepAction}
+          onOpenAgent={handleOpenAgent}
+        />
 
         <TaskAutomationSection
           serverId={serverId}
           task={task}
           project={project}
           presets={presets}
+          hasSubtasks={isAggregate}
         />
 
         <TaskDeliverySection task={task} />
 
-        <SettingsSection title="Relationships" flush testID="task-detail-relationships">
-          <View style={settingsStyles.card}>
-            {relationships.map((relationship, index) => (
-              <TaskRelationshipRow
-                key={`${relationship.label}-${relationship.task.id}`}
-                label={relationship.label}
-                task={relationship.task}
-                project={projectsById.get(relationship.task.projectId)}
-                withBorder={index > 0}
-              />
-            ))}
-            <View
-              style={[
-                settingsStyles.row,
-                relationships.length > 0 ? settingsStyles.rowBorder : null,
-              ]}
-            >
-              <AdaptiveTextInput
-                initialValue={subtaskDraft}
-                resetKey={subtaskResetKey}
-                onChangeText={setSubtaskDraft}
-                onSubmitEditing={createSubtask}
-                placeholder="Add a subtask"
-                style={styles.inlineInput}
-                testID="task-detail-subtask-input"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onPress={createSubtask}
-                disabled={!subtaskDraft.trim() || isBusy}
-                testID="task-detail-subtask-add"
-              >
-                Add
-              </Button>
+        <TaskSubtasksSection
+          subtasks={subtasks}
+          projectsById={projectsById}
+          presets={presets}
+          draft={subtaskDraft}
+          draftResetKey={subtaskResetKey}
+          executionByTaskId={executionByTaskId}
+          isBusy={isBusy}
+          isReviewing={isReviewing}
+          onDraftChange={setSubtaskDraft}
+          onCreate={createSubtask}
+          onReview={handleReviewSubtask}
+          onOpenAgent={handleOpenAgent}
+        />
+
+        {relationships.length > 0 ? (
+          <SettingsSection title="Relationships" flush testID="task-detail-relationships">
+            <View style={settingsStyles.card}>
+              {relationships.map((relationship, index) => (
+                <TaskRelationshipRow
+                  key={`${relationship.label}-${relationship.task.id}`}
+                  label={relationship.label}
+                  task={relationship.task}
+                  project={projectsById.get(relationship.task.projectId)}
+                  withBorder={index > 0}
+                />
+              ))}
             </View>
-          </View>
-        </SettingsSection>
+          </SettingsSection>
+        ) : null}
 
         {task.attachments.length > 0 ? (
           <SettingsSection title="Attachments" flush testID="task-detail-attachments">
@@ -642,6 +659,313 @@ function OpenTaskDetailSheet({
   );
 }
 
+/**
+ * The task's saved plan. On an aggregate the plan is refused rather than hidden:
+ * the steps of one authored before the subtasks existed stay readable, with
+ * their run history, but nothing new can be authored on a card that holds no
+ * workers.
+ */
+function TaskPlanSection({
+  workflow,
+  isAggregate,
+  isActing,
+  onEdit,
+  onAct,
+  onOpenAgent,
+}: {
+  workflow: TaskWorkflow | null;
+  isAggregate: boolean;
+  isActing: boolean;
+  onEdit: () => void;
+  onAct: (stepId: string, action: TaskStepAction) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+}): ReactElement {
+  const steps = workflow?.steps ?? [];
+  const trailing = useMemo(
+    () => (
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={onEdit}
+        disabled={isAggregate}
+        testID="task-detail-workflow-edit"
+      >
+        {workflow ? "Edit" : "Add plan"}
+      </Button>
+    ),
+    [isAggregate, onEdit, workflow],
+  );
+  return (
+    <SettingsSection title="Agent plan" flush testID="task-detail-workflow" trailing={trailing}>
+      <Text style={settingsStyles.rowHint}>
+        {isAggregate
+          ? AGGREGATE_WORK_REFUSAL
+          : "The task brief is sent with every step. Add instructions only where they differ."}
+      </Text>
+      {steps.length > 0 ? (
+        <View style={settingsStyles.card}>
+          {steps.map((step, index) => (
+            <WorkflowStepRow
+              key={step.id}
+              step={step}
+              index={index}
+              disabled={isActing}
+              onAct={onAct}
+              onOpenAgent={onOpenAgent}
+            />
+          ))}
+        </View>
+      ) : null}
+      {steps.length > 0 || isAggregate ? null : (
+        <Text style={styles.emptyComments}>
+          No saved plan. Start from a preset, or add a multi-step agent plan.
+        </Text>
+      )}
+    </SettingsSection>
+  );
+}
+
+/**
+ * Where an aggregate's work is created, watched and settled. Creation carries
+ * the two choices that cannot be added later without rewriting stored edges:
+ * which preset runs the subtask, and whether it waits for its sibling.
+ */
+function TaskSubtasksSection({
+  subtasks,
+  projectsById,
+  presets,
+  draft,
+  draftResetKey,
+  executionByTaskId,
+  isBusy,
+  isReviewing,
+  onDraftChange,
+  onCreate,
+  onReview,
+  onOpenAgent,
+}: {
+  subtasks: readonly Task[];
+  projectsById: ReadonlyMap<string, TaskProject>;
+  presets: readonly TaskPreset[];
+  draft: SubtaskDraft;
+  draftResetKey: number;
+  executionByTaskId: ReadonlyMap<string, TaskExecutionSummary> | undefined;
+  isBusy: boolean;
+  isReviewing: boolean;
+  onDraftChange: (draft: SubtaskDraft) => void;
+  onCreate: () => void;
+  onReview: (input: { taskId: string; verdict: "approve" | "reject"; feedback?: string }) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+}): ReactElement {
+  const handleTitle = useCallback(
+    (title: string) => onDraftChange(withSubtaskTitle(draft, title)),
+    [draft, onDraftChange],
+  );
+  const handlePreset = useCallback(
+    (presetId: string) =>
+      onDraftChange(withSubtaskPreset(draft, presetId === "none" ? "" : presetId)),
+    [draft, onDraftChange],
+  );
+  const handleParallel = useCallback(
+    (parallel: boolean) => onDraftChange(withSubtaskParallel(draft, parallel)),
+    [draft, onDraftChange],
+  );
+  const presetLabel = draft.presetId
+    ? (presets.find((preset) => preset.id === draft.presetId)?.name ?? "Missing preset")
+    : "Start by hand";
+
+  return (
+    <SettingsSection title="Subtasks" flush testID="task-detail-subtasks">
+      {subtasks.length > 0 ? (
+        <View style={styles.executionGroups}>
+          {subtasks.map((subtask) => (
+            <SubtaskRow
+              key={subtask.id}
+              subtask={subtask}
+              project={projectsById.get(subtask.projectId)}
+              execution={executionByTaskId?.get(subtask.id)}
+              isReviewing={isReviewing}
+              onReview={onReview}
+              onOpenAgent={onOpenAgent}
+            />
+          ))}
+        </View>
+      ) : null}
+      <View style={settingsStyles.card}>
+        <View style={settingsStyles.row}>
+          <AdaptiveTextInput
+            initialValue={draft.title}
+            resetKey={draftResetKey}
+            onChangeText={handleTitle}
+            onSubmitEditing={onCreate}
+            placeholder="Add a subtask"
+            style={styles.inlineInput}
+            testID="task-detail-subtask-input"
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={onCreate}
+            disabled={!canCreateSubtask(draft) || isBusy}
+            testID="task-detail-subtask-add"
+          >
+            Add
+          </Button>
+        </View>
+        {presets.length > 0 ? (
+          <PolicySelect
+            label="Runs as"
+            value={presetLabel}
+            options={[
+              { id: "none", label: "Start by hand" },
+              ...presets.map((preset) => ({ id: preset.id, label: preset.name })),
+            ]}
+            selected={draft.presetId || "none"}
+            onSelect={handlePreset}
+            testID="task-detail-subtask-preset"
+          />
+        ) : null}
+        <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Run beside the previous subtask</Text>
+            <Text style={settingsStyles.rowHint}>
+              {draft.parallel
+                ? "Ready as soon as it is created."
+                : "Waits for the subtask created before it."}
+            </Text>
+          </View>
+          <Switch
+            value={draft.parallel}
+            onValueChange={handleParallel}
+            accessibilityLabel="Run beside the previous subtask"
+            testID="task-detail-subtask-parallel"
+          />
+        </View>
+      </View>
+    </SettingsSection>
+  );
+}
+
+/** One subtask: its own status and live state as a row, its agents and verdict
+ * one press deeper — the parent's sheet is where a chain is watched. */
+function SubtaskRow({
+  subtask,
+  project,
+  execution,
+  isReviewing,
+  onReview,
+  onOpenAgent,
+}: {
+  subtask: Task;
+  project: TaskProject | undefined;
+  execution: TaskExecutionSummary | undefined;
+  isReviewing: boolean;
+  onReview: (input: { taskId: string; verdict: "approve" | "reject"; feedback?: string }) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const toggle = useCallback(() => setIsExpanded((current) => !current), []);
+  const approve = useCallback(
+    () => onReview({ taskId: subtask.id, verdict: "approve" }),
+    [onReview, subtask.id],
+  );
+  const reject = useCallback(
+    () =>
+      onReview({ taskId: subtask.id, verdict: "reject", feedback: feedback.trim() || undefined }),
+    [feedback, onReview, subtask.id],
+  );
+  const leadEntry = execution?.entries[0];
+
+  return (
+    <View style={settingsStyles.card} testID={`task-detail-subtask-${subtask.id}`}>
+      <Pressable
+        onPress={toggle}
+        accessibilityRole="button"
+        accessibilityLabel={`${isExpanded ? "Collapse" : "Expand"} ${subtask.title}`}
+        style={settingsStyles.row}
+        testID={`task-detail-subtask-toggle-${subtask.id}`}
+      >
+        <View style={styles.agentIdentity}>
+          {leadEntry ? <TaskExecutionStateDot state={leadEntry.state} /> : null}
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+              {subtask.title}
+            </Text>
+            <Text style={settingsStyles.rowHint} numberOfLines={1}>
+              {formatSubtaskDetail({
+                subtask,
+                project,
+                execution,
+                statusLabel: t(TASK_STATUS_LABEL_KEYS[subtask.status]),
+              })}
+            </Text>
+          </View>
+        </View>
+        <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+      </Pressable>
+      {isExpanded ? (
+        <>
+          {execution?.entries.map((entry) => (
+            <AgentRow key={entry.agentId} entry={entry} onOpenAgent={onOpenAgent} />
+          ))}
+          {subtask.status === "in_review" ? (
+            <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
+              <View style={settingsStyles.rowContent}>
+                <FormTextInput
+                  onChangeText={setFeedback}
+                  placeholder="Correction feedback (sent to the worker on rejection)"
+                  multiline
+                  editable={!isReviewing}
+                  testID={`task-detail-subtask-feedback-${subtask.id}`}
+                />
+                <View style={styles.actionRow}>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onPress={approve}
+                    loading={isReviewing}
+                    testID={`task-detail-subtask-approve-${subtask.id}`}
+                  >
+                    {t("tasks.board.approve")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onPress={reject}
+                    disabled={isReviewing}
+                    testID={`task-detail-subtask-reject-${subtask.id}`}
+                  >
+                    {t("tasks.board.reject")}
+                  </Button>
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function formatSubtaskDetail(input: {
+  subtask: Task;
+  project: TaskProject | undefined;
+  execution: TaskExecutionSummary | undefined;
+  statusLabel: string;
+}): string {
+  const details = [formatTaskKey(input.project, input.subtask), input.statusLabel];
+  const entry = input.execution?.entries[0];
+  if (entry) {
+    details.push(TASK_EXECUTION_STATE_LABELS[entry.state]);
+  }
+  if (input.subtask.executionSpec?.trigger === "on_unblocked") {
+    details.push("starts when unblocked");
+  }
+  return details.join(" · ");
+}
+
 function TaskDeliverySection({ task }: { task: Task }): ReactElement | null {
   if (!task.integration) return null;
   let status = "Task branch ready";
@@ -702,40 +1026,67 @@ function WorkflowStepRow({
   index,
   disabled,
   onAct,
+  onOpenAgent,
 }: {
   step: Step;
   index: number;
   disabled: boolean;
   onAct: (stepId: string, action: TaskStepAction) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
 }): ReactElement {
   const { t } = useTranslation();
   const { status, actions, error } = resolveStepState(step);
   const primaryAction = actions.find((action) => action !== "skip");
   const hasSkip = actions.includes("skip");
+  const agentTarget = resolveStepAgentTarget(step);
+  const handleOpenAgent = useCallback(() => {
+    if (agentTarget) onOpenAgent(agentTarget);
+  }, [agentTarget, onOpenAgent]);
+  const stepLinkStyle = useCallback(
+    ({ pressed, hovered = false }: { pressed: boolean; hovered?: boolean }) => [
+      styles.stepLink,
+      pressed || hovered ? styles.stepLinkActive : null,
+    ],
+    [],
+  );
   return (
     <View
       style={[settingsStyles.row, index > 0 ? settingsStyles.rowBorder : null]}
       testID={`task-detail-step-${step.id}`}
     >
-      <View style={settingsStyles.rowContent}>
-        <Text style={settingsStyles.rowTitle} numberOfLines={1}>
-          {index + 1}. {step.name}
-        </Text>
-        <Text style={settingsStyles.rowHint} numberOfLines={2}>
-          {step.prompt}
-        </Text>
-        <Text style={settingsStyles.rowHint}>
-          {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"} ·{" "}
-          {formatWorkspaceMode(step)}
-        </Text>
-        {error ? (
-          <Text style={settingsStyles.rowError} testID={`task-detail-step-${step.id}-error`}>
-            {error}
+      <Pressable
+        onPress={handleOpenAgent}
+        disabled={!agentTarget}
+        accessibilityRole={agentTarget ? "button" : undefined}
+        accessibilityLabel={
+          agentTarget ? `Open chat for step ${index + 1}: ${step.name}` : undefined
+        }
+        style={stepLinkStyle}
+        testID={agentTarget ? `task-detail-step-chat-${step.id}` : undefined}
+      >
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+            {index + 1}. {step.name}
           </Text>
-        ) : null}
-      </View>
-      <View style={styles.rowTrailing}>
+          <Text style={settingsStyles.rowHint} numberOfLines={2}>
+            {step.prompt}
+          </Text>
+          <Text style={settingsStyles.rowHint}>
+            {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"} ·{" "}
+            {formatWorkspaceMode(step)}
+          </Text>
+          {error ? (
+            <Text style={settingsStyles.rowError} testID={`task-detail-step-${step.id}-error`}>
+              {error}
+            </Text>
+          ) : null}
+        </View>
         <Text style={styles.stepStatus}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
+        {agentTarget ? (
+          <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+        ) : null}
+      </Pressable>
+      <View style={styles.rowTrailing}>
         {primaryAction ? (
           <StepActionButton
             stepId={step.id}
@@ -868,21 +1219,19 @@ function selectCleanupPolicy(policy: TaskExecutionPolicy): "inherit" | "archive"
   return policy.archiveWorkspacesOnDone ? "archive" : "keep";
 }
 
-function formatSubtaskPolicy(policy: TaskExecutionPolicy): string {
-  if (policy.maxParallelSubtasks === 1) return "One at a time";
-  if (policy.maxParallelSubtasks) return `Up to ${policy.maxParallelSubtasks}`;
-  return "Can start together";
-}
-
 function formatAutomationSummary(
   effective: ReturnType<typeof resolveTaskExecutionPolicy>,
   presets: readonly TaskPreset[],
+  reviewMode: ReviewMode | null,
 ): string {
   let workspace = "Agents use the selected preset's workspace.";
   if (effective.workspace === "dedicated") {
     workspace = "Agents use dedicated worktrees.";
   } else if (effective.workspace === "reuse") {
     workspace = "Agents continue in the task workspace.";
+  }
+  if (reviewMode) {
+    return `${workspace} ${formatReviewModeSummary(reviewMode, effective)}`;
   }
   let review = "No review is required.";
   if (effective.reviewEnabled) {
@@ -895,10 +1244,7 @@ function formatAutomationSummary(
       review = `A person reviews the result, with up to ${effective.maxReviewIterations} correction ${roundLabel}.`;
     }
   }
-  const subtasks = effective.maxParallelSubtasks
-    ? `Up to ${effective.maxParallelSubtasks} ${effective.maxParallelSubtasks === 1 ? "subtask runs" : "subtasks run"} at once.`
-    : "Ready subtasks can run together.";
-  return `${workspace} ${review} ${subtasks}`;
+  return `${workspace} ${review}`;
 }
 
 function TaskAutomationSection({
@@ -906,11 +1252,14 @@ function TaskAutomationSection({
   task,
   project,
   presets,
+  hasSubtasks,
 }: {
   serverId: string;
   task: Task;
   project: TaskProject | undefined;
   presets: readonly TaskPreset[];
+  /** An aggregate has two review levels to set, a leaf has one. */
+  hasSubtasks: boolean;
 }): ReactElement {
   const toast = useToast();
   const supportsExecutionPolicy = useTaskExecutionPolicySupported(serverId);
@@ -918,7 +1267,8 @@ function TaskAutomationSection({
   const [policy, setPolicy] = useState<TaskExecutionPolicy>(task.executionPolicy ?? {});
   const [isEditing, setIsEditing] = useState(false);
   const effectivePolicy = resolveTaskExecutionPolicy(project?.board, policy);
-  const summary = formatAutomationSummary(effectivePolicy, presets);
+  const reviewMode = hasSubtasks ? resolveReviewMode(policy) : null;
+  const summary = formatAutomationSummary(effectivePolicy, presets, reviewMode);
   const writePolicy = useCallback(
     (next: TaskExecutionPolicy | null) => {
       const previous = policy;
@@ -934,19 +1284,12 @@ function TaskAutomationSection({
     (review: "inherit" | "required" | "disabled") => writePolicy({ ...policy, review }),
     [policy, writePolicy],
   );
-  const setWorkspace = useCallback(
-    (workspace: "inherit" | "dedicated" | "reuse") => writePolicy({ ...policy, workspace }),
+  const setReviewMode = useCallback(
+    (mode: ReviewMode) => writePolicy(applyReviewMode(policy, mode)),
     [policy, writePolicy],
   );
-  const setParallel = useCallback(
-    (value: string) => {
-      if (value === "host") {
-        const { maxParallelSubtasks: _removed, ...rest } = policy;
-        writePolicy(rest);
-        return;
-      }
-      writePolicy({ ...policy, maxParallelSubtasks: Number(value) });
-    },
+  const setWorkspace = useCallback(
+    (workspace: "inherit" | "dedicated" | "reuse") => writePolicy({ ...policy, workspace }),
     [policy, writePolicy],
   );
   const setReviewer = useCallback(
@@ -1020,18 +1363,29 @@ function TaskAutomationSection({
               Board defaults apply until this task overrides them.
             </Text>
           </View>
-          <PolicySelect
-            label="Review"
-            value={formatReviewPolicy(policy, effectivePolicy)}
-            options={[
-              { id: "inherit", label: "Board default" },
-              { id: "required", label: "Required" },
-              { id: "disabled", label: "Disabled" },
-            ]}
-            selected={policy.review ?? "inherit"}
-            onSelect={setReview}
-            testID="task-detail-policy-review"
-          />
+          {reviewMode ? (
+            <PolicySelect
+              label="Review"
+              value={REVIEW_MODE_LABELS[reviewMode]}
+              options={REVIEW_MODES.map((mode) => ({ id: mode, label: REVIEW_MODE_LABELS[mode] }))}
+              selected={reviewMode}
+              onSelect={setReviewMode}
+              testID="task-detail-policy-review"
+            />
+          ) : (
+            <PolicySelect
+              label="Review"
+              value={formatReviewPolicy(policy, effectivePolicy)}
+              options={[
+                { id: "inherit", label: "Board default" },
+                { id: "required", label: "Required" },
+                { id: "disabled", label: "Disabled" },
+              ]}
+              selected={policy.review ?? "inherit"}
+              onSelect={setReview}
+              testID="task-detail-policy-review"
+            />
+          )}
           <PolicySelect
             label="Workspace"
             value={formatWorkspacePolicy(policy)}
@@ -1103,20 +1457,6 @@ function TaskAutomationSection({
             selected={selectCleanupPolicy(policy)}
             onSelect={setCleanup}
             testID="task-detail-policy-cleanup"
-          />
-          <PolicySelect
-            label="New subtasks"
-            value={formatSubtaskPolicy(policy)}
-            options={[
-              { id: "host", label: "Can start together" },
-              { id: "1", label: "One at a time" },
-              { id: "2", label: "Up to 2" },
-              { id: "3", label: "Up to 3" },
-              { id: "4", label: "Up to 4" },
-            ]}
-            selected={policy.maxParallelSubtasks?.toString() ?? "host"}
-            onSelect={setParallel}
-            testID="task-detail-policy-subtasks"
           />
         </View>
       ) : null}
@@ -1501,6 +1841,17 @@ function RecipientButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  stepLink: {
+    minWidth: 0,
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    borderRadius: theme.borderRadius.md,
+  },
+  stepLinkActive: {
+    backgroundColor: theme.colors.surface2,
+  },
   rowTrailing: {
     flexDirection: "row",
     alignItems: "center",

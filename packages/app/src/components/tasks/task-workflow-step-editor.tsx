@@ -13,13 +13,11 @@ import { Switch } from "@/components/ui/switch";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import {
   TASK_WORKFLOW_TRIGGER_LABEL_KEYS,
-  TASK_WORKFLOW_TRIGGER_TYPES,
   TASK_WORKFLOW_WORKSPACE_LABEL_KEYS,
   TASK_WORKFLOW_WORKSPACE_MODES,
   type TaskWorkflowFormModel,
   type TaskWorkflowFormState,
   type TaskWorkflowFormStep,
-  type TaskWorkflowFormTriggerType,
   type TaskWorkflowFormWorkspaceMode,
 } from "@/tasks/task-workflow-form-model";
 
@@ -58,7 +56,7 @@ export function TaskWorkflowStepEditor({
     Boolean(
       step.source &&
       (step.workspaceMode !== "worktree" ||
-        step.trigger !== "manual" ||
+        step.trigger === "schedule" ||
         step.requireChanges === false ||
         step.verifyCommand ||
         step.timeoutMinutes),
@@ -77,10 +75,6 @@ export function TaskWorkflowStepEditor({
   );
   const handleWorkspace = useCallback(
     (mode: TaskWorkflowFormWorkspaceMode) => model.setStepWorkspaceMode(key, mode),
-    [key, model],
-  );
-  const handleTrigger = useCallback(
-    (trigger: TaskWorkflowFormTriggerType) => model.setStepTrigger(key, trigger),
     [key, model],
   );
   const handleRemove = useCallback(() => model.removeStep(key), [key, model]);
@@ -132,24 +126,10 @@ export function TaskWorkflowStepEditor({
     [key, model],
   );
 
-  const triggerDisplay = useMemo(
-    () => ({ label: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS[step.trigger]) }),
-    [step.trigger, t],
-  );
-  // "Immediately" means "when the step before this one finishes", which the
-  // first step cannot wait for.
-  const triggerOptions = useMemo(() => {
-    const offered = TASK_WORKFLOW_TRIGGER_TYPES.filter(
-      (trigger) => index > 0 || trigger !== "immediate",
-    );
-    const triggers = offered.includes(step.trigger) ? offered : [...offered, step.trigger];
-    return triggers.map((trigger) => ({
-      id: trigger,
-      value: trigger,
-      label: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS[trigger]),
-      testID: `task-workflow-form-trigger-option-${trigger}`,
-    }));
-  }, [index, step.trigger, t]);
+  const executionSummary =
+    step.trigger === "schedule"
+      ? `${workspaceDisplay.label} · ${t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS.schedule)}`
+      : workspaceDisplay.label;
 
   return (
     <View style={styles.step} testID={`task-workflow-form-step-${index}`}>
@@ -202,20 +182,20 @@ export function TaskWorkflowStepEditor({
 
       {expanded ? (
         <>
-          <Field label="Action" testID={`task-workflow-form-step-name-${index}`}>
+          <Field label="Step" testID={`task-workflow-form-step-name-${index}`}>
             <FormTextInput
               initialValue={step.name}
               resetKey={step.key}
               value={step.name}
               onChangeText={handleName}
-              placeholder="Implement, investigate, review…"
+              placeholder="Build, verify, document…"
               testID={`task-workflow-form-step-name-input-${index}`}
             />
           </Field>
 
           <Field
             label="Agent brief"
-            hint="The task title and description are included automatically. Add only what this action needs."
+            hint="The task title and description are included automatically. Add only what this step needs."
             testID={`task-workflow-form-step-prompt-${index}`}
           >
             <FormTextInput
@@ -223,7 +203,7 @@ export function TaskWorkflowStepEditor({
               resetKey={step.key}
               value={step.prompt}
               onChangeText={handlePrompt}
-              placeholder="What should the agent do in this action?"
+              placeholder="What should the agent do in this step?"
               multiline
               style={resizableBriefStyle}
               testID={`task-workflow-form-step-prompt-input-${index}`}
@@ -240,9 +220,7 @@ export function TaskWorkflowStepEditor({
             testID={`task-workflow-form-agent-${index}`}
           />
           <View style={styles.executionSummary}>
-            <Text style={styles.executionSummaryText}>
-              {workspaceDisplay.label} · {triggerDisplay.label}
-            </Text>
+            <Text style={styles.executionSummaryText}>{executionSummary}</Text>
             <Button
               variant="ghost"
               size="xs"
@@ -259,39 +237,23 @@ export function TaskWorkflowStepEditor({
               style={styles.advanced}
               testID={`task-workflow-form-step-advanced-fields-${index}`}
             >
-              <View style={styles.row}>
-                <View style={styles.rowItem}>
-                  <SelectField
-                    label={t("tasks.workflow.workspaceLabel")}
-                    value={step.workspaceMode}
-                    selectedDisplay={workspaceDisplay}
-                    options={workspaceOptions}
-                    onChange={handleWorkspace}
-                    placeholder={t("tasks.workflow.workspaceLabel")}
-                    emptyText={t("tasks.workflow.workspaceLabel")}
-                    testID={`task-workflow-form-workspace-${index}`}
-                    triggerTestID={`task-workflow-form-workspace-trigger-${index}`}
-                  />
-                </View>
-                <View style={styles.rowItem}>
-                  <SelectField
-                    label={t("tasks.workflow.triggerLabel")}
-                    hint={index === 0 ? undefined : t("tasks.workflow.triggerHint")}
-                    value={step.trigger}
-                    selectedDisplay={triggerDisplay}
-                    options={triggerOptions}
-                    onChange={handleTrigger}
-                    placeholder={t("tasks.workflow.triggerLabel")}
-                    emptyText={t("tasks.workflow.triggerLabel")}
-                    testID={`task-workflow-form-trigger-${index}`}
-                    triggerTestID={`task-workflow-form-trigger-trigger-${index}`}
-                  />
-                </View>
+              <View style={styles.rowItem}>
+                <SelectField
+                  label={t("tasks.workflow.workspaceLabel")}
+                  value={step.workspaceMode}
+                  selectedDisplay={workspaceDisplay}
+                  options={workspaceOptions}
+                  onChange={handleWorkspace}
+                  placeholder={t("tasks.workflow.workspaceLabel")}
+                  emptyText={t("tasks.workflow.workspaceLabel")}
+                  testID={`task-workflow-form-workspace-${index}`}
+                  triggerTestID={`task-workflow-form-workspace-trigger-${index}`}
+                />
               </View>
 
               <Field
                 label="Completion evidence"
-                hint="Require a changed checkout before this action can pass."
+                hint="Require a changed checkout before this step can pass."
                 testID={`task-workflow-form-step-evidence-${index}`}
               >
                 <View style={styles.toggleRow}>
@@ -341,10 +303,10 @@ export function TaskWorkflowStepEditor({
       ) : (
         <View style={styles.collapsedSummary}>
           <Text style={styles.collapsedSummaryText} numberOfLines={1}>
-            {step.name || "Untitled action"}
+            {step.name || "Untitled step"}
           </Text>
           <Text style={styles.executionSummaryText} numberOfLines={1}>
-            {step.provider ?? "No agent"} · {workspaceDisplay.label} · {triggerDisplay.label}
+            {step.provider ?? "No agent"} · {executionSummary}
           </Text>
         </View>
       )}

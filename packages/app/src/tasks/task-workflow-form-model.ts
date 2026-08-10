@@ -46,13 +46,6 @@ export const TASK_WORKFLOW_WORKSPACE_MODES: readonly TaskWorkflowFormWorkspaceMo
   "reuse_previous",
 ];
 
-/** `schedule` needs a cadence editor, so the form offers the two triggers that
- * need no further input. */
-export const TASK_WORKFLOW_TRIGGER_TYPES: readonly TaskWorkflowFormTriggerType[] = [
-  "manual",
-  "immediate",
-];
-
 export const TASK_WORKFLOW_WORKSPACE_LABEL_KEYS: Record<TaskWorkflowFormWorkspaceMode, string> = {
   worktree: "tasks.workflow.workspace.worktree",
   worktree_per_agent: "tasks.workflow.workspace.worktreePerAgent",
@@ -93,6 +86,9 @@ export interface TaskWorkflowFormStep {
 export interface TaskWorkflowFormState {
   serverId: string;
   taskId: string;
+  /** Whether ordinary steps after the first start as soon as their predecessor
+   * succeeds. Stored through each step's existing trigger. */
+  autoContinue: boolean;
   steps: TaskWorkflowFormStep[];
   providerOptions: TaskWorkflowFormProviderChoice[];
   providerResolutionStatus: TaskWorkflowFormProviderResolutionStatus;
@@ -110,13 +106,13 @@ export interface TaskWorkflowFormModel {
   ) => void;
   applyExistingSteps: (serverId: string, taskId: string, steps: readonly Step[]) => void;
   addStep: () => void;
+  setAutoContinue: (value: boolean) => void;
   removeStep: (key: string) => void;
   moveStep: (key: string, direction: -1 | 1) => void;
   setStepName: (key: string, value: string) => void;
   setStepPrompt: (key: string, value: string) => void;
   setStepAgent: (key: string, agent: { provider: AgentProvider; model: string | null }) => void;
   setStepWorkspaceMode: (key: string, mode: TaskWorkflowFormWorkspaceMode) => void;
-  setStepTrigger: (key: string, trigger: TaskWorkflowFormTriggerType) => void;
   setStepRequireChanges: (key: string, requireChanges: boolean) => void;
   setStepVerifyCommand: (key: string, command: string) => void;
   setStepTimeoutMinutes: (key: string, minutes: string) => void;
@@ -202,6 +198,7 @@ function createStep(input: {
   key: string;
   name: string;
   provider: AgentProvider | null;
+  trigger: "manual" | "immediate";
 }): TaskWorkflowFormStep {
   return {
     key: input.key,
@@ -216,9 +213,29 @@ function createStep(input: {
     requireChanges: true,
     verifyCommand: "",
     timeoutMinutes: "",
-    // A step the author just added should not start the moment the workflow exists.
-    trigger: "manual",
+    trigger: input.trigger,
   };
+}
+
+function resolveAutoContinue(steps: readonly Pick<Step, "trigger">[]): boolean {
+  return steps.slice(1).every((step) => step.trigger.type !== "manual");
+}
+
+/** The first step always waits for the task to be started. Scheduled steps
+ * keep their cadence; the plan-level switch owns ordinary later steps. */
+function applyAutoContinue(
+  steps: readonly TaskWorkflowFormStep[],
+  autoContinue: boolean,
+): TaskWorkflowFormStep[] {
+  return steps.map((step, index) => {
+    if (index === 0) {
+      return withPositionValidChoices(step, index);
+    }
+    if (step.trigger === "schedule") {
+      return step;
+    }
+    return { ...step, trigger: autoContinue ? "immediate" : "manual" };
+  });
 }
 
 /**
@@ -263,15 +280,25 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
   const initialProvider = initialProviderOptions[0]?.value ?? null;
 
   const existing = snapshot.existingSteps ?? [];
+  const initialAutoContinue = resolveAutoContinue(existing);
+  const initialSteps =
+    existing.length > 0
+      ? existing.map((step) =>
+          toFormStep({ key: `step-${nextStepKey++}`, step, fallbackProvider: initialProvider }),
+        )
+      : [
+          createStep({
+            key: `step-${nextStepKey++}`,
+            name: "",
+            provider: initialProvider,
+            trigger: "manual",
+          }),
+        ];
   let state: TaskWorkflowFormState = {
     serverId: snapshot.serverId,
     taskId: snapshot.taskId,
-    steps:
-      existing.length > 0
-        ? existing.map((step) =>
-            toFormStep({ key: `step-${nextStepKey++}`, step, fallbackProvider: initialProvider }),
-          )
-        : [createStep({ key: `step-${nextStepKey++}`, name: "", provider: initialProvider })],
+    autoContinue: initialAutoContinue,
+    steps: applyAutoContinue(initialSteps, initialAutoContinue),
     providerOptions: initialProviderOptions,
     providerResolutionStatus: snapshot.availableProviders ? "complete" : "pending",
     canSubmit: false,
@@ -347,11 +374,16 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
       }
       existingStepsResolved = true;
       const fallback = state.providerOptions[0]?.value ?? null;
-      const formSteps = steps.map((step) =>
-        toFormStep({ key: `step-${nextStepKey++}`, step, fallbackProvider: fallback }),
+      const loadedAutoContinue = resolveAutoContinue(steps);
+      const formSteps = applyAutoContinue(
+        steps.map((step) =>
+          toFormStep({ key: `step-${nextStepKey++}`, step, fallbackProvider: fallback }),
+        ),
+        loadedAutoContinue,
       );
       publish({
         ...state,
+        autoContinue: loadedAutoContinue,
         steps: formSteps,
         providerOptions: withStepProviders(state.providerOptions, formSteps),
       });
@@ -371,6 +403,7 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
             // Inherit the previous step's agent: a workflow usually runs the same
             // one throughout, and the author can still change it.
             provider: previous?.provider ?? state.providerOptions[0]?.value ?? null,
+            trigger: state.autoContinue ? "immediate" : "manual",
           }),
         ],
       });
@@ -397,7 +430,14 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
         return;
       }
       steps.splice(target, 0, moved);
-      publish({ ...state, steps: steps.map(withPositionValidChoices) });
+      publish({ ...state, steps: applyAutoContinue(steps, state.autoContinue) });
+    },
+    setAutoContinue(value) {
+      publish({
+        ...state,
+        autoContinue: value,
+        steps: applyAutoContinue(state.steps, value),
+      });
     },
     setStepName(key, value) {
       updateStep(key, (step) => ({ ...step, name: value }));
@@ -419,9 +459,6 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
     },
     setStepTimeoutMinutes(key, timeoutMinutes) {
       updateStep(key, (step) => ({ ...step, timeoutMinutes }));
-    },
-    setStepTrigger(key, trigger) {
-      updateStep(key, (step) => ({ ...step, trigger }));
     },
     setSubmitError(value) {
       publish({ ...state, submitError: value });
@@ -484,6 +521,7 @@ export function buildTaskWorkflowSteps(state: TaskWorkflowFormState): StepInput[
       return null;
     }
     steps.push({
+      ...(step.source ? { existingStepId: step.source.id } : {}),
       name: step.name.trim(),
       // The task brief is always in the generated prompt. A blank per-action
       // brief means the action label itself is the only extra instruction.

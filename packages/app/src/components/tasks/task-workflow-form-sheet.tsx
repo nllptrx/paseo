@@ -4,6 +4,7 @@ import { Plus } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import type { Step } from "@getpaseo/protocol/tasks/workflow";
 import { useTaskMutations } from "@/tasks/use-tasks";
 import { buildTaskWorkflowSteps } from "@/tasks/task-workflow-form-model";
@@ -67,6 +68,7 @@ function OpenTaskWorkflowFormSheet({
   const handleSubmitPress = useCallback(() => {
     void handleSubmit();
   }, [handleSubmit]);
+  const handleAutoContinue = useCallback((value: boolean) => model.setAutoContinue(value), [model]);
 
   const header = useMemo(() => ({ title: "Agent plan" }), []);
   const footer = useMemo(
@@ -93,12 +95,27 @@ function OpenTaskWorkflowFormSheet({
       footer={footer}
     >
       <View style={styles.form}>
+        <View style={styles.continuation} testID="task-workflow-form-auto-continue">
+          <View style={styles.continuationCopy}>
+            <Text style={styles.continuationTitle}>Continue automatically</Text>
+            <Text style={styles.continuationHint}>
+              Start each next step when the previous step succeeds. Turn this off to pause between
+              steps.
+            </Text>
+          </View>
+          <Switch
+            value={state.autoContinue}
+            onValueChange={handleAutoContinue}
+            accessibilityLabel="Continue automatically"
+            testID="task-workflow-form-auto-continue-switch"
+          />
+        </View>
         {/* Above the list, not below it: a step editor is tall enough that one
             step already fills the sheet, so an Add button after the last one
             starts below the fold and walks further away with every step. */}
         <View style={styles.stepsHeader}>
           <Text style={styles.stepsHeading}>
-            {state.steps.length} {state.steps.length === 1 ? "action" : "actions"}
+            {state.steps.length} {state.steps.length === 1 ? "step" : "steps"}
           </Text>
           <Button
             variant="ghost"
@@ -107,7 +124,7 @@ function OpenTaskWorkflowFormSheet({
             onPress={model.addStep}
             testID="task-workflow-form-add-step"
           >
-            Add action
+            Add step
           </Button>
         </View>
         <View style={styles.steps}>
@@ -141,6 +158,30 @@ const styles = StyleSheet.create((theme) => ({
   },
   steps: {
     gap: theme.spacing[3],
+  },
+  continuation: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[4],
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface1,
+    padding: theme.spacing[3],
+  },
+  continuationCopy: {
+    minWidth: 0,
+    flex: 1,
+    gap: theme.spacing[1],
+  },
+  continuationTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+  },
+  continuationHint: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
   },
   stepsHeader: {
     flexDirection: "row",
