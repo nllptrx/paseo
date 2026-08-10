@@ -1176,12 +1176,12 @@ export async function createPaseoDaemon(
   const createSchedulePaseoWorktreeExternal = async (input: {
     cwd: string;
     firstAgentContext: FirstAgentContext;
-    baseBranch?: string;
+    refName?: string;
   }) => {
     const result = await createPaseoWorktreeForTools({
       cwd: input.cwd,
       firstAgentContext: input.firstAgentContext,
-      ...(input.baseBranch ? { baseBranch: input.baseBranch } : {}),
+      ...(input.refName ? { refName: input.refName } : {}),
     });
     await emitWorkspaceUpdatesExternal([result.workspace.workspaceId]);
     return result;

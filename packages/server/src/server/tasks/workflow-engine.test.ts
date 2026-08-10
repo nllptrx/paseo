@@ -195,7 +195,7 @@ describe("TaskWorkflowEngine", () => {
       createWorktreeWorkspace: async (input) => {
         createdAgentCounter += 1;
         const workspaceId = `ws_wt_${createdAgentCounter}`;
-        worktreeBaseBranches.push(input.baseBranch ?? null);
+        worktreeBaseBranches.push(input.refName ?? null);
         const workspace = {
           workspaceId,
           cwd: `/wt/${workspaceId}`,

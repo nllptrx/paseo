@@ -74,7 +74,7 @@ interface WorktreeWorkspaceInput {
   firstAgentContext: { prompt: string };
   /** Where the new branch starts. A subtask starts from its parent's branch so
    * the two stack instead of racing main. */
-  baseBranch?: string;
+  refName?: string;
 }
 
 export interface TaskGitIntegration {
@@ -1358,7 +1358,7 @@ export class TaskWorkflowEngine {
     const created = await this.createWorktreeWorkspace({
       cwd: gitBase.cwd,
       firstAgentContext: { prompt },
-      baseBranch: gitBase.baseBranch,
+      refName: gitBase.baseBranch,
     });
     return {
       cwd: created.workspace.cwd,
@@ -1434,7 +1434,7 @@ export class TaskWorkflowEngine {
     const workspace = gitBase
       ? await this.createWorktreeWorkspace({
           cwd: gitBase.cwd,
-          baseBranch: gitBase.baseBranch,
+          refName: gitBase.baseBranch,
           firstAgentContext: { prompt },
         }).then((created) => ({
           cwd: created.workspace.cwd,
@@ -1776,7 +1776,7 @@ export class TaskWorkflowEngine {
         const created = await this.createWorktreeWorkspace({
           cwd: gitBase.cwd,
           firstAgentContext: { prompt: firstAgentPrompt },
-          baseBranch: gitBase.baseBranch,
+          refName: gitBase.baseBranch,
         });
         return Array.from({ length: agentCount }, () => ({
           cwd: created.workspace.cwd,
@@ -1797,7 +1797,7 @@ export class TaskWorkflowEngine {
           const created = await this.createWorktreeWorkspace({
             cwd: gitBase.cwd,
             firstAgentContext: { prompt: firstAgentPrompt },
-            baseBranch: gitBase.baseBranch,
+            refName: gitBase.baseBranch,
           });
           targets.push({ cwd: created.workspace.cwd, workspaceId: created.workspace.workspaceId });
         }
