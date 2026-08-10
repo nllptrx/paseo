@@ -44,7 +44,10 @@ import {
 } from "./task-board-parts";
 import { TaskExecutionSummary } from "./task-execution-summary";
 import type { TaskRelationshipSummary } from "@/tasks/task-views";
-import type { TaskExecutionSummary as TaskExecutionSummaryModel } from "@/tasks/task-execution";
+import type {
+  TaskExecutionEntry,
+  TaskExecutionSummary as TaskExecutionSummaryModel,
+} from "@/tasks/task-execution";
 
 const ThemedMessageSquare = withUnistyles(MessageSquare);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
@@ -54,6 +57,7 @@ const ThemedLink = withUnistyles(Link2);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const SUBTASK_INDENT = SPACING[3];
+const NO_EXECUTION_ENTRIES: readonly TaskExecutionEntry[] = [];
 
 type TaskListProps = Pick<
   TaskBoardProps,
@@ -66,6 +70,7 @@ type TaskListProps = Pick<
   | "onOpenAgent"
   | "onOpenTask"
   | "onReviewTask"
+  | "onStartReview"
   | "onDeleteTask"
   | "onCreateWorkflowForTask"
 > & {
@@ -87,6 +92,7 @@ export function TaskList({
   onOpenAgent,
   onOpenTask,
   onReviewTask,
+  onStartReview,
   onDeleteTask,
   onCreateWorkflowForTask,
   onSetPriority,
@@ -162,6 +168,7 @@ export function TaskList({
           onOpenAgent={onOpenAgent}
           onOpenTask={onOpenTask}
           onReviewTask={onReviewTask}
+          onStartReview={onStartReview}
           onDeleteTask={onDeleteTask}
           onCreateWorkflowForTask={onCreateWorkflowForTask}
         />,
@@ -218,6 +225,7 @@ function TaskListRow({
   onOpenAgent,
   onOpenTask,
   onReviewTask,
+  onStartReview,
   onDeleteTask,
   onCreateWorkflowForTask,
 }: {
@@ -233,6 +241,7 @@ function TaskListRow({
   onOpenAgent: TaskListProps["onOpenAgent"];
   onOpenTask: TaskListProps["onOpenTask"];
   onReviewTask: TaskListProps["onReviewTask"];
+  onStartReview: TaskListProps["onStartReview"];
   onDeleteTask: TaskListProps["onDeleteTask"];
   onCreateWorkflowForTask: TaskListProps["onCreateWorkflowForTask"];
 }): ReactElement {
@@ -253,10 +262,12 @@ function TaskListRow({
   const actions = useTaskActions({
     task,
     hasSubtasks: (relationships?.subtaskCount ?? 0) > 0,
+    executionEntries: execution?.entries ?? NO_EXECUTION_ENTRIES,
     onMoveToStatus,
     onOpenAgent,
     onOpenTask,
     onReviewTask,
+    onStartReview,
     onDeleteTask,
     onCreateWorkflowForTask,
   });

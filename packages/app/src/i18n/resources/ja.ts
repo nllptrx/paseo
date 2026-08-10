@@ -1005,7 +1005,13 @@ export const ja: TranslationResources = {
       openAgent: "エージェントを開く",
       approve: "承認",
       reject: "却下",
+      startReview: "レビューを開始",
       delete: "削除",
+    },
+    threads: {
+      title: "スレッド",
+      untracked: "未追跡の作業",
+      empty: "このプロジェクトでは何も実行されていません",
     },
     priority: {
       urgent: "緊急",

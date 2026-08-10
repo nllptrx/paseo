@@ -111,7 +111,9 @@ export function TaskSurfaceToolbar({
           }))}
         />
       ) : null}
-      <SortMenu sort={preferences.sort} onSelect={handleSort} />
+      {preferences.view === "threads" ? null : (
+        <SortMenu sort={preferences.sort} onSelect={handleSort} />
+      )}
       {preferences.view === "kanban" ? (
         <Button
           variant="ghost"

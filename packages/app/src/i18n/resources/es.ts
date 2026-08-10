@@ -1025,7 +1025,13 @@ export const es: TranslationResources = {
       openAgent: "Abrir agente",
       approve: "Aprobar",
       reject: "Rechazar",
+      startReview: "Iniciar revisión",
       delete: "Eliminar",
+    },
+    threads: {
+      title: "Hilos",
+      untracked: "Trabajo sin seguimiento",
+      empty: "No hay nada en ejecución en este proyecto",
     },
     priority: {
       urgent: "Urgente",

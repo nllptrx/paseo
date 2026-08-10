@@ -50,7 +50,7 @@ export function UntrackedTaskWork({
   return (
     <View style={styles.section} testID="tasks-untracked-work">
       <View style={styles.header}>
-        <Text style={styles.heading}>Untracked work</Text>
+        <Text style={styles.heading}>{t("tasks.threads.untracked")}</Text>
         <Text style={styles.count}>{entries.length}</Text>
         <Text style={styles.hint} numberOfLines={1}>
           Chats in this project that are not attached to a task

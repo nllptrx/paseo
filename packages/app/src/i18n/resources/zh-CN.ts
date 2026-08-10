@@ -986,7 +986,13 @@ export const zhCN: TranslationResources = {
       openAgent: "打开智能体",
       approve: "批准",
       reject: "拒绝",
+      startReview: "开始审查",
       delete: "删除",
+    },
+    threads: {
+      title: "会话",
+      untracked: "未跟踪的工作",
+      empty: "此项目中没有正在运行的工作",
     },
     priority: {
       urgent: "紧急",

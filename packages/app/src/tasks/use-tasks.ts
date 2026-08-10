@@ -165,6 +165,8 @@ export interface UseTaskMutationsResult {
     verdict: "approve" | "reject";
     feedback?: string;
   }) => Promise<Task>;
+  /** Arms a reviewer for a card that is in review with nobody judging it. */
+  startReview: (taskId: string) => Promise<void>;
   updateTask: (input: {
     taskId: string;
     title?: string;
@@ -312,6 +314,16 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
     onSettled: invalidate,
   });
 
+  const startReview = useMutation({
+    mutationFn: async (taskId: string) => {
+      const payload = await require().tasksReviewStart(taskId);
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
+    },
+    onSettled: invalidate,
+  });
+
   const configureBoard = useMutation({
     mutationFn: async (input: {
       projectId: string;
@@ -369,11 +381,12 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
     attachAgent: (input) => attachAgent.mutateAsync(input),
     moveTask: (input) => move.mutateAsync(input),
     reviewTask: (input) => review.mutateAsync(input),
+    startReview: (taskId) => startReview.mutateAsync(taskId),
     updateTask: (input) => update.mutateAsync(input),
     setStatus: (input) => update.mutateAsync({ taskId: input.taskId, status: input.status }),
     setPriority: (input) => update.mutateAsync({ taskId: input.taskId, priority: input.priority }),
     deleteTask: (taskId) => remove.mutateAsync(taskId),
-    isReviewing: review.isPending,
+    isReviewing: review.isPending || startReview.isPending,
     isBusy:
       createProject.isPending ||
       createTask.isPending ||
@@ -381,6 +394,7 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
       update.isPending ||
       move.isPending ||
       review.isPending ||
+      startReview.isPending ||
       remove.isPending ||
       configureBoard.isPending ||
       setWorkflow.isPending ||

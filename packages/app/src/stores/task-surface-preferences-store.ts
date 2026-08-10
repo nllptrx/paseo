@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { TaskPriority, TaskStatus } from "@getpaseo/protocol/tasks/types";
 import type { TaskSort } from "@/tasks/task-views";
 
-export type TaskSurfaceView = "kanban" | "tasks";
+export type TaskSurfaceView = "kanban" | "tasks" | "threads";
 
 export interface TaskSurfacePreferences {
   view: TaskSurfaceView;

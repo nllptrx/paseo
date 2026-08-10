@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Task } from "@getpaseo/protocol/tasks/types";
 import { useSessionStore } from "@/stores/session-store";
+import { extractAgentModel } from "@/utils/extract-agent-model";
 import {
   buildTaskExecutionSummaries,
   selectUntrackedTaskExecutions,
@@ -27,11 +28,13 @@ function buildLinkedTaskExecutionSummaries(
         agentSources.set(link.agentId, {
           id: agent.id,
           provider: agent.provider,
+          model: extractAgentModel(agent),
           title: agent.title,
           status: agent.status,
           pendingPermissionCount: agent.pendingPermissions.length,
           requiresAttention: Boolean(agent.requiresAttention),
           attentionReason: agent.attentionReason ?? null,
+          updatedAtMs: agent.updatedAt.getTime(),
         });
       }
       const workspace = session?.workspaces.get(link.workspaceId);
@@ -110,6 +113,7 @@ export function useUntrackedTaskExecutions(
         (agent) => ({
           id: agent.id,
           provider: agent.provider,
+          model: extractAgentModel(agent),
           title: agent.title,
           status: agent.status,
           pendingPermissionCount: agent.pendingPermissions.length,

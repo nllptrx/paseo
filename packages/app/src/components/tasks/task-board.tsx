@@ -39,6 +39,7 @@ export function TaskBoard({
   onOpenAgent,
   onOpenTask,
   onReviewTask,
+  onStartReview,
   onDeleteTask,
   onCreateWorkflowForTask,
   selectedColumn,
@@ -104,6 +105,7 @@ export function TaskBoard({
             onOpenAgent={onOpenAgent}
             onOpenTask={onOpenTask}
             onReviewTask={onReviewTask}
+            onStartReview={onStartReview}
             onDeleteTask={onDeleteTask}
             onCreateWorkflowForTask={onCreateWorkflowForTask}
           />
@@ -135,6 +137,7 @@ export function TaskBoard({
           onOpenAgent={onOpenAgent}
           onOpenTask={onOpenTask}
           onReviewTask={onReviewTask}
+          onStartReview={onStartReview}
           onDeleteTask={onDeleteTask}
           onCreateWorkflowForTask={onCreateWorkflowForTask}
         />

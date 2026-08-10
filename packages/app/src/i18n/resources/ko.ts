@@ -1001,7 +1001,13 @@ export const ko: TranslationResources = {
       openAgent: "에이전트 열기",
       approve: "승인",
       reject: "반려",
+      startReview: "검토 시작",
       delete: "삭제",
+    },
+    threads: {
+      title: "스레드",
+      untracked: "추적되지 않은 작업",
+      empty: "이 프로젝트에서 실행 중인 작업이 없습니다",
     },
     priority: {
       urgent: "긴급",

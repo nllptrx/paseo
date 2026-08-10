@@ -17,6 +17,15 @@ export const TASK_EXECUTION_STATE_ORDER: readonly TaskExecutionState[] = [
   "done",
 ];
 
+/** An agent that can still change its own state without a hand on it. A
+ * reviewer that already settled left its findings behind and is not judging
+ * anything any more, which is what makes a stalled review recognisable. */
+export const TASK_EXECUTION_LIVE_STATES: readonly TaskExecutionState[] = [
+  "needs_input",
+  "starting",
+  "running",
+];
+
 export const TASK_EXECUTION_STATE_LABELS: Record<TaskExecutionState, string> = {
   needs_input: "Needs input",
   failed: "Failed",
@@ -30,11 +39,16 @@ export const TASK_EXECUTION_STATE_LABELS: Record<TaskExecutionState, string> = {
 export interface TaskExecutionAgentSource {
   id: string;
   provider: string;
+  /** The model the run is actually on, when the agent reports one. */
+  model: string | null;
   title: string | null;
   status: AgentLifecycleStatus;
   pendingPermissionCount: number;
   requiresAttention: boolean;
   attentionReason: "finished" | "error" | "permission" | null;
+  /** Null when the source has no timestamp to offer; a thread row then shows no
+   * last update rather than a made-up one. */
+  updatedAtMs: number | null;
 }
 
 export interface TaskExecutionWorkspaceSource {
@@ -53,12 +67,14 @@ export interface TaskExecutionEntry {
   agentId: string;
   workspaceId: string;
   provider: string;
+  model: string | null;
   title: string | null;
   role: "worker" | "reviewer";
   state: TaskExecutionState;
   workspaceName: string;
   branch: string | null;
   pullRequestNumber: number | null;
+  updatedAtMs: number | null;
 }
 
 export type TaskExecutionCounts = Record<TaskExecutionState, number>;
@@ -105,6 +121,24 @@ export function resolveTaskExecutionState(agent: TaskExecutionAgentSource): Task
   return agent.status === "initializing" && bucket === "done" ? "starting" : bucket;
 }
 
+/** A finished worker whose step is one of several is not the task asking for a
+ * verdict; the workflow still owns what happens next. */
+function resolveEntryState(input: {
+  link: TaskAgentLink;
+  taskStatus: Task["status"];
+  agent: TaskExecutionAgentSource | undefined;
+}): TaskExecutionState {
+  const agentState = input.agent ? resolveTaskExecutionState(input.agent) : "starting";
+  if (agentState !== "attention") {
+    return agentState;
+  }
+  const isWorker = (input.link.role ?? "worker") === "worker";
+  const ownedByWorkflow = input.link.completionOwner === "workflow";
+  return input.taskStatus === "in_progress" && isWorker && ownedByWorkflow
+    ? "step_complete"
+    : agentState;
+}
+
 function executionEntry(input: {
   link: TaskAgentLink;
   taskStatus: Task["status"];
@@ -112,24 +146,19 @@ function executionEntry(input: {
   workspace: TaskExecutionWorkspaceSource | undefined;
 }): TaskExecutionEntry {
   const { link, agent, workspace } = input;
-  const agentState = agent ? resolveTaskExecutionState(agent) : "starting";
-  const state =
-    agentState === "attention" &&
-    input.taskStatus === "in_progress" &&
-    (link.role ?? "worker") === "worker" &&
-    link.completionOwner === "workflow"
-      ? "step_complete"
-      : agentState;
+  const state = resolveEntryState({ link, taskStatus: input.taskStatus, agent });
   return {
     agentId: link.agentId,
     workspaceId: link.workspaceId,
     provider: agent?.provider ?? "agent",
+    model: agent?.model ?? null,
     title: agent?.title ?? null,
     role: link.role ?? "worker",
     state,
     workspaceName: workspace?.title ?? workspace?.name ?? "Workspace",
     branch: workspace?.branch ?? null,
     pullRequestNumber: workspace?.pullRequestNumber ?? null,
+    updatedAtMs: agent?.updatedAtMs ?? null,
   };
 }
 
@@ -189,7 +218,7 @@ export function selectUntrackedTaskExecutions(input: {
   workspaces: ReadonlyMap<string, UntrackedTaskExecutionWorkspaceSource>;
 }): TaskExecutionEntry[] {
   return input.agents
-    .flatMap((agent): Array<TaskExecutionEntry & { updatedAtMs: number }> => {
+    .flatMap((agent): TaskExecutionEntry[] => {
       if (
         agent.archived ||
         agent.parentAgentId !== null ||
@@ -207,6 +236,7 @@ export function selectUntrackedTaskExecutions(input: {
           agentId: agent.id,
           workspaceId: workspace.id,
           provider: agent.provider,
+          model: agent.model,
           title: agent.title,
           role: "worker",
           state: resolveTaskExecutionState(agent),
@@ -221,7 +251,33 @@ export function selectUntrackedTaskExecutions(input: {
       const stateOrder =
         TASK_EXECUTION_STATE_ORDER.indexOf(left.state) -
         TASK_EXECUTION_STATE_ORDER.indexOf(right.state);
-      return stateOrder === 0 ? right.updatedAtMs - left.updatedAtMs : stateOrder;
-    })
-    .map(({ updatedAtMs: _updatedAtMs, ...entry }) => entry);
+      return stateOrder === 0 ? compareUpdatedAtDescending(left, right) : stateOrder;
+    });
+}
+
+/** Newest activity first, with the timestamp-less rows behind everything that
+ * has one so a missing timestamp cannot claim the top of a list. */
+export function compareUpdatedAtDescending(
+  left: Pick<TaskExecutionEntry, "updatedAtMs">,
+  right: Pick<TaskExecutionEntry, "updatedAtMs">,
+): number {
+  if (left.updatedAtMs === right.updatedAtMs) return 0;
+  if (left.updatedAtMs === null) return 1;
+  if (right.updatedAtMs === null) return -1;
+  return right.updatedAtMs - left.updatedAtMs;
+}
+
+/**
+ * Whether the board can arm a review for this task: it is waiting for a verdict
+ * and no reviewer is left that could still deliver one. A settled reviewer
+ * counts as absent — it either answered or stranded its findings in the feed.
+ */
+export function canStartTaskReview(input: {
+  status: Task["status"];
+  entries: readonly Pick<TaskExecutionEntry, "role" | "state">[];
+}): boolean {
+  if (input.status !== "in_review") return false;
+  return !input.entries.some(
+    (entry) => entry.role === "reviewer" && TASK_EXECUTION_LIVE_STATES.includes(entry.state),
+  );
 }

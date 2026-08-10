@@ -994,7 +994,13 @@ export const ar: TranslationResources = {
       openAgent: "فتح الوكيل",
       approve: "الموافقة",
       reject: "رفض",
+      startReview: "بدء المراجعة",
       delete: "حذف",
+    },
+    threads: {
+      title: "المحادثات",
+      untracked: "عمل غير مُتتبَّع",
+      empty: "لا شيء قيد التشغيل في هذا المشروع",
     },
     priority: {
       urgent: "عاجل",

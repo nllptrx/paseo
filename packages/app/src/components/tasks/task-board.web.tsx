@@ -117,6 +117,7 @@ export function TaskBoard({
   onOpenAgent,
   onOpenTask,
   onReviewTask,
+  onStartReview,
   onDeleteTask,
   onCreateWorkflowForTask,
   selectedColumn,
@@ -274,6 +275,7 @@ export function TaskBoard({
             onOpenAgent={onOpenAgent}
             onOpenTask={onOpenTask}
             onReviewTask={onReviewTask}
+            onStartReview={onStartReview}
             onDeleteTask={onDeleteTask}
             onCreateWorkflowForTask={onCreateWorkflowForTask}
           />
@@ -312,6 +314,7 @@ export function TaskBoard({
             onOpenAgent={handleOpenAgent}
             onOpenTask={onOpenTask}
             onReviewTask={onReviewTask}
+            onStartReview={onStartReview}
             onDeleteTask={onDeleteTask}
             onCreateWorkflowForTask={onCreateWorkflowForTask}
             activeTaskId={activeTaskId}
@@ -331,6 +334,7 @@ export function TaskBoard({
             onMoveToStatus={handleMoveToStatus}
             onOpenAgent={handleOpenAgent}
             onReviewTask={onReviewTask}
+            onStartReview={onStartReview}
             onDeleteTask={onDeleteTask}
             isOverlay
           />
@@ -359,6 +363,7 @@ function DroppableTaskColumn({
   onOpenAgent,
   onOpenTask,
   onReviewTask,
+  onStartReview,
   onDeleteTask,
   onCreateWorkflowForTask,
   activeTaskId,
@@ -377,6 +382,7 @@ function DroppableTaskColumn({
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenTask: (taskId: string) => void;
   onReviewTask: TaskBoardProps["onReviewTask"];
+  onStartReview: TaskBoardProps["onStartReview"];
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
   activeTaskId: string | null;
@@ -423,6 +429,7 @@ function DroppableTaskColumn({
         onOpenAgent={onOpenAgent}
         onOpenTask={onOpenTask}
         onReviewTask={onReviewTask}
+        onStartReview={onStartReview}
         onDeleteTask={onDeleteTask}
         onCreateWorkflowForTask={onCreateWorkflowForTask}
         isOver={isOver}

@@ -20,10 +20,12 @@ function agent(
   return {
     id,
     provider: "codex",
+    model: null,
     title: null,
     pendingPermissionCount: 0,
     requiresAttention: false,
     attentionReason: null,
+    updatedAtMs: null,
     ...input,
   };
 }
@@ -108,12 +110,14 @@ describe("buildTaskExecutionSummaries", () => {
           agentId: "attached",
           workspaceId: "workspace-1",
           provider: "codex",
+          model: null,
           title: null,
           role: "worker",
           state: "attention",
           workspaceName: "feature/task-status",
           branch: "feature/task-status",
           pullRequestNumber: 42,
+          updatedAtMs: null,
         },
       ],
     });

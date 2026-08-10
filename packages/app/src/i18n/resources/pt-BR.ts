@@ -1016,7 +1016,13 @@ export const ptBR: TranslationResources = {
       openAgent: "Abrir agente",
       approve: "Aprovar",
       reject: "Rejeitar",
+      startReview: "Iniciar revisão",
       delete: "Excluir",
+    },
+    threads: {
+      title: "Threads",
+      untracked: "Trabalho não rastreado",
+      empty: "Nada em execução neste projeto",
     },
     priority: {
       urgent: "Urgente",

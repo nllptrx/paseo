@@ -33,7 +33,11 @@ import {
   type TaskRelationshipSummary,
 } from "@/tasks/task-views";
 import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
-import type { TaskExecutionSummary as TaskExecutionSummaryModel } from "@/tasks/task-execution";
+import {
+  canStartTaskReview,
+  type TaskExecutionEntry,
+  type TaskExecutionSummary as TaskExecutionSummaryModel,
+} from "@/tasks/task-execution";
 import { TaskExecutionSummary } from "./task-execution-summary";
 
 const ThemedMoreVertical = withUnistyles(MoreVertical);
@@ -57,10 +61,12 @@ export interface TaskCardAction {
 export function useTaskActions({
   task,
   hasSubtasks,
+  executionEntries,
   onMoveToStatus,
   onOpenAgent,
   onOpenTask,
   onReviewTask,
+  onStartReview,
   onDeleteTask,
   onCreateWorkflowForTask,
 }: {
@@ -68,6 +74,8 @@ export function useTaskActions({
   /** A task with subtasks is an aggregate: it holds no workers of its own, so a
    * plan cannot run on it. */
   hasSubtasks: boolean;
+  /** Its attached agents as the cards read them, for the review predicate. */
+  executionEntries: readonly TaskExecutionEntry[];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenTask?: ((taskId: string) => void) | undefined;
@@ -76,6 +84,8 @@ export function useTaskActions({
     verdict: "approve" | "reject";
     feedback?: string;
   }) => void;
+  /** Arms a reviewer for a card in review that has none. */
+  onStartReview: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
 }): TaskCardAction[] {
@@ -88,6 +98,14 @@ export function useTaskActions({
         label: t("tasks.detail.menuLabel"),
         testID: `task-card-details-${task.id}`,
         onSelect: () => onOpenTask(task.id),
+      });
+    }
+    if (canStartTaskReview({ status: task.status, entries: executionEntries })) {
+      entries.push({
+        key: "start-review",
+        label: t("tasks.board.startReview"),
+        testID: `task-card-start-review-${task.id}`,
+        onSelect: () => onStartReview(task.id),
       });
     }
     if (task.status === "in_review") {
@@ -142,6 +160,7 @@ export function useTaskActions({
     });
     return entries;
   }, [
+    executionEntries,
     hasSubtasks,
     onCreateWorkflowForTask,
     onDeleteTask,
@@ -149,6 +168,7 @@ export function useTaskActions({
     onOpenAgent,
     onOpenTask,
     onReviewTask,
+    onStartReview,
     t,
     task,
   ]);
@@ -208,6 +228,9 @@ export interface TaskBoardProps {
     verdict: "approve" | "reject";
     feedback?: string;
   }) => void;
+  /** Arms a reviewer for a card in review that has none, which is the only
+   * gesture a stalled review offers. */
+  onStartReview: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
   /** Authors a plan already attached to the task, when the surface offers one. */
   onCreateWorkflowForTask?: (taskId: string) => void;
@@ -221,6 +244,8 @@ export interface TaskBoardProps {
 
 /** Enough to read as "under", not so much that a deep card runs out of width. */
 const SUBTASK_INDENT = SPACING[3];
+
+const NO_EXECUTION_ENTRIES: readonly TaskExecutionEntry[] = [];
 
 /** A label is a glance, not a read: past this it truncates rather than pushing
  * the ones after it off the card. */
@@ -271,6 +296,7 @@ export function TaskColumn({
   onOpenAgent,
   onOpenTask,
   onReviewTask,
+  onStartReview,
   onDeleteTask,
   onCreateWorkflowForTask,
   isOver = false,
@@ -294,6 +320,7 @@ export function TaskColumn({
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenTask: (taskId: string) => void;
   onReviewTask: TaskBoardProps["onReviewTask"];
+  onStartReview: TaskBoardProps["onStartReview"];
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
   isOver?: boolean;
@@ -345,6 +372,7 @@ export function TaskColumn({
                 onOpenAgent={onOpenAgent}
                 onOpenTask={onOpenTask}
                 onReviewTask={onReviewTask}
+                onStartReview={onStartReview}
                 onDeleteTask={onDeleteTask}
                 onCreateWorkflowForTask={onCreateWorkflowForTask}
               />
@@ -373,6 +401,7 @@ export function TaskCard({
   onOpenAgent,
   onOpenTask,
   onReviewTask,
+  onStartReview,
   onDeleteTask,
   onCreateWorkflowForTask,
   depth = 0,
@@ -393,6 +422,7 @@ export function TaskCard({
   /** Absent only in the drag overlay clone, which renders no press target. */
   onOpenTask?: (taskId: string) => void;
   onReviewTask: TaskBoardProps["onReviewTask"];
+  onStartReview: TaskBoardProps["onStartReview"];
   onDeleteTask: (taskId: string) => void;
   onCreateWorkflowForTask?: ((taskId: string) => void) | undefined;
   /** Rendered inside the drag overlay: lifted, non-interactive. */
@@ -418,10 +448,12 @@ export function TaskCard({
   const actions = useTaskActions({
     task,
     hasSubtasks: (relationships?.subtaskCount ?? 0) > 0,
+    executionEntries: execution?.entries ?? NO_EXECUTION_ENTRIES,
     onMoveToStatus,
     onOpenAgent,
     onOpenTask,
     onReviewTask,
+    onStartReview,
     onDeleteTask,
     onCreateWorkflowForTask,
   });

@@ -1016,7 +1016,13 @@ export const ru: TranslationResources = {
       openAgent: "Открыть агента",
       approve: "Одобрить",
       reject: "Отклонить",
+      startReview: "Начать проверку",
       delete: "Удалить",
+    },
+    threads: {
+      title: "Потоки",
+      untracked: "Неотслеживаемая работа",
+      empty: "В этом проекте ничего не выполняется",
     },
     priority: {
       urgent: "Срочно",

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { Kanban, ListTodo } from "lucide-react-native";
+import { Kanban, ListTodo, MessagesSquare } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { Task, TaskProject, TaskSnapshot, TaskStatus } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import { TaskDetailSheet } from "./task-detail-sheet";
 import { useTaskExecutionSummaries, useUntrackedTaskExecutions } from "@/tasks/use-task-execution";
 import type { TaskExecutionEntry } from "@/tasks/task-execution";
 import { UntrackedTaskWork } from "./untracked-task-work";
+import { TaskThreads } from "./task-threads";
 
 const EMPTY_DEPENDENCIES: TaskDependencyEdge[] = [];
 const EMPTY_WORKFLOWS: TaskWorkflow[] = [];
@@ -80,6 +81,10 @@ function renderTaskListIcon({ color, size }: { color: string; size: number }): R
   return <ListTodo color={color} size={size} />;
 }
 
+function renderThreadsIcon({ color, size }: { color: string; size: number }): ReactElement {
+  return <MessagesSquare color={color} size={size} />;
+}
+
 export interface TaskBoardSurfaceProps {
   serverId: string;
   /** The Paseo project this board belongs to; tasks come from the tracker
@@ -115,7 +120,8 @@ export function TaskBoardSurface({
   const toast = useToast();
   const supported = useTasksSupported(serverId);
   const { snapshot, isLoading, isError, error, refetch } = useTasks(serverId);
-  const { moveTask, reviewTask, deleteTask, setPriority, attachAgent } = useTaskMutations(serverId);
+  const { moveTask, reviewTask, startReview, deleteTask, setPriority, attachAgent } =
+    useTaskMutations(serverId);
   const { act } = useTaskStepActions(serverId);
   const [selectedColumn, setSelectedColumn] = useState<TaskStatus>("backlog");
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
@@ -180,6 +186,12 @@ export function TaskBoardSurface({
         label: t("tasks.screen.title"),
         icon: renderTaskListIcon,
         testID: "task-view-list",
+      },
+      {
+        value: "threads" as const,
+        label: t("tasks.threads.title"),
+        icon: renderThreadsIcon,
+        testID: "task-view-threads",
       },
     ],
     [t],
@@ -326,6 +338,16 @@ export function TaskBoardSurface({
     [reviewTask, toast],
   );
 
+  // The board arms the reviewer; the card only says which task is waiting for
+  // one. A refusal from the daemon is the whole answer, so it goes to the toast
+  // rather than changing the card.
+  const handleStartReview = useCallback(
+    (taskId: string) => {
+      void startReview(taskId).catch((startError) => toast.show(toErrorMessage(startError)));
+    },
+    [startReview, toast],
+  );
+
   const handleDeleteTask = useCallback(
     (taskId: string) => {
       const task = board.tasks.find((entry) => entry.id === taskId);
@@ -431,6 +453,16 @@ export function TaskBoardSurface({
         onCreateTask={handleCreateTaskFromAgent}
         onAttachTask={handleAttachTask}
       />
+      {preferences.view === "threads" ? (
+        <TaskThreads
+          tasks={visibleTasks}
+          projectsById={projectsById}
+          executionByTaskId={executionByTaskId}
+          untracked={untrackedExecutions}
+          onOpenAgent={handleOpenAgent}
+          onOpenTask={handleOpenTask}
+        />
+      ) : null}
       {preferences.view === "kanban" ? (
         <TaskBoard
           serverId={serverId}
@@ -444,6 +476,7 @@ export function TaskBoardSurface({
           onOpenAgent={handleOpenAgent}
           onOpenTask={handleOpenTask}
           onReviewTask={handleReviewTask}
+          onStartReview={handleStartReview}
           onDeleteTask={handleDeleteTask}
           onCreateWorkflowForTask={onCreateWorkflowForTask}
           selectedColumn={selectedColumn}
@@ -451,7 +484,8 @@ export function TaskBoardSurface({
           expandSubtasks={preferences.expandSubtasks === true}
           dragDisabled={isReorderDisabled}
         />
-      ) : (
+      ) : null}
+      {preferences.view === "tasks" ? (
         <TaskList
           tasks={visibleTasks}
           totalCount={board.tasks.length}
@@ -465,11 +499,12 @@ export function TaskBoardSurface({
           onOpenAgent={handleOpenAgent}
           onOpenTask={handleOpenTask}
           onReviewTask={handleReviewTask}
+          onStartReview={handleStartReview}
           onDeleteTask={handleDeleteTask}
           onSetPriority={handleSetPriority}
           onCreateWorkflowForTask={onCreateWorkflowForTask}
         />
-      )}
+      ) : null}
       <TaskCaptureSheet
         serverId={serverId}
         project={board.projects[0] ?? null}

@@ -1025,7 +1025,13 @@ export const fr: TranslationResources = {
       openAgent: "Ouvrir l’agent",
       approve: "Approuver",
       reject: "Rejeter",
+      startReview: "Lancer la revue",
       delete: "Supprimer",
+    },
+    threads: {
+      title: "Fils",
+      untracked: "Travail non suivi",
+      empty: "Rien ne tourne dans ce projet",
     },
     priority: {
       urgent: "Urgent",

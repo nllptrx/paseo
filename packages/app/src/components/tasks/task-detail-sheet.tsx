@@ -72,6 +72,7 @@ import {
   TaskLabelChips,
 } from "./task-board-parts";
 import {
+  canStartTaskReview,
   groupTaskExecutionsByWorkspace,
   TASK_EXECUTION_STATE_LABELS,
   type TaskExecutionEntry,
@@ -173,8 +174,16 @@ function OpenTaskDetailSheet({
 }): ReactElement {
   const { t } = useTranslation();
   const toast = useToast();
-  const { setStatus, setPriority, reviewTask, updateTask, createTask, isReviewing, isBusy } =
-    useTaskMutations(serverId);
+  const {
+    setStatus,
+    setPriority,
+    reviewTask,
+    startReview,
+    updateTask,
+    createTask,
+    isReviewing,
+    isBusy,
+  } = useTaskMutations(serverId);
   const { entries } = useBoardFeed({ serverId, projectId: task.projectId });
   const { post, sendMessage, isPosting } = useBoardFeedComposer({
     serverId,
@@ -192,6 +201,13 @@ function OpenTaskDetailSheet({
     () => groupTaskExecutionsByWorkspace(executionSummary),
     [executionSummary],
   );
+  const canArmReview = canStartTaskReview({
+    status: task.status,
+    entries: executionSummary?.entries ?? [],
+  });
+  const handleStartReview = useCallback(() => {
+    void startReview(task.id).catch((startError) => toast.show(toErrorMessage(startError)));
+  }, [startReview, task.id, toast]);
 
   const { presets } = useTaskPresets(serverId);
   const { delegate, isDelegating } = useTaskDelegate(serverId);
@@ -481,6 +497,17 @@ function OpenTaskDetailSheet({
               >
                 {t("tasks.board.reject")}
               </Button>
+              {canArmReview ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={handleStartReview}
+                  disabled={isReviewing}
+                  testID="task-detail-start-review"
+                >
+                  {t("tasks.board.startReview")}
+                </Button>
+              ) : null}
             </View>
           </SettingsSection>
         ) : null}

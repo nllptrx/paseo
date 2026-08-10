@@ -1004,7 +1004,13 @@ export const en = {
       openAgent: "Open agent",
       approve: "Approve",
       reject: "Reject",
+      startReview: "Start review",
       delete: "Delete",
+    },
+    threads: {
+      title: "Threads",
+      untracked: "Untracked work",
+      empty: "Nothing is running in this project",
     },
     priority: {
       urgent: "Urgent",
