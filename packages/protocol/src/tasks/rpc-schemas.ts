@@ -220,6 +220,23 @@ export const TasksReviewResponseSchema = z.object({
   }),
 });
 
+/** Puts a reviewer on a card that is in review without one running — the same
+ * arming a manual move into review performs. */
+export const TasksReviewStartRequestSchema = z.object({
+  type: z.literal("tasks.review.start.request"),
+  requestId: z.string(),
+  taskId: z.string(),
+});
+
+export const TasksReviewStartResponseSchema = z.object({
+  type: z.literal("tasks.review.start.response"),
+  payload: z.object({
+    requestId: z.string(),
+    taskId: z.string(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const TasksSubscribeRequestSchema = z.object({
   type: z.literal("tasks.subscribe.request"),
   requestId: z.string(),

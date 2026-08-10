@@ -593,6 +593,10 @@ type TasksReviewPayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.review.response" }
 >["payload"];
+type TasksReviewStartPayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.review.start.response" }
+>["payload"];
 import type { StepInput } from "@getpaseo/protocol/tasks/workflow";
 
 type TasksDependencyPayload = Extract<
@@ -5530,6 +5534,13 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.review.response">({
       requestId,
       message: { type: "tasks.review.request", ...options },
+    });
+  }
+
+  async tasksReviewStart(taskId: string, requestId?: string): Promise<TasksReviewStartPayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.review.start.response">({
+      requestId,
+      message: { type: "tasks.review.start.request", taskId },
     });
   }
 

@@ -721,6 +721,9 @@ export class Session {
   private readonly workspaceRecovery: WorkspaceRecoveryService;
   private readonly daemonConfigStore: DaemonConfigStore;
   private readonly pushTokenStore: PushTokenStore;
+  /** Absent on hosts without a tracker; deleting an agent then has no links to
+   * clean up. */
+  private readonly taskService: TaskService | undefined;
   private unsubscribeAgentEvents: (() => void) | null = null;
   private unsubscribeProjectMutations: (() => void) | null = null;
   private unsubscribeWorkspaceMutations: (() => void) | null = null;
@@ -841,6 +844,7 @@ export class Session {
     this.onLifecycleIntent = onLifecycleIntent ?? null;
     this.onWorkspaceRecovered = onWorkspaceRecovered ?? null;
     this.pushTokenStore = pushTokenStore;
+    this.taskService = taskService;
     this.paseoHome = paseoHome;
     this.worktreesRoot = worktreesRoot;
     this.sessionLogger = logger.child({
@@ -2476,6 +2480,8 @@ export class Session {
         return session.handleCommentCreateRequest(msg);
       case "tasks.review.request":
         return session.handleReviewRequest(msg);
+      case "tasks.review.start.request":
+        return session.handleReviewStartRequest(msg);
       case "tasks.subscribe.request":
         session.handleSubscribeRequest(msg);
         return Promise.resolve();
@@ -2599,6 +2605,18 @@ export class Session {
       await this.agentManager.deleteAgentState(agentId);
     } catch (error) {
       this.sessionLogger.error({ err: error, agentId }, `Failed to fully delete agent ${agentId}`);
+    }
+
+    // A task card reads its members off its agent links, so a deleted agent has
+    // to lose them here; the boot sweep only catches what happened while the
+    // daemon was down.
+    try {
+      await this.taskService?.pruneAgentLinks([agentId]);
+    } catch (error) {
+      this.sessionLogger.warn(
+        { err: error, agentId },
+        `Failed to prune task links for deleted agent ${agentId}`,
+      );
     }
 
     this.emit({

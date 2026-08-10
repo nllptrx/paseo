@@ -152,6 +152,7 @@ import { ScheduleService } from "./schedule/service.js";
 import { TaskWorkflowEngine } from "./tasks/workflow-engine.js";
 import { TaskService } from "./tasks/service.js";
 import { TaskTransitionEngine } from "./tasks/transitions.js";
+import { pruneGhostAgentLinks } from "./tasks/ghost-links.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
@@ -1269,6 +1270,11 @@ export async function createPaseoDaemon(
     } catch (error) {
       logger.warn({ err: error, agentId }, "Failed to complete schedules for archived agent");
     }
+    try {
+      await taskService.pruneAgentLinks([agentId]);
+    } catch (error) {
+      logger.warn({ err: error, agentId }, "Failed to prune task links for archived agent");
+    }
   });
   logger.info({ elapsed: elapsed() }, "Schedule service initialized");
   taskTransitions.setRequestReview((taskId) => taskWorkflowEngine.requestReview(taskId));
@@ -1284,7 +1290,7 @@ export async function createPaseoDaemon(
   taskService.setCompleteTaskHandler((taskId) =>
     taskTransitions.completeTask(taskId, "was moved to done"),
   );
-  taskService.setReviewEntryHandler((taskId) => taskTransitions.onManualMoveToReview(taskId));
+  taskService.setReviewEntryHandler((taskId) => taskTransitions.startReviewIfIdle(taskId));
   taskTransitions.setOnTaskDone((taskId) =>
     taskWorkflowEngine.archiveTaskWorkspacesAfterDone(taskId),
   );
@@ -1299,10 +1305,18 @@ export async function createPaseoDaemon(
   // Warmed here so `server_info` can answer synchronously at connect time. The
   // probe opens the store, and a store that will not open leaves the tracker
   // switched off rather than taking the daemon down with it. The same warm-up
-  // re-arms the attachment observers a restart dropped.
+  // re-arms the attachment observers a restart dropped, after the links that
+  // point at agents which went away are gone — an observer armed on a ghost
+  // waits for a lifecycle nobody will ever emit.
   void taskService
     .isAvailable()
     .then(async () => {
+      await pruneGhostAgentLinks({
+        taskService,
+        agentStorage,
+        logger,
+        attachedBefore: new Date().toISOString(),
+      });
       await taskTransitions.start();
       return taskWorkflowEngine.recoverInterruptedRuns();
     })

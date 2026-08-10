@@ -39,7 +39,11 @@ describe("TasksSession workflow requests", () => {
       taskService: service,
       transitions: new TaskTransitionEngine({
         taskService: service,
-        agentManager: { subscribe: () => () => {}, getAgent: () => null },
+        agentManager: {
+          subscribe: () => () => {},
+          getAgent: () => null,
+          getLastAssistantMessage: async () => null,
+        },
         logger,
       }),
       notifyAgent: async (input) => {
@@ -59,6 +63,65 @@ describe("TasksSession workflow requests", () => {
     const task = await service.createTask({ projectId: project.id, title: "Ship it" });
     return { projectId: project.id, taskId: task.id };
   }
+
+  /** Start review is the one gesture a card sitting in review with no live
+   * reviewer offers. */
+  it("arms a reviewer for a card that is in review", async () => {
+    const { taskId } = await seedTask();
+    const reviewed: string[] = [];
+    const transitions = new TaskTransitionEngine({
+      taskService: service,
+      agentManager: {
+        subscribe: () => () => {},
+        getAgent: () => null,
+        getLastAssistantMessage: async () => null,
+      },
+      logger,
+    });
+    transitions.setRequestReview(async (id) => {
+      reviewed.push(id);
+      return { agentId: "agt_reviewer" };
+    });
+    const reviewSession = new TasksSession({
+      host: { emit: (msg) => emitted.push(msg) },
+      taskService: service,
+      transitions,
+      logger,
+    });
+    await service.configureBoard({
+      projectId: (await service.getTask(taskId))?.projectId ?? "",
+      reviewEnabled: true,
+    });
+    await service.updateTask({ taskId, status: "in_review" });
+
+    await reviewSession.handleReviewStartRequest({
+      type: "tasks.review.start.request",
+      requestId: "r1",
+      taskId,
+    });
+
+    expect(payloadOf(emitted, "tasks.review.start.response")).toEqual({
+      requestId: "r1",
+      taskId,
+      error: null,
+    });
+    expect(reviewed).toEqual([taskId]);
+  });
+
+  it("refuses to start a review for a card that is not in review", async () => {
+    const { taskId } = await seedTask();
+
+    await session.handleReviewStartRequest({
+      type: "tasks.review.start.request",
+      requestId: "r1",
+      taskId,
+    });
+
+    const error = payloadOf(emitted, "rpc_error");
+    expect(error.requestType).toBe("tasks.review.start.request");
+    expect(error.error).toContain("not in review");
+    expect(emitted.some((message) => message.type === "tasks.review.start.response")).toBe(false);
+  });
 
   it("configures only the board settings the request names", async () => {
     const { projectId } = await seedTask();
@@ -343,7 +406,11 @@ describe("TasksSession workflow requests", () => {
       taskService: service,
       transitions: new TaskTransitionEngine({
         taskService: service,
-        agentManager: { subscribe: () => () => {}, getAgent: () => null },
+        agentManager: {
+          subscribe: () => () => {},
+          getAgent: () => null,
+          getLastAssistantMessage: async () => null,
+        },
         logger,
       }),
       notifyAgent: async () => {

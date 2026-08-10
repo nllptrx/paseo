@@ -28,7 +28,7 @@ export interface TaskTransitionEngineDeps {
     | "isAvailable"
     | "createComment"
   >;
-  agentManager: Pick<AgentManager, "subscribe" | "getAgent">;
+  agentManager: Pick<AgentManager, "subscribe" | "getAgent" | "getLastAssistantMessage">;
 
   logger: pino.Logger;
   /** How long a reviewer may run before the board stops waiting on it. */
@@ -53,6 +53,13 @@ export const DEFAULT_REVIEW_TIMEOUT_MS = 30 * 60_000;
  * nobody asked for.
  */
 export const DEFAULT_MAX_REVIEW_ATTEMPTS = 2;
+
+/**
+ * How much of a verdict-less reviewer's last message the feed carries. Long
+ * enough for the findings, short enough that the board's history stays readable;
+ * the whole message is still in the reviewer's chat.
+ */
+export const REVIEWER_FINDINGS_EXCERPT_LIMIT = 2000;
 
 /**
  * The two transitions a run can write. Work attached to a task settling green moves it to `in_review`
@@ -295,12 +302,14 @@ export class TaskTransitionEngine {
   }
 
   /**
-   * A hand moved the card into review. Settling work arms its reviewer on the
-   * way in; a manual move has to arm one too, or a board with a reviewer only
-   * ever reviews what arrived by automation. A reviewer already working the
-   * card is left alone.
+   * Arms a reviewer for a card that is in review without one running. Settling
+   * work arms its reviewer on the way in; a manual move has to arm one too, or a
+   * board with a reviewer only ever reviews what arrived by automation. The same
+   * gesture is what the Start review action asks for, so a card whose reviewer
+   * ended without a verdict can be handed a fresh one. A reviewer already
+   * working the card is left alone.
    */
-  async onManualMoveToReview(taskId: string): Promise<void> {
+  async startReviewIfIdle(taskId: string): Promise<void> {
     const task = await this.deps.taskService.getTask(taskId);
     if (!task || task.status !== "in_review") {
       return;
@@ -713,6 +722,7 @@ export class TaskTransitionEngine {
     if (!task || task.status !== "in_review") {
       return;
     }
+    await this.postReviewerFindings(input);
     const attempts = this.reviewAttemptsByTask.get(input.taskId) ?? 0;
     const retrying = this.requestReview !== null && attempts < this.maxReviewAttempts;
     await this.deps.taskService.createComment({
@@ -729,6 +739,37 @@ export class TaskTransitionEngine {
       return;
     }
     this.reviewAttemptsByTask.delete(input.taskId);
+  }
+
+  /**
+   * A reviewer that stopped without a verdict leaves its findings in a chat
+   * nobody opens. They are copied into the feed so a human can turn them into a
+   * rejection with feedback, which is how they reach the workers.
+   *
+   * A message that cannot be read says so rather than failing the settle: the
+   * card still has to be handed on, and silence would read as "the reviewer
+   * found nothing".
+   */
+  private async postReviewerFindings(input: { taskId: string; agentId: string }): Promise<void> {
+    let message: string | null = null;
+    let readFailed = false;
+    try {
+      message = await this.deps.agentManager.getLastAssistantMessage(input.agentId);
+    } catch (error) {
+      readFailed = true;
+      this.deps.logger.warn(
+        { err: error, taskId: input.taskId, agentId: input.agentId },
+        "Could not read the last message of a reviewer that ended without a verdict",
+      );
+    }
+    const body = reviewerFindingsBody(message, readFailed);
+    await this.deps.taskService.createComment({
+      taskId: input.taskId,
+      kind: "system",
+      authorName: "board",
+      agentId: input.agentId,
+      body,
+    });
   }
 
   /** Approve goes to done. Reject follows the task's effective rejection
@@ -957,6 +998,33 @@ export class TaskTransitionEngine {
     this.reviewTimeoutsByLink.clear();
     this.reviewAttemptsByTask.clear();
   }
+}
+
+/** Each unreadable case names its own cause: a read that threw is not a chat
+ * that unloaded, and claiming the wrong one sends a person debugging the wrong
+ * thing. */
+function reviewerFindingsBody(message: string | null, readFailed: boolean): string {
+  if (readFailed) {
+    return "The reviewer's findings could not be read from its chat; open the reviewer agent to see them.";
+  }
+  if (message === null) {
+    return "The reviewer's findings could not be read because its chat is no longer loaded; open the reviewer agent to see them.";
+  }
+  const trimmed = message.trim();
+  if (trimmed.length === 0) {
+    return "The reviewer ended without leaving a message to report.";
+  }
+  return buildReviewerFindingsNote(trimmed);
+}
+
+function buildReviewerFindingsNote(message: string): string {
+  if (message.length <= REVIEWER_FINDINGS_EXCERPT_LIMIT) {
+    return `The reviewer's last message, which never became a verdict:\n\n${message}`;
+  }
+  return `The reviewer's last message, which never became a verdict, truncated to the first ${REVIEWER_FINDINGS_EXCERPT_LIMIT} characters:\n\n${message.slice(
+    0,
+    REVIEWER_FINDINGS_EXCERPT_LIMIT,
+  )}`;
 }
 
 function reviewerOutcomeNote(outcome: "finished" | "errored" | "closed"): string {

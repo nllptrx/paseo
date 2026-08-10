@@ -517,6 +517,20 @@ export class TaskService {
     this.assertClaimable(store, taskId);
   }
 
+  /**
+   * Removes the links of agents that are gone. This is repair, not a board
+   * event: nothing was decided, so the feed stays quiet and only the revision
+   * moves, which is what makes the ghost disappear from every open client.
+   */
+  async pruneAgentLinks(agentIds: readonly string[]): Promise<number> {
+    const store = await this.require();
+    const removed = store.pruneAgentLinks(agentIds);
+    if (removed > 0) {
+      this.announce(store);
+    }
+    return removed;
+  }
+
   async detachAgent(input: { taskId: string; agentId: string }): Promise<void> {
     const store = await this.require();
     store.detachAgent(input);

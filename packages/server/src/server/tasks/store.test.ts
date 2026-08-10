@@ -265,6 +265,24 @@ describe("TaskStore", () => {
     expect(store.listTaskAgents(task.id)).toEqual([]);
   });
 
+  /** One deleted agent can be attached to several cards, and the link is the
+   * only place membership lives, so the sweep addresses agents rather than
+   * links. */
+  it("prunes an agent's links on every task it was attached to", () => {
+    const first = store.createTask({ projectId, title: "First" });
+    const second = store.createTask({ projectId, title: "Second" });
+    store.attachAgent({ taskId: first.id, agentId: "agt_gone", workspaceId: "ws_1" });
+    store.attachAgent({ taskId: second.id, agentId: "agt_gone", workspaceId: "ws_2" });
+    store.attachAgent({ taskId: second.id, agentId: "agt_live", workspaceId: "ws_2" });
+    const before = store.getRevision();
+
+    expect(store.pruneAgentLinks(["agt_gone"])).toBe(2);
+
+    expect(store.findTasksByAgent("agt_gone")).toEqual([]);
+    expect(store.listTaskAgents(second.id).map((link) => link.agentId)).toEqual(["agt_live"]);
+    expect(store.getRevision()).toBeGreaterThan(before);
+  });
+
   it("persists and updates who owns an attached agent's completion", () => {
     const task = store.createTask({ projectId, title: "Worked" });
     store.attachAgent({

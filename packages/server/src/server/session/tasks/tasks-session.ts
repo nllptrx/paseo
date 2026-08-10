@@ -288,6 +288,32 @@ export class TasksSession {
     }
   }
 
+  /**
+   * Start review, by hand. It refuses anywhere but `in_review`: the gesture
+   * exists for a card that is waiting on a verdict, and arming a reviewer for a
+   * card still being worked on would judge an unfinished branch.
+   */
+  async handleReviewStartRequest(request: Inbound<"tasks.review.start.request">): Promise<void> {
+    try {
+      const task = await this.taskService.getTask(request.taskId);
+      if (!task) {
+        throw new Error(`No task ${request.taskId} to review`);
+      }
+      if (task.status !== "in_review") {
+        throw new Error(
+          `Task ${request.taskId} is ${task.status}, not in review, so there is no review to start`,
+        );
+      }
+      await this.transitions.startReviewIfIdle(request.taskId);
+      this.host.emit({
+        type: "tasks.review.start.response",
+        payload: { requestId: request.requestId, taskId: request.taskId, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
   async handleBoardConfigureRequest(
     request: Inbound<"tasks.board.configure.request">,
   ): Promise<void> {

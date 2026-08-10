@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TaskBoardConfig } from "@getpaseo/protocol/tasks/types";
+import type { TaskBoardConfig, TaskComment } from "@getpaseo/protocol/tasks/types";
 import type { ManagedAgent } from "../agent/agent-manager.js";
 import {
   isReviewVerdictNote,
@@ -11,7 +11,7 @@ import {
   REVIEW_REJECTED_NOTE,
 } from "./review-verdict-notes.js";
 import { TaskService } from "./service.js";
-import { TaskTransitionEngine } from "./transitions.js";
+import { REVIEWER_FINDINGS_EXCERPT_LIMIT, TaskTransitionEngine } from "./transitions.js";
 
 const logger = pino({ level: "silent" });
 
@@ -33,6 +33,14 @@ function createFakeAgentManager() {
       };
     },
     snapshots: new Map<string, ManagedAgent["lifecycle"]>(),
+    lastMessages: new Map<string, string>(),
+    lastMessageError: null as Error | null,
+    async getLastAssistantMessage(agentId: string): Promise<string | null> {
+      if (this.lastMessageError) {
+        throw this.lastMessageError;
+      }
+      return this.lastMessages.get(agentId) ?? null;
+    },
     getAgent(agentId: string) {
       const lifecycle = this.snapshots.get(agentId);
       return lifecycle ? ({ lifecycle } as ManagedAgent) : null;
@@ -47,6 +55,12 @@ function createFakeAgentManager() {
       return listeners.get(agentId)?.size ?? 0;
     },
   };
+}
+
+/** Kept out of the tests so an assertion inside `waitFor` stays one callback
+ * deep. */
+function indexOfEntryContaining(feed: readonly TaskComment[], needle: string): number {
+  return feed.findIndex((entry) => entry.body.includes(needle));
 }
 
 describe("TaskTransitionEngine", () => {
@@ -141,7 +155,7 @@ describe("TaskTransitionEngine", () => {
       reviews.push(taskId);
       return { agentId: "reviewer-1" };
     });
-    service.setReviewEntryHandler((taskId) => engine.onManualMoveToReview(taskId));
+    service.setReviewEntryHandler((taskId) => engine.startReviewIfIdle(taskId));
 
     await service.moveTask({
       taskId: task.id,
@@ -176,7 +190,7 @@ describe("TaskTransitionEngine", () => {
     });
     agentManager.snapshots.set("reviewer-1", "running");
 
-    await engine.onManualMoveToReview(task.id);
+    await engine.startReviewIfIdle(task.id);
 
     expect(reviews).toEqual([]);
   });
@@ -900,6 +914,114 @@ describe("TaskTransitionEngine", () => {
     expect(await feedText(projectId)).toContain(
       "finished without recording a verdict; the board is starting a fresh review",
     );
+  });
+
+  /** Findings that stayed in the reviewer's chat reach nobody. In the feed a
+   * human can turn them into a rejection, which is what gets them to the
+   * workers. */
+  it("posts the last message of a reviewer that ended without a verdict", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+      maxReviewAttempts: 1,
+    });
+    engine.setRequestReview(async () => ({ agentId: "reviewer-1" }));
+    agentManager.lastMessages.set("reviewer-1", "The migration drops a column without a backup.");
+
+    await engine.onWorkSettled(task.id);
+    agentManager.emitLifecycle("reviewer-1", "running");
+    agentManager.emitLifecycle("reviewer-1", "idle");
+
+    await vi.waitFor(async () => {
+      const feed = await service.listBoardFeed({ projectId });
+      const findingsIndex = indexOfEntryContaining(feed, "never became a verdict");
+      expect(feed[findingsIndex]?.body).toContain("The migration drops a column without a backup.");
+      expect(feed[findingsIndex]?.agentId).toBe("reviewer-1");
+      expect(findingsIndex).toBeGreaterThanOrEqual(0);
+      expect(findingsIndex).toBeLessThan(
+        indexOfEntryContaining(feed, "without recording a verdict"),
+      );
+    });
+  });
+
+  it("truncates a long reviewer message and says it was truncated", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+      maxReviewAttempts: 1,
+    });
+    engine.setRequestReview(async () => ({ agentId: "reviewer-1" }));
+    agentManager.lastMessages.set(
+      "reviewer-1",
+      "x".repeat(REVIEWER_FINDINGS_EXCERPT_LIMIT + 500) + "TAIL",
+    );
+
+    await engine.onWorkSettled(task.id);
+    agentManager.emitLifecycle("reviewer-1", "running");
+    agentManager.emitLifecycle("reviewer-1", "idle");
+
+    await vi.waitFor(async () => {
+      const feed = await service.listBoardFeed({ projectId });
+      const findings = feed[indexOfEntryContaining(feed, "never became a verdict")];
+      expect(findings?.body).toContain(`truncated to the first ${REVIEWER_FINDINGS_EXCERPT_LIMIT}`);
+      expect(findings?.body).not.toContain("TAIL");
+    });
+  });
+
+  /** Saying nothing would read as "the reviewer found nothing", and the card
+   * still has to be handed on. */
+  it("says so in the feed when the reviewer's last message cannot be read", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+      maxReviewAttempts: 1,
+    });
+    engine.setRequestReview(async () => ({ agentId: "reviewer-1" }));
+    agentManager.lastMessageError = new Error("chat storage is closed");
+
+    await engine.onWorkSettled(task.id);
+    agentManager.emitLifecycle("reviewer-1", "running");
+    agentManager.emitLifecycle("reviewer-1", "idle");
+
+    await vi.waitFor(async () => {
+      expect(await feedText(projectId)).toContain(
+        "The reviewer's findings could not be read from its chat; open the reviewer agent to see them.",
+      );
+    });
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
+  });
+
+  /** Null is not a failure: it is a chat the daemon no longer holds, and the
+   * feed must name that cause, not a read error that never happened. */
+  it("says the chat is no longer loaded when the reviewer's message is gone", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+      maxReviewAttempts: 1,
+    });
+    engine.setRequestReview(async () => ({ agentId: "reviewer-1" }));
+
+    await engine.onWorkSettled(task.id);
+    agentManager.emitLifecycle("reviewer-1", "running");
+    agentManager.emitLifecycle("reviewer-1", "idle");
+
+    await vi.waitFor(async () => {
+      expect(await feedText(projectId)).toContain(
+        "could not be read because its chat is no longer loaded",
+      );
+    });
   });
 
   it("stops retrying reviewers and leaves the card to a human", async () => {

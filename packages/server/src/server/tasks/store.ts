@@ -933,6 +933,23 @@ export class TaskStore {
       .run(input.taskId, input.agentId);
   }
 
+  /**
+   * Drops every link the named agents hold, on any task and in any role. A card
+   * must never show an agent that no longer exists, and the link is the only
+   * place membership is stored, so removing it is the whole repair.
+   */
+  pruneAgentLinks(agentIds: readonly string[]): number {
+    if (agentIds.length === 0) {
+      return 0;
+    }
+    const statement = this.db.prepare("DELETE FROM task_agents WHERE agent_id = ?");
+    let removed = 0;
+    for (const agentId of agentIds) {
+      removed += Number(statement.run(agentId).changes);
+    }
+    return removed;
+  }
+
   listTaskAgents(taskId: string): TaskAgentLink[] {
     return selectAll(
       this.db.prepare("SELECT * FROM task_agents WHERE task_id = ? ORDER BY attached_at, agent_id"),

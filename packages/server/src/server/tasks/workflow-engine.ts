@@ -1349,6 +1349,14 @@ export class TaskWorkflowEngine {
     if (!presetId) {
       return null;
     }
+    if (!this.agentManager.getMcpBaseUrl()) {
+      // A reviewer records its verdict through the daemon's MCP tools. Without
+      // them the run can only end in a chat nobody reads, so the card is left in
+      // review for a human instead of burning a whole review.
+      throw new Error(
+        "reviews need the daemon's agent MCP tools; enable mcp.injectIntoAgents to let a reviewer record a verdict",
+      );
+    }
     const preset = await this.taskService.getPreset(presetId);
     if (!preset) {
       // Distinct from "this board reviews by hand": somebody asked for an agent
@@ -1438,7 +1446,15 @@ export class TaskWorkflowEngine {
     const childrenById = new Map(input.children.map((child) => [child.id, child]));
     const verdicts = new Map<string, string>();
     for (const entry of await this.taskService.listBoardFeed({ projectId: input.projectId })) {
-      if (!entry.taskId || !childrenById.has(entry.taskId) || entry.kind !== "system") {
+      // The board writes verdicts in its own voice, unattributed. An entry
+      // carrying an agent id quotes an agent — a stalled worker, a reviewer's
+      // last message — and its prose must not be read back as a verdict.
+      if (
+        !entry.taskId ||
+        !childrenById.has(entry.taskId) ||
+        entry.kind !== "system" ||
+        entry.agentId
+      ) {
         continue;
       }
       if (isReviewVerdictNote(entry.body)) {

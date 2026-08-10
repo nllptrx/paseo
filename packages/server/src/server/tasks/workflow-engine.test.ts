@@ -33,6 +33,7 @@ type Lifecycle = "initializing" | "running" | "idle" | "error" | "closed";
 
 class FakeAgentManager {
   private lifecycles = new Map<string, Lifecycle>();
+  mcpBaseUrl: string | null = "http://127.0.0.1:6767/mcp/agents";
   private subscribers: Array<{
     callback: (event: { type: "agent_state"; agent: { lifecycle: Lifecycle } }) => void;
     agentId?: string;
@@ -78,6 +79,7 @@ class FakeAgentManager {
 
   asAgentManager(): AgentManager {
     return createStub<AgentManager>({
+      getMcpBaseUrl: () => this.mcpBaseUrl,
       getAgent: this.getAgent.bind(this),
       subscribe: this.subscribe.bind(this),
       hasInFlightRun: this.hasInFlightRun.bind(this),
@@ -1123,6 +1125,23 @@ describe("TaskWorkflowEngine", () => {
     await service.attachAgent({ taskId, agentId: "agt_worker", workspaceId: "ws_shared" });
 
     expect(await engine.requestReview(taskId)).toBeNull();
+  });
+
+  /** A reviewer records its verdict through the daemon's MCP tools. Starting one
+   * without them spends a whole run on a judgement the tracker can never hear. */
+  test("refuses to start a reviewer when the daemon injects no MCP tools", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const preset = await service.createPreset({
+      name: "Reviewer",
+      provider: "claude",
+      environmentKind: "project_default",
+    });
+    await service.configureBoard({ projectId, reviewerPresetId: preset.id });
+    agentManager.mcpBaseUrl = null;
+
+    await expect(engine.requestReview(taskId)).rejects.toThrow(/mcp\.injectIntoAgents/);
+    expect((await service.getTask(taskId))?.agents).toEqual([]);
+    expect(createdAgentPrompts).toEqual([]);
   });
 
   test("refuses to review with a preset the board no longer has", async () => {

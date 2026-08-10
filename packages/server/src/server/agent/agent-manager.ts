@@ -721,6 +721,17 @@ export class AgentManager {
     this.mcpBaseUrl = url;
   }
 
+  /**
+   * The URL agents are pointed at, or null when this host does not inject its
+   * MCP server into them. It answers "will an agent started now be able to call
+   * the daemon's tools", which is a different question from whether the MCP
+   * endpoint is served at all: `mcp.injectIntoAgents` can be off with the
+   * endpoint up.
+   */
+  getMcpBaseUrl(): string | null {
+    return this.mcpBaseUrl;
+  }
+
   prepareForShutdown(): void {
     this.acceptingAgentRegistrations = false;
   }
