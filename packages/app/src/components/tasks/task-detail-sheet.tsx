@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { SendHorizontal } from "lucide-react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { ChevronRight, SendHorizontal } from "lucide-react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type {
   Task,
   TaskExecutionPolicy,
@@ -15,10 +15,14 @@ import type {
 import { resolveTaskExecutionPolicy } from "@getpaseo/protocol/tasks/types";
 import type { Step, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
-import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
+import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
+import { FormTextInput } from "@/components/ui/form-field";
+import { SettingsSection } from "@/screens/settings/settings-section";
+import { settingsStyles } from "@/styles/settings";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { useToast } from "@/contexts/toast-context";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
@@ -43,13 +47,26 @@ import {
 import { useSessionStore } from "@/stores/session-store";
 import { toErrorMessage } from "@/utils/error-messages";
 import { BoardFeedEntryRow } from "./board-feed-entry";
+import { TaskExecutionStateDot } from "./task-execution-summary";
 import {
   TASK_PRIORITY_LABEL_KEYS,
   TASK_STATUS_LABEL_KEYS,
   TaskLabelChips,
 } from "./task-board-parts";
+import {
+  groupTaskExecutionsByWorkspace,
+  TASK_EXECUTION_STATE_LABELS,
+  type TaskExecutionEntry,
+  type TaskExecutionSummary,
+  type TaskExecutionWorkspaceGroup,
+} from "@/tasks/task-execution";
+import { resolveProviderLabel } from "@/tasks/use-task-available-providers";
 
 const TASK_PRIORITIES: readonly TaskPriority[] = ["none", "urgent", "high", "medium", "low"];
+
+const ThemedChevronRight = withUnistyles(ChevronRight);
+
+const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 export interface TaskDetailSheetProps {
   serverId: string;
@@ -59,6 +76,7 @@ export interface TaskDetailSheetProps {
   projectsById: ReadonlyMap<string, TaskProject>;
   dependencies: readonly TaskDependencyEdge[];
   workflows: readonly TaskWorkflow[];
+  executionSummary?: TaskExecutionSummary | undefined;
   /** Opens the workflow editor for this task; the board owns that sheet. */
   onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
   onClose: () => void;
@@ -77,6 +95,7 @@ export function TaskDetailSheet({
   projectsById,
   dependencies,
   workflows,
+  executionSummary,
   onEditWorkflow,
   onClose,
 }: TaskDetailSheetProps): ReactElement | null {
@@ -94,6 +113,7 @@ export function TaskDetailSheet({
       tasks={tasks}
       dependencies={dependencies}
       workflow={workflows.find((entry) => entry.taskId === task.id) ?? null}
+      executionSummary={executionSummary}
       onEditWorkflow={onEditWorkflow}
       labels={labels}
       onClose={onClose}
@@ -109,6 +129,7 @@ function OpenTaskDetailSheet({
   tasks,
   dependencies,
   workflow,
+  executionSummary,
   onEditWorkflow,
   labels,
   onClose,
@@ -120,6 +141,7 @@ function OpenTaskDetailSheet({
   tasks: readonly Task[];
   dependencies: readonly TaskDependencyEdge[];
   workflow: TaskWorkflow | null;
+  executionSummary?: TaskExecutionSummary | undefined;
   onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
   labels: readonly TaskLabel[];
   onClose: () => void;
@@ -139,6 +161,12 @@ function OpenTaskDetailSheet({
   const [titleDraft, setTitleDraft] = useState(task.title);
   const [descriptionDraft, setDescriptionDraft] = useState(task.description);
   const [subtaskDraft, setSubtaskDraft] = useState("");
+  const [noteResetKey, setNoteResetKey] = useState(0);
+  const [subtaskResetKey, setSubtaskResetKey] = useState(0);
+  const executionGroups = useMemo(
+    () => groupTaskExecutionsByWorkspace(executionSummary),
+    [executionSummary],
+  );
 
   const { presets } = useTaskPresets(serverId);
   const { delegate, isDelegating } = useTaskDelegate(serverId);
@@ -160,6 +188,14 @@ function OpenTaskDetailSheet({
         .map((edge) => tasks.find((candidate) => candidate.id === edge.dependsOnTaskId))
         .filter((candidate): candidate is Task => Boolean(candidate)),
     [dependencies, task.id, tasks],
+  );
+  const relationships = useMemo<readonly { label: string; task: Task }[]>(
+    () => [
+      ...(parent ? [{ label: "Parent", task: parent }] : []),
+      ...dependenciesForTask.map((dependency) => ({ label: "Waits for", task: dependency })),
+      ...subtasks.map((subtask) => ({ label: "Subtask", task: subtask })),
+    ],
+    [dependenciesForTask, parent, subtasks],
   );
   // The verdict belongs where the change is read, not only in the card's menu:
   // someone who opened the task to judge it should not have to close it again to
@@ -249,8 +285,10 @@ function OpenTaskDetailSheet({
       return;
     }
     setSubtaskDraft("");
+    setSubtaskResetKey((current) => current + 1);
     void createTask({ projectId: task.projectId, title, parentTaskId: task.id }).catch((error) => {
       setSubtaskDraft(title);
+      setSubtaskResetKey((current) => current + 1);
       toast.show(toErrorMessage(error));
     });
   }, [createTask, subtaskDraft, task.id, task.projectId, toast]);
@@ -272,13 +310,28 @@ function OpenTaskDetailSheet({
       return;
     }
     setNoteDraft("");
+    setNoteResetKey((current) => current + 1);
     void post({ body, taskId: task.id }).catch((error) => {
       setNoteDraft(body);
+      setNoteResetKey((current) => current + 1);
       toast.show(toErrorMessage(error));
     });
   }, [isPosting, noteDraft, post, task.id, toast]);
 
   const header = useMemo(() => ({ title: formatTaskKey(project, task) }), [project, task]);
+  const workflowTrailing = useMemo(
+    () => (
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={handleEditWorkflow}
+        testID="task-detail-workflow-edit"
+      >
+        {workflow ? "Edit" : "Add plan"}
+      </Button>
+    ),
+    [handleEditWorkflow, workflow],
+  );
 
   return (
     <AdaptiveModalSheet
@@ -290,23 +343,23 @@ function OpenTaskDetailSheet({
     >
       <View style={styles.body}>
         <View style={styles.brief} testID="task-detail-brief">
-          <TextInput
-            value={titleDraft}
+          <AdaptiveTextInput
+            initialValue={task.title}
+            resetKey={task.title}
             onChangeText={setTitleDraft}
             onBlur={saveBrief}
             onEndEditing={saveBrief}
             placeholder="What needs to be done?"
-            placeholderTextColor={styles.placeholder.color}
             style={styles.titleInput}
             testID="task-detail-title-input"
           />
-          <TextInput
-            value={descriptionDraft}
+          <AdaptiveTextInput
+            initialValue={task.description}
+            resetKey={task.description}
             onChangeText={setDescriptionDraft}
             onBlur={saveBrief}
             onEndEditing={saveBrief}
             placeholder="Describe the outcome, context, and constraints for the agent"
-            placeholderTextColor={styles.placeholder.color}
             style={styles.descriptionInput}
             multiline
             testID="task-detail-description-input"
@@ -355,25 +408,97 @@ function OpenTaskDetailSheet({
           <Text style={styles.dueDate}>{t("tasks.detail.due", { date: task.dueDate })}</Text>
         ) : null}
 
-        <View style={styles.section} testID="task-detail-workflow">
-          <View style={styles.sectionTitleRow}>
-            <View style={styles.sectionTitleCopy}>
-              <Text style={styles.sectionHeading}>Agent plan</Text>
-              <Text style={styles.sectionHint}>
-                The task brief is sent with every step. Add instructions only where they differ.
-              </Text>
+        {task.status === "in_review" ? (
+          <SettingsSection
+            title={t("tasks.detail.reviewerHeading")}
+            flush
+            testID="task-detail-review"
+          >
+            <FormTextInput
+              onChangeText={setReviewFeedback}
+              placeholder="Correction feedback (sent to the worker on rejection)"
+              multiline
+              editable={!isReviewing}
+              testID="task-detail-review-feedback"
+            />
+            {task.reviewIteration ? (
+              <Text style={settingsStyles.rowHint}>Correction round {task.reviewIteration}</Text>
+            ) : null}
+            <View style={styles.actionRow}>
+              <Button
+                variant="default"
+                size="sm"
+                onPress={handleApprove}
+                loading={isReviewing}
+                testID="task-detail-approve"
+              >
+                {t("tasks.board.approve")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onPress={handleReject}
+                disabled={isReviewing}
+                testID="task-detail-reject"
+              >
+                {t("tasks.board.reject")}
+              </Button>
             </View>
-            <Button
-              variant="outline"
-              size="sm"
-              onPress={handleEditWorkflow}
-              testID="task-detail-workflow-edit"
-            >
-              {workflow ? "Edit" : "Add plan"}
-            </Button>
-          </View>
+          </SettingsSection>
+        ) : null}
+
+        {blockers.length > 0 ? (
+          <SettingsSection
+            title={t("tasks.detail.blockedHeading")}
+            flush
+            testID="task-detail-blockers"
+          >
+            <View style={settingsStyles.card}>
+              {blockers.map((blocker, index) => (
+                <View
+                  key={blocker.id}
+                  style={[settingsStyles.row, index > 0 ? settingsStyles.rowBorder : null]}
+                >
+                  <View style={settingsStyles.rowContent}>
+                    <Text style={styles.blocker} numberOfLines={1}>
+                      {blocker.title}
+                    </Text>
+                    <Text style={settingsStyles.rowHint}>
+                      {formatTaskKey(projectsById.get(blocker.projectId), blocker)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </SettingsSection>
+        ) : null}
+
+        {presets.length > 0 ? (
+          <SettingsSection title={t("tasks.detail.startHeading")} flush>
+            <View style={styles.presetRow}>
+              {presets.map((preset) => (
+                <PresetButton
+                  key={preset.id}
+                  preset={preset}
+                  disabled={blockers.length > 0 || isDelegating}
+                  onStart={handleDelegate}
+                />
+              ))}
+            </View>
+          </SettingsSection>
+        ) : null}
+
+        <SettingsSection
+          title="Agent plan"
+          flush
+          testID="task-detail-workflow"
+          trailing={workflowTrailing}
+        >
+          <Text style={settingsStyles.rowHint}>
+            The task brief is sent with every step. Add instructions only where they differ.
+          </Text>
           {workflow && workflow.steps.length > 0 ? (
-            <View style={styles.card}>
+            <View style={settingsStyles.card}>
               {workflow.steps.map((step, index) => (
                 <WorkflowStepRow
                   key={step.id}
@@ -386,10 +511,10 @@ function OpenTaskDetailSheet({
             </View>
           ) : (
             <Text style={styles.emptyComments}>
-              No saved plan. Start with a preset below, or add a multi-step agent plan.
+              No saved plan. Start from a preset, or add a multi-step agent plan.
             </Text>
           )}
-        </View>
+        </SettingsSection>
 
         <TaskAutomationSection
           serverId={serverId}
@@ -400,39 +525,29 @@ function OpenTaskDetailSheet({
 
         <TaskDeliverySection task={task} />
 
-        <View style={styles.section} testID="task-detail-relationships">
-          <Text style={styles.sectionHeading}>Relationships</Text>
-          <View style={styles.card}>
-            {parent ? (
+        <SettingsSection title="Relationships" flush testID="task-detail-relationships">
+          <View style={settingsStyles.card}>
+            {relationships.map((relationship, index) => (
               <TaskRelationshipRow
-                label="Parent"
-                task={parent}
-                project={projectsById.get(parent.projectId)}
-              />
-            ) : null}
-            {dependenciesForTask.map((dependency) => (
-              <TaskRelationshipRow
-                key={dependency.id}
-                label="Waits for"
-                task={dependency}
-                project={projectsById.get(dependency.projectId)}
+                key={`${relationship.label}-${relationship.task.id}`}
+                label={relationship.label}
+                task={relationship.task}
+                project={projectsById.get(relationship.task.projectId)}
+                withBorder={index > 0}
               />
             ))}
-            {subtasks.map((subtask) => (
-              <TaskRelationshipRow
-                key={subtask.id}
-                label="Subtask"
-                task={subtask}
-                project={projectsById.get(subtask.projectId)}
-              />
-            ))}
-            <View style={styles.subtaskComposer}>
-              <TextInput
-                value={subtaskDraft}
+            <View
+              style={[
+                settingsStyles.row,
+                relationships.length > 0 ? settingsStyles.rowBorder : null,
+              ]}
+            >
+              <AdaptiveTextInput
+                initialValue={subtaskDraft}
+                resetKey={subtaskResetKey}
                 onChangeText={setSubtaskDraft}
                 onSubmitEditing={createSubtask}
                 placeholder="Add a subtask"
-                placeholderTextColor={styles.placeholder.color}
                 style={styles.inlineInput}
                 testID="task-detail-subtask-input"
               />
@@ -447,127 +562,60 @@ function OpenTaskDetailSheet({
               </Button>
             </View>
           </View>
-        </View>
+        </SettingsSection>
 
         {task.attachments.length > 0 ? (
-          <View style={styles.section} testID="task-detail-attachments">
-            <Text style={styles.sectionHeading}>Attachments</Text>
-            {task.attachments.map((attachment) => (
-              <Text key={attachment.id} style={styles.relationshipValue}>
-                {attachment.fileName}
-              </Text>
-            ))}
-          </View>
-        ) : null}
-
-        {task.status === "in_review" ? (
-          <View style={styles.section} testID="task-detail-review">
-            <Text style={styles.sectionHeading}>{t("tasks.detail.reviewerHeading")}</Text>
-            <View style={styles.card}>
-              <View style={styles.cardRow}>
-                <TextInput
-                  value={reviewFeedback}
-                  onChangeText={setReviewFeedback}
-                  placeholder="Correction feedback (sent to the worker on rejection)"
-                  placeholderTextColor={styles.placeholder.color}
-                  style={styles.input}
-                  multiline
-                  editable={!isReviewing}
-                  testID="task-detail-review-feedback"
-                />
-              </View>
-              {task.reviewIteration ? (
-                <View style={styles.cardRow}>
-                  <Text style={styles.emptyComments}>Correction round {task.reviewIteration}</Text>
+          <SettingsSection title="Attachments" flush testID="task-detail-attachments">
+            <View style={settingsStyles.card}>
+              {task.attachments.map((attachment, index) => (
+                <View
+                  key={attachment.id}
+                  style={[settingsStyles.row, index > 0 ? settingsStyles.rowBorder : null]}
+                >
+                  <View style={settingsStyles.rowContent}>
+                    <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+                      {attachment.fileName}
+                    </Text>
+                  </View>
                 </View>
-              ) : null}
-              <View style={styles.cardRow}>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onPress={handleApprove}
-                  loading={isReviewing}
-                  testID="task-detail-approve"
-                >
-                  {t("tasks.board.approve")}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onPress={handleReject}
-                  disabled={isReviewing}
-                  testID="task-detail-reject"
-                >
-                  {t("tasks.board.reject")}
-                </Button>
-              </View>
+              ))}
             </View>
-          </View>
+          </SettingsSection>
         ) : null}
 
-        {blockers.length > 0 ? (
-          <View style={styles.section} testID="task-detail-blockers">
-            <Text style={styles.sectionHeading}>{t("tasks.detail.blockedHeading")}</Text>
-            {blockers.map((blocker) => (
-              <Text key={blocker.id} style={styles.blocker}>
-                {formatTaskKey(projectsById.get(blocker.projectId), blocker)} {blocker.title}
-              </Text>
-            ))}
-          </View>
-        ) : null}
-
-        {presets.length > 0 ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionHeading}>{t("tasks.detail.startHeading")}</Text>
-            <View style={styles.presetRow}>
-              {presets.map((preset) => (
-                <PresetButton
-                  key={preset.id}
-                  preset={preset}
-                  disabled={blockers.length > 0 || isDelegating}
-                  onStart={handleDelegate}
+        {executionGroups.length > 0 ? (
+          <SettingsSection title={t("tasks.detail.agentsHeading")} flush>
+            <View style={styles.executionGroups}>
+              {executionGroups.map((group) => (
+                <WorkspaceExecutionGroupCard
+                  key={group.workspaceId}
+                  group={group}
+                  onOpenAgent={handleOpenAgent}
                 />
               ))}
             </View>
-          </View>
+          </SettingsSection>
         ) : null}
 
-        {task.agents.length > 0 ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionHeading}>{t("tasks.detail.agentsHeading")}</Text>
-            {task.agents.map((link) => (
-              <AgentRow
-                key={link.agentId}
-                serverId={serverId}
-                workspaceId={link.workspaceId}
-                agentId={link.agentId}
-                role={link.role ?? "worker"}
-                onOpenAgent={handleOpenAgent}
-              />
-            ))}
-          </View>
-        ) : null}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionHeading}>{t("tasks.detail.commentsHeading")}</Text>
+        <SettingsSection title={t("tasks.detail.commentsHeading")} flush>
           {comments.length > 0
             ? comments.map((entry) => (
                 <BoardFeedEntryRow key={entry.id} entry={entry} serverId={serverId} />
               ))
             : null}
-          <Text style={styles.composerHeading}>Add note</Text>
-          <Text style={styles.sectionHint}>Saved to history. Agents are not notified.</Text>
+          <Text style={settingsStyles.rowHint}>Saved to history. Agents are not notified.</Text>
           <View style={styles.composer}>
-            <TextInput
-              value={noteDraft}
-              onChangeText={setNoteDraft}
-              onSubmitEditing={submitNote}
-              placeholder="Write a note"
-              placeholderTextColor={styles.placeholder.color}
-              style={styles.input}
-              multiline
-              testID="task-detail-comment-input"
-            />
+            <View style={styles.fieldFill}>
+              <FormTextInput
+                initialValue={noteDraft}
+                resetKey={noteResetKey}
+                onChangeText={setNoteDraft}
+                onSubmitEditing={submitNote}
+                placeholder="Write a note"
+                multiline
+                testID="task-detail-comment-input"
+              />
+            </View>
             <Button
               variant="ghost"
               size="sm"
@@ -578,16 +626,17 @@ function OpenTaskDetailSheet({
               Add note
             </Button>
           </View>
-          {task.agents.length > 0 ? (
-            <TaskMessageComposer
-              serverId={serverId}
-              task={task}
-              supportsMessages={supportsMessages}
-              sendMessage={sendMessage}
-              isPosting={isPosting}
-            />
-          ) : null}
-        </View>
+        </SettingsSection>
+
+        {task.agents.length > 0 ? (
+          <TaskMessageComposer
+            serverId={serverId}
+            task={task}
+            supportsMessages={supportsMessages}
+            sendMessage={sendMessage}
+            isPosting={isPosting}
+          />
+        ) : null}
       </View>
     </AdaptiveModalSheet>
   );
@@ -604,18 +653,21 @@ function TaskDeliverySection({ task }: { task: Task }): ReactElement | null {
     status = "Will deliver to parent when complete";
   }
   return (
-    <View style={styles.section} testID="task-detail-delivery">
-      <Text style={styles.sectionHeading}>Delivery</Text>
-      <View style={styles.deliveryRow}>
-        <Text style={styles.deliveryStatus}>{status}</Text>
-        <Text style={styles.deliveryBranch} numberOfLines={1}>
-          {task.integration.branch}
-        </Text>
+    <SettingsSection title="Delivery" flush testID="task-detail-delivery">
+      <View style={settingsStyles.card}>
+        <View style={settingsStyles.row}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>{status}</Text>
+            <Text style={styles.deliveryBranch} numberOfLines={1}>
+              {task.integration.branch}
+            </Text>
+            {task.integration.error ? (
+              <Text style={settingsStyles.rowError}>{task.integration.error}</Text>
+            ) : null}
+          </View>
+        </View>
       </View>
-      {task.integration.error ? (
-        <Text style={styles.deliveryError}>{task.integration.error}</Text>
-      ) : null}
-    </View>
+    </SettingsSection>
   );
 }
 
@@ -661,20 +713,28 @@ function WorkflowStepRow({
   const primaryAction = actions.find((action) => action !== "skip");
   const hasSkip = actions.includes("skip");
   return (
-    <View style={styles.step} testID={`task-detail-step-${step.id}`}>
-      <View style={styles.stepRow}>
-        <View style={styles.stepCopy}>
-          <Text style={styles.stepName} numberOfLines={1}>
-            {index + 1}. {step.name}
+    <View
+      style={[settingsStyles.row, index > 0 ? settingsStyles.rowBorder : null]}
+      testID={`task-detail-step-${step.id}`}
+    >
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+          {index + 1}. {step.name}
+        </Text>
+        <Text style={settingsStyles.rowHint} numberOfLines={2}>
+          {step.prompt}
+        </Text>
+        <Text style={settingsStyles.rowHint}>
+          {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"} ·{" "}
+          {formatWorkspaceMode(step)}
+        </Text>
+        {error ? (
+          <Text style={settingsStyles.rowError} testID={`task-detail-step-${step.id}-error`}>
+            {error}
           </Text>
-          <Text style={styles.stepBrief} numberOfLines={2}>
-            {step.prompt}
-          </Text>
-          <Text style={styles.stepMeta}>
-            {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"} ·{" "}
-            {formatWorkspaceMode(step)}
-          </Text>
-        </View>
+        ) : null}
+      </View>
+      <View style={styles.rowTrailing}>
         <Text style={styles.stepStatus}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
         {primaryAction ? (
           <StepActionButton
@@ -686,7 +746,7 @@ function WorkflowStepRow({
         ) : null}
         {hasSkip ? (
           <DropdownMenu>
-            <DropdownTrigger testID={`task-detail-step-${step.id}-more`}>
+            <DropdownTrigger testID={`task-detail-step-${step.id}-more`} chevron={null}>
               <Text style={styles.moreAction}>•••</Text>
             </DropdownTrigger>
             <DropdownMenuContent align="end">
@@ -700,11 +760,6 @@ function WorkflowStepRow({
           </DropdownMenu>
         ) : null}
       </View>
-      {error ? (
-        <Text style={styles.stepError} testID={`task-detail-step-${step.id}-error`}>
-          {error}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -941,136 +996,128 @@ function TaskAutomationSection({
   const resetPolicy = useCallback(() => writePolicy(null), [writePolicy]);
   const toggleEditing = useCallback(() => setIsEditing((current) => !current), []);
 
+  const canReset = isEditing && Object.keys(policy).length > 0;
+  const trailing = useMemo(
+    () =>
+      supportsExecutionPolicy ? (
+        <AutomationSectionActions
+          isEditing={isEditing}
+          canReset={canReset}
+          onReset={resetPolicy}
+          onToggleEditing={toggleEditing}
+        />
+      ) : null,
+    [canReset, isEditing, resetPolicy, supportsExecutionPolicy, toggleEditing],
+  );
+
   return (
-    <View style={styles.section} testID="task-detail-automation">
-      <View style={styles.sectionTitleRow}>
-        <View style={styles.sectionTitleCopy}>
-          <Text style={styles.sectionHeading}>Automation</Text>
-          <Text style={styles.automationSummary}>{summary}</Text>
-        </View>
-        {supportsExecutionPolicy ? (
-          <Button
-            variant="ghost"
-            size="xs"
-            onPress={toggleEditing}
-            testID="task-detail-automation-edit"
-          >
-            {isEditing ? "Done" : "Edit"}
-          </Button>
-        ) : null}
-      </View>
+    <SettingsSection title="Automation" flush trailing={trailing} testID="task-detail-automation">
+      <Text style={styles.automationSummary}>{summary}</Text>
       {supportsExecutionPolicy && isEditing ? (
-        <View style={styles.card}>
-          <View style={[styles.cardRow, styles.cardRowBetween]}>
-            <Text style={styles.sectionHint}>
+        <View style={settingsStyles.card}>
+          <View style={settingsStyles.row}>
+            <Text style={settingsStyles.rowHint}>
               Board defaults apply until this task overrides them.
             </Text>
-            {Object.keys(policy).length > 0 ? (
-              <Button variant="ghost" size="xs" onPress={resetPolicy}>
-                Use defaults
-              </Button>
-            ) : null}
           </View>
-          <View style={styles.policyGrid}>
-            <PolicySelect
-              label="Review"
-              value={formatReviewPolicy(policy, effectivePolicy)}
-              options={[
-                { id: "inherit", label: "Board default" },
-                { id: "required", label: "Required" },
-                { id: "disabled", label: "Disabled" },
-              ]}
-              selected={policy.review ?? "inherit"}
-              onSelect={setReview}
-              testID="task-detail-policy-review"
-            />
-            <PolicySelect
-              label="Workspace"
-              value={formatWorkspacePolicy(policy)}
-              options={[
-                { id: "inherit", label: "Preset default" },
-                { id: "dedicated", label: "Dedicated worktree" },
-                { id: "reuse", label: "Reuse task workspace" },
-              ]}
-              selected={policy.workspace ?? "inherit"}
-              onSelect={setWorkspace}
-              testID="task-detail-policy-workspace"
-            />
-            <PolicySelect
-              label="Reviewer"
-              value={formatReviewerPolicy(policy, effectivePolicy, presets)}
-              options={[
-                { id: "inherit", label: "Board default" },
-                { id: "human", label: "Human" },
-                ...presets.map((preset) => ({ id: preset.id, label: preset.name })),
-              ]}
-              selected={selectReviewerPolicy(policy)}
-              onSelect={setReviewer}
-              testID="task-detail-policy-reviewer"
-            />
-            <PolicySelect
-              label="Correction rounds"
-              value={
-                policy.maxReviewIterations
-                  ? String(policy.maxReviewIterations)
-                  : `Board default (${effectivePolicy.maxReviewIterations})`
-              }
-              options={[
-                { id: "inherit", label: "Board default" },
-                { id: "1", label: "1 round" },
-                { id: "2", label: "2 rounds" },
-                { id: "3", label: "3 rounds" },
-                { id: "5", label: "5 rounds" },
-                { id: "10", label: "10 rounds" },
-              ]}
-              selected={policy.maxReviewIterations?.toString() ?? "inherit"}
-              onSelect={setRounds}
-              testID="task-detail-policy-rounds"
-            />
-            <PolicySelect
-              label="On rejection"
-              value={
-                policy.reviewOnReject
-                  ? policy.reviewOnReject.replaceAll("_", " ")
-                  : `Board default (${effectivePolicy.reviewOnReject.replaceAll("_", " ")})`
-              }
-              options={[
-                { id: "inherit", label: "Board default" },
-                { id: "in_progress", label: "Working" },
-                { id: "todo", label: "Todo" },
-                { id: "backlog", label: "Backlog" },
-              ]}
-              selected={policy.reviewOnReject ?? "inherit"}
-              onSelect={setRejectTarget}
-              testID="task-detail-policy-reject-target"
-            />
-            <PolicySelect
-              label="On completion"
-              value={formatCleanupPolicy(policy, effectivePolicy)}
-              options={[
-                { id: "inherit", label: "Board default" },
-                { id: "archive", label: "Archive workspaces" },
-                { id: "keep", label: "Keep workspaces" },
-              ]}
-              selected={selectCleanupPolicy(policy)}
-              onSelect={setCleanup}
-              testID="task-detail-policy-cleanup"
-            />
-            <PolicySelect
-              label="New subtasks"
-              value={formatSubtaskPolicy(policy)}
-              options={[
-                { id: "host", label: "Can start together" },
-                { id: "1", label: "One at a time" },
-                { id: "2", label: "Up to 2" },
-                { id: "3", label: "Up to 3" },
-                { id: "4", label: "Up to 4" },
-              ]}
-              selected={policy.maxParallelSubtasks?.toString() ?? "host"}
-              onSelect={setParallel}
-              testID="task-detail-policy-subtasks"
-            />
-          </View>
+          <PolicySelect
+            label="Review"
+            value={formatReviewPolicy(policy, effectivePolicy)}
+            options={[
+              { id: "inherit", label: "Board default" },
+              { id: "required", label: "Required" },
+              { id: "disabled", label: "Disabled" },
+            ]}
+            selected={policy.review ?? "inherit"}
+            onSelect={setReview}
+            testID="task-detail-policy-review"
+          />
+          <PolicySelect
+            label="Workspace"
+            value={formatWorkspacePolicy(policy)}
+            options={[
+              { id: "inherit", label: "Preset default" },
+              { id: "dedicated", label: "Dedicated worktree" },
+              { id: "reuse", label: "Reuse task workspace" },
+            ]}
+            selected={policy.workspace ?? "inherit"}
+            onSelect={setWorkspace}
+            testID="task-detail-policy-workspace"
+          />
+          <PolicySelect
+            label="Reviewer"
+            value={formatReviewerPolicy(policy, effectivePolicy, presets)}
+            options={[
+              { id: "inherit", label: "Board default" },
+              { id: "human", label: "Human" },
+              ...presets.map((preset) => ({ id: preset.id, label: preset.name })),
+            ]}
+            selected={selectReviewerPolicy(policy)}
+            onSelect={setReviewer}
+            testID="task-detail-policy-reviewer"
+          />
+          <PolicySelect
+            label="Correction rounds"
+            value={
+              policy.maxReviewIterations
+                ? String(policy.maxReviewIterations)
+                : `Board default (${effectivePolicy.maxReviewIterations})`
+            }
+            options={[
+              { id: "inherit", label: "Board default" },
+              { id: "1", label: "1 round" },
+              { id: "2", label: "2 rounds" },
+              { id: "3", label: "3 rounds" },
+              { id: "5", label: "5 rounds" },
+              { id: "10", label: "10 rounds" },
+            ]}
+            selected={policy.maxReviewIterations?.toString() ?? "inherit"}
+            onSelect={setRounds}
+            testID="task-detail-policy-rounds"
+          />
+          <PolicySelect
+            label="On rejection"
+            value={
+              policy.reviewOnReject
+                ? policy.reviewOnReject.replaceAll("_", " ")
+                : `Board default (${effectivePolicy.reviewOnReject.replaceAll("_", " ")})`
+            }
+            options={[
+              { id: "inherit", label: "Board default" },
+              { id: "in_progress", label: "Working" },
+              { id: "todo", label: "Todo" },
+              { id: "backlog", label: "Backlog" },
+            ]}
+            selected={policy.reviewOnReject ?? "inherit"}
+            onSelect={setRejectTarget}
+            testID="task-detail-policy-reject-target"
+          />
+          <PolicySelect
+            label="On completion"
+            value={formatCleanupPolicy(policy, effectivePolicy)}
+            options={[
+              { id: "inherit", label: "Board default" },
+              { id: "archive", label: "Archive workspaces" },
+              { id: "keep", label: "Keep workspaces" },
+            ]}
+            selected={selectCleanupPolicy(policy)}
+            onSelect={setCleanup}
+            testID="task-detail-policy-cleanup"
+          />
+          <PolicySelect
+            label="New subtasks"
+            value={formatSubtaskPolicy(policy)}
+            options={[
+              { id: "host", label: "Can start together" },
+              { id: "1", label: "One at a time" },
+              { id: "2", label: "Up to 2" },
+              { id: "3", label: "Up to 3" },
+              { id: "4", label: "Up to 4" },
+            ]}
+            selected={policy.maxParallelSubtasks?.toString() ?? "host"}
+            onSelect={setParallel}
+            testID="task-detail-policy-subtasks"
+          />
         </View>
       ) : null}
       {!supportsExecutionPolicy ? (
@@ -1078,9 +1125,36 @@ function TaskAutomationSection({
           Update this host to customize automation for individual tasks.
         </Text>
       ) : null}
-      {supportsExecutionPolicy && !isEditing ? (
-        <Text style={styles.sectionHint}>Uses the board defaults unless you edit this task.</Text>
+    </SettingsSection>
+  );
+}
+
+function AutomationSectionActions({
+  isEditing,
+  canReset,
+  onReset,
+  onToggleEditing,
+}: {
+  isEditing: boolean;
+  canReset: boolean;
+  onReset: () => void;
+  onToggleEditing: () => void;
+}): ReactElement {
+  return (
+    <View style={styles.sectionTrailing}>
+      {canReset ? (
+        <Button variant="ghost" size="sm" onPress={onReset}>
+          Use defaults
+        </Button>
       ) : null}
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={onToggleEditing}
+        testID="task-detail-automation-edit"
+      >
+        {isEditing ? "Done" : "Edit"}
+      </Button>
     </View>
   );
 }
@@ -1101,15 +1175,17 @@ function PolicySelect<T extends string>({
   testID: string;
 }): ReactElement {
   return (
-    <View style={styles.policyItem}>
-      <Text style={styles.policyLabel}>{label}</Text>
+    <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>{label}</Text>
+      </View>
       <DropdownMenu>
         <DropdownTrigger testID={testID}>
           <Text style={styles.policyValue} numberOfLines={1}>
             {value}
           </Text>
         </DropdownTrigger>
-        <DropdownMenuContent align="start">
+        <DropdownMenuContent align="end">
           {options.map((option) => (
             <PolicyMenuItem
               key={option.id}
@@ -1148,17 +1224,23 @@ function TaskRelationshipRow({
   label,
   task,
   project,
+  withBorder,
 }: {
   label: string;
   task: Task;
   project: TaskProject | undefined;
+  withBorder: boolean;
 }): ReactElement {
   return (
-    <View style={styles.relationshipRow}>
-      <Text style={styles.relationshipLabel}>{label}</Text>
-      <Text style={styles.relationshipValue} numberOfLines={1}>
-        {formatTaskKey(project, task)} · {task.title}
-      </Text>
+    <View style={[settingsStyles.row, withBorder ? settingsStyles.rowBorder : null]}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+          {task.title}
+        </Text>
+        <Text style={settingsStyles.rowHint}>
+          {label} · {formatTaskKey(project, task)}
+        </Text>
+      </View>
       <Text style={styles.relationshipStatus}>{task.status.replaceAll("_", " ")}</Text>
     </View>
   );
@@ -1227,6 +1309,7 @@ function TaskMessageComposer({
 }): ReactElement {
   const toast = useToast();
   const [draft, setDraft] = useState("");
+  const [draftResetKey, setDraftResetKey] = useState(0);
   const [recipientAgentIds, setRecipientAgentIds] = useState<Set<string>>(() => new Set());
   const toggleRecipient = useCallback((agentId: string) => {
     setRecipientAgentIds((current) => {
@@ -1246,16 +1329,17 @@ function TaskMessageComposer({
       return;
     }
     setDraft("");
+    setDraftResetKey((current) => current + 1);
     void sendMessage({ body, taskId: task.id, recipientAgentIds: recipients }).catch((error) => {
       setDraft(body);
+      setDraftResetKey((current) => current + 1);
       toast.show(toErrorMessage(error));
     });
   }, [draft, isPosting, recipientAgentIds, sendMessage, task.id, toast]);
 
   return (
-    <View style={styles.messageComposer} testID="task-detail-message-composer">
-      <Text style={styles.composerHeading}>Send message</Text>
-      <Text style={styles.sectionHint}>
+    <SettingsSection title="Send message" flush testID="task-detail-message-composer">
+      <Text style={settingsStyles.rowHint}>
         Select attached agents. Delivered means the daemon accepted the prompt, not that the agent
         read or acknowledged it.
       </Text>
@@ -1274,17 +1358,18 @@ function TaskMessageComposer({
             ))}
           </View>
           <View style={styles.composer}>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Write an instruction"
-              placeholderTextColor={styles.placeholder.color}
-              style={styles.input}
-              multiline
-              testID="task-detail-message-input"
-            />
+            <View style={styles.fieldFill}>
+              <FormTextInput
+                initialValue={draft}
+                resetKey={draftResetKey}
+                onChangeText={setDraft}
+                placeholder="Write an instruction"
+                multiline
+                testID="task-detail-message-input"
+              />
+            </View>
             <Button
-              variant="default"
+              variant="secondary"
               size="sm"
               leftIcon={SendHorizontal}
               onPress={submit}
@@ -1298,47 +1383,92 @@ function TaskMessageComposer({
       ) : (
         <Text style={styles.emptyComments}>Update this host to send task messages.</Text>
       )}
-    </View>
+    </SettingsSection>
   );
 }
 
 /** A reviewer is named as one: it is on the card to judge the work, not to have
  * done it, and reading the list without that is reading it wrong. */
 function AgentRow({
-  serverId,
-  workspaceId,
-  agentId,
-  role,
+  entry,
   onOpenAgent,
 }: {
-  serverId: string;
-  workspaceId: string;
-  agentId: string;
-  role: "worker" | "reviewer";
+  entry: TaskExecutionEntry;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const workspace = useWorkspace(serverId, workspaceId);
-  const agent = useSessionStore((state) => state.sessions[serverId]?.agents.get(agentId));
-  const name = agent?.title ?? workspace?.title ?? workspace?.name ?? "Agent";
-  const identity = `${name} · ${agent?.provider ?? "agent"} · ${agentId}`;
-  const label = role === "reviewer" ? `${identity} · ${t("tasks.detail.reviewerBadge")}` : identity;
+  const name = entry.title ?? resolveProviderLabel(entry.provider);
+  const detail =
+    entry.role === "reviewer"
+      ? `${resolveProviderLabel(entry.provider)} · ${t("tasks.detail.reviewerBadge")} · ${TASK_EXECUTION_STATE_LABELS[entry.state]}`
+      : `${resolveProviderLabel(entry.provider)} · ${TASK_EXECUTION_STATE_LABELS[entry.state]}`;
   const handlePress = useCallback(
-    () => onOpenAgent({ workspaceId, agentId }),
-    [agentId, onOpenAgent, workspaceId],
+    () => onOpenAgent({ workspaceId: entry.workspaceId, agentId: entry.agentId }),
+    [entry.agentId, entry.workspaceId, onOpenAgent],
   );
 
   return (
-    <Button
-      variant="ghost"
-      size="sm"
+    <Pressable
       onPress={handlePress}
-      style={styles.agentRow}
-      testID={`task-detail-agent-${agentId}`}
+      accessibilityRole="button"
+      style={[settingsStyles.row, settingsStyles.rowBorder]}
+      testID={`task-detail-agent-${entry.agentId}`}
     >
-      {label}
-    </Button>
+      <View style={styles.agentIdentity}>
+        <TaskExecutionStateDot state={entry.state} />
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+            {name}
+          </Text>
+          <Text style={settingsStyles.rowHint} numberOfLines={1}>
+            {detail}
+          </Text>
+        </View>
+      </View>
+      <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+    </Pressable>
   );
+}
+
+function WorkspaceExecutionGroupCard({
+  group,
+  onOpenAgent,
+}: {
+  group: TaskExecutionWorkspaceGroup;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+}): ReactElement {
+  return (
+    <View style={settingsStyles.card}>
+      <View style={settingsStyles.row}>
+        <View style={settingsStyles.rowContent}>
+          <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+            {group.workspaceName}
+          </Text>
+          <Text style={settingsStyles.rowHint} numberOfLines={1}>
+            {workspaceExecutionDetail({
+              branch: group.branch,
+              pullRequestNumber: group.pullRequestNumber,
+              agentCount: group.entries.length,
+            })}
+          </Text>
+        </View>
+      </View>
+      {group.entries.map((entry) => (
+        <AgentRow key={entry.agentId} entry={entry} onOpenAgent={onOpenAgent} />
+      ))}
+    </View>
+  );
+}
+
+function workspaceExecutionDetail(input: {
+  branch: string | null;
+  pullRequestNumber: number | null;
+  agentCount: number;
+}): string {
+  const details = [input.branch];
+  if (input.pullRequestNumber !== null) details.push(`PR #${input.pullRequestNumber}`);
+  details.push(`${input.agentCount} ${input.agentCount === 1 ? "agent" : "agents"}`);
+  return details.filter((detail): detail is string => Boolean(detail)).join(" · ");
 }
 
 function RecipientButton({
@@ -1360,7 +1490,7 @@ function RecipientButton({
   const handlePress = useCallback(() => onToggle(agentId), [agentId, onToggle]);
   return (
     <Button
-      variant={selected ? "default" : "outline"}
+      variant={selected ? "secondary" : "outline"}
       size="sm"
       onPress={handlePress}
       testID={`task-detail-message-recipient-${agentId}`}
@@ -1371,40 +1501,12 @@ function RecipientButton({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  step: {
-    gap: theme.spacing[1],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  stepError: {
-    color: theme.colors.statusDanger,
-    fontSize: theme.fontSize.xs,
-  },
-  stepRow: {
+  rowTrailing: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
   },
-  stepCopy: {
-    flex: 1,
-    gap: theme.spacing[1],
-  },
-  stepName: {
-    flex: 1,
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-  },
   stepStatus: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-  },
-  stepBrief: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-  },
-  stepMeta: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
   },
@@ -1428,21 +1530,19 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
   },
   titleInput: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.lg,
-    fontWeight: theme.fontWeight.medium,
-    paddingHorizontal: 0,
+    fontSize: theme.fontSize.base,
+    fontWeight: theme.fontWeight.normal,
     paddingVertical: theme.spacing[1],
   },
   descriptionInput: {
     minHeight: 44,
-    color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
-    paddingHorizontal: 0,
     paddingVertical: theme.spacing[1],
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: "transparent",
+  },
+  inlineInput: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
   },
   fieldRow: {
     flexDirection: "row",
@@ -1461,118 +1561,41 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
   },
-  description: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-  },
   dueDate: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
   },
-  section: {
-    gap: theme.spacing[2],
+  sectionTrailing: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
   },
-  card: {
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    overflow: "hidden",
-  },
-  cardRow: {
+  actionRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-    borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.border,
-  },
-  cardRowBetween: {
-    justifyContent: "space-between",
-  },
-  sectionTitleRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: theme.spacing[3],
-  },
-  sectionTitleCopy: {
-    flex: 1,
-    gap: theme.spacing[1],
-  },
-  sectionHint: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
   },
   automationSummary: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
-  sectionHeading: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.medium,
-    textTransform: "uppercase",
-  },
-  deliveryRow: {
-    gap: theme.spacing[1],
-  },
-  deliveryStatus: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-  },
   deliveryBranch: {
     color: theme.colors.foregroundMuted,
     fontFamily: theme.fontFamily.mono,
     fontSize: theme.fontSize.xs,
+    marginTop: theme.spacing[1],
   },
-  deliveryError: {
-    color: theme.colors.destructive,
-    fontSize: theme.fontSize.xs,
-    lineHeight: 18,
-  },
-  agentRow: {
-    alignItems: "flex-start",
-  },
-  policyGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-  },
-  policyItem: {
-    width: 180,
-    gap: theme.spacing[1],
-    padding: theme.spacing[2],
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.surface1,
-  },
-  policyLabel: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-  },
-  policyValue: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-  },
-  relationshipRow: {
+  agentIdentity: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-    borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.border,
   },
-  relationshipLabel: {
-    width: 72,
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
+  executionGroups: {
+    gap: theme.spacing[2],
   },
-  relationshipValue: {
-    flex: 1,
+  policyValue: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
   },
@@ -1581,39 +1604,13 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.xs,
     textTransform: "capitalize",
   },
-  subtaskComposer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-    borderBottomWidth: theme.borderWidth[1],
-    borderBottomColor: theme.colors.border,
-  },
-  inlineInput: {
+  fieldFill: {
     flex: 1,
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    paddingHorizontal: theme.spacing[2],
-    paddingVertical: theme.spacing[2],
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.surface1,
+    maxHeight: 120,
   },
   emptyComments: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
-  },
-  composerHeading: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-  },
-  messageComposer: {
-    gap: theme.spacing[2],
-    marginTop: theme.spacing[2],
-    paddingTop: theme.spacing[3],
-    borderTopWidth: theme.borderWidth[1],
-    borderTopColor: theme.colors.border,
   },
   recipientPicker: {
     flexDirection: "row",
@@ -1624,22 +1621,5 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "flex-end",
     gap: theme.spacing[2],
-    marginTop: theme.spacing[1],
-    paddingTop: theme.spacing[2],
-    borderTopWidth: theme.borderWidth[1],
-    borderTopColor: theme.colors.border,
-  },
-  input: {
-    flex: 1,
-    maxHeight: 120,
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    paddingHorizontal: theme.spacing[2],
-    paddingVertical: theme.spacing[2],
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.surface1,
-  },
-  placeholder: {
-    color: theme.colors.foregroundMuted,
   },
 }));
