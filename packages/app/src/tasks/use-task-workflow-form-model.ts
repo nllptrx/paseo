@@ -20,6 +20,10 @@ export function useTaskWorkflowFormModel(
   const { providers } = useTaskAvailableProviders(snapshot.serverId);
 
   useEffect(() => {
+    model.applyCwd(snapshot.serverId, snapshot.cwd ?? null);
+  }, [model, snapshot.cwd, snapshot.serverId]);
+
+  useEffect(() => {
     if (!snapshot.existingSteps) {
       return;
     }

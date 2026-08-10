@@ -492,11 +492,17 @@ function LoadedKanbanBoardScreen({
           />
         </AdaptiveModalSheet>
       ) : null}
-      <TaskPresetsSheet serverId={serverId} visible={isPresetsOpen} onClose={handleClosePresets} />
+      <TaskPresetsSheet
+        serverId={serverId}
+        paseoProjectId={project.paseoProjectId}
+        visible={isPresetsOpen}
+        onClose={handleClosePresets}
+      />
       {canEditWorkflow && workflowTaskId ? (
         <TaskWorkflowFormSheet
           serverId={serverId}
           taskId={workflowTaskId}
+          paseoProjectId={project.paseoProjectId}
           existingSteps={workflowSteps}
           visible
           onClose={handleCloseWorkflowForm}

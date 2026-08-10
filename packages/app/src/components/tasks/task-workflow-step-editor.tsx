@@ -7,7 +7,7 @@ import { isWeb } from "@/constants/platform";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
-import { AgentModelField } from "@/components/agents/agent-model-field";
+import { TaskAgentConfigurationFields } from "@/components/tasks/task-agent-configuration-fields";
 import { SelectField } from "@/components/ui/select-field";
 import { Switch } from "@/components/ui/switch";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -71,6 +71,19 @@ export function TaskWorkflowStepEditor({
   const handleAgent = useCallback(
     (selection: { provider: AgentProvider; model: string | null }) =>
       model.setStepAgent(key, selection),
+    [key, model],
+  );
+  const handleMode = useCallback(
+    (modeId: string | null) => model.setStepMode(key, modeId),
+    [key, model],
+  );
+  const handleThinking = useCallback(
+    (thinkingOptionId: string | null) => model.setStepThinking(key, thinkingOptionId),
+    [key, model],
+  );
+  const handleFeatureValues = useCallback(
+    (featureValues: Record<string, unknown> | undefined) =>
+      model.setStepFeatureValues(key, featureValues),
     [key, model],
   );
   const handleWorkspace = useCallback(
@@ -210,12 +223,19 @@ export function TaskWorkflowStepEditor({
             />
           </Field>
 
-          <AgentModelField
+          <TaskAgentConfigurationFields
             serverId={state.serverId}
+            cwd={state.cwd}
             label={t("tasks.workflow.agentLabel")}
             provider={step.provider}
             model={step.model}
-            onSelect={handleAgent}
+            modeId={step.modeId}
+            thinkingOptionId={step.thinkingOptionId}
+            featureValues={step.featureValues}
+            onSelectAgent={handleAgent}
+            onSelectMode={handleMode}
+            onSelectThinking={handleThinking}
+            onChangeFeatureValues={handleFeatureValues}
             placeholder={t("tasks.workflow.providerPlaceholder")}
             testID={`task-workflow-form-agent-${index}`}
           />

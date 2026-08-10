@@ -936,6 +936,13 @@ export const ar: TranslationResources = {
     presets: {
       agentLabel: "الوكيل",
       agentHint: "أي وكيل ينفّذ العمل، وبأي نموذج.",
+      effortLabel: "الجهد",
+      effortDefault: "إعداد النموذج الافتراضي",
+      noEffortOptions: "لا توجد خيارات جهد",
+      permissionLabel: "وضع الأذونات",
+      permissionDefault: "إعداد المزوّد الافتراضي",
+      noPermissionOptions: "لا توجد أوضاع أذونات",
+      fastEnabled: "سريع",
       nameLabel: "الاسم",
       providerPlaceholder: "اختر مزوّدًا",
       environmentLabel: "يُنفّذ في",

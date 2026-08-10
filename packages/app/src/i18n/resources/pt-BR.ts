@@ -958,6 +958,13 @@ export const ptBR: TranslationResources = {
     presets: {
       agentLabel: "Agente",
       agentHint: "Qual agente faz o trabalho, e com qual modelo.",
+      effortLabel: "Esforço",
+      effortDefault: "Padrão do modelo",
+      noEffortOptions: "Nenhuma opção de esforço",
+      permissionLabel: "Modo de permissão",
+      permissionDefault: "Padrão do provedor",
+      noPermissionOptions: "Nenhum modo de permissão",
+      fastEnabled: "Rápido",
       nameLabel: "Nome",
       providerPlaceholder: "Escolha um provedor",
       environmentLabel: "Executa em",

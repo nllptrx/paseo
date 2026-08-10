@@ -9,12 +9,14 @@ import type { Step } from "@getpaseo/protocol/tasks/workflow";
 import { useTaskMutations } from "@/tasks/use-tasks";
 import { buildTaskWorkflowSteps } from "@/tasks/task-workflow-form-model";
 import { useTaskWorkflowFormModel } from "@/tasks/use-task-workflow-form-model";
+import { useKanbanProjectCwd } from "@/tasks/use-kanban-project-cwd";
 import { toErrorMessage } from "@/utils/error-messages";
 import { TaskWorkflowStepEditor } from "./task-workflow-step-editor";
 
 export interface TaskWorkflowFormSheetProps {
   serverId: string;
   taskId: string;
+  paseoProjectId?: string | null;
   /** The workflow already on the task, so editing starts from it. */
   existingSteps?: readonly Step[];
   visible: boolean;
@@ -35,14 +37,16 @@ export function TaskWorkflowFormSheet(props: TaskWorkflowFormSheetProps): ReactE
 function OpenTaskWorkflowFormSheet({
   serverId,
   taskId,
+  paseoProjectId,
   existingSteps,
   visible,
   onClose,
 }: TaskWorkflowFormSheetProps): ReactElement {
   const { setWorkflow, isBusy } = useTaskMutations(serverId);
+  const cwd = useKanbanProjectCwd(serverId, paseoProjectId);
   const snapshot = useMemo(
-    () => ({ serverId, taskId, ...(existingSteps ? { existingSteps } : {}) }),
-    [existingSteps, serverId, taskId],
+    () => ({ serverId, taskId, cwd, ...(existingSteps ? { existingSteps } : {}) }),
+    [cwd, existingSteps, serverId, taskId],
   );
   const model = useTaskWorkflowFormModel(snapshot);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);

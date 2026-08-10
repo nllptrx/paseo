@@ -96,6 +96,7 @@ function KanbanPanel(): ReactElement {
         <TaskWorkflowFormSheet
           serverId={serverId}
           taskId={workflowTaskId}
+          paseoProjectId={workspace.projectId}
           existingSteps={workflowSteps}
           visible
           onClose={handleCloseWorkflowForm}

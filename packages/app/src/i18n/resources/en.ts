@@ -946,6 +946,13 @@ export const en = {
     presets: {
       agentLabel: "Agent",
       agentHint: "Which agent runs the work, and on which model.",
+      effortLabel: "Effort",
+      effortDefault: "Model default",
+      noEffortOptions: "No effort options found",
+      permissionLabel: "Permission mode",
+      permissionDefault: "Provider default",
+      noPermissionOptions: "No permission modes found",
+      fastEnabled: "Fast",
       nameLabel: "Name",
       providerPlaceholder: "Choose a provider",
       environmentLabel: "Runs in",

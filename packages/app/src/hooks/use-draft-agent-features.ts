@@ -23,10 +23,19 @@ export function useDraftAgentFeatures(input: {
   modelId: string | null | undefined;
   thinkingOptionId: string | null | undefined;
   initialFeatureValues?: Record<string, unknown>;
+  persistPreferences?: boolean;
 }) {
   const { t } = useTranslation();
-  const { serverId, provider, cwd, modeId, modelId, thinkingOptionId, initialFeatureValues } =
-    input;
+  const {
+    serverId,
+    provider,
+    cwd,
+    modeId,
+    modelId,
+    thinkingOptionId,
+    initialFeatureValues,
+    persistPreferences = true,
+  } = input;
   const [localFeatureValues, setLocalFeatureValues] = useState<Record<string, unknown>>(
     () => initialFeatureValues ?? {},
   );
@@ -37,8 +46,11 @@ export function useDraftAgentFeatures(input: {
   const normalizedProvider = provider ?? null;
   const previousProviderRef = useRef<AgentProvider | null>(normalizedProvider);
   const persistedFeatureValues = useMemo(
-    () => (provider ? (preferences.providerPreferences?.[provider]?.featureValues ?? {}) : {}),
-    [preferences.providerPreferences, provider],
+    () =>
+      persistPreferences && provider
+        ? (preferences.providerPreferences?.[provider]?.featureValues ?? {})
+        : {},
+    [persistPreferences, preferences.providerPreferences, provider],
   );
 
   const draftConfig = useMemo<DraftFeatureConfig | null>(() => {
@@ -125,7 +137,7 @@ export function useDraftAgentFeatures(input: {
 
         return { ...current, [featureId]: value };
       });
-      if (!provider) {
+      if (!provider || !persistPreferences) {
         return;
       }
       void updatePreferences((current) =>
@@ -142,7 +154,7 @@ export function useDraftAgentFeatures(input: {
         console.warn("[useDraftAgentFeatures] persist feature preference failed", error);
       });
     },
-    [provider, updatePreferences],
+    [persistPreferences, provider, updatePreferences],
   );
 
   return {

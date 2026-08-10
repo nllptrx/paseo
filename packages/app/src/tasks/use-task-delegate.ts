@@ -12,6 +12,9 @@ export interface CreateTaskPresetDraft {
   name: string;
   provider: string;
   model?: string | null;
+  modeId?: string | null;
+  thinkingOptionId?: string | null;
+  featureValues?: Record<string, unknown>;
   instructions?: string;
   environmentKind: "project_default" | "new_worktree";
 }
@@ -40,6 +43,9 @@ export function useTaskPresetMutations(serverId: string): {
         name: draft.name,
         provider: draft.provider,
         model: draft.model ?? null,
+        modeId: draft.modeId ?? null,
+        thinkingOptionId: draft.thinkingOptionId ?? null,
+        featureValues: draft.featureValues,
         instructions: draft.instructions ?? "",
         environmentKind: draft.environmentKind,
       });
@@ -112,6 +118,9 @@ export interface TaskDelegateInput {
   agent?: {
     provider: string;
     model?: string | null;
+    modeId?: string | null;
+    thinkingOptionId?: string | null;
+    featureValues?: Record<string, unknown>;
     environmentKind?: "project_default" | "new_worktree";
   };
 }

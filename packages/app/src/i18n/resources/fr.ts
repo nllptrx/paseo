@@ -966,6 +966,13 @@ export const fr: TranslationResources = {
     presets: {
       agentLabel: "Agent",
       agentHint: "Quel agent effectue le travail, et avec quel modèle.",
+      effortLabel: "Effort",
+      effortDefault: "Valeur par défaut du modèle",
+      noEffortOptions: "Aucune option d’effort",
+      permissionLabel: "Mode d’autorisation",
+      permissionDefault: "Valeur par défaut du fournisseur",
+      noPermissionOptions: "Aucun mode d’autorisation",
+      fastEnabled: "Rapide",
       nameLabel: "Nom",
       providerPlaceholder: "Choisir un fournisseur",
       environmentLabel: "S'exécute dans",

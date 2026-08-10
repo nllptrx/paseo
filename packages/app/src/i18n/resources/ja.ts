@@ -947,6 +947,13 @@ export const ja: TranslationResources = {
     presets: {
       agentLabel: "エージェント",
       agentHint: "どのエージェントがどのモデルで作業するか。",
+      effortLabel: "推論量",
+      effortDefault: "モデルのデフォルト",
+      noEffortOptions: "推論量の選択肢がありません",
+      permissionLabel: "権限モード",
+      permissionDefault: "プロバイダーのデフォルト",
+      noPermissionOptions: "権限モードがありません",
+      fastEnabled: "高速",
       nameLabel: "名前",
       providerPlaceholder: "プロバイダーを選択",
       environmentLabel: "実行場所",

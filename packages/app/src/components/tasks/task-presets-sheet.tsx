@@ -7,14 +7,15 @@ import type { TaskPreset } from "@getpaseo/protocol/tasks/types";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
-import { AgentModelField } from "@/components/agents/agent-model-field";
 import { Field, FormTextInput } from "@/components/ui/form-field";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { TaskAgentConfigurationFields } from "@/components/tasks/task-agent-configuration-fields";
 import { useToast } from "@/contexts/toast-context";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { resolveProviderLabel } from "@/tasks/use-task-available-providers";
 import { useTaskPresetMutations, useTaskPresets } from "@/tasks/use-task-delegate";
+import { useKanbanProjectCwd } from "@/tasks/use-kanban-project-cwd";
 import { toErrorMessage } from "@/utils/error-messages";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 
@@ -25,6 +26,7 @@ type EnvironmentKind = "project_default" | "new_worktree";
 
 export interface TaskPresetsSheetProps {
   serverId: string;
+  paseoProjectId?: string | null;
   visible: boolean;
   onClose: () => void;
 }
@@ -36,31 +38,44 @@ export interface TaskPresetsSheetProps {
  */
 export function TaskPresetsSheet({
   serverId,
+  paseoProjectId,
   visible,
   onClose,
 }: TaskPresetsSheetProps): ReactElement | null {
   if (!visible) {
     return null;
   }
-  return <OpenTaskPresetsSheet serverId={serverId} onClose={onClose} />;
+  return (
+    <OpenTaskPresetsSheet
+      serverId={serverId}
+      paseoProjectId={paseoProjectId ?? null}
+      onClose={onClose}
+    />
+  );
 }
 
 function OpenTaskPresetsSheet({
   serverId,
+  paseoProjectId,
   onClose,
 }: {
   serverId: string;
+  paseoProjectId: string | null;
   onClose: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const toast = useToast();
   const { presets, isLoading } = useTaskPresets(serverId);
   const { createPreset, deletePreset, isBusy } = useTaskPresetMutations(serverId);
+  const cwd = useKanbanProjectCwd(serverId, paseoProjectId);
 
   const [name, setName] = useState("");
   const [model, setModel] = useState<string | null>(null);
   const [instructions, setInstructions] = useState("");
   const [provider, setProvider] = useState<AgentProvider | null>(null);
+  const [modeId, setModeId] = useState<string | null>(null);
+  const [thinkingOptionId, setThinkingOptionId] = useState<string | null>(null);
+  const [featureValues, setFeatureValues] = useState<Record<string, unknown> | undefined>();
   const [environmentKind, setEnvironmentKind] = useState<EnvironmentKind>("new_worktree");
 
   const environmentOptions = useMemo(
@@ -90,17 +105,36 @@ function OpenTaskPresetsSheet({
           name: name.trim(),
           provider: provider,
           model,
+          modeId,
+          thinkingOptionId,
+          featureValues,
           instructions: instructions.trim(),
           environmentKind,
         });
         setName("");
         setModel(null);
+        setModeId(null);
+        setThinkingOptionId(null);
+        setFeatureValues(undefined);
+        setProvider(null);
         setInstructions("");
       } catch (error) {
         toast.show(toErrorMessage(error));
       }
     })();
-  }, [canSave, createPreset, environmentKind, instructions, model, name, provider, toast]);
+  }, [
+    canSave,
+    createPreset,
+    environmentKind,
+    featureValues,
+    instructions,
+    modeId,
+    model,
+    name,
+    provider,
+    thinkingOptionId,
+    toast,
+  ]);
 
   const handleDelete = useCallback(
     (preset: TaskPreset) => {
@@ -154,13 +188,20 @@ function OpenTaskPresetsSheet({
               testID="task-presets-name-input"
             />
           </Field>
-          <AgentModelField
+          <TaskAgentConfigurationFields
             serverId={serverId}
+            cwd={cwd}
             label={t("tasks.presets.agentLabel")}
             hint={t("tasks.presets.agentHint")}
             provider={provider}
             model={model}
-            onSelect={handleSelectAgent}
+            modeId={modeId}
+            thinkingOptionId={thinkingOptionId}
+            featureValues={featureValues}
+            onSelectAgent={handleSelectAgent}
+            onSelectMode={setModeId}
+            onSelectThinking={setThinkingOptionId}
+            onChangeFeatureValues={setFeatureValues}
             placeholder={t("tasks.presets.providerPlaceholder")}
             testID="task-presets-agent"
           />
@@ -240,6 +281,13 @@ function PresetRow({
     preset.environmentKind === "new_worktree"
       ? t("tasks.presets.newWorktree")
       : t("tasks.presets.projectDefault");
+  const execution = [
+    preset.model,
+    preset.thinkingOptionId,
+    preset.modeId,
+    preset.featureValues?.fast_mode === true ? t("tasks.presets.fastEnabled") : null,
+    environment,
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
 
   return (
     <View style={styles.row} testID={`task-presets-row-${preset.id}`}>
@@ -249,7 +297,7 @@ function PresetRow({
         </Text>
         <Text style={styles.rowMeta} numberOfLines={1}>
           {resolveProviderLabel(preset.provider)}
-          {preset.model ? ` · ${preset.model}` : ""} · {environment}
+          {execution.length > 0 ? ` · ${execution.join(" · ")}` : ""}
         </Text>
       </View>
       <Button

@@ -19,6 +19,7 @@ export interface TaskWorkflowFormProviderOption {
 export interface TaskWorkflowFormSnapshot {
   serverId: string;
   taskId: string;
+  cwd?: string | null;
   /** The workflow already on the task. Editing has to start from what is there
    * rather than from an empty step, or saving would silently replace it. */
   existingSteps?: readonly Step[];
@@ -74,18 +75,21 @@ export interface TaskWorkflowFormStep {
   provider: AgentProvider | null;
   /** Null means the provider's default model. */
   model: string | null;
+  modeId: string | null;
+  thinkingOptionId: string | null;
+  featureValues?: Record<string, unknown>;
   workspaceMode: TaskWorkflowFormWorkspaceMode;
   trigger: TaskWorkflowFormTriggerType;
-  /** The stored step this one was read from, kept so saving can put back what
-   * the form never showed: the agents past the first, each agent's mode,
-   * thinking and feature settings, an `existing` workspace's id, and a
-   * schedule's cadence. Absent on a step the author just added. */
+  /** The stored step this one was read from, kept so saving can put back the
+   * agents past the first, an `existing` workspace's id, and a schedule's
+   * cadence. Absent on a step the author just added. */
   source?: Step;
 }
 
 export interface TaskWorkflowFormState {
   serverId: string;
   taskId: string;
+  cwd: string | null;
   /** Whether ordinary steps after the first start as soon as their predecessor
    * succeeds. Stored through each step's existing trigger. */
   autoContinue: boolean;
@@ -100,6 +104,7 @@ export interface TaskWorkflowFormModel {
   getState: () => TaskWorkflowFormState;
   subscribe: (listener: () => void) => () => void;
   close: () => void;
+  applyCwd: (serverId: string, cwd: string | null) => void;
   applyProviderSnapshot: (
     serverId: string,
     providers: readonly TaskWorkflowFormProviderOption[],
@@ -112,6 +117,9 @@ export interface TaskWorkflowFormModel {
   setStepName: (key: string, value: string) => void;
   setStepPrompt: (key: string, value: string) => void;
   setStepAgent: (key: string, agent: { provider: AgentProvider; model: string | null }) => void;
+  setStepMode: (key: string, modeId: string | null) => void;
+  setStepThinking: (key: string, thinkingOptionId: string | null) => void;
+  setStepFeatureValues: (key: string, featureValues: Record<string, unknown> | undefined) => void;
   setStepWorkspaceMode: (key: string, mode: TaskWorkflowFormWorkspaceMode) => void;
   setStepRequireChanges: (key: string, requireChanges: boolean) => void;
   setStepVerifyCommand: (key: string, command: string) => void;
@@ -206,6 +214,8 @@ function createStep(input: {
     prompt: "",
     provider: input.provider,
     model: null,
+    modeId: null,
+    thinkingOptionId: null,
     workspaceMode: "worktree",
     // On by default: a step whose agent stopped without touching the checkout
     // has not done the thing, and treating that as success is how a board ends
@@ -261,6 +271,9 @@ function toFormStep(input: {
     prompt: input.step.prompt,
     provider: spec?.provider ?? input.fallbackProvider,
     model: spec?.model ?? null,
+    modeId: spec?.modeId ?? null,
+    thinkingOptionId: spec?.thinkingOptionId ?? null,
+    ...(spec?.featureValues ? { featureValues: spec.featureValues } : {}),
     requireChanges: input.step.requireChanges === true,
     verifyCommand: input.step.verify?.command.join(" ") ?? "",
     timeoutMinutes: input.step.timeoutMs
@@ -297,6 +310,7 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
   let state: TaskWorkflowFormState = {
     serverId: snapshot.serverId,
     taskId: snapshot.taskId,
+    cwd: snapshot.cwd ?? null,
     autoContinue: initialAutoContinue,
     steps: applyAutoContinue(initialSteps, initialAutoContinue),
     providerOptions: initialProviderOptions,
@@ -341,6 +355,12 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
       closed = true;
       listeners.clear();
     },
+    applyCwd(serverId, cwd) {
+      if (closed || state.serverId !== serverId || state.cwd === cwd) {
+        return;
+      }
+      publish({ ...state, cwd });
+    },
     applyProviderSnapshot(serverId, providers) {
       if (closed || state.serverId !== serverId) {
         return;
@@ -355,7 +375,16 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
         // the author changing their mind.
         providerOptions: withStepProviders(providerOptions, state.steps),
         steps: state.steps.map((step) =>
-          step.provider ? step : { ...step, provider: fallback, model: null },
+          step.provider
+            ? step
+            : {
+                ...step,
+                provider: fallback,
+                model: null,
+                modeId: null,
+                thinkingOptionId: null,
+                featureValues: undefined,
+              },
         ),
         providerResolutionStatus: "complete",
       });
@@ -448,6 +477,15 @@ export function openTaskWorkflowForm(snapshot: TaskWorkflowFormSnapshot): TaskWo
     setStepAgent(key, agent) {
       updateStep(key, (step) => ({ ...step, provider: agent.provider, model: agent.model }));
     },
+    setStepMode(key, modeId) {
+      updateStep(key, (step) => ({ ...step, modeId }));
+    },
+    setStepThinking(key, thinkingOptionId) {
+      updateStep(key, (step) => ({ ...step, thinkingOptionId }));
+    },
+    setStepFeatureValues(key, featureValues) {
+      updateStep(key, (step) => ({ ...step, featureValues }));
+    },
     setStepWorkspaceMode(key, mode) {
       updateStep(key, (step) => ({ ...step, workspaceMode: mode }));
     },
@@ -482,14 +520,30 @@ function buildStepEvidence(step: TaskWorkflowFormStep): {
 
 /**
  * The agents to save. The first is the one the form edits; the rest are put
- * back untouched, as are the settings on the first that the form never asked
- * about — a step configured with a mode or thinking option elsewhere keeps it
- * through an edit here.
+ * back untouched. The first agent's complete execution configuration is owned
+ * by the form; provider-only fields it does not understand are carried through.
  */
 function buildStepAgents(step: TaskWorkflowFormStep, provider: AgentProvider): StepInput["agents"] {
   const [first, ...rest] = step.source?.agents ?? [];
-  const { provider: _provider, model: _model, ...carried } = first ?? { provider };
-  return [{ ...carried, provider, ...(step.model ? { model: step.model } : {}) }, ...rest];
+  const {
+    provider: _provider,
+    model: _model,
+    modeId: _modeId,
+    thinkingOptionId: _thinkingOptionId,
+    featureValues: _featureValues,
+    ...carried
+  } = first ?? { provider };
+  return [
+    {
+      ...carried,
+      provider,
+      ...(step.model ? { model: step.model } : {}),
+      ...(step.modeId ? { modeId: step.modeId } : {}),
+      ...(step.thinkingOptionId ? { thinkingOptionId: step.thinkingOptionId } : {}),
+      ...(step.featureValues ? { featureValues: step.featureValues } : {}),
+    },
+    ...rest,
+  ];
 }
 
 /** Keeps a stored strategy the form cannot author, and only that one: any other

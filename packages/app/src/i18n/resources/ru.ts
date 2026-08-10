@@ -958,6 +958,13 @@ export const ru: TranslationResources = {
     presets: {
       agentLabel: "Агент",
       agentHint: "Какой агент выполняет работу и на какой модели.",
+      effortLabel: "Усилие",
+      effortDefault: "По умолчанию для модели",
+      noEffortOptions: "Нет вариантов усилия",
+      permissionLabel: "Режим разрешений",
+      permissionDefault: "По умолчанию для провайдера",
+      noPermissionOptions: "Нет режимов разрешений",
+      fastEnabled: "Быстро",
       nameLabel: "Название",
       providerPlaceholder: "Выберите провайдера",
       environmentLabel: "Где выполняется",

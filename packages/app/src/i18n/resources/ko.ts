@@ -943,6 +943,13 @@ export const ko: TranslationResources = {
     presets: {
       agentLabel: "에이전트",
       agentHint: "어느 에이전트가 어느 모델로 작업하는지.",
+      effortLabel: "추론 수준",
+      effortDefault: "모델 기본값",
+      noEffortOptions: "추론 수준 옵션이 없습니다",
+      permissionLabel: "권한 모드",
+      permissionDefault: "제공자 기본값",
+      noPermissionOptions: "권한 모드가 없습니다",
+      fastEnabled: "빠르게",
       nameLabel: "이름",
       providerPlaceholder: "제공자 선택",
       environmentLabel: "실행 위치",

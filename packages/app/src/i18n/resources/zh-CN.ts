@@ -928,6 +928,13 @@ export const zhCN: TranslationResources = {
     presets: {
       agentLabel: "Agent",
       agentHint: "由哪个 Agent、用哪个模型来做。",
+      effortLabel: "推理强度",
+      effortDefault: "模型默认值",
+      noEffortOptions: "没有推理强度选项",
+      permissionLabel: "权限模式",
+      permissionDefault: "提供商默认值",
+      noPermissionOptions: "没有权限模式",
+      fastEnabled: "快速",
       nameLabel: "名称",
       providerPlaceholder: "选择提供方",
       environmentLabel: "运行于",

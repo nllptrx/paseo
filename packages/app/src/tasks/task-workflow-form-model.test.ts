@@ -381,10 +381,9 @@ describe("task workflow form model", () => {
     expect(model.getState().steps[0]?.name).toBe("User edit");
   });
 
-  /** The form shows one agent, three workspace modes and two triggers. A step
-   * configured beyond that — a fan-out, an existing workspace, a cadence — must
-   * survive an edit that never offered to change it. */
-  it("saves back the settings the form cannot show", () => {
+  /** The first agent is editable as one execution configuration. Fan-out and
+   * workflow settings outside the editor still survive the same save. */
+  it("saves the first agent configuration and carries unsupported settings", () => {
     const model = openTaskWorkflowForm({
       serverId: "srv",
       taskId: "tsk",
@@ -395,7 +394,13 @@ describe("task workflow form model", () => {
           name: "Build",
           prompt: "do it",
           agents: [
-            { provider: "claude", model: "opus", modeId: "plan", thinkingOptionId: "high" },
+            {
+              provider: "claude",
+              model: "opus",
+              modeId: "plan",
+              thinkingOptionId: "high",
+              featureValues: { fast_mode: true },
+            },
             { provider: "codex" },
           ],
           completion: "all",
@@ -408,12 +413,19 @@ describe("task workflow form model", () => {
 
     const key = model.getState().steps[0]?.key ?? "";
     model.setStepName(key, "Build it");
+    model.setStepMode(key, "full-access");
+    model.setStepThinking(key, "xhigh");
+    model.setStepFeatureValues(key, { fast_mode: false });
 
     const [saved] = buildTaskWorkflowSteps(model.getState()) ?? [];
     expect(saved.existingStepId).toBe("stp_1");
     expect(saved.name).toBe("Build it");
     expect(saved.agents).toHaveLength(2);
-    expect(saved.agents[0]).toMatchObject({ modeId: "plan", thinkingOptionId: "high" });
+    expect(saved.agents[0]).toMatchObject({
+      modeId: "full-access",
+      thinkingOptionId: "xhigh",
+      featureValues: { fast_mode: false },
+    });
     expect(saved.agents[1]).toEqual({ provider: "codex" });
     expect(saved.workspace).toEqual({ mode: "existing", workspaceId: "wsp_7" });
     expect(saved.trigger).toEqual({
