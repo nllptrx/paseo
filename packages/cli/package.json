@@ -43,7 +43,7 @@
     "@types/mime-types": "^3.0.1",
     "@types/node": "^22.20.1",
     "@types/ws": "^8.5.8",
-    "tsx": "^4.6.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.2.2",
     "vitest": "^4.1.6",
     "zx": "^8.8.5"
