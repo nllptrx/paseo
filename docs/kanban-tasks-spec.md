@@ -227,6 +227,40 @@ one-move undo is what prevents it.
   (defaults to the calling agent — "I'm taking PSE-3"), `review_task`.
   Parity Suite G covers capture→review, self-attach, and workflow replace.
 - CLI: `paseo task ls|create|move`, by key (`PSE-42`) or id.
+
+### 4.1 Agent awareness [DECIDED]
+
+An agent the tracker dispatches works inside a machine it cannot see: statuses
+move when it stops, gates open when siblings settle, review judges what it
+integrated. Today it receives a task key and a prompt; everything else it has
+to guess. Three pieces close that:
+
+- **The briefing.** Every task-dispatched agent — worker, reviewer, corrector,
+  preset delegate, scheduled step — gets one standard prompt preamble, built
+  in one place, that explains the environment: what the tracker is, what
+  finishing its turn triggers (settle → integration → review or done), its own
+  position (task key and id, role, step n of m, parent chain, open blockers
+  and dependents, the review mode in force), and the exact task tools it may
+  use. One builder; the per-role prompts extend it instead of each inventing
+  its own fragment.
+- **`get_task_context`.** A read tool that returns the live position: the
+  task and its status, the caller's role and attachment, the workflow step and
+  run under way, sibling subtasks with statuses, blockers and dependents, the
+  effective review policy, and the tail of the task's feed. Prompt text goes
+  stale the moment a sibling moves; a tool the agent calls at turn start does
+  not.
+- **`notify_task`.** Cross-task signalling stays board-mediated (§6.1 stands:
+  no agent-to-agent bus). The tool posts to another task's feed and, when
+  asked, delivers to that task's attached agents through the existing message
+  machinery (§6) — recipient snapshot, delivery outcomes, visible on the
+  board. A worker that finds a blocking defect in a sibling's area says so on
+  the sibling's card, where a person can see it, not in a private channel.
+
+Awareness is pull, not push: the daemon never interrupts a running agent with
+board events. The briefing tells the agent when reading the feed or its
+context is worth a call — at turn start, before finishing, after a
+correction resume.
+
 - **[SHIPPED]** `create_plan` is replaced by `add_task_workflow`,
   `get_task_workflow` and `run_task_step`. The kanban and orchestrator-mesh
   tools are gone. `create_task` takes a `parentTaskId`, and
