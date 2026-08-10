@@ -292,6 +292,8 @@ describe("TaskWorkflowEngine", () => {
     const agentId = running.runs[0].agentIds[0];
     expect(createdAgentPrompts.at(-1)).toContain(taskId);
     expect(createdAgentPrompts.at(-1)).toContain("Do the thing");
+    expect(createdAgentPrompts.at(-1)).toContain("Paseo task environment");
+    expect(createdAgentPrompts.at(-1)).toContain("Workflow position: step 1 of 1");
 
     agentManager.setLifecycle(agentId, "running");
     agentManager.setLifecycle(agentId, "idle");
@@ -360,10 +362,11 @@ describe("TaskWorkflowEngine", () => {
   });
 
   test("attaches and settles a scheduled step from schedule lifecycle events", async () => {
+    const createOrReplace = vi.fn(async () => ({ id: "sched_1" }) as never);
     const scheduledEngine = new TaskWorkflowEngine({
       ...engineDeps(),
       scheduleService: {
-        createOrReplace: vi.fn(async () => ({ id: "sched_1" }) as never),
+        createOrReplace,
         delete: vi.fn(),
       },
     });
@@ -383,6 +386,10 @@ describe("TaskWorkflowEngine", () => {
     agentManager.setLifecycle(firstAgentId, "running");
     agentManager.setLifecycle(firstAgentId, "idle");
     await waitFor(async () => (await getStep(seeded.taskId, 1))?.runs[0]?.scheduleId === "sched_1");
+    expect(createOrReplace.mock.calls[0]?.[0].prompt).toContain("Paseo task environment");
+    expect(createOrReplace.mock.calls[0]?.[0].prompt).toContain(
+      "Workflow position: step 2 of 2 — Later verify",
+    );
 
     await scheduledEngine.handleScheduleRunLifecycle({
       type: "before_run",
@@ -481,6 +488,8 @@ describe("TaskWorkflowEngine", () => {
     expect(resumes).toHaveLength(1);
     expect(resumes[0].agentId).toBe(agentId);
     expect(resumes[0].prompt).toContain("retried");
+    expect(resumes[0].prompt).toContain("Paseo task environment");
+    expect(resumes[0].prompt).toContain("Workflow position: step 1 of 1");
   });
 
   /** An agent that can no longer take a prompt must not strand the retry. */
@@ -802,6 +811,8 @@ describe("TaskWorkflowEngine", () => {
     expect(task?.agents[0].presetId).toBe(preset.id);
     expect(createdAgentPrompts.at(-1)).toContain(`PSE${seededProjects}-1`);
     expect(createdAgentPrompts.at(-1)).toContain(taskId);
+    expect(createdAgentPrompts.at(-1)).toContain("Paseo task environment");
+    expect(createdAgentPrompts.at(-1)).toContain("Role: worker attached to this card");
     void projectId;
   });
 
@@ -1090,6 +1101,8 @@ describe("TaskWorkflowEngine", () => {
     expect(await service.listTaskWorkerIds(taskId)).toEqual(["agt_worker"]);
     expect(createdAgentPrompts.at(-1)).toContain(`PSE${seededProjects}-1`);
     expect(createdAgentPrompts.at(-1)).toContain(taskId);
+    expect(createdAgentPrompts.at(-1)).toContain("Paseo task environment");
+    expect(createdAgentPrompts.at(-1)).toContain("Role: independent reviewer");
   });
 
   test("a task can choose a different reviewer than its board", async () => {
@@ -1182,6 +1195,8 @@ describe("TaskWorkflowEngine", () => {
     expect(resumed.map((entry) => entry.agentId)).toEqual(["agt_1", "agt_2"]);
     expect(resumed[0].prompt).toContain("Fix the race");
     expect(resumed[0].prompt).toContain(taskId);
+    expect(resumed[0].prompt).toContain("Paseo task environment");
+    expect(resumed[0].prompt).toContain("Role: worker correcting a rejected review");
   });
 
   test("corrects the workers it can when one cannot be resumed", async () => {
@@ -1203,6 +1218,33 @@ describe("TaskWorkflowEngine", () => {
       agentIds: ["agt_2"],
     });
     expect(resumed).toEqual(["agt_2"]);
+  });
+
+  test("briefs the worker resumed to repair an integration conflict", async () => {
+    const resumed: Array<{ agentId: string; prompt: string }> = [];
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      resumeAgent: async (input) => {
+        resumed.push(input);
+      },
+    });
+    const { taskId } = await seedWorkflow([makeStepInput()]);
+    await service.updateTask({
+      taskId,
+      integration: {
+        branch: "paseo/tasks/pse-1",
+        status: "conflicted",
+        error: "content conflict",
+      },
+    });
+    await service.attachAgent({ taskId, agentId: "agt_worker", workspaceId: "ws_shared" });
+
+    await engine.requestIntegrationFix({ taskId, error: "content conflict" });
+
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0].prompt).toContain("Paseo task environment");
+    expect(resumed[0].prompt).toContain("Role: worker resolving a failed task-branch integration");
+    expect(resumed[0].prompt).toContain("Git reported: content conflict");
   });
 
   /** The review checkout exists for one judgement on the task branch. Left
@@ -1296,6 +1338,8 @@ describe("TaskWorkflowEngine", () => {
     expect(prompt).toContain("integrated result");
     expect(prompt).toContain(`PSE${seededProjects}-2 "Phase one" passed review`);
     expect(prompt).toContain("Do not review each subtask's diff again");
+    expect(prompt).toContain("Paseo task environment");
+    expect(prompt).toContain("Role: independent reviewer");
   });
 
   test("a rejected final review resumes the aggregate's most recent surviving worker", async () => {
@@ -1330,6 +1374,7 @@ describe("TaskWorkflowEngine", () => {
     expect(resumed).toHaveLength(1);
     expect(resumed[0].prompt).toContain("The two phases disagree about the config shape");
     expect(resumed[0].prompt).toContain("the subtasks that are Done stay done");
+    expect(resumed[0].prompt).toContain("Paseo task environment");
   });
 
   test("starts a fresh corrector on the task branch when no aggregate worker survives", async () => {
@@ -1358,6 +1403,7 @@ describe("TaskWorkflowEngine", () => {
     expect(corrector?.agentId).toBe(correction?.agentIds[0]);
     expect(worktreeBaseBranches.at(-1)).toMatch(/^paseo\/tasks\/pse\d+-1$/);
     expect(createdAgentPrompts.at(-1)).toContain("Wire the phases up");
+    expect(createdAgentPrompts.at(-1)).toContain("Paseo task environment");
   });
 
   /** The next phase is still working in the checkout its predecessor used, so

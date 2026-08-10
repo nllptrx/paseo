@@ -26,6 +26,12 @@ import { mergeToBase } from "../../utils/checkout-git.js";
 import { runGitCommand } from "../../utils/run-git-command.js";
 import type { TaskService } from "./service.js";
 import { isReviewVerdictEvent } from "./board-events.js";
+import {
+  buildTaskAgentBriefing,
+  extendTaskAgentBriefing,
+  type TaskAgentBriefingRole,
+  type TaskAgentBriefingStep,
+} from "./agent-briefing.js";
 import { checkStepEvidence, readHeadCommit, type StepEvidenceResult } from "./step-verification.js";
 
 const RETRYABLE_RUN_STATUSES: ReadonlySet<StepRunStatus> = new Set([
@@ -105,6 +111,8 @@ export interface TaskWorkflowEngineDeps {
     | "attachAgent"
     | "listTaskAgents"
     | "listSubtasks"
+    | "listBlockers"
+    | "listDependents"
     | "countSubtasks"
     | "listBoardFeed"
     | "getPreset"
@@ -278,6 +286,7 @@ function stepAgentTitle(step: Step, spec: StepAgentSpec, agentIndex: number): st
  * it the conclusion it is supposed to reach independently.
  */
 function buildReviewPrompt(input: {
+  briefing: string;
   task: Pick<Task, "id" | "number" | "title" | "description">;
   projectPrefix: string;
   instructions: string;
@@ -301,7 +310,7 @@ function buildReviewPrompt(input: {
     "Record what you found with comment_task, then call review_task with approve or reject and include the findings as feedback when rejecting.",
     "Reject when you cannot tell: an unverifiable change is not an approved one.",
   );
-  return lines.join("\n");
+  return extendTaskAgentBriefing(input.briefing, lines.join("\n"));
 }
 
 /**
@@ -312,6 +321,7 @@ function buildReviewPrompt(input: {
  * them.
  */
 function buildAggregateReviewPrompt(input: {
+  briefing: string;
   task: Pick<Task, "id" | "number" | "title" | "description">;
   projectPrefix: string;
   instructions: string;
@@ -344,23 +354,20 @@ function buildAggregateReviewPrompt(input: {
     "Record what you found with comment_task, then call review_task with approve or reject and include the findings as feedback when rejecting.",
     "Reject when you cannot tell: an unverifiable change is not an approved one.",
   );
-  return lines.join("\n");
+  return extendTaskAgentBriefing(input.briefing, lines.join("\n"));
 }
 
 function buildWorkPrompt(input: {
+  briefing: string;
   task: Pick<Task, "id" | "number" | "title" | "description">;
   projectPrefix: string;
   instructions: string;
 }): string {
-  const lines: string[] = [];
-  if (input.instructions.trim().length > 0) {
-    lines.push(input.instructions.trim(), "");
-  }
-  lines.push(
+  const lines: string[] = [
     `Task: ${input.projectPrefix}-${input.task.number}`,
     `Task ID: ${input.task.id}`,
     `Title: ${input.task.title}`,
-  );
+  ];
   if (input.task.description.trim().length > 0) {
     lines.push("", input.task.description.trim());
   }
@@ -368,7 +375,10 @@ function buildWorkPrompt(input: {
     "",
     "Implement this task in the current workspace. Use comment_task with the task ID above to record the result when finished.",
   );
-  return lines.join("\n");
+  if (input.instructions.trim().length > 0) {
+    lines.push("", input.instructions.trim());
+  }
+  return extendTaskAgentBriefing(input.briefing, lines.join("\n"));
 }
 
 function stepRunLabels(taskId: string, stepId: string, runId: string): Record<string, string> {
@@ -760,10 +770,12 @@ export class TaskWorkflowEngine {
       );
     }
     const primarySpec = step.agents[0];
-    const prompt = await this.buildTaskWorkPrompt(
-      identifier.taskId,
-      primarySpec.promptOverride ?? step.prompt,
-    );
+    const prompt = await this.buildTaskWorkPrompt({
+      taskId: identifier.taskId,
+      instructions: primarySpec.promptOverride ?? step.prompt,
+      role: "workflow_step",
+      step: { name: step.name, index: stepIndex + 1, total: steps.length },
+    });
     const target = await this.resolveTargetsForStep(identifier, steps, stepIndex, 1, prompt);
     const runId = randomUUID();
     const schedule = await this.scheduleService.createOrReplace({
@@ -1115,27 +1127,59 @@ export class TaskWorkflowEngine {
       .toReversed()
       .find((link) => (link.role ?? "worker") === "worker");
     if (!worker) return;
+    const briefing = await this.buildBriefing({
+      taskId: input.taskId,
+      role: "integration_fixer",
+    });
     await this.resumeAgent({
       agentId: worker.agentId,
-      prompt: [
-        `Integration for task ${task.title} could not complete.`,
-        `Canonical task branch: ${task.integration.branch}`,
-        `Git reported: ${input.error}`,
-        "Merge the latest canonical base into this workspace, resolve every conflict, verify the result, and finish again.",
-      ].join("\n"),
+      prompt: extendTaskAgentBriefing(
+        briefing,
+        [
+          `Integration for task ${task.title} could not complete.`,
+          `Canonical task branch: ${task.integration.branch}`,
+          `Git reported: ${input.error}`,
+          "Merge the latest canonical base into this workspace, resolve every conflict, verify the result, and finish again.",
+        ].join("\n"),
+      ),
     });
   }
 
-  private async buildTaskWorkPrompt(taskId: string, instructions: string): Promise<string> {
-    const task = await this.taskService.getTask(taskId);
+  private async buildBriefing(input: {
+    taskId: string;
+    role: TaskAgentBriefingRole;
+    step?: TaskAgentBriefingStep;
+  }): Promise<string> {
+    return await buildTaskAgentBriefing({
+      taskService: this.taskService,
+      taskId: input.taskId,
+      role: input.role,
+      toolsAvailable: this.agentManager.getMcpBaseUrl() !== null,
+      ...(input.step ? { step: input.step } : {}),
+    });
+  }
+
+  private async buildTaskWorkPrompt(input: {
+    taskId: string;
+    instructions: string;
+    role: "worker" | "workflow_step";
+    step?: TaskAgentBriefingStep;
+  }): Promise<string> {
+    const task = await this.taskService.getTask(input.taskId);
     if (!task) {
-      throw new Error(`Task not found: ${taskId}`);
+      throw new Error(`Task not found: ${input.taskId}`);
     }
     const project = await this.taskService.getProject(task.projectId);
     if (!project) {
       throw new Error(`Task project not found: ${task.projectId}`);
     }
-    return buildWorkPrompt({ task, projectPrefix: project.prefix, instructions });
+    const briefing = await this.buildBriefing(input);
+    return buildWorkPrompt({
+      briefing,
+      task,
+      projectPrefix: project.prefix,
+      instructions: input.instructions,
+    });
   }
 
   /**
@@ -1172,10 +1216,10 @@ export class TaskWorkflowEngine {
       throw new Error(`Task project not found: ${task.projectId}`);
     }
 
-    const prompt = buildWorkPrompt({
-      task,
-      projectPrefix: project.prefix,
+    const prompt = await this.buildTaskWorkPrompt({
+      taskId: input.taskId,
       instructions: preset.instructions,
+      role: "worker",
     });
     return this.startAgentOnTask({
       taskId: input.taskId,
@@ -1364,9 +1408,11 @@ export class TaskWorkflowEngine {
       throw new Error(`The reviewer preset ${presetId} no longer exists`);
     }
     const children = await this.taskService.listSubtasks(taskId);
+    const briefing = await this.buildBriefing({ taskId, role: "reviewer" });
     const prompt =
       children.length > 0
         ? buildAggregateReviewPrompt({
+            briefing,
             task,
             projectPrefix: project.prefix,
             instructions: preset.instructions,
@@ -1377,6 +1423,7 @@ export class TaskWorkflowEngine {
             }),
           })
         : buildReviewPrompt({
+            briefing,
             task,
             projectPrefix: project.prefix,
             instructions: preset.instructions,
@@ -1510,15 +1557,19 @@ export class TaskWorkflowEngine {
     const feedback =
       input.feedback ??
       "The review rejected the current change. Read the task feed for the findings.";
-    const prompt = [
-      `Review rejected ${project.prefix}-${task.number}.`,
-      `Task ID: ${task.id}`,
-      `Title: ${task.title}`,
-      "",
-      feedback,
-      "",
-      "Correct the implementation in this workspace. Comment on the task with what changed when finished.",
-    ].join("\n");
+    const briefing = await this.buildBriefing({ taskId: input.taskId, role: "corrector" });
+    const prompt = extendTaskAgentBriefing(
+      briefing,
+      [
+        `Review rejected ${project.prefix}-${task.number}.`,
+        `Task ID: ${task.id}`,
+        `Title: ${task.title}`,
+        "",
+        feedback,
+        "",
+        "Correct the implementation in this workspace. Comment on the task with what changed when finished.",
+      ].join("\n"),
+    );
 
     const resumed: string[] = [];
     const failures: unknown[] = [];
@@ -1570,7 +1621,7 @@ export class TaskWorkflowEngine {
     project: { prefix: string };
     feedback: string | null;
   }): Promise<{ agentIds: string[] } | null> {
-    const prompt = this.buildAggregateCorrectionPrompt(input);
+    const prompt = await this.buildAggregateCorrectionPrompt(input);
     const workers = (await this.taskService.listTaskAgents(input.task.id))
       .toReversed()
       .filter((link) => (link.role ?? "worker") === "worker");
@@ -1614,24 +1665,28 @@ export class TaskWorkflowEngine {
     return { agentIds: [started.agentId] };
   }
 
-  private buildAggregateCorrectionPrompt(input: {
+  private async buildAggregateCorrectionPrompt(input: {
     task: Task;
     project: { prefix: string };
     feedback: string | null;
-  }): string {
+  }): Promise<string> {
     const feedback =
       input.feedback ??
       "The final review rejected the integrated result. Read the board feed for the findings.";
-    return [
-      `The final review rejected ${input.project.prefix}-${input.task.number}.`,
-      `Task ID: ${input.task.id}`,
-      `Title: ${input.task.title}`,
-      "",
-      feedback,
-      "",
-      "This workspace is on the task's own branch, which already carries every subtask's merged work. Correct the integrated result here; the subtasks that are Done stay done.",
-      "Comment on the task with what changed when finished.",
-    ].join("\n");
+    const briefing = await this.buildBriefing({ taskId: input.task.id, role: "corrector" });
+    return extendTaskAgentBriefing(
+      briefing,
+      [
+        `The final review rejected ${input.project.prefix}-${input.task.number}.`,
+        `Task ID: ${input.task.id}`,
+        `Title: ${input.task.title}`,
+        "",
+        feedback,
+        "",
+        "This workspace is on the task's own branch, which already carries every subtask's merged work. Correct the integrated result here; the subtasks that are Done stay done.",
+        "Comment on the task with what changed when finished.",
+      ].join("\n"),
+    );
   }
 
   /**
@@ -1932,26 +1987,38 @@ export class TaskWorkflowEngine {
    * this slot, or an agent that can no longer take a prompt — and the caller
    * falls back to creating a fresh one.
    */
-  private async tryResumeRunAgent(
-    resumeFrom: ResumeFromRun | null,
-    agentIndex: number,
-    stepPrompt: string,
-  ): Promise<string | null> {
-    if (!resumeFrom || !this.resumeAgent) {
+  private async tryResumeRunAgent(input: {
+    taskId: string;
+    resumeFrom: ResumeFromRun | null;
+    agentIndex: number;
+    stepPrompt: string;
+    step: TaskAgentBriefingStep;
+  }): Promise<string | null> {
+    if (!input.resumeFrom || !this.resumeAgent) {
       return null;
     }
-    const agentId = resumeFrom.agentIds[agentIndex];
+    const agentId = input.resumeFrom.agentIds[input.agentIndex];
     if (!agentId) {
       return null;
     }
-    const reason = resumeFrom.error ? `it failed:\n${resumeFrom.error}` : "it did not finish";
-    const prompt = [
-      `This step is being retried because ${reason}`,
-      "",
-      "You already worked on this step in this same workspace. Address what stopped it and finish the step. The step asked for:",
-      "",
-      stepPrompt,
-    ].join("\n");
+    const reason = input.resumeFrom.error
+      ? `it failed:\n${input.resumeFrom.error}`
+      : "it did not finish";
+    const briefing = await this.buildBriefing({
+      taskId: input.taskId,
+      role: "workflow_step",
+      step: input.step,
+    });
+    const prompt = extendTaskAgentBriefing(
+      briefing,
+      [
+        `This step is being retried because ${reason}`,
+        "",
+        "You already worked on this step in this same workspace. Address what stopped it and finish the step. The step asked for:",
+        "",
+        input.stepPrompt,
+      ].join("\n"),
+    );
     try {
       await this.resumeAgent({ agentId, prompt });
       return agentId;
@@ -2006,7 +2073,12 @@ export class TaskWorkflowEngine {
     const step = steps[stepIndex];
     const prompts = await Promise.all(
       step.agents.map((spec) =>
-        this.buildTaskWorkPrompt(identifier.taskId, spec.promptOverride ?? step.prompt),
+        this.buildTaskWorkPrompt({
+          taskId: identifier.taskId,
+          instructions: spec.promptOverride ?? step.prompt,
+          role: "workflow_step",
+          step: { name: step.name, index: stepIndex + 1, total: steps.length },
+        }),
       ),
     );
     const targets = reuseWorkspaceIds
@@ -2026,7 +2098,13 @@ export class TaskWorkflowEngine {
     for (let i = 0; i < step.agents.length; i++) {
       const spec = step.agents[i];
       const target = targets.length === 1 ? targets[0] : targets[i];
-      const resumedAgentId = await this.tryResumeRunAgent(resumeFrom, i, step.prompt);
+      const resumedAgentId = await this.tryResumeRunAgent({
+        taskId: identifier.taskId,
+        resumeFrom,
+        agentIndex: i,
+        stepPrompt: spec.promptOverride ?? step.prompt,
+        step: { name: step.name, index: stepIndex + 1, total: steps.length },
+      });
       if (resumedAgentId) {
         agentIds.push(resumedAgentId);
         continue;
