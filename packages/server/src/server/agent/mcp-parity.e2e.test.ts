@@ -1107,6 +1107,17 @@ describe("Suite G: Task Tools", () => {
       const links = recordArr((attached.task as StructuredContent).agents);
       expect(links.some((link) => link.agentId === agentId)).toBe(true);
 
+      const contextResult = await callToolStructured(agentClient, "get_task_context", { taskId });
+      const context = contextResult.context as StructuredContent;
+      expect((context.task as StructuredContent).id).toBe(taskId);
+      expect((context.caller as StructuredContent).agentId).toBe(agentId);
+      expect((context.caller as StructuredContent).role).toBe("worker");
+      expect(
+        recordArr(context.feedTail).some(
+          (entry) => (entry.event as StructuredContent | undefined)?.kind === "agent_attached",
+        ),
+      ).toBe(true);
+
       const commented = await callToolStructured(agentClient, "comment_task", {
         taskId,
         body: "On it.",

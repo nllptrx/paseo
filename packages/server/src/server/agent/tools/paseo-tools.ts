@@ -63,6 +63,7 @@ import { sendPromptToAgent, setupFinishNotification } from "../agent-prompt.js";
 import type { TaskService } from "../../tasks/service.js";
 import type { TaskTransitionEngine } from "../../tasks/transitions.js";
 import type { TaskWorkflowEngine } from "../../tasks/workflow-engine.js";
+import { getTaskContext, TaskContextSchema } from "../../tasks/task-context.js";
 import {
   StepInputSchema,
   StepSchema,
@@ -120,11 +121,15 @@ export interface PaseoToolHostDependencies {
     TaskService,
     | "snapshot"
     | "getTask"
+    | "getProject"
     | "createProject"
     | "createTask"
     | "updateTask"
     | "createComment"
     | "attachAgent"
+    | "listTaskAgents"
+    | "listSubtasks"
+    | "listDependents"
     | "listBoardFeed"
     | "listTaskAgentIds"
     | "listTaskWorkerIds"
@@ -3143,6 +3148,27 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         ...(priority === undefined ? {} : { priority }),
       });
       return { content: [], structuredContent: ensureValidJson({ task }) };
+    },
+  );
+
+  registerTool(
+    "get_task_context",
+    {
+      title: "Get task context",
+      description:
+        "Read the caller's live position on a task: attachment and role, active workflow run, hierarchy, blockers, dependents, effective execution policy, and the newest typed feed entries.",
+      inputSchema: { taskId: z.string().trim().min(1) },
+      outputSchema: { context: TaskContextSchema },
+    },
+    async ({ taskId }) => {
+      const service = requireTaskService();
+      const callerAgent = resolveCallerAgent();
+      const context = await getTaskContext({
+        source: service,
+        taskId,
+        callerAgentId: callerAgent?.id ?? null,
+      });
+      return { content: [], structuredContent: ensureValidJson({ context }) };
     },
   );
 
