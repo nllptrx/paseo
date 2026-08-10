@@ -373,15 +373,17 @@ function OpenTaskDetailSheet({
             </Button>
           </View>
           {workflow && workflow.steps.length > 0 ? (
-            workflow.steps.map((step, index) => (
-              <WorkflowStepRow
-                key={step.id}
-                step={step}
-                index={index}
-                disabled={isActing}
-                onAct={handleStepAction}
-              />
-            ))
+            <View style={styles.card}>
+              {workflow.steps.map((step, index) => (
+                <WorkflowStepRow
+                  key={step.id}
+                  step={step}
+                  index={index}
+                  disabled={isActing}
+                  onAct={handleStepAction}
+                />
+              ))}
+            </View>
           ) : (
             <Text style={styles.emptyComments}>
               No saved plan. Start with a preset below, or add a multi-step agent plan.
@@ -400,48 +402,50 @@ function OpenTaskDetailSheet({
 
         <View style={styles.section} testID="task-detail-relationships">
           <Text style={styles.sectionHeading}>Relationships</Text>
-          {parent ? (
-            <TaskRelationshipRow
-              label="Parent"
-              task={parent}
-              project={projectsById.get(parent.projectId)}
-            />
-          ) : null}
-          {dependenciesForTask.map((dependency) => (
-            <TaskRelationshipRow
-              key={dependency.id}
-              label="Waits for"
-              task={dependency}
-              project={projectsById.get(dependency.projectId)}
-            />
-          ))}
-          {subtasks.map((subtask) => (
-            <TaskRelationshipRow
-              key={subtask.id}
-              label="Subtask"
-              task={subtask}
-              project={projectsById.get(subtask.projectId)}
-            />
-          ))}
-          <View style={styles.subtaskComposer}>
-            <TextInput
-              value={subtaskDraft}
-              onChangeText={setSubtaskDraft}
-              onSubmitEditing={createSubtask}
-              placeholder="Add a subtask"
-              placeholderTextColor={styles.placeholder.color}
-              style={styles.inlineInput}
-              testID="task-detail-subtask-input"
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={createSubtask}
-              disabled={!subtaskDraft.trim() || isBusy}
-              testID="task-detail-subtask-add"
-            >
-              Add
-            </Button>
+          <View style={styles.card}>
+            {parent ? (
+              <TaskRelationshipRow
+                label="Parent"
+                task={parent}
+                project={projectsById.get(parent.projectId)}
+              />
+            ) : null}
+            {dependenciesForTask.map((dependency) => (
+              <TaskRelationshipRow
+                key={dependency.id}
+                label="Waits for"
+                task={dependency}
+                project={projectsById.get(dependency.projectId)}
+              />
+            ))}
+            {subtasks.map((subtask) => (
+              <TaskRelationshipRow
+                key={subtask.id}
+                label="Subtask"
+                task={subtask}
+                project={projectsById.get(subtask.projectId)}
+              />
+            ))}
+            <View style={styles.subtaskComposer}>
+              <TextInput
+                value={subtaskDraft}
+                onChangeText={setSubtaskDraft}
+                onSubmitEditing={createSubtask}
+                placeholder="Add a subtask"
+                placeholderTextColor={styles.placeholder.color}
+                style={styles.inlineInput}
+                testID="task-detail-subtask-input"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={createSubtask}
+                disabled={!subtaskDraft.trim() || isBusy}
+                testID="task-detail-subtask-add"
+              >
+                Add
+              </Button>
+            </View>
           </View>
         </View>
 
@@ -459,38 +463,44 @@ function OpenTaskDetailSheet({
         {task.status === "in_review" ? (
           <View style={styles.section} testID="task-detail-review">
             <Text style={styles.sectionHeading}>{t("tasks.detail.reviewerHeading")}</Text>
-            <TextInput
-              value={reviewFeedback}
-              onChangeText={setReviewFeedback}
-              placeholder="Correction feedback (sent to the worker on rejection)"
-              placeholderTextColor={styles.placeholder.color}
-              style={styles.input}
-              multiline
-              editable={!isReviewing}
-              testID="task-detail-review-feedback"
-            />
-            {task.reviewIteration ? (
-              <Text style={styles.emptyComments}>Correction round {task.reviewIteration}</Text>
-            ) : null}
-            <View style={styles.presetRow}>
-              <Button
-                variant="default"
-                size="sm"
-                onPress={handleApprove}
-                loading={isReviewing}
-                testID="task-detail-approve"
-              >
-                {t("tasks.board.approve")}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onPress={handleReject}
-                disabled={isReviewing}
-                testID="task-detail-reject"
-              >
-                {t("tasks.board.reject")}
-              </Button>
+            <View style={styles.card}>
+              <View style={styles.cardRow}>
+                <TextInput
+                  value={reviewFeedback}
+                  onChangeText={setReviewFeedback}
+                  placeholder="Correction feedback (sent to the worker on rejection)"
+                  placeholderTextColor={styles.placeholder.color}
+                  style={styles.input}
+                  multiline
+                  editable={!isReviewing}
+                  testID="task-detail-review-feedback"
+                />
+              </View>
+              {task.reviewIteration ? (
+                <View style={styles.cardRow}>
+                  <Text style={styles.emptyComments}>Correction round {task.reviewIteration}</Text>
+                </View>
+              ) : null}
+              <View style={styles.cardRow}>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onPress={handleApprove}
+                  loading={isReviewing}
+                  testID="task-detail-approve"
+                >
+                  {t("tasks.board.approve")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onPress={handleReject}
+                  disabled={isReviewing}
+                  testID="task-detail-reject"
+                >
+                  {t("tasks.board.reject")}
+                </Button>
+              </View>
             </View>
           </View>
         ) : null}
@@ -950,8 +960,8 @@ function TaskAutomationSection({
         ) : null}
       </View>
       {supportsExecutionPolicy && isEditing ? (
-        <View style={styles.policyEditor}>
-          <View style={styles.policyEditorHeader}>
+        <View style={styles.card}>
+          <View style={[styles.cardRow, styles.cardRowBetween]}>
             <Text style={styles.sectionHint}>
               Board defaults apply until this task overrides them.
             </Text>
@@ -1363,6 +1373,7 @@ function RecipientButton({
 const styles = StyleSheet.create((theme) => ({
   step: {
     gap: theme.spacing[1],
+    paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
@@ -1411,7 +1422,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
   },
   body: {
-    gap: theme.spacing[3],
+    gap: theme.spacing[4],
   },
   brief: {
     gap: theme.spacing[1],
@@ -1460,10 +1471,24 @@ const styles = StyleSheet.create((theme) => ({
   },
   section: {
     gap: theme.spacing[2],
-    padding: theme.spacing[3],
+  },
+  card: {
     borderWidth: theme.borderWidth[1],
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.lg,
+    overflow: "hidden",
+  },
+  cardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    borderBottomWidth: theme.borderWidth[1],
+    borderBottomColor: theme.colors.border,
+  },
+  cardRowBetween: {
+    justifyContent: "space-between",
   },
   sectionTitleRow: {
     flexDirection: "row",
@@ -1514,16 +1539,8 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: theme.spacing[2],
-  },
-  policyEditor: {
-    gap: theme.spacing[2],
-    paddingTop: theme.spacing[1],
-  },
-  policyEditorHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
   },
   policyItem: {
     width: 180,
@@ -1544,7 +1561,10 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
-    minHeight: 28,
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    borderBottomWidth: theme.borderWidth[1],
+    borderBottomColor: theme.colors.border,
   },
   relationshipLabel: {
     width: 72,
@@ -1565,6 +1585,10 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    borderBottomWidth: theme.borderWidth[1],
+    borderBottomColor: theme.colors.border,
   },
   inlineInput: {
     flex: 1,
