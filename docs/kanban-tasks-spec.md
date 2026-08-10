@@ -35,7 +35,9 @@ keys, capture) and `Emanuele-web04/synara` (board behaviour).
   priority, labels, due date, per-task execution policy, fractional position
   (`POSITION_STEP=1024`; the client sends neighbours, the daemon picks the
   number).
-- **Derived** (execution): attached agents' live state, read off the agents.
+- **Derived** (execution): attached agents' live state, read off the agents. A
+  task can link several agents across several workspaces; the exact agent links
+  define task membership, not every agent that happens to share a workspace.
 - Task project ↔ Paseo project via `paseoProjectId`; prefix unique per host.
 - Sync: push `tasks.update { revision }`; a client at the same revision does
   nothing, a client behind refetches. Push-router domain `tasks` app-side.
@@ -167,15 +169,24 @@ one-move undo is what prevents it.
   sort, direct status and priority controls, and scroll position are shared
   surface preferences and persist per board. Filtering changes the projection,
   never the stored task set. It has no route or task data of its own.
-- **Card**: key, priority label (colour-coded urgent/high), live
-  `StatusBucketDot` from attached agents, title, label chips. A press opens the
-  detail sheet (§5.4). Kebab and right-click context menu carry the same list:
-  Details, Approve/Reject when in review, Add agent plan, Open agent per
-  attachment, move-to-status, Delete. Subtasks indent under their parent when
-  the parent is in the same column.
+- **Card**: key, priority label (colour-coded urgent/high), title, label chips,
+  direct subtask/blocker counts, and a compact execution summary from every
+  exact attached agent. The summary preserves actionable states — needs input,
+  failed, starting, working, ready to review, done — instead of collapsing
+  several agents to one workspace status. A press opens the detail sheet
+  (§5.4). Kebab and right-click context menu carry the same list: Details,
+  Approve/Reject when in review, Add agent plan, Open agent per attachment,
+  move-to-status, Delete. Subtasks indent under their parent when the parent is
+  in the same column.
 - **Capture**: every column's "+" opens the minimal sheet — title only. The
   first capture also creates the tracker project, prefilled and linked. Form
   model per [docs/forms.md](forms.md), unit-tested.
+- **Untracked work**: standalone root chats in the Paseo project appear in a
+  separate rail until a task links their exact agent id. Each row shows its live
+  execution state and workspace, opens the chat, and can create a prefilled task
+  or attach to an open task through the searchable task picker. Child agents do
+  not become separate capture entries. Starting work from a task attaches the
+  new agent before it appears on the board.
 - **Drag** writes `tasks.move`; the optimistic paint uses the daemon's own
   position arithmetic. Menu move covers platforms without drag. Every column
   is hand-sortable, because order is stored.
@@ -218,12 +229,14 @@ same id addresses the column and the board it opens.
 
 The detail sheet is the task's working surface. Its title and agent brief are
 editable in place. It shows comments, labels, due date, subtasks, dependencies,
-attachments, agents, the agent plan and review actions. Automation is summarized
-in plain language and expands to task-specific controls; the board menu only
-sets defaults. The agent-plan form shows the common choices first and keeps
-workspace, trigger, evidence, verification command and timeout behind Advanced.
-Rejecting from the sheet accepts correction feedback that is sent to the resumed
-worker. This also settles what a card press does:
+attachments, agents, the agent plan and review actions. Attached agents are
+grouped by workspace; each workspace shows its branch, pull request and every
+agent's exact execution state. Automation is summarized in plain language and
+expands to task-specific controls; the board menu only sets defaults. The
+agent-plan form shows the common choices first and keeps workspace, trigger,
+evidence, verification command and timeout behind Advanced. Rejecting from the
+sheet accepts correction feedback that is sent to the resumed worker. This also
+settles what a card press does:
 
 - **press → detail sheet, always**, whatever the number of attached agents.
   Attached agents are rows in the sheet; opening a conversation is a tap on a
