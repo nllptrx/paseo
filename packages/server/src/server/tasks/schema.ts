@@ -302,6 +302,12 @@ const MIGRATIONS: readonly string[] = [
     -- than columns, for the same reason the execution policy is one.
     ALTER TABLE tasks ADD COLUMN execution_spec TEXT;
   `,
+  `
+    -- System feed entries carry the board event that produced their prose.
+    -- The JSON shape is validated at the store boundary; nullable keeps notes
+    -- and rows written by older daemons unchanged.
+    ALTER TABLE task_comments ADD COLUMN event_json TEXT;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

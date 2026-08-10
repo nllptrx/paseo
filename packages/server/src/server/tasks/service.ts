@@ -7,9 +7,16 @@ import type {
   TaskProject,
   TaskSnapshot,
   TaskStatus,
+  TaskBoardEvent,
 } from "@getpaseo/protocol/tasks/types";
 import type { Step, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import type pino from "pino";
+import {
+  renderBoardEvent,
+  toTaskBoardEvent,
+  type BoardEventInput,
+  type BoardEventKind,
+} from "./board-events.js";
 import {
   DEFAULT_TASK_STATUS,
   openTaskStore,
@@ -25,15 +32,19 @@ import {
 
 export type TaskRevisionListener = (revision: number) => void;
 
-/** Every stored status change, wherever it was written from. The aggregation
- * rules read this: a parent's status is written from its children, and a child
- * settling is what unblocks the next phase of a chain. */
-export type TaskStatusListener = (input: {
-  taskId: string;
-  parentTaskId: string | null;
-  previousStatus: TaskStatus;
-  status: TaskStatus;
-}) => void;
+/** Daemon rules consume the same typed event that the feed stores. */
+export type BoardEventListener = (event: TaskBoardEvent) => void;
+
+export interface BoardEventCause {
+  kind: BoardEventKind;
+  agentId?: string;
+  verdict?: "approve" | "reject";
+  cause: string;
+}
+
+export type UpdateTaskWithEventInput = UpdateTaskInput & {
+  boardEvent?: BoardEventCause;
+};
 
 /** Either a task (the board comes from it) or a board directly. */
 export type CreateFeedEntryInput = Omit<CreateTaskCommentInput, "projectId"> & {
@@ -57,7 +68,7 @@ export class TaskService {
   private available = false;
   private completeTaskHandler: ((taskId: string) => Promise<Task>) | null = null;
   private reviewEntryHandler: ((taskId: string) => Promise<void>) | null = null;
-  private statusListener: TaskStatusListener | null = null;
+  private boardEventListener: BoardEventListener | null = null;
 
   constructor(input: { databasePath: string; logger: pino.Logger }) {
     this.databasePath = input.databasePath;
@@ -262,25 +273,27 @@ export class TaskService {
     }
     const store = await this.require();
     const task = store.createTask(input);
-    // A task captured straight into a working or terminal status is the same
-    // event as one moved there, so the aggregation and chain rules have to see
-    // it: a subtask created as in_progress starts its parent, and one created as
-    // canceled unblocks whatever waited on it.
-    if (task.status !== DEFAULT_TASK_STATUS) {
-      this.announceStatusChange(task, DEFAULT_TASK_STATUS);
-    }
-    this.announce(store);
+    this.emitBoardEventFromStore(store, {
+      kind: "task_created",
+      taskId: task.id,
+      parentTaskId: task.parentTaskId,
+      previousStatus: DEFAULT_TASK_STATUS,
+      status: task.status,
+      cause: `was created in ${task.status}`,
+    });
     return task;
   }
 
-  async updateTask(input: UpdateTaskInput): Promise<Task> {
+  async updateTask(input: UpdateTaskWithEventInput): Promise<Task> {
     if (input.status === "done" && this.completeTaskHandler) {
       return await this.completeThroughGate(input.taskId, input);
     }
     const store = await this.require();
-    const task = this.writeTask(store, input);
-    this.announce(store);
-    return task;
+    const written = this.writeTask(store, input);
+    if (!written.emittedEvent) {
+      this.announce(store);
+    }
+    return written.task;
   }
 
   /**
@@ -288,33 +301,43 @@ export class TaskService {
    * written. The aggregation rules and the chain triggers hang off this rather
    * than off each caller, which is how the three of them stayed in step.
    */
-  setTaskStatusListener(listener: TaskStatusListener): void {
-    this.statusListener = listener;
+  setBoardEventListener(listener: BoardEventListener): void {
+    this.boardEventListener = listener;
   }
 
-  private writeTask(store: TaskStore, input: UpdateTaskInput): Task {
+  private writeTask(
+    store: TaskStore,
+    input: UpdateTaskWithEventInput,
+  ): { task: Task; emittedEvent: boolean } {
+    const { boardEvent, ...update } = input;
     const previousStatus = input.status === undefined ? null : store.getTask(input.taskId)?.status;
-    const task = store.updateTask(input);
+    const task = store.updateTask(update);
     if (previousStatus && previousStatus !== task.status) {
-      this.announceStatusChange(task, previousStatus);
-    }
-    return task;
-  }
-
-  private announceStatusChange(task: Task, previousStatus: TaskStatus): void {
-    if (!this.statusListener) {
-      return;
-    }
-    try {
-      this.statusListener({
+      this.emitBoardEventFromStore(store, {
+        kind: boardEvent?.kind ?? "task_moved",
         taskId: task.id,
         parentTaskId: task.parentTaskId,
         previousStatus,
         status: task.status,
+        cause: boardEvent?.cause ?? `moved from ${previousStatus} to ${task.status}`,
+        ...(boardEvent?.agentId ? { agentId: boardEvent.agentId } : {}),
+        ...(boardEvent?.verdict ? { verdict: boardEvent.verdict } : {}),
       });
-    } catch (error) {
-      this.logger.warn({ err: error, taskId: task.id }, "A task status listener threw");
+      return { task, emittedEvent: true };
     }
+    if (boardEvent) {
+      this.emitBoardEventFromStore(store, {
+        kind: boardEvent.kind,
+        taskId: task.id,
+        parentTaskId: task.parentTaskId,
+        status: task.status,
+        cause: boardEvent.cause,
+        ...(boardEvent.agentId ? { agentId: boardEvent.agentId } : {}),
+        ...(boardEvent.verdict ? { verdict: boardEvent.verdict } : {}),
+      });
+      return { task, emittedEvent: true };
+    }
+    return { task, emittedEvent: false };
   }
 
   async moveTask(input: {
@@ -331,7 +354,14 @@ export class TaskService {
     const previousStatus = store.getTask(input.taskId)?.status;
     const task = store.moveTask(input);
     if (previousStatus && previousStatus !== task.status) {
-      this.announceStatusChange(task, previousStatus);
+      this.emitBoardEventFromStore(store, {
+        kind: "task_moved",
+        taskId: task.id,
+        parentTaskId: task.parentTaskId,
+        previousStatus,
+        status: task.status,
+        cause: `moved from ${previousStatus} to ${task.status}`,
+      });
       if (task.status === "in_review" && this.reviewEntryHandler) {
         const handle = this.reviewEntryHandler;
         void handle(task.id).catch((error) => {
@@ -341,8 +371,9 @@ export class TaskService {
           );
         });
       }
+    } else {
+      this.announce(store);
     }
-    this.announce(store);
     return task;
   }
 
@@ -362,11 +393,13 @@ export class TaskService {
   /** Internal terminal write used only after the transition engine has passed
    * the integration gate. Keeping it separate avoids a recursive public Done
    * request and does not open a bypass to RPC or MCP callers. */
-  async finalizeTaskDone(taskId: string): Promise<Task> {
+  async finalizeTaskDone(taskId: string, boardEvent?: BoardEventCause): Promise<Task> {
     const store = await this.require();
-    const task = this.writeTask(store, { taskId, status: "done" });
-    this.announce(store);
-    return task;
+    const written = this.writeTask(store, { taskId, status: "done", boardEvent });
+    if (!written.emittedEvent) {
+      this.announce(store);
+    }
+    return written.task;
   }
 
   private async completeThroughGate(
@@ -418,8 +451,19 @@ export class TaskService {
       this.assertLeaf(store, input.taskId);
     }
     store.attachAgent(input);
+    const task = store.getTask(input.taskId);
+    if (!task) {
+      throw new Error(`No task ${input.taskId} to attach an agent to`);
+    }
+    this.emitBoardEventFromStore(store, {
+      kind: "agent_attached",
+      taskId: task.id,
+      parentTaskId: task.parentTaskId,
+      agentId: input.agentId,
+      status: task.status,
+      cause: `attached agent ${input.agentId} as ${input.role ?? "worker"}`,
+    });
     this.moveToWorkingOnStart(store, input.taskId);
-    this.announce(store);
   }
 
   /**
@@ -435,13 +479,13 @@ export class TaskService {
     if (!task || (task.status !== "backlog" && task.status !== "todo")) {
       return;
     }
-    this.writeTask(store, { taskId, status: "in_progress" });
-    store.createComment({
-      projectId: task.projectId,
+    this.writeTask(store, {
       taskId,
-      kind: "system",
-      authorName: "board",
-      body: `${task.title} moved to Working: an agent started on it.`,
+      status: "in_progress",
+      boardEvent: {
+        kind: "task_moved",
+        cause: "moved to Working: an agent started on it",
+      },
     });
   }
 
@@ -596,6 +640,42 @@ export class TaskService {
     const projectId = await this.resolveFeedProjectId(store, input);
     const comment = store.createComment({ ...input, projectId });
     this.announce(store);
+    return comment;
+  }
+
+  async emitBoardEvent(input: BoardEventInput): Promise<TaskComment> {
+    const store = await this.require();
+    return this.emitBoardEventFromStore(store, input);
+  }
+
+  private emitBoardEventFromStore(store: TaskStore, input: BoardEventInput): TaskComment {
+    const task = store.getTask(input.taskId);
+    if (!task) {
+      throw new Error(`No task ${input.taskId} for board event ${input.kind}`);
+    }
+    const project = store.getProject(task.projectId);
+    if (!project) {
+      throw new Error(`No board ${task.projectId} for task ${input.taskId}`);
+    }
+    const event = toTaskBoardEvent(input);
+    const comment = store.createComment({
+      projectId: project.id,
+      taskId: task.id,
+      kind: "system",
+      authorName: "board",
+      agentId: input.agentId,
+      body: renderBoardEvent({ project, task, event: input }),
+      entryKind: "system_event",
+      event,
+    });
+    this.announce(store);
+    if (this.boardEventListener) {
+      try {
+        this.boardEventListener(event);
+      } catch (error) {
+        this.logger.warn({ err: error, taskId: task.id }, "A board event listener threw");
+      }
+    }
     return comment;
   }
 

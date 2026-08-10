@@ -9,7 +9,6 @@ import type { CreateAgentCommandResult } from "../agent/create-agent/create.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../worktree-session.js";
 import type { PersistedWorkspaceRecord } from "../workspace-registry.js";
 import { createStub } from "../test-utils/class-mocks.js";
-import { REVIEW_APPROVED_NOTE } from "./review-verdict-notes.js";
 import { TaskService } from "./service.js";
 import { TaskWorkflowEngine } from "./workflow-engine.js";
 
@@ -1278,11 +1277,11 @@ describe("TaskWorkflowEngine", () => {
   test("the final review of an aggregate carries the child verdicts and asks about the integration", async () => {
     const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
     const child = await service.createTask({ projectId, title: "Phase one", parentTaskId: taskId });
-    await service.createComment({
+    await service.emitBoardEvent({
+      kind: "task_approved",
       taskId: child.id,
-      kind: "system",
-      authorName: "board",
-      body: `PSE${seededProjects}-2 "Phase one" ${REVIEW_APPROVED_NOTE}, integrated into its parent, and moved to done.`,
+      verdict: "approve",
+      cause: "passed review and integrated into its parent",
     });
     const preset = await service.createPreset({
       name: "Reviewer",
@@ -1295,7 +1294,7 @@ describe("TaskWorkflowEngine", () => {
 
     const prompt = createdAgentPrompts.at(-1) ?? "";
     expect(prompt).toContain("integrated result");
-    expect(prompt).toContain(`PSE${seededProjects}-2 "Phase one" ${REVIEW_APPROVED_NOTE}`);
+    expect(prompt).toContain(`PSE${seededProjects}-2 "Phase one" passed review`);
     expect(prompt).toContain("Do not review each subtask's diff again");
   });
 

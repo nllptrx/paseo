@@ -25,7 +25,7 @@ import type { CreatePaseoWorktreeWorkflowResult } from "../worktree-session.js";
 import { mergeToBase } from "../../utils/checkout-git.js";
 import { runGitCommand } from "../../utils/run-git-command.js";
 import type { TaskService } from "./service.js";
-import { isReviewVerdictNote } from "./review-verdict-notes.js";
+import { isReviewVerdictEvent } from "./board-events.js";
 import { checkStepEvidence, readHeadCommit, type StepEvidenceResult } from "./step-verification.js";
 
 const RETRYABLE_RUN_STATUSES: ReadonlySet<StepRunStatus> = new Set([
@@ -1457,7 +1457,7 @@ export class TaskWorkflowEngine {
       ) {
         continue;
       }
-      if (isReviewVerdictNote(entry.body)) {
+      if (isReviewVerdictEvent(entry.event)) {
         verdicts.set(entry.taskId, entry.body);
       }
     }

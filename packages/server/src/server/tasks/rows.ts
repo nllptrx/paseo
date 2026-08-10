@@ -87,6 +87,7 @@ export const TaskCommentRowSchema = z.object({
   body: z.string(),
   entry_kind: z.enum(["note", "agent_update", "system_event", "message"]).nullable(),
   recipients_json: z.string().nullable(),
+  event_json: z.string().nullable(),
   created_at: z.string(),
 });
 export type TaskCommentRow = z.infer<typeof TaskCommentRowSchema>;

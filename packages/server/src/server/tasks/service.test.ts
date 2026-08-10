@@ -292,6 +292,8 @@ describe("TaskService", () => {
   it("moves a card to Working when an agent starts on it", async () => {
     const service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
     try {
+      const events: string[] = [];
+      service.setBoardEventListener((event) => events.push(event.kind));
       const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
       const task = await service.createTask({ projectId: project.id, title: "Ship it" });
       expect(task.status).toBe("backlog");
@@ -301,6 +303,13 @@ describe("TaskService", () => {
       expect((await service.getTask(task.id))?.status).toBe("in_progress");
       const feed = await service.listBoardFeed({ projectId: project.id });
       expect(feed.at(-1)?.body).toContain("moved to Working");
+      expect(feed.at(-1)?.event).toMatchObject({
+        kind: "task_moved",
+        taskId: task.id,
+        previousStatus: "backlog",
+        status: "in_progress",
+      });
+      expect(events).toEqual(["task_created", "agent_attached", "task_moved"]);
     } finally {
       await service.close();
     }

@@ -228,6 +228,21 @@ export const TaskMessageRecipientSchema = z.object({
 });
 export type TaskMessageRecipient = z.infer<typeof TaskMessageRecipientSchema>;
 
+/** Typed machine history attached to a human-readable feed entry. `kind` stays
+ * open on the wire so an older client can parse event kinds added by a newer
+ * daemon; daemon writers use a closed union of known kinds. */
+export const TaskBoardEventSchema = z.object({
+  kind: z.string(),
+  taskId: z.string(),
+  parentTaskId: z.string().nullable().optional(),
+  agentId: z.string().optional(),
+  previousStatus: TaskStatusSchema.optional(),
+  status: TaskStatusSchema.optional(),
+  verdict: z.enum(["approve", "reject"]).optional(),
+  cause: z.string().optional(),
+});
+export type TaskBoardEvent = z.infer<typeof TaskBoardEventSchema>;
+
 /**
  * One entry in a board's feed. `taskId` is null when the entry belongs to the
  * board rather than to a card — a settle notice, or a note typed at the board.
@@ -250,6 +265,9 @@ export const TaskCommentSchema = z.object({
   /** Present only for outbound messages. Kept optional so old clients continue
    * to parse feed entries from a new daemon. */
   recipients: z.array(TaskMessageRecipientSchema).optional(),
+  /** Present on daemon-authored board events. Optional so feed entries from old
+   * daemons and old stored rows keep the original shape. */
+  event: TaskBoardEventSchema.optional(),
 });
 export type TaskComment = z.infer<typeof TaskCommentSchema>;
 

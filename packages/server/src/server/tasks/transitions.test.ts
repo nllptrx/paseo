@@ -5,11 +5,8 @@ import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskBoardConfig, TaskComment } from "@getpaseo/protocol/tasks/types";
 import type { ManagedAgent } from "../agent/agent-manager.js";
-import {
-  isReviewVerdictNote,
-  REVIEW_APPROVED_NOTE,
-  REVIEW_REJECTED_NOTE,
-} from "./review-verdict-notes.js";
+import { isReviewVerdictEvent } from "./board-events.js";
+import { REVIEW_APPROVED_NOTE, REVIEW_REJECTED_NOTE } from "./review-verdict-notes.js";
 import { TaskService } from "./service.js";
 import { REVIEWER_FINDINGS_EXCERPT_LIMIT, TaskTransitionEngine } from "./transitions.js";
 
@@ -108,7 +105,7 @@ describe("TaskTransitionEngine", () => {
     });
     engine.setIntegrateTaskWork(async () => undefined);
     engine.setIntegrateTaskIntoParent(async () => undefined);
-    service.setTaskStatusListener((change) => engine.handleTaskStatusChange(change));
+    service.setBoardEventListener((event) => engine.handleBoardEvent(event));
     return { task, engine, agentManager, projectId: project.id };
   }
 
@@ -130,7 +127,9 @@ describe("TaskTransitionEngine", () => {
     expect((await service.getTask(task.id))?.status).toBe("in_review");
     expect(reviews).toEqual([]);
 
-    const feed = await service.listBoardFeed({ projectId });
+    const feed = (await service.listBoardFeed({ projectId })).filter(
+      (entry) => entry.event?.kind !== "task_created",
+    );
     expect(feed.map((entry) => ({ kind: entry.kind, body: entry.body }))).toEqual([
       {
         kind: "system",
@@ -461,16 +460,18 @@ describe("TaskTransitionEngine", () => {
       delegations.push(input);
       return { agentId: `agt_${delegations.length}` };
     });
-    service.setTaskStatusListener(() => undefined);
+    service.setBoardEventListener(() => undefined);
     await service.updateTask({ taskId: first.id, status: "done" });
     await service.updateTask({ taskId: second.id, status: "done" });
 
     for (const blocker of [first, second]) {
-      engine.handleTaskStatusChange({
+      engine.handleBoardEvent({
+        kind: "task_moved",
         taskId: blocker.id,
         parentTaskId: null,
         previousStatus: "in_progress",
         status: "done",
+        cause: "settled",
       });
     }
 
@@ -586,7 +587,7 @@ describe("TaskTransitionEngine", () => {
     await engine.applyReviewVerdict({ taskId: task.id, verdict: "approve" });
 
     const verdicts = (await service.listBoardFeed({ projectId }))
-      .filter((entry) => entry.taskId === task.id && isReviewVerdictNote(entry.body))
+      .filter((entry) => entry.taskId === task.id && isReviewVerdictEvent(entry.event))
       .map((entry) => entry.body);
 
     expect(verdicts).toHaveLength(2);
@@ -1213,9 +1214,10 @@ describe("TaskTransitionEngine", () => {
     });
 
     const feed = await service.listBoardFeed({ projectId });
-    expect(feed[0].kind).toBe("system");
-    expect(feed[0].body).toContain("stopped on an error");
-    expect(feed[0].agentId).toBe("agt_1");
+    const stalled = feed.find((entry) => entry.event?.kind === "agent_stalled");
+    expect(stalled?.kind).toBe("system");
+    expect(stalled?.body).toContain("stopped on an error");
+    expect(stalled?.agentId).toBe("agt_1");
     expect((await service.getTask(task.id))?.status).toBe("in_progress");
   });
   /** A daemon restart re-arms the observer, but the agent it watches may have

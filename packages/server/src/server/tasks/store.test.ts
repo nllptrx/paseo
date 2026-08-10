@@ -327,6 +327,33 @@ describe("TaskStore", () => {
     expect(comments[1]?.agentId).toBe("agt_1");
   });
 
+  it("persists the typed event behind system feed prose", () => {
+    const task = store.createTask({ projectId, title: "Moved" });
+    store.createComment({
+      projectId,
+      taskId: task.id,
+      kind: "system",
+      authorName: "board",
+      body: "Moved to Working.",
+      entryKind: "system_event",
+      event: {
+        kind: "task_moved",
+        taskId: task.id,
+        previousStatus: "todo",
+        status: "in_progress",
+        cause: "agent attached",
+      },
+    });
+
+    expect(store.listComments(task.id)[0]?.event).toEqual({
+      kind: "task_moved",
+      taskId: task.id,
+      previousStatus: "todo",
+      status: "in_progress",
+      cause: "agent attached",
+    });
+  });
+
   it("marks interrupted message delivery as failed", () => {
     const task = store.createTask({ projectId, title: "Message" });
     store.createComment({

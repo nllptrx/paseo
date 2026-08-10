@@ -27,6 +27,7 @@ import type {
 import {
   TaskExecutionPolicySchema,
   TaskExecutionSpecSchema,
+  TaskBoardEventSchema,
   TaskMessageRecipientSchema,
 } from "@getpaseo/protocol/tasks/types";
 import {
@@ -124,6 +125,7 @@ export interface CreateTaskCommentInput {
   body: string;
   entryKind?: TaskComment["entryKind"];
   recipients?: TaskComment["recipients"];
+  event?: TaskComment["event"];
 }
 
 export interface CreateTaskAttachmentInput {
@@ -1031,8 +1033,8 @@ export class TaskStore {
       .prepare(
         `INSERT INTO task_comments (
            id, project_id, task_id, kind, author_name, agent_id, workspace_id, body,
-           entry_kind, recipients_json, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           entry_kind, recipients_json, event_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -1045,6 +1047,7 @@ export class TaskStore {
         input.body,
         entryKind,
         input.recipients ? JSON.stringify(input.recipients) : null,
+        input.event ? JSON.stringify(input.event) : null,
         createdAt,
       );
     return {
@@ -1060,6 +1063,7 @@ export class TaskStore {
       createdAt,
       entryKind,
       ...(input.recipients ? { recipients: [...input.recipients] } : {}),
+      ...(input.event ? { event: input.event } : {}),
     };
   }
 
@@ -1145,6 +1149,9 @@ export class TaskStore {
     const recipients = row.recipients_json
       ? TaskMessageRecipientSchema.array().parse(JSON.parse(row.recipients_json))
       : undefined;
+    const event = row.event_json
+      ? TaskBoardEventSchema.parse(JSON.parse(row.event_json))
+      : undefined;
     return {
       id: row.id,
       projectId: row.project_id,
@@ -1158,6 +1165,7 @@ export class TaskStore {
       createdAt: row.created_at,
       ...(row.entry_kind ? { entryKind: row.entry_kind } : {}),
       ...(recipients ? { recipients } : {}),
+      ...(event ? { event } : {}),
     };
   }
 

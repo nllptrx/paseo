@@ -2,12 +2,13 @@ import {
   resolveTaskExecutionPolicy,
   type ResolvedTaskExecutionPolicy,
   type TaskBoardConfig,
+  type TaskBoardEvent,
   type Task,
-  type TaskStatus,
 } from "@getpaseo/protocol/tasks/types";
 import type pino from "pino";
 import { observeAgentCompletion } from "../agent/agent-completion.js";
 import { REVIEW_APPROVED_NOTE, REVIEW_REJECTED_NOTE } from "./review-verdict-notes.js";
+import type { BoardEventCause } from "./service.js";
 import type { AgentManager } from "../agent/agent-manager.js";
 import type { TaskService } from "./service.js";
 
@@ -26,7 +27,7 @@ export interface TaskTransitionEngineDeps {
     | "listDependents"
     | "listUnmetDependencies"
     | "isAvailable"
-    | "createComment"
+    | "emitBoardEvent"
   >;
   agentManager: Pick<AgentManager, "subscribe" | "getAgent" | "getLastAssistantMessage">;
 
@@ -230,16 +231,11 @@ export class TaskTransitionEngine {
       if (!task) {
         return;
       }
-      const project = await this.deps.taskService.getProject(task.projectId);
-      if (!project) {
-        return;
-      }
-      await this.deps.taskService.createComment({
+      await this.deps.taskService.emitBoardEvent({
+        kind: "agent_stalled",
         taskId: task.id,
-        kind: "system",
-        authorName: "board",
         agentId: input.agentId,
-        body: `${project.prefix}-${task.number} "${task.title}": its agent ${note}.`,
+        cause: `its agent ${note}`,
       });
     })().catch((error) => {
       this.deps.logger.warn(
@@ -270,12 +266,11 @@ export class TaskTransitionEngine {
         return;
       }
     }
-    const project = await this.deps.taskService.getProject(task.projectId);
     const policy = await this.resolveEffectivePolicy(task);
     try {
       await this.requireIntegrateTaskWork(taskId);
     } catch (error) {
-      await this.handleIntegrationFailure(task, project, error);
+      await this.handleIntegrationFailure(task, error);
       return;
     }
     // A root task always parks in review: Done means somebody accepted the
@@ -285,14 +280,15 @@ export class TaskTransitionEngine {
     // judged by the parent's final review, and a chain that stopped for a
     // verdict at every phase would not be a chain.
     if (policy.reviewEnabled || task.parentTaskId === null) {
-      await this.deps.taskService.updateTask({ taskId, status: "in_review" });
-      this.reviewAttemptsByTask.delete(taskId);
-      this.announceToBoard(project, {
-        task,
-        note: policy.reviewEnabled
-          ? "settled its attached work, integrated it into the task branch, and moved to in_review"
-          : "settled its attached work and moved to in_review to await a verdict",
+      const cause = policy.reviewEnabled
+        ? "settled its attached work, integrated it into the task branch, and moved to in_review"
+        : "settled its attached work and moved to in_review to await a verdict";
+      await this.deps.taskService.updateTask({
+        taskId,
+        status: "in_review",
+        boardEvent: { kind: "task_settled", cause },
       });
+      this.reviewAttemptsByTask.delete(taskId);
       if (policy.reviewEnabled) {
         this.startReview(taskId);
       }
@@ -356,12 +352,10 @@ export class TaskTransitionEngine {
    * to. Both are fire-and-forget, like the observer paths — the write that
    * caused them has already landed.
    */
-  handleTaskStatusChange(input: {
-    taskId: string;
-    parentTaskId: string | null;
-    previousStatus: TaskStatus;
-    status: TaskStatus;
-  }): void {
+  handleBoardEvent(input: TaskBoardEvent): void {
+    if (input.previousStatus === undefined || input.status === undefined) {
+      return;
+    }
     if (input.parentTaskId) {
       const parentTaskId = input.parentTaskId;
       void this.aggregateFromChildren(parentTaskId, input.taskId).catch((error) => {
@@ -405,10 +399,13 @@ export class TaskTransitionEngine {
       child.status === "in_progress" &&
       (parent.status === "backlog" || parent.status === "todo")
     ) {
-      await this.deps.taskService.updateTask({ taskId: parentTaskId, status: "in_progress" });
-      this.announceToBoard(project, {
-        task: parent,
-        note: `moved to in_progress: its subtask ${childKey} started`,
+      await this.deps.taskService.updateTask({
+        taskId: parentTaskId,
+        status: "in_progress",
+        boardEvent: {
+          kind: "task_moved",
+          cause: `moved to in_progress: its subtask ${childKey} started`,
+        },
       });
       return;
     }
@@ -428,12 +425,15 @@ export class TaskTransitionEngine {
     // only a nested aggregate whose own review is off flows through — its
     // integration is judged one level further up.
     if (policy.reviewEnabled || parent.parentTaskId === null) {
-      await this.deps.taskService.updateTask({ taskId: parentTaskId, status: "in_review" });
-      this.reviewAttemptsByTask.delete(parentTaskId);
-      this.announceToBoard(project, {
-        task: parent,
-        note: `moved to in_review: its last subtask ${childKey} merged and the integration is ready to judge`,
+      await this.deps.taskService.updateTask({
+        taskId: parentTaskId,
+        status: "in_review",
+        boardEvent: {
+          kind: "task_moved",
+          cause: `moved to in_review: its last subtask ${childKey} merged and the integration is ready to judge`,
+        },
       });
+      this.reviewAttemptsByTask.delete(parentTaskId);
       if (policy.reviewEnabled) {
         this.startReview(parentTaskId);
       }
@@ -513,21 +513,22 @@ export class TaskTransitionEngine {
   }
 
   private async startTaskFromSpec(task: Task, presetId: string): Promise<void> {
-    const project = await this.deps.taskService.getProject(task.projectId);
     try {
       const started = await this.requestDelegation?.({ taskId: task.id, presetId });
       if (!started) {
         return;
       }
       this.observeAttachment({ taskId: task.id, agentId: started.agentId });
-      this.announceToBoard(project, {
-        task,
-        note: "started automatically: its last blocker settled",
+      await this.deps.taskService.emitBoardEvent({
+        kind: "task_auto_started",
+        taskId: task.id,
+        cause: "started automatically: its last blocker settled",
       });
     } catch (error) {
-      this.announceToBoard(project, {
-        task,
-        note: `could not start automatically after its last blocker settled: ${
+      await this.deps.taskService.emitBoardEvent({
+        kind: "task_auto_start_failed",
+        taskId: task.id,
+        cause: `could not start automatically after its last blocker settled: ${
           error instanceof Error ? error.message : String(error)
         }`,
       });
@@ -620,10 +621,10 @@ export class TaskTransitionEngine {
       if (!task) {
         return;
       }
-      const project = await this.deps.taskService.getProject(task.projectId);
-      this.announceToBoard(project, {
-        task,
-        note: `could not start its review and now requires a human: ${error instanceof Error ? error.message : String(error)}`,
+      await this.deps.taskService.emitBoardEvent({
+        kind: "review_failed",
+        taskId: task.id,
+        cause: `could not start its review and now requires a human: ${error instanceof Error ? error.message : String(error)}`,
       });
     } catch (reportError) {
       this.deps.logger.warn(
@@ -725,14 +726,13 @@ export class TaskTransitionEngine {
     await this.postReviewerFindings(input);
     const attempts = this.reviewAttemptsByTask.get(input.taskId) ?? 0;
     const retrying = this.requestReview !== null && attempts < this.maxReviewAttempts;
-    await this.deps.taskService.createComment({
+    await this.deps.taskService.emitBoardEvent({
+      kind: "review_stalled",
       taskId: input.taskId,
-      kind: "system",
-      authorName: "board",
       agentId: input.agentId,
-      body: `The reviewer ${input.note}; ${
+      cause: `reviewer ${input.note}; ${
         retrying ? "the board is starting a fresh review" : "this task still requires review"
-      }.`,
+      }`,
     });
     if (retrying) {
       this.startReview(input.taskId);
@@ -763,12 +763,11 @@ export class TaskTransitionEngine {
       );
     }
     const body = reviewerFindingsBody(message, readFailed);
-    await this.deps.taskService.createComment({
+    await this.deps.taskService.emitBoardEvent({
+      kind: "review_findings",
       taskId: input.taskId,
-      kind: "system",
-      authorName: "board",
       agentId: input.agentId,
-      body,
+      cause: body,
     });
   }
 
@@ -791,12 +790,15 @@ export class TaskTransitionEngine {
       if (task.status !== "in_review") {
         throw new Error(`Task ${input.taskId} is not in review`);
       }
-      const project = await this.deps.taskService.getProject(task.projectId);
       this.reviewAttemptsByTask.delete(input.taskId);
       if (input.verdict === "approve") {
-        return await this.completeTask(input.taskId, REVIEW_APPROVED_NOTE);
+        return await this.completeTask(input.taskId, REVIEW_APPROVED_NOTE, {
+          kind: "task_approved",
+          verdict: "approve",
+          cause: REVIEW_APPROVED_NOTE,
+        });
       }
-      return await this.applyReviewRejection({ task, project, feedback: input.feedback });
+      return await this.applyReviewRejection({ task, feedback: input.feedback });
     } finally {
       this.verdictsInFlight.delete(input.taskId);
     }
@@ -805,20 +807,29 @@ export class TaskTransitionEngine {
   /** The only completion gate. Agent settlement, review approval and manual
    * moves all arrive here so a child cannot say Done before it is delivered
    * into its parent's canonical branch. */
-  async completeTask(taskId: string, reason = "was completed"): Promise<Task> {
+  async completeTask(
+    taskId: string,
+    reason = "was completed",
+    event?: BoardEventCause,
+  ): Promise<Task> {
     const inFlight = this.completionsInFlight.get(taskId);
     if (inFlight) return await inFlight;
-    const completion = this.performTaskCompletion(taskId, reason).finally(() => {
+    const completion = this.performTaskCompletion(
+      taskId,
+      event ?? {
+        kind: "task_settled",
+        cause: reason,
+      },
+    ).finally(() => {
       this.completionsInFlight.delete(taskId);
     });
     this.completionsInFlight.set(taskId, completion);
     return await completion;
   }
 
-  private async performTaskCompletion(taskId: string, reason: string): Promise<Task> {
+  private async performTaskCompletion(taskId: string, event: BoardEventCause): Promise<Task> {
     const task = await this.deps.taskService.getTask(taskId);
     if (!task) throw new Error(`No task ${taskId} to complete`);
-    const project = await this.deps.taskService.getProject(task.projectId);
     const openSubtasks = (await this.deps.taskService.snapshot()).tasks.filter(
       (candidate) =>
         candidate.parentTaskId === taskId &&
@@ -826,9 +837,10 @@ export class TaskTransitionEngine {
         candidate.status !== "canceled",
     );
     if (openSubtasks.length > 0) {
-      this.announceToBoard(project, {
-        task,
-        note: `could not complete because subtasks ${openSubtasks
+      await this.deps.taskService.emitBoardEvent({
+        kind: "task_completion_blocked",
+        taskId: task.id,
+        cause: `could not complete because subtasks ${openSubtasks
           .map((subtask) => `#${subtask.number}`)
           .join(", ")} are still open`,
       });
@@ -837,14 +849,14 @@ export class TaskTransitionEngine {
     try {
       await this.requireIntegrateTaskIntoParent(taskId);
     } catch (error) {
-      return await this.handleIntegrationFailure(task, project, error);
+      return await this.handleIntegrationFailure(task, error);
     }
-    const completed = await this.deps.taskService.finalizeTaskDone(taskId);
-    this.announceToBoard(project, {
-      task,
-      note: task.parentTaskId
-        ? `${reason}, integrated into its parent, and moved to done`
-        : `${reason} and moved to done`,
+    const cause = task.parentTaskId
+      ? `${event.cause}, integrated into its parent, and moved to done`
+      : `${event.cause} and moved to done`;
+    const completed = await this.deps.taskService.finalizeTaskDone(taskId, {
+      ...event,
+      cause,
     });
     await this.finishTask(taskId);
     return completed;
@@ -860,19 +872,15 @@ export class TaskTransitionEngine {
     await this.integrateTaskIntoParent(taskId);
   }
 
-  private async handleIntegrationFailure(
-    task: Task,
-    project: Awaited<ReturnType<TaskService["getProject"]>>,
-    error: unknown,
-  ): Promise<Task> {
+  private async handleIntegrationFailure(task: Task, error: unknown): Promise<Task> {
     const message = error instanceof Error ? error.message : String(error);
     const working = await this.deps.taskService.updateTask({
       taskId: task.id,
       status: "in_progress",
-    });
-    this.announceToBoard(project, {
-      task,
-      note: `could not integrate and moved back to in_progress: ${message}`,
+      boardEvent: {
+        kind: "task_integration_failed",
+        cause: `could not integrate and moved back to in_progress: ${message}`,
+      },
     });
     if (this.requestIntegrationFix) {
       void this.requestIntegrationFix({ taskId: task.id, error: message }).catch((fixError) => {
@@ -885,20 +893,18 @@ export class TaskTransitionEngine {
     return working;
   }
 
-  private async applyReviewRejection(input: {
-    task: Task;
-    project: Awaited<ReturnType<TaskService["getProject"]>>;
-    feedback?: string;
-  }): Promise<Task> {
-    const { task, project } = input;
+  private async applyReviewRejection(input: { task: Task; feedback?: string }): Promise<Task> {
+    const { task } = input;
     const policy = await this.resolveEffectivePolicy(task);
     const target = policy.reviewOnReject ?? DEFAULT_ON_REJECT;
     const currentIteration = task.reviewIteration ?? 0;
     const maxIterations = policy.maxReviewIterations;
     if (currentIteration >= maxIterations) {
-      this.announceToBoard(project, {
-        task,
-        note: `${REVIEW_REJECTED_NOTE} after ${currentIteration} correction rounds and now requires human review`,
+      await this.deps.taskService.emitBoardEvent({
+        kind: "task_rejected",
+        taskId: task.id,
+        verdict: "reject",
+        cause: `${REVIEW_REJECTED_NOTE} after ${currentIteration} correction rounds and now requires human review`,
       });
       return task;
     }
@@ -906,10 +912,11 @@ export class TaskTransitionEngine {
       taskId: task.id,
       status: target,
       reviewIteration: currentIteration + 1,
-    });
-    this.announceToBoard(project, {
-      task,
-      note: `${REVIEW_REJECTED_NOTE} for correction ${currentIteration + 1}/${maxIterations} and moved back to ${target}`,
+      boardEvent: {
+        kind: "task_rejected",
+        verdict: "reject",
+        cause: `${REVIEW_REJECTED_NOTE} for correction ${currentIteration + 1}/${maxIterations} and moved back to ${target}`,
+      },
     });
     if (target === "in_progress") {
       try {
@@ -919,10 +926,10 @@ export class TaskTransitionEngine {
           taskId: task.id,
           status: "in_review",
           reviewIteration: currentIteration,
-        });
-        this.announceToBoard(project, {
-          task,
-          note: `could not start correction work and returned to review: ${error instanceof Error ? error.message : String(error)}`,
+          boardEvent: {
+            kind: "correction_failed",
+            cause: `could not start correction work and returned to review: ${error instanceof Error ? error.message : String(error)}`,
+          },
         });
         return restored;
       }
@@ -953,34 +960,6 @@ export class TaskTransitionEngine {
     for (const agentId of corrected) {
       this.observeAttachment({ taskId, agentId });
     }
-  }
-
-  /**
-   * Every automatic move says so in the board's feed, naming the card and what
-   * caused it. A board that moves cards silently is one you cannot audit, and
-   * it is where the ping-pong bugs other boards shipped went unnoticed.
-   */
-  private announceToBoard(
-    project: Awaited<ReturnType<TaskService["getProject"]>>,
-    input: { task: Task; note: string },
-  ): void {
-    if (!project) {
-      return;
-    }
-    const key = `${project.prefix}-${input.task.number}`;
-    void this.deps.taskService
-      .createComment({
-        taskId: input.task.id,
-        kind: "system",
-        authorName: "board",
-        body: `${key} "${input.task.title}" ${input.note}.`,
-      })
-      .catch((error) => {
-        this.deps.logger.warn(
-          { err: error, taskId: input.task.id },
-          "Could not record a board event in the feed",
-        );
-      });
   }
 
   dispose(): void {
