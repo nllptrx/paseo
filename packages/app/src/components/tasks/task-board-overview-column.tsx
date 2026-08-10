@@ -5,12 +5,12 @@ import { ChevronRight } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Task } from "@getpaseo/protocol/tasks/types";
 import { HostStatusDot } from "@/components/host-status-dot";
-import { StatusBucketDot } from "@/components/status-bucket-dot";
 import type { AggregatedTaskBoard } from "@/tasks/aggregated-task-boards";
 import { formatTaskKey, selectOverviewTasks } from "@/tasks/task-views";
-import { aggregateSidebarStateBuckets } from "@/utils/sidebar-agent-state";
-import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { useTaskExecutionSummaries } from "@/tasks/use-task-execution";
+import { TaskExecutionSummary } from "./task-execution-summary";
+import type { TaskExecutionSummary as TaskExecutionSummaryModel } from "@/tasks/task-execution";
 
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -40,6 +40,7 @@ export function TaskBoardOverviewColumn({
 }: TaskBoardOverviewColumnProps): ReactElement {
   const { t } = useTranslation();
   const selection = useMemo(() => selectOverviewTasks(board?.tasks ?? []), [board?.tasks]);
+  const executionByTaskId = useTaskExecutionSummaries(project.serverId, selection.tasks);
   const testProjectId = board?.project.id ?? project.projectId;
   const emptyLabel = project.canOpen ? t("tasks.screen.empty") : t("tasks.screen.unsupported");
   const handleOpenBoard = useCallback(() => onOpenProject(), [onOpenProject]);
@@ -66,9 +67,9 @@ export function TaskBoardOverviewColumn({
         {selection.tasks.map((task) => (
           <OverviewTaskCard
             key={task.id}
-            serverId={project.serverId}
             prefix={board?.project.prefix ?? ""}
             task={task}
+            execution={executionByTaskId.get(task.id)}
             onPress={handleOpenTask}
           />
         ))}
@@ -99,23 +100,17 @@ export function TaskBoardOverviewColumn({
  * opens it, so there is nothing on the card that could do something else.
  */
 function OverviewTaskCard({
-  serverId,
   prefix,
   task,
+  execution,
   onPress,
 }: {
-  serverId: string;
   prefix: string;
   task: Task;
+  execution: TaskExecutionSummaryModel | undefined;
   onPress: (taskId: string) => void;
 }): ReactElement {
   const handlePress = useCallback(() => onPress(task.id), [onPress, task.id]);
-  const workspaceIds = useMemo(() => task.agents.map((link) => link.workspaceId), [task.agents]);
-  const statusByWorkspaceId = useWorkspaceStatusesByIds(serverId, workspaceIds);
-  const bucket =
-    statusByWorkspaceId.size === 0
-      ? null
-      : aggregateSidebarStateBuckets(statusByWorkspaceId.values());
 
   return (
     <Pressable
@@ -126,11 +121,11 @@ function OverviewTaskCard({
     >
       <View style={styles.cardHeader}>
         <Text style={styles.cardKey}>{formatTaskKey({ prefix }, task)}</Text>
-        {bucket ? <StatusBucketDot bucket={bucket} /> : null}
       </View>
       <Text style={styles.cardTitle} numberOfLines={2}>
         {task.title}
       </Text>
+      <TaskExecutionSummary summary={execution} compact />
     </Pressable>
   );
 }

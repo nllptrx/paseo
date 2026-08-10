@@ -8,7 +8,7 @@ import {
   type PressableStateCallbackType,
 } from "react-native";
 import { useTranslation } from "react-i18next";
-import { MessageSquare, MoreVertical, Paperclip } from "lucide-react-native";
+import { Link2, ListTree, MessageSquare, MoreVertical, Paperclip } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
   TASK_PRIORITIES,
@@ -25,8 +25,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
-import { StatusBucketDot } from "@/components/status-bucket-dot";
-import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
 import {
   formatTaskKey,
   groupSubtasksUnderParents,
@@ -34,7 +32,6 @@ import {
   partitionTaskLabels,
   resolveTaskLabels,
 } from "@/tasks/task-views";
-import { aggregateSidebarStateBuckets } from "@/utils/sidebar-agent-state";
 import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
 import {
   TASK_PRIORITY_LABEL_KEYS,
@@ -45,20 +42,26 @@ import {
   useTaskActions,
   type TaskBoardProps,
 } from "./task-board-parts";
+import { TaskExecutionSummary } from "./task-execution-summary";
+import type { TaskRelationshipSummary } from "@/tasks/task-views";
+import type { TaskExecutionSummary as TaskExecutionSummaryModel } from "@/tasks/task-execution";
 
 const ThemedMessageSquare = withUnistyles(MessageSquare);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedPaperclip = withUnistyles(Paperclip);
+const ThemedListTree = withUnistyles(ListTree);
+const ThemedLink = withUnistyles(Link2);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const SUBTASK_INDENT = SPACING[3];
 
 type TaskListProps = Pick<
   TaskBoardProps,
-  | "serverId"
   | "tasks"
   | "labels"
   | "projectsById"
+  | "executionByTaskId"
+  | "relationshipsByTaskId"
   | "onMoveTask"
   | "onOpenAgent"
   | "onOpenTask"
@@ -75,10 +78,11 @@ type TaskListProps = Pick<
 /** The get-bb-style working list for the same collection the board renders.
  * Status and priority are direct row controls; the overflow holds incidental actions. */
 export function TaskList({
-  serverId,
   tasks,
   labels,
   projectsById,
+  executionByTaskId,
+  relationshipsByTaskId,
   onMoveTask,
   onOpenAgent,
   onOpenTask,
@@ -146,12 +150,13 @@ export function TaskList({
       listChildren.push(
         <TaskListRow
           key={task.id}
-          serverId={serverId}
           task={task}
           depth={depth}
           compact={compactRows}
           labels={labels}
           project={projectsById.get(task.projectId)}
+          execution={executionByTaskId.get(task.id)}
+          relationships={relationshipsByTaskId.get(task.id)}
           onMoveToStatus={handleMoveToStatus}
           onSetPriority={onSetPriority}
           onOpenAgent={onOpenAgent}
@@ -201,12 +206,13 @@ function TaskStatusDot({ status }: { status: TaskStatus }): ReactElement {
 }
 
 function TaskListRow({
-  serverId,
   task,
   depth,
   compact,
   labels,
   project,
+  execution,
+  relationships,
   onMoveToStatus,
   onSetPriority,
   onOpenAgent,
@@ -215,12 +221,13 @@ function TaskListRow({
   onDeleteTask,
   onCreateWorkflowForTask,
 }: {
-  serverId: string;
   task: Task;
   depth: number;
   compact: boolean;
   labels: TaskListProps["labels"];
   project: TaskProject | undefined;
+  execution: TaskExecutionSummaryModel | undefined;
+  relationships: TaskRelationshipSummary | undefined;
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onSetPriority: TaskListProps["onSetPriority"];
   onOpenAgent: TaskListProps["onOpenAgent"];
@@ -241,15 +248,6 @@ function TaskListRow({
     ],
     [compact, depth],
   );
-  const workspaceIds = useMemo(() => task.agents.map((link) => link.workspaceId), [task.agents]);
-  const statusByWorkspaceId = useWorkspaceStatusesByIds(serverId, workspaceIds);
-  const bucket = useMemo(
-    () =>
-      statusByWorkspaceId.size === 0
-        ? null
-        : aggregateSidebarStateBuckets(statusByWorkspaceId.values()),
-    [statusByWorkspaceId],
-  );
   const taskLabels = useMemo(() => resolveTaskLabels(task, labels), [labels, task]);
   const partitionedLabels = useMemo(() => partitionTaskLabels(taskLabels, 2), [taskLabels]);
   const actions = useTaskActions({
@@ -269,16 +267,16 @@ function TaskListRow({
       <Pressable onPress={handleOpenTask} style={rowMainStyle} accessibilityRole="button">
         <View style={styles.identity}>
           <Text style={styles.key}>{formatTaskKey(project, task)}</Text>
-          {bucket ? <StatusBucketDot bucket={bucket} /> : null}
         </View>
         <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={1}>
           {task.title}
         </Text>
+        <TaskExecutionSummary summary={execution} compact={compact} />
         {!compact ? <TaskLabelChips labels={partitionedLabels.visible} /> : null}
         {!compact && partitionedLabels.hidden.length > 0 ? (
           <Text style={styles.moreLabels}>+{partitionedLabels.hidden.length}</Text>
         ) : null}
-        <TaskListCounts task={task} />
+        <TaskListCounts task={task} relationships={relationships} />
       </Pressable>
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -439,8 +437,23 @@ function TaskPriorityOption({
   );
 }
 
-function TaskListCounts({ task }: { task: Task }): ReactElement | null {
-  if (task.commentCount === 0 && task.attachments.length === 0) return null;
+function TaskListCounts({
+  task,
+  relationships,
+}: {
+  task: Task;
+  relationships: TaskRelationshipSummary | undefined;
+}): ReactElement | null {
+  const subtaskCount = relationships?.subtaskCount ?? 0;
+  const blockerCount = relationships?.blockerCount ?? 0;
+  if (
+    task.commentCount === 0 &&
+    task.attachments.length === 0 &&
+    subtaskCount === 0 &&
+    blockerCount === 0
+  ) {
+    return null;
+  }
   return (
     <View style={styles.counts}>
       {task.commentCount > 0 ? (
@@ -453,6 +466,18 @@ function TaskListCounts({ task }: { task: Task }): ReactElement | null {
         <View style={styles.count}>
           <ThemedPaperclip size={12} uniProps={mutedIconMapping} />
           <Text style={styles.countText}>{task.attachments.length}</Text>
+        </View>
+      ) : null}
+      {subtaskCount > 0 ? (
+        <View style={styles.count}>
+          <ThemedListTree size={12} uniProps={mutedIconMapping} />
+          <Text style={styles.countText}>{subtaskCount}</Text>
+        </View>
+      ) : null}
+      {blockerCount > 0 ? (
+        <View style={styles.count}>
+          <ThemedLink size={12} uniProps={mutedIconMapping} />
+          <Text style={styles.countText}>{blockerCount}</Text>
         </View>
       ) : null}
     </View>

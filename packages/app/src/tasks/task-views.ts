@@ -317,6 +317,36 @@ export interface TaskDependencyEdge {
   dependsOnTaskId: string;
 }
 
+export interface TaskRelationshipSummary {
+  subtaskCount: number;
+  blockerCount: number;
+}
+
+export function buildTaskRelationshipSummaries(input: {
+  tasks: readonly Task[];
+  dependencies: readonly TaskDependencyEdge[];
+}): ReadonlyMap<string, TaskRelationshipSummary> {
+  const summaries = new Map<string, TaskRelationshipSummary>();
+  const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
+  for (const task of input.tasks) {
+    summaries.set(task.id, { subtaskCount: 0, blockerCount: 0 });
+  }
+  for (const task of input.tasks) {
+    if (!task.parentTaskId) continue;
+    const parent = summaries.get(task.parentTaskId);
+    if (parent) parent.subtaskCount += 1;
+  }
+  for (const edge of input.dependencies) {
+    const blocker = tasksById.get(edge.dependsOnTaskId);
+    const summary = summaries.get(edge.taskId);
+    if (!blocker || !summary || blocker.status === "done" || blocker.status === "canceled") {
+      continue;
+    }
+    summary.blockerCount += 1;
+  }
+  return summaries;
+}
+
 /**
  * The tasks a card is still waiting on. A blocker that is done or canceled
  * stops blocking — canceled work is never going to arrive, and holding the

@@ -32,6 +32,8 @@ export function TaskBoard({
   tasks,
   labels,
   projectsById,
+  executionByTaskId,
+  relationshipsByTaskId,
   onMoveTask,
   onCreateTask,
   onOpenAgent,
@@ -88,6 +90,8 @@ export function TaskBoard({
             tasks={byStatus.get(active) ?? []}
             labels={labels}
             projectsById={projectsById}
+            executionByTaskId={executionByTaskId}
+            relationshipsByTaskId={relationshipsByTaskId}
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
             onOpenAgent={onOpenAgent}
@@ -116,6 +120,8 @@ export function TaskBoard({
           tasks={byStatus.get(status) ?? []}
           labels={labels}
           projectsById={projectsById}
+          executionByTaskId={executionByTaskId}
+          relationshipsByTaskId={relationshipsByTaskId}
           onMoveToStatus={handleMoveToStatus}
           onCreateTask={onCreateTask}
           onOpenAgent={onOpenAgent}

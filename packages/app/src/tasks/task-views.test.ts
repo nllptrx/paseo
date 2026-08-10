@@ -13,6 +13,7 @@ import {
   visibleBoardStatuses,
   selectOverviewTasks,
   selectBlockers,
+  buildTaskRelationshipSummaries,
   groupSubtasksUnderParents,
 } from "./task-views";
 
@@ -207,6 +208,28 @@ describe("resolveTaskLabels", () => {
   it("skips a label id the snapshot no longer knows", () => {
     const resolved = resolveTaskLabels({ labelIds: ["l1", "gone"] }, [label({ id: "l1" })]);
     expect(resolved.map((entry) => entry.id)).toEqual(["l1"]);
+  });
+});
+
+describe("buildTaskRelationshipSummaries", () => {
+  it("counts subtasks and open blockers without treating settled dependencies as blocked", () => {
+    const tasks = [
+      task({ id: "parent" }),
+      task({ id: "child-1", parentTaskId: "parent" }),
+      task({ id: "child-2", parentTaskId: "parent" }),
+      task({ id: "open-blocker", status: "in_progress" }),
+      task({ id: "done-blocker", status: "done" }),
+    ];
+    const summaries = buildTaskRelationshipSummaries({
+      tasks,
+      dependencies: [
+        { taskId: "parent", dependsOnTaskId: "open-blocker" },
+        { taskId: "parent", dependsOnTaskId: "done-blocker" },
+      ],
+    });
+
+    expect(summaries.get("parent")).toEqual({ subtaskCount: 2, blockerCount: 1 });
+    expect(summaries.get("child-1")).toEqual({ subtaskCount: 0, blockerCount: 0 });
   });
 });
 

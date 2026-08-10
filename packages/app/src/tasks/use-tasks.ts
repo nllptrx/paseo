@@ -149,6 +149,12 @@ export interface UseTaskMutationsResult {
     parentTaskId?: string | null;
     executionPolicy?: TaskExecutionPolicy;
   }) => Promise<string>;
+  attachAgent: (input: {
+    taskId: string;
+    agentId: string;
+    workspaceId: string;
+    presetId?: string | null;
+  }) => Promise<Task>;
   moveTask: (input: TaskMovePatch) => Promise<void>;
   reviewTask: (input: {
     taskId: string;
@@ -231,6 +237,17 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
         throw new Error(payload.error ?? "The host created no task");
       }
       return payload.task.id;
+    },
+    onSettled: invalidate,
+  });
+
+  const attachAgent = useMutation({
+    mutationFn: async (input: Parameters<DaemonClient["tasksAgentAttach"]>[0]) => {
+      const payload = await require().tasksAgentAttach(input);
+      if (payload.error || !payload.task) {
+        throw new Error(payload.error ?? "The host returned no updated task");
+      }
+      return payload.task;
     },
     onSettled: invalidate,
   });
@@ -343,6 +360,7 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
     clearWorkflow: (taskId) => clearWorkflow.mutateAsync(taskId),
     runStep: (input) => runStep.mutateAsync(input),
     createTask: (input) => createTask.mutateAsync(input),
+    attachAgent: (input) => attachAgent.mutateAsync(input),
     moveTask: (input) => move.mutateAsync(input),
     reviewTask: (input) => review.mutateAsync(input),
     updateTask: (input) => update.mutateAsync(input),
@@ -353,6 +371,7 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
     isBusy:
       createProject.isPending ||
       createTask.isPending ||
+      attachAgent.isPending ||
       update.isPending ||
       move.isPending ||
       review.isPending ||

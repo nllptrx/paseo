@@ -56,6 +56,20 @@ describe("openNewTaskForm", () => {
     expect(model.getState().projectId).toBe("tp_1");
   });
 
+  it("can prefill a title for a task captured from existing work", () => {
+    const model = openNewTaskForm({
+      serverId: "srv",
+      project,
+      paseoProjectId: "proj-1",
+      suggestedProjectName: "Paseo Mobile",
+      initialStatus: "todo",
+      initialTitle: "Investigate flaky sync",
+    });
+
+    expect(model.getState().title).toBe("Investigate flaky sync");
+    expect(model.getState().canSubmit).toBe(true);
+  });
+
   it("seeds project fields from the suggestion when the capture must create one", () => {
     const model = openWithProject(null);
     const state = model.getState();

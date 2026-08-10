@@ -3,13 +3,14 @@ import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Kanban, ListTodo } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
-import type { Task, TaskStatus } from "@getpaseo/protocol/tasks/types";
+import type { Task, TaskProject, TaskSnapshot, TaskStatus } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/contexts/toast-context";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import {
   filterTasks,
+  buildTaskRelationshipSummaries,
   selectBlockers,
   selectProjectBoard,
   selectTrackerProjectBoard,
@@ -32,6 +33,9 @@ import {
 } from "@/stores/task-surface-preferences-store";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { TaskDetailSheet } from "./task-detail-sheet";
+import { useTaskExecutionSummaries, useUntrackedTaskExecutions } from "@/tasks/use-task-execution";
+import type { TaskExecutionEntry } from "@/tasks/task-execution";
+import { UntrackedTaskWork } from "./untracked-task-work";
 
 const EMPTY_DEPENDENCIES: TaskDependencyEdge[] = [];
 const EMPTY_WORKFLOWS: TaskWorkflow[] = [];
@@ -111,10 +115,11 @@ export function TaskBoardSurface({
   const toast = useToast();
   const supported = useTasksSupported(serverId);
   const { snapshot, isLoading, isError, error, refetch } = useTasks(serverId);
-  const { moveTask, reviewTask, deleteTask, setPriority } = useTaskMutations(serverId);
+  const { moveTask, reviewTask, deleteTask, setPriority, attachAgent } = useTaskMutations(serverId);
   const { act } = useTaskStepActions(serverId);
   const [selectedColumn, setSelectedColumn] = useState<TaskStatus>("backlog");
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
+  const [capturingAgent, setCapturingAgent] = useState<TaskExecutionEntry | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const board = useMemo(
@@ -133,6 +138,20 @@ export function TaskBoardSurface({
   const visibleTasks = useMemo(
     () => selectVisibleBoardTasks(board, preferences),
     [board, preferences],
+  );
+  const executionByTaskId = useTaskExecutionSummaries(serverId, board.tasks);
+  const untrackedExecutions = useUntrackedTaskExecutions(
+    serverId,
+    paseoProjectId,
+    snapshot?.tasks ?? [],
+  );
+  const relationshipsByTaskId = useMemo(
+    () =>
+      buildTaskRelationshipSummaries({
+        tasks: board.tasks,
+        dependencies: snapshot?.dependencies ?? EMPTY_DEPENDENCIES,
+      }),
+    [board.tasks, snapshot?.dependencies],
   );
   const isReorderDisabled = hasActiveTaskProjection(preferences);
   // The board as it is now, for continuations that resolve after a request and
@@ -177,7 +196,10 @@ export function TaskBoardSurface({
     (scrollOffset: number) => patchPreferences(preferenceScope, { scrollOffset }),
     [patchPreferences, preferenceScope],
   );
-  const handleCreateBacklogTask = useCallback(() => setCapturingStatus("backlog"), []);
+  const handleCreateBacklogTask = useCallback(() => {
+    setCapturingAgent(null);
+    setCapturingStatus("backlog");
+  }, []);
   const handleSetPriority = useCallback(
     (input: Parameters<typeof setPriority>[0]) => {
       void setPriority(input).catch((priorityError) => toast.show(toErrorMessage(priorityError)));
@@ -256,8 +278,37 @@ export function TaskBoardSurface({
   );
 
   const handleCreateTask = useCallback((status: TaskStatus) => {
+    setCapturingAgent(null);
     setCapturingStatus(status);
   }, []);
+
+  const handleCreateTaskFromAgent = useCallback((entry: TaskExecutionEntry) => {
+    setCapturingAgent(entry);
+    setCapturingStatus("in_progress");
+  }, []);
+
+  const handleAttachTask = useCallback(
+    async (input: { taskId: string; agentId: string; workspaceId: string }) => {
+      try {
+        await attachAgent(input);
+      } catch (attachError) {
+        toast.show(toErrorMessage(attachError));
+      }
+    },
+    [attachAgent, toast],
+  );
+
+  const handleAttachCreatedTask = useCallback(
+    (taskId: string) => {
+      if (!capturingAgent) return;
+      void handleAttachTask({
+        taskId,
+        agentId: capturingAgent.agentId,
+        workspaceId: capturingAgent.workspaceId,
+      });
+    },
+    [capturingAgent, handleAttachTask],
+  );
 
   const handleReviewTask = useCallback(
     (input: { taskId: string; verdict: "approve" | "reject"; feedback?: string }) => {
@@ -310,7 +361,10 @@ export function TaskBoardSurface({
     },
     [serverId],
   );
-  const handleCloseCapture = useCallback(() => setCapturingStatus(null), []);
+  const handleCloseCapture = useCallback(() => {
+    setCapturingStatus(null);
+    setCapturingAgent(null);
+  }, []);
   // Editing a workflow closes the card it belongs to: the editor is a sheet of
   // its own, and two stacked sheets leave no obvious way back.
   const handleEditWorkflow = useCallback(
@@ -369,12 +423,22 @@ export function TaskBoardSurface({
         onCreateTask={handleCreateBacklogTask}
         reorderDisabled={isReorderDisabled}
       />
+      <UntrackedTaskWork
+        entries={untrackedExecutions}
+        tasks={board.tasks}
+        projectsById={projectsById}
+        onOpenAgent={handleOpenAgent}
+        onCreateTask={handleCreateTaskFromAgent}
+        onAttachTask={handleAttachTask}
+      />
       {preferences.view === "kanban" ? (
         <TaskBoard
           serverId={serverId}
           tasks={visibleTasks}
           labels={board.labels}
           projectsById={projectsById}
+          executionByTaskId={executionByTaskId}
+          relationshipsByTaskId={relationshipsByTaskId}
           onMoveTask={handleMoveTask}
           onCreateTask={handleCreateTask}
           onOpenAgent={handleOpenAgent}
@@ -388,13 +452,14 @@ export function TaskBoardSurface({
         />
       ) : (
         <TaskList
-          serverId={serverId}
           tasks={visibleTasks}
           totalCount={board.tasks.length}
           initialScrollOffset={preferences.scrollOffset ?? 0}
           onScrollOffsetChange={handleScrollOffsetChange}
           labels={board.labels}
           projectsById={projectsById}
+          executionByTaskId={executionByTaskId}
+          relationshipsByTaskId={relationshipsByTaskId}
           onMoveTask={handleMoveTask}
           onOpenAgent={handleOpenAgent}
           onOpenTask={handleOpenTask}
@@ -404,29 +469,104 @@ export function TaskBoardSurface({
           onCreateWorkflowForTask={onCreateWorkflowForTask}
         />
       )}
-      {capturingStatus ? (
-        <NewTaskSheet
-          serverId={serverId}
-          project={board.projects[0] ?? null}
-          paseoProjectId={paseoProjectId}
-          suggestedProjectName={projectDisplayName}
-          initialStatus={capturingStatus}
-          onCreated={onCreateWorkflowForTask}
-          onClose={handleCloseCapture}
-        />
-      ) : null}
-      <TaskDetailSheet
+      <TaskCaptureSheet
         serverId={serverId}
-        taskId={openTaskId}
+        project={board.projects[0] ?? null}
+        paseoProjectId={paseoProjectId}
+        projectDisplayName={projectDisplayName}
+        status={capturingStatus}
+        agent={capturingAgent}
+        onTaskCreated={handleAttachCreatedTask}
+        onCreateWorkflowForTask={onCreateWorkflowForTask}
+        onClose={handleCloseCapture}
+      />
+      <SurfaceTaskDetail
+        serverId={serverId}
+        openTaskId={openTaskId}
+        snapshot={snapshot}
         tasks={board.tasks}
         labels={board.labels}
         projectsById={projectsById}
-        dependencies={snapshot?.dependencies ?? EMPTY_DEPENDENCIES}
-        workflows={snapshot?.workflows ?? EMPTY_WORKFLOWS}
+        executionByTaskId={executionByTaskId}
         onEditWorkflow={handleEditWorkflow}
         onClose={handleCloseTask}
       />
     </>
+  );
+}
+
+function TaskCaptureSheet({
+  serverId,
+  project,
+  paseoProjectId,
+  projectDisplayName,
+  status,
+  agent,
+  onTaskCreated,
+  onCreateWorkflowForTask,
+  onClose,
+}: {
+  serverId: string;
+  project: TaskProject | null;
+  paseoProjectId: string;
+  projectDisplayName: string;
+  status: TaskStatus | null;
+  agent: TaskExecutionEntry | null;
+  onTaskCreated: (taskId: string) => void;
+  onCreateWorkflowForTask?: TaskBoardSurfaceProps["onCreateWorkflowForTask"];
+  onClose: () => void;
+}): ReactElement | null {
+  if (!status) return null;
+  return (
+    <NewTaskSheet
+      serverId={serverId}
+      project={project}
+      paseoProjectId={paseoProjectId}
+      suggestedProjectName={projectDisplayName}
+      initialStatus={status}
+      initialTitle={agent?.title?.trim() || agent?.workspaceName}
+      onTaskCreated={agent ? onTaskCreated : undefined}
+      onCreated={onCreateWorkflowForTask}
+      onClose={onClose}
+    />
+  );
+}
+
+function SurfaceTaskDetail({
+  serverId,
+  openTaskId,
+  snapshot,
+  tasks,
+  labels,
+  projectsById,
+  executionByTaskId,
+  onEditWorkflow,
+  onClose,
+}: {
+  serverId: string;
+  openTaskId: string | null;
+  snapshot: TaskSnapshot | null;
+  tasks: readonly Task[];
+  labels: ProjectBoardSelection["labels"];
+  projectsById: ReadonlyMap<string, TaskProject>;
+  executionByTaskId: ReturnType<typeof useTaskExecutionSummaries>;
+  onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
+  onClose: () => void;
+}): ReactElement {
+  const executionSummary = openTaskId ? executionByTaskId.get(openTaskId) : undefined;
+  return (
+    <TaskDetailSheet
+      serverId={serverId}
+      taskId={openTaskId}
+      tasks={tasks}
+      labels={labels}
+      projectsById={projectsById}
+      dependencies={snapshot?.dependencies ?? EMPTY_DEPENDENCIES}
+      workflows={snapshot?.workflows ?? EMPTY_WORKFLOWS}
+      executionSummary={executionSummary}
+      onEditWorkflow={onEditWorkflow}
+      onClose={onClose}
+    />
   );
 }
 

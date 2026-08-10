@@ -45,6 +45,7 @@ export interface NewTaskFormSnapshot {
   paseoProjectId: string | null;
   suggestedProjectName: string;
   initialStatus: TaskStatus;
+  initialTitle?: string;
 }
 
 export interface NewTaskFormState {
@@ -100,7 +101,7 @@ export function openNewTaskForm(snapshot: NewTaskFormSnapshot): NewTaskFormModel
     paseoProjectId: snapshot.paseoProjectId,
     initialStatus: snapshot.initialStatus,
     needsProject,
-    title: "",
+    title: snapshot.initialTitle ?? "",
     projectName: needsProject ? snapshot.suggestedProjectName : (snapshot.project?.name ?? ""),
     prefix: needsProject
       ? suggestTaskProjectPrefix(snapshot.suggestedProjectName)

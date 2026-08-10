@@ -105,6 +105,8 @@ export function TaskBoard({
   tasks,
   labels,
   projectsById,
+  executionByTaskId,
+  relationshipsByTaskId,
   onMoveTask,
   onCreateTask,
   onOpenAgent,
@@ -251,6 +253,8 @@ export function TaskBoard({
             tasks={byStatus.get(active) ?? []}
             labels={labels}
             projectsById={projectsById}
+            executionByTaskId={executionByTaskId}
+            relationshipsByTaskId={relationshipsByTaskId}
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
             onOpenAgent={onOpenAgent}
@@ -286,6 +290,8 @@ export function TaskBoard({
             tasks={byStatus.get(status) ?? []}
             labels={labels}
             projectsById={projectsById}
+            executionByTaskId={executionByTaskId}
+            relationshipsByTaskId={relationshipsByTaskId}
             onMoveToStatus={handleMoveToStatus}
             onCreateTask={onCreateTask}
             onOpenAgent={handleOpenAgent}
@@ -304,6 +310,8 @@ export function TaskBoard({
             serverId={serverId}
             task={activeTask}
             project={projectsById.get(activeTask.projectId)}
+            execution={executionByTaskId.get(activeTask.id)}
+            relationships={relationshipsByTaskId.get(activeTask.id)}
             labels={labels}
             onMoveToStatus={handleMoveToStatus}
             onOpenAgent={handleOpenAgent}
@@ -328,6 +336,8 @@ function DroppableTaskColumn({
   tasks,
   labels,
   projectsById,
+  executionByTaskId,
+  relationshipsByTaskId,
   onMoveToStatus,
   onCreateTask,
   onOpenAgent,
@@ -343,6 +353,8 @@ function DroppableTaskColumn({
   tasks: readonly Task[];
   labels: TaskBoardProps["labels"];
   projectsById: TaskBoardProps["projectsById"];
+  executionByTaskId: TaskBoardProps["executionByTaskId"];
+  relationshipsByTaskId: TaskBoardProps["relationshipsByTaskId"];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onCreateTask: (status: TaskStatus) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
@@ -378,6 +390,8 @@ function DroppableTaskColumn({
         tasks={tasks}
         labels={labels}
         projectsById={projectsById}
+        executionByTaskId={executionByTaskId}
+        relationshipsByTaskId={relationshipsByTaskId}
         onMoveToStatus={onMoveToStatus}
         onCreateTask={onCreateTask}
         onOpenAgent={onOpenAgent}

@@ -18,6 +18,10 @@ export interface NewTaskSheetProps {
   paseoProjectId: string | null;
   suggestedProjectName: string;
   initialStatus: TaskStatus;
+  /** Prefills capture when an existing standalone agent becomes a task. */
+  initialTitle?: string;
+  /** Runs after either capture action creates the task. */
+  onTaskCreated?: (taskId: string) => void;
   /** Called instead of closing empty-handed when the capture asked to plan the
    * work: the board opens the workflow editor on the task just made. */
   onCreated?: (taskId: string) => void;
@@ -44,14 +48,23 @@ function OpenNewTaskSheet({
   paseoProjectId,
   suggestedProjectName,
   initialStatus,
+  initialTitle,
+  onTaskCreated,
   onCreated,
   onClose,
 }: NewTaskSheetProps): ReactElement {
   const { t } = useTranslation();
   const { createProject, createTask } = useTaskMutations(serverId);
   const snapshot = useMemo(
-    () => ({ serverId, project, paseoProjectId, suggestedProjectName, initialStatus }),
-    [initialStatus, paseoProjectId, project, serverId, suggestedProjectName],
+    () => ({
+      serverId,
+      project,
+      paseoProjectId,
+      suggestedProjectName,
+      initialStatus,
+      initialTitle,
+    }),
+    [initialStatus, initialTitle, paseoProjectId, project, serverId, suggestedProjectName],
   );
   const model = useNewTaskFormModel(snapshot);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
@@ -81,6 +94,7 @@ function OpenNewTaskSheet({
           status: current.initialStatus,
         });
         onClose();
+        onTaskCreated?.(taskId);
         if (thenAddWorkflow) {
           onCreated?.(taskId);
         }
@@ -88,7 +102,7 @@ function OpenNewTaskSheet({
         model.setSubmitError(toErrorMessage(error));
       }
     },
-    [createProject, createTask, model, onClose, onCreated],
+    [createProject, createTask, model, onClose, onCreated, onTaskCreated],
   );
 
   const handleCapturePress = useCallback(() => {

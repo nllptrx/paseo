@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type ReactElement } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { MessageSquare, MoreVertical, Paperclip, Plus } from "lucide-react-native";
+import { Link2, ListTree, MessageSquare, MoreVertical, Paperclip, Plus } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type {
   Task,
@@ -24,16 +24,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { StatusBucketDot } from "@/components/status-bucket-dot";
-import { useWorkspaceStatusesByIds } from "@/stores/session-store-hooks";
 import { useTaskLacksPlan } from "@/tasks/use-tasks";
-import { formatTaskKey, groupSubtasksUnderParents, resolveTaskLabels } from "@/tasks/task-views";
-import { aggregateSidebarStateBuckets, type SidebarStateBucket } from "@/utils/sidebar-agent-state";
+import {
+  formatTaskKey,
+  groupSubtasksUnderParents,
+  resolveTaskLabels,
+  type TaskRelationshipSummary,
+} from "@/tasks/task-views";
 import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
+import type { TaskExecutionSummary as TaskExecutionSummaryModel } from "@/tasks/task-execution";
+import { TaskExecutionSummary } from "./task-execution-summary";
 
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedMessageSquare = withUnistyles(MessageSquare);
 const ThemedPaperclip = withUnistyles(Paperclip);
+const ThemedListTree = withUnistyles(ListTree);
+const ThemedLink = withUnistyles(Link2);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const foregroundIconMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 
@@ -176,6 +182,8 @@ export interface TaskBoardProps {
   tasks: readonly Task[];
   labels: readonly TaskLabel[];
   projectsById: ReadonlyMap<string, TaskProject>;
+  executionByTaskId: ReadonlyMap<string, TaskExecutionSummaryModel>;
+  relationshipsByTaskId: ReadonlyMap<string, TaskRelationshipSummary>;
   onMoveTask: (move: TaskBoardMove) => void;
   /** The column's own "+" captures straight into that status. */
   onCreateTask: (status: TaskStatus) => void;
@@ -243,6 +251,8 @@ export function TaskColumn({
   tasks,
   labels,
   projectsById,
+  executionByTaskId,
+  relationshipsByTaskId,
   onMoveToStatus,
   onCreateTask,
   onOpenAgent,
@@ -259,6 +269,8 @@ export function TaskColumn({
   tasks: readonly Task[];
   labels: readonly TaskLabel[];
   projectsById: ReadonlyMap<string, TaskProject>;
+  executionByTaskId: TaskBoardProps["executionByTaskId"];
+  relationshipsByTaskId: TaskBoardProps["relationshipsByTaskId"];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onCreateTask: (status: TaskStatus) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
@@ -308,6 +320,8 @@ export function TaskColumn({
                 task={task}
                 depth={depth}
                 project={projectsById.get(task.projectId)}
+                execution={executionByTaskId.get(task.id)}
+                relationships={relationshipsByTaskId.get(task.id)}
                 labels={labels}
                 onMoveToStatus={onMoveToStatus}
                 onOpenAgent={onOpenAgent}
@@ -334,6 +348,8 @@ export function TaskCard({
   serverId,
   task,
   project,
+  execution,
+  relationships,
   labels,
   onMoveToStatus,
   onOpenAgent,
@@ -351,6 +367,8 @@ export function TaskCard({
    * column. Indent only — a subtask is a task in every other respect. */
   depth?: number;
   project: TaskProject | undefined;
+  execution: TaskExecutionSummaryModel | undefined;
+  relationships: TaskRelationshipSummary | undefined;
   labels: readonly TaskLabel[];
   onMoveToStatus: (input: { taskId: string; status: TaskStatus }) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
@@ -366,15 +384,6 @@ export function TaskCard({
 }): ReactElement {
   const { t } = useTranslation();
   const taskLabels = resolveTaskLabels(task, labels);
-  const workspaceIds = useMemo(() => task.agents.map((link) => link.workspaceId), [task.agents]);
-  const statusByWorkspaceId = useWorkspaceStatusesByIds(serverId, workspaceIds);
-  // Derived and live, beside the status you set rather than merged into it.
-  const bucket = useMemo<SidebarStateBucket | null>(() => {
-    if (statusByWorkspaceId.size === 0) {
-      return null;
-    }
-    return aggregateSidebarStateBuckets(statusByWorkspaceId.values());
-  }, [statusByWorkspaceId]);
   const handlePress = useCallback(() => {
     onOpenTask?.(task.id);
   }, [onOpenTask, task.id]);
@@ -413,7 +422,6 @@ export function TaskCard({
             {t(TASK_PRIORITY_LABEL_KEYS[task.priority])}
           </Text>
         ) : null}
-        {bucket ? <StatusBucketDot bucket={bucket} /> : null}
         {isOverlay ? null : (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -446,8 +454,9 @@ export function TaskCard({
       <Text style={styles.cardTitle} numberOfLines={3}>
         {task.title}
       </Text>
+      <TaskExecutionSummary summary={execution} />
       <TaskLabelChips labels={taskLabels} />
-      <TaskCardCounts task={task} />
+      <TaskCardCounts task={task} relationships={relationships} />
       {lacksPlan && onCreateWorkflowForTask && !isOverlay ? (
         <Button
           variant="ghost"
@@ -509,8 +518,21 @@ export function TaskCard({
 /** Comments and attachments, counted on the card. A card that has been argued
  * over for twenty messages looks different from one nobody has touched, and
  * that difference is worth a glance rather than a click. */
-function TaskCardCounts({ task }: { task: Task }): ReactElement | null {
-  if (task.commentCount === 0 && task.attachments.length === 0) {
+function TaskCardCounts({
+  task,
+  relationships,
+}: {
+  task: Task;
+  relationships: TaskRelationshipSummary | undefined;
+}): ReactElement | null {
+  const subtaskCount = relationships?.subtaskCount ?? 0;
+  const blockerCount = relationships?.blockerCount ?? 0;
+  if (
+    task.commentCount === 0 &&
+    task.attachments.length === 0 &&
+    subtaskCount === 0 &&
+    blockerCount === 0
+  ) {
     return null;
   }
   return (
@@ -525,6 +547,22 @@ function TaskCardCounts({ task }: { task: Task }): ReactElement | null {
         <View style={styles.count}>
           <ThemedPaperclip size={12} uniProps={mutedIconMapping} />
           <Text style={styles.countText}>{task.attachments.length}</Text>
+        </View>
+      ) : null}
+      {subtaskCount > 0 ? (
+        <View style={styles.count}>
+          <ThemedListTree size={12} uniProps={mutedIconMapping} />
+          <Text style={styles.countText}>
+            {subtaskCount} {subtaskCount === 1 ? "subtask" : "subtasks"}
+          </Text>
+        </View>
+      ) : null}
+      {blockerCount > 0 ? (
+        <View style={styles.count}>
+          <ThemedLink size={12} uniProps={mutedIconMapping} />
+          <Text style={styles.countText}>
+            {blockerCount} {blockerCount === 1 ? "blocker" : "blockers"}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -657,6 +695,7 @@ const styles = StyleSheet.create((theme) => ({
   counts: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: theme.spacing[3],
   },
   addPlan: {
