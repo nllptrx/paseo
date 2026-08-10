@@ -52,11 +52,16 @@ export interface SheetHeaderBack {
 
 export interface SheetHeader {
   title: string;
+  /** Optional editable or otherwise richer title content. The plain title is
+   * still required for compact inline headers and accessibility fallbacks. */
+  titleContent?: ReactNode;
   subtitle?: ReactNode;
   back?: SheetHeaderBack;
   leading?: ReactNode;
   actions?: ReactNode;
   search?: SheetHeaderSearch;
+  /** Persistent controls rendered below the header row and above sheet content. */
+  after?: ReactNode;
 }
 
 const ABSOLUTE_FILL_STYLE = { ...StyleSheet.absoluteFillObject };
@@ -378,9 +383,11 @@ export function SheetHeaderView({
         ) : null}
         {header.leading ? <View style={styles.headerLeadingSlot}>{header.leading}</View> : null}
         <View style={styles.headerTitleGroup}>
-          <Text style={titleStyle} numberOfLines={1}>
-            {header.title}
-          </Text>
+          {header.titleContent ?? (
+            <Text style={titleStyle} numberOfLines={1}>
+              {header.title}
+            </Text>
+          )}
           {typeof header.subtitle === "string" || typeof header.subtitle === "number" ? (
             <Text style={styles.subtitle} numberOfLines={1}>
               {header.subtitle}
@@ -422,6 +429,7 @@ export function SheetHeaderView({
           />
         </View>
       ) : null}
+      {header.after}
     </View>
   );
 }
