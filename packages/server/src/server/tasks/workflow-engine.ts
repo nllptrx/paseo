@@ -140,6 +140,14 @@ interface AgentTarget {
 // Tracks the agents still in flight for one running StepRun so fan-out
 // completion ("all agents settled") can be detected without polling. One
 // tracker per run, discarded once the run reaches a terminal status.
+/** The run a retry follows. The same conversation continues in the same
+ * checkout when it still can: the agent that did the work holds the context a
+ * fresh chat would have to re-derive. */
+interface ResumeFromRun {
+  agentIds: string[];
+  error: string | null;
+}
+
 interface RunTracker {
   identifier: TaskStepIdentifier;
   runId: string;
@@ -606,7 +614,10 @@ export class TaskWorkflowEngine {
     if (!latest || !RETRYABLE_RUN_STATUSES.has(latest.status)) {
       throw new Error(`Step ${step.id} has no failed, canceled, or interrupted run to retry`);
     }
-    return this.dispatchRun(identifier, steps, stepIndex, latest.workspaceIds);
+    return this.dispatchRun(identifier, steps, stepIndex, latest.workspaceIds, {
+      agentIds: latest.agentIds,
+      error: latest.error,
+    });
   }
 
   async skipStep(identifier: TaskStepIdentifier): Promise<Step> {
@@ -1899,21 +1910,70 @@ export class TaskWorkflowEngine {
     );
   }
 
+  /**
+   * Continues the previous run's conversation for one agent slot. Null when
+   * there is nothing to resume — no prior run, no resume support, no agent for
+   * this slot, or an agent that can no longer take a prompt — and the caller
+   * falls back to creating a fresh one.
+   */
+  private async tryResumeRunAgent(
+    resumeFrom: ResumeFromRun | null,
+    agentIndex: number,
+    stepPrompt: string,
+  ): Promise<string | null> {
+    if (!resumeFrom || !this.resumeAgent) {
+      return null;
+    }
+    const agentId = resumeFrom.agentIds[agentIndex];
+    if (!agentId) {
+      return null;
+    }
+    const reason = resumeFrom.error ? `it failed:\n${resumeFrom.error}` : "it did not finish";
+    const prompt = [
+      `This step is being retried because ${reason}`,
+      "",
+      "You already worked on this step in this same workspace. Address what stopped it and finish the step. The step asked for:",
+      "",
+      stepPrompt,
+    ].join("\n");
+    try {
+      await this.resumeAgent({ agentId, prompt });
+      return agentId;
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId },
+        "Could not resume the previous run's agent; starting a fresh one",
+      );
+      return null;
+    }
+  }
+
   private async dispatchRun(
     identifier: TaskStepIdentifier,
     steps: Step[],
     stepIndex: number,
     reuseWorkspaceIds: string[] | null,
+    resumeFrom: ResumeFromRun | null = null,
   ): Promise<Step> {
     await this.taskService.assertTaskClaimable(identifier.taskId);
     await this.taskService.assertTaskExecutable(identifier.taskId);
     if (!this.hasFreeSlot()) {
+      // The queue row keeps only the workspaces: a retry that waits for a slot
+      // starts fresh agents there rather than resuming a conversation that has
+      // meanwhile gone stale.
       return this.enqueueRun(identifier, reuseWorkspaceIds);
     }
     const runId = randomUUID();
     this.reservedRunIds.add(runId);
     try {
-      return await this.dispatchReservedRun(identifier, steps, stepIndex, reuseWorkspaceIds, runId);
+      return await this.dispatchReservedRun(
+        identifier,
+        steps,
+        stepIndex,
+        reuseWorkspaceIds,
+        runId,
+        resumeFrom,
+      );
     } finally {
       this.reservedRunIds.delete(runId);
     }
@@ -1925,6 +1985,7 @@ export class TaskWorkflowEngine {
     stepIndex: number,
     reuseWorkspaceIds: string[] | null,
     runId: string,
+    resumeFrom: ResumeFromRun | null = null,
   ): Promise<Step> {
     const step = steps[stepIndex];
     const prompts = await Promise.all(
@@ -1949,6 +2010,11 @@ export class TaskWorkflowEngine {
     for (let i = 0; i < step.agents.length; i++) {
       const spec = step.agents[i];
       const target = targets.length === 1 ? targets[0] : targets[i];
+      const resumedAgentId = await this.tryResumeRunAgent(resumeFrom, i, step.prompt);
+      if (resumedAgentId) {
+        agentIds.push(resumedAgentId);
+        continue;
+      }
       try {
         const created = await this.createAgent({
           kind: "mcp",

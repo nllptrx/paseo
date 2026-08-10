@@ -456,6 +456,52 @@ describe("TaskWorkflowEngine", () => {
     expect(retried.runs[1].workspaceIds).toEqual(["ws_shared"]);
   });
 
+  /** The agent that did the work holds the context a fresh chat would have to
+   * re-derive, so a retry continues that conversation with the failure. */
+  test("retry resumes the failed run's agent instead of opening a new chat", async () => {
+    const resumes: Array<{ agentId: string; prompt: string }> = [];
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      resumeAgent: async (input) => {
+        resumes.push(input);
+      },
+    });
+    const { taskId, stepIds } = await seedWorkflow([makeStepInput()]);
+    const running = await engine.runStep({ taskId, stepId: stepIds[0] });
+    const agentId = running.runs[0].agentIds[0];
+    agentManager.setLifecycle(agentId, "running");
+    agentManager.setLifecycle(agentId, "error");
+    await waitFor(async () => (await getStep(taskId))?.runs[0]?.status === "failed");
+
+    const createdBefore = createdAgentPrompts.length;
+    const retried = await engine.retryStep({ taskId, stepId: stepIds[0] });
+    expect(retried.runs[1].agentIds).toEqual([agentId]);
+    expect(createdAgentPrompts).toHaveLength(createdBefore);
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0].agentId).toBe(agentId);
+    expect(resumes[0].prompt).toContain("retried");
+  });
+
+  /** An agent that can no longer take a prompt must not strand the retry. */
+  test("retry falls back to a fresh agent when the resume fails", async () => {
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      resumeAgent: async () => {
+        throw new Error("agent is gone");
+      },
+    });
+    const { taskId, stepIds } = await seedWorkflow([makeStepInput()]);
+    const running = await engine.runStep({ taskId, stepId: stepIds[0] });
+    const agentId = running.runs[0].agentIds[0];
+    agentManager.setLifecycle(agentId, "running");
+    agentManager.setLifecycle(agentId, "error");
+    await waitFor(async () => (await getStep(taskId))?.runs[0]?.status === "failed");
+
+    const retried = await engine.retryStep({ taskId, stepId: stepIds[0] });
+    expect(retried.runs[1].agentIds).toHaveLength(1);
+    expect(retried.runs[1].agentIds[0]).not.toBe(agentId);
+  });
+
   test("skip opens the gate for the next step without running an agent", async () => {
     const { taskId, stepIds } = await seedWorkflow([
       makeStepInput({ name: "Step 1" }),
