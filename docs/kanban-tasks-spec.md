@@ -139,6 +139,17 @@ rejected, agent attached, agent stalled — and three consumers: the feed room
 post (§6), the `tasks.update` push, and the daemon rules (§6.1). Today those
 are independent writes from different call sites, which is how they drift.
 
+An event is typed data, not prose: a kind plus its references (task, agent,
+verdict, cause), stored on the feed entry. The feed renders the sentence from
+the event; every reader — the aggregate reviewer collecting child verdicts,
+`get_task_context` (§4.1), the daemon rules — reads the kind, never the
+wording. Matching feed prose to find a verdict is the failure mode this
+section exists to end.
+
+The bus comes first in the awareness work (§4.1): the agent layer reads the
+feed as the machine's history, and a history assembled from ad-hoc prose
+cannot be projected reliably.
+
 ## 3. Automatic transitions [SHIPPED]
 
 `packages/server/src/server/tasks/transitions.ts`, unit-tested:
@@ -233,7 +244,8 @@ one-move undo is what prevents it.
 An agent the tracker dispatches works inside a machine it cannot see: statuses
 move when it stops, gates open when siblings settle, review judges what it
 integrated. Today it receives a task key and a prompt; everything else it has
-to guess. Three pieces close that:
+to guess. Three pieces close that, and they sit on the event bus: §2.4 lands
+first, so the history the agent layer reads is typed events, not prose.
 
 - **The briefing.** Every task-dispatched agent — worker, reviewer, corrector,
   preset delegate, scheduled step — gets one standard prompt preamble, built
@@ -249,12 +261,15 @@ to guess. Three pieces close that:
   effective review policy, and the tail of the task's feed. Prompt text goes
   stale the moment a sibling moves; a tool the agent calls at turn start does
   not.
-- **`notify_task`.** Cross-task signalling stays board-mediated (§6.1 stands:
-  no agent-to-agent bus). The tool posts to another task's feed and, when
-  asked, delivers to that task's attached agents through the existing message
-  machinery (§6) — recipient snapshot, delivery outcomes, visible on the
-  board. A worker that finds a blocking defect in a sibling's area says so on
-  the sibling's card, where a person can see it, not in a private channel.
+- **`comment_task` gains `deliver`.** Cross-task signalling stays
+  board-mediated (§6.1 stands: no agent-to-agent bus) and earns no new tool:
+  posting on a card is what `comment_task` already does, on any card in the
+  project. The optional `deliver` flag hands the entry to the target task's
+  attached agents through the one write primitive (§6) — recipient snapshot,
+  delivery outcomes, visible on the board. A worker that finds a blocking
+  defect in a sibling's area says so on the sibling's card, where a person can
+  see it, not in a private channel. The briefing reserves delivery for what
+  blocks or invalidates the recipient's work.
 
 Awareness is pull, not push: the daemon never interrupts a running agent with
 board events. The briefing tells the agent when reading the feed or its
@@ -405,6 +420,13 @@ The board's feed is its durable history. `task_comments` carries notes, agent
 updates, system events, and messages rather than opening a second chat room.
 Every entry has one kind and an optional task; a task-scoped entry appears in
 the task detail and the board feed.
+
+**[DECIDED]** One write primitive under every surface: an entry on a card,
+optionally delivered to its attached agents. `tasks.feed.post`,
+`tasks.feed.send_message`, `comment_task` and the system events off the bus
+(§2.4) are thin wrappers over it — the wire RPCs stay as they are; what
+unifies is the server path, so recipient snapshots, delivery outcomes and
+revision bumps cannot diverge between a user's message and an agent's.
 
 - Migration 3 rebuilt the table board-scoped: `project_id` required, `task_id`
   nullable. A comment on a card is an entry with a card; a note at the board is
