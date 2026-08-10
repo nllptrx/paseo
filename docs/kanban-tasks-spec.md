@@ -100,6 +100,8 @@ board then starts its configured reviewer or waits for a person.
 Tasks carry `parentTaskId` (subtasks) and dependency edges in
 `task_dependencies`. The snapshot carries the edges so a client can draw them.
 A subtask is a task in every other respect — same statuses, same board.
+Dependencies stay within that board and may not form a cycle; accepting one
+would leave every card in the loop permanently blocked.
 
 **[SUPERSEDED]** A parent can limit how many newly created subtasks are ready
 together (`maxParallelSubtasks`, dependency waves). Replaced by the sequential
@@ -446,7 +448,9 @@ revision bumps cannot diverge between a user's message and an agent's.
 - Message recipients come from agents attached to the task. A board is not a
   directory of the host, and a message cannot target a stranger. Task keys and
   subtask keys identify work; stable agent IDs identify agents; provider
-  subagents remain children of an agent rather than task identities.
+  subagents remain children of an agent rather than task identities. Agent
+  `comment_task` delivery excludes the caller, and refuses when no other
+  attached agent remains, so a delivered reply cannot wake its sender again.
 
 ### 6.1 No standing team-lead agent — daemon rules instead [DECIDED]
 
