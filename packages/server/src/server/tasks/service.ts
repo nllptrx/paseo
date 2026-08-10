@@ -56,6 +56,7 @@ export class TaskService {
   private unavailableReason: string | null = null;
   private available = false;
   private completeTaskHandler: ((taskId: string) => Promise<Task>) | null = null;
+  private reviewEntryHandler: ((taskId: string) => Promise<void>) | null = null;
   private statusListener: TaskStatusListener | null = null;
 
   constructor(input: { databasePath: string; logger: pino.Logger }) {
@@ -331,6 +332,15 @@ export class TaskService {
     const task = store.moveTask(input);
     if (previousStatus && previousStatus !== task.status) {
       this.announceStatusChange(task, previousStatus);
+      if (task.status === "in_review" && this.reviewEntryHandler) {
+        const handle = this.reviewEntryHandler;
+        void handle(task.id).catch((error) => {
+          this.logger.warn(
+            { err: error, taskId: task.id },
+            "Could not arm a review for a card moved into review by hand",
+          );
+        });
+      }
     }
     this.announce(store);
     return task;
@@ -341,6 +351,12 @@ export class TaskService {
    * without trusting every caller to remember the delivery gate. */
   setCompleteTaskHandler(handler: (taskId: string) => Promise<Task>): void {
     this.completeTaskHandler = handler;
+  }
+
+  /** Arms the configured reviewer when a hand drops a card into review, the
+   * same way settling work does on its way in. */
+  setReviewEntryHandler(handler: (taskId: string) => Promise<void>): void {
+    this.reviewEntryHandler = handler;
   }
 
   /** Internal terminal write used only after the transition engine has passed

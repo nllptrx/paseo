@@ -1284,6 +1284,7 @@ export async function createPaseoDaemon(
   taskService.setCompleteTaskHandler((taskId) =>
     taskTransitions.completeTask(taskId, "was moved to done"),
   );
+  taskService.setReviewEntryHandler((taskId) => taskTransitions.onManualMoveToReview(taskId));
   taskTransitions.setOnTaskDone((taskId) =>
     taskWorkflowEngine.archiveTaskWorkspacesAfterDone(taskId),
   );

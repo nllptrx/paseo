@@ -126,6 +126,61 @@ describe("TaskTransitionEngine", () => {
     expect(feed[0].taskId).toBe(task.id);
   });
 
+  /** A board with a reviewer must review what a hand drops into review, not
+   * only what automation carries there. */
+  it("arms the reviewer when a card is moved into review by hand", async () => {
+    const { task, engine } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    const reviews: string[] = [];
+    engine.setRequestReview(async (taskId) => {
+      reviews.push(taskId);
+      return { agentId: "reviewer-1" };
+    });
+    service.setReviewEntryHandler((taskId) => engine.onManualMoveToReview(taskId));
+
+    await service.moveTask({
+      taskId: task.id,
+      status: "in_review",
+      beforePosition: null,
+      afterPosition: null,
+    });
+
+    await vi.waitFor(() => expect(reviews).toEqual([task.id]));
+  });
+
+  /** A reviewer already judging the card is left alone. */
+  it("does not start a second reviewer when one is already working", async () => {
+    const { task, engine, agentManager } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    const reviews: string[] = [];
+    engine.setRequestReview(async (taskId) => {
+      reviews.push(taskId);
+      return { agentId: "reviewer-2" };
+    });
+    await service.updateTask({ taskId: task.id, status: "in_review" });
+    await service.attachAgent({
+      taskId: task.id,
+      agentId: "reviewer-1",
+      workspaceId: "ws-1",
+      role: "reviewer",
+    });
+    agentManager.snapshots.set("reviewer-1", "running");
+
+    await engine.onManualMoveToReview(task.id);
+
+    expect(reviews).toEqual([]);
+  });
+
   it("moves a task to in_review when the board reviews", async () => {
     const { task, engine } = await seedTask({
       review: {

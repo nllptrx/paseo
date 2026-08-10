@@ -295,6 +295,35 @@ export class TaskTransitionEngine {
   }
 
   /**
+   * A hand moved the card into review. Settling work arms its reviewer on the
+   * way in; a manual move has to arm one too, or a board with a reviewer only
+   * ever reviews what arrived by automation. A reviewer already working the
+   * card is left alone.
+   */
+  async onManualMoveToReview(taskId: string): Promise<void> {
+    const task = await this.deps.taskService.getTask(taskId);
+    if (!task || task.status !== "in_review") {
+      return;
+    }
+    const policy = await this.resolveEffectivePolicy(task);
+    if (!policy.reviewEnabled) {
+      return;
+    }
+    const reviewerRunning = (await this.deps.taskService.listTaskAgents(taskId)).some((link) => {
+      if ((link.role ?? "worker") !== "reviewer") {
+        return false;
+      }
+      const lifecycle = this.deps.agentManager.getAgent(link.agentId)?.lifecycle;
+      return lifecycle === "initializing" || lifecycle === "running";
+    });
+    if (reviewerRunning) {
+      return;
+    }
+    this.reviewAttemptsByTask.delete(taskId);
+    this.startReview(taskId);
+  }
+
+  /**
    * The effective policy for one task: its own override, then its parent
    * aggregate's, then the board. A subtask chain configured once at the parent
    * therefore behaves the same at every level that did not say otherwise.
