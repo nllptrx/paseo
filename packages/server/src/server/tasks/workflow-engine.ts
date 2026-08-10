@@ -11,6 +11,7 @@ import type {
 } from "@getpaseo/protocol/tasks/workflow";
 import {
   resolveTaskExecutionPolicy,
+  type ResolvedTaskExecutionPolicy,
   type Task,
   type TaskAgentLink,
 } from "@getpaseo/protocol/tasks/types";
@@ -24,6 +25,7 @@ import type { CreatePaseoWorktreeWorkflowResult } from "../worktree-session.js";
 import { mergeToBase } from "../../utils/checkout-git.js";
 import { runGitCommand } from "../../utils/run-git-command.js";
 import type { TaskService } from "./service.js";
+import { isReviewVerdictNote } from "./review-verdict-notes.js";
 import { checkStepEvidence, readHeadCommit, type StepEvidenceResult } from "./step-verification.js";
 
 const RETRYABLE_RUN_STATUSES: ReadonlySet<StepRunStatus> = new Set([
@@ -102,10 +104,14 @@ export interface TaskWorkflowEngineDeps {
     | "mutateStep"
     | "attachAgent"
     | "listTaskAgents"
+    | "listSubtasks"
+    | "countSubtasks"
+    | "listBoardFeed"
     | "getPreset"
     | "updateTask"
     | "isAvailable"
     | "assertTaskClaimable"
+    | "assertTaskExecutable"
   >;
   agentManager: AgentManager;
   createAgent: BoundCreateAgentCommand;
@@ -290,6 +296,49 @@ function buildReviewPrompt(input: {
   return lines.join("\n");
 }
 
+/**
+ * What the final review of an aggregate is told. Its subtasks were each judged
+ * on their own branch, so re-reading their diffs would spend a review on
+ * questions that already have answers. What nobody has looked at yet is the
+ * integrated result: whether the parts fit, and whether anything fell between
+ * them.
+ */
+function buildAggregateReviewPrompt(input: {
+  task: Pick<Task, "id" | "number" | "title" | "description">;
+  projectPrefix: string;
+  instructions: string;
+  childVerdicts: readonly string[];
+}): string {
+  const lines = [
+    "You are reviewing the integrated result of work that was delivered by subtasks. You did not write any of it.",
+    "",
+    `Task: ${input.projectPrefix}-${input.task.number}`,
+    `Task ID: ${input.task.id}`,
+    `Title: ${input.task.title}`,
+  ];
+  if (input.task.description.trim().length > 0) {
+    lines.push("", input.task.description.trim());
+  }
+  if (input.childVerdicts.length > 0) {
+    lines.push(
+      "",
+      "How its subtasks were judged:",
+      ...input.childVerdicts.map((line) => `- ${line}`),
+    );
+  }
+  if (input.instructions.trim().length > 0) {
+    lines.push("", input.instructions.trim());
+  }
+  lines.push(
+    "",
+    "This branch already carries every subtask's merged work. Judge the integration: whether the pieces fit together, whether the task as a whole is now done, and whether anything fell between the subtasks.",
+    "Do not review each subtask's diff again — each was judged on its own branch.",
+    "Record what you found with comment_task, then call review_task with approve or reject and include the findings as feedback when rejecting.",
+    "Reject when you cannot tell: an unverifiable change is not an approved one.",
+  );
+  return lines.join("\n");
+}
+
 function buildWorkPrompt(input: {
   task: Pick<Task, "id" | "number" | "title" | "description">;
   projectPrefix: string;
@@ -373,21 +422,105 @@ export class TaskWorkflowEngine {
     this.maxConcurrentRuns = deps.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS;
   }
 
+  /** Task override, then the parent aggregate's, then the board — the same three
+   * tiers the transition engine resolves, so dispatch and transitions cannot
+   * disagree about what a subtask's plan asked for. */
+  private async resolveEffectivePolicy(task: Task): Promise<ResolvedTaskExecutionPolicy> {
+    const project = await this.taskService.getProject(task.projectId);
+    const parent = task.parentTaskId ? await this.taskService.getTask(task.parentTaskId) : null;
+    return resolveTaskExecutionPolicy(
+      project?.board,
+      task.executionPolicy,
+      parent?.executionPolicy,
+    );
+  }
+
   /** Fired when a task's last step settles green. The engine only reports; where
    * the task moves is the tracker's decision. */
   setOnWorkflowSettled(listener: (taskId: string) => void): void {
     this.onWorkflowSettled = listener;
   }
 
-  /** Archive only after the task reaches its final Done state. Workflow
+  /**
+   * Archive only after the task reaches its final Done state. Workflow
    * settlement may lead to review, and the reviewer must still be able to read
-   * the checkout. */
+   * the checkout.
+   *
+   * A worktree a subtask chain shares outlives each subtask's Done, because the
+   * next phase is still working in it. Those checkouts are released when the
+   * aggregate settles; subtasks with worktrees of their own keep the per-task
+   * timing.
+   */
   async archiveTaskWorkspacesAfterDone(taskId: string): Promise<void> {
-    const workflow = await this.taskService.getWorkflow(taskId);
-    if (!workflow) {
+    const task = await this.taskService.getTask(taskId);
+    if (!task) {
       return;
     }
-    await this.archiveWorkspacesIfConfigured(taskId, workflow.steps);
+    if ((await this.taskService.countSubtasks(taskId)) > 0) {
+      await this.archiveWorkspacesIfConfigured(
+        taskId,
+        await this.collectFamilyWorkspaceIds(taskId),
+      );
+      return;
+    }
+    if (task.parentTaskId && (await this.sharesWorkspaceWithFamily(task))) {
+      return;
+    }
+    await this.archiveWorkspacesIfConfigured(taskId, await this.collectTaskWorkspaceIds(taskId));
+  }
+
+  /** Every checkout the task's own work used: its workflow runs' workspaces and
+   * the workspaces of the agents attached to it. */
+  private async collectTaskWorkspaceIds(taskId: string): Promise<Set<string>> {
+    const workspaceIds = new Set<string>();
+    const workflow = await this.taskService.getWorkflow(taskId);
+    for (const step of workflow?.steps ?? []) {
+      for (const run of step.runs) {
+        for (const workspaceId of run.workspaceIds) {
+          workspaceIds.add(workspaceId);
+        }
+      }
+    }
+    for (const link of await this.taskService.listTaskAgents(taskId)) {
+      workspaceIds.add(link.workspaceId);
+    }
+    return workspaceIds;
+  }
+
+  private async collectFamilyWorkspaceIds(taskId: string): Promise<Set<string>> {
+    const workspaceIds = await this.collectTaskWorkspaceIds(taskId);
+    for (const child of await this.taskService.listSubtasks(taskId)) {
+      for (const workspaceId of await this.collectFamilyWorkspaceIds(child.id)) {
+        workspaceIds.add(workspaceId);
+      }
+    }
+    return workspaceIds;
+  }
+
+  private async sharesWorkspaceWithFamily(task: Task): Promise<boolean> {
+    const parentTaskId = task.parentTaskId;
+    if (!parentTaskId) {
+      return false;
+    }
+    const own = await this.collectTaskWorkspaceIds(task.id);
+    if (own.size === 0) {
+      return false;
+    }
+    const family = await this.collectTaskWorkspaceIds(parentTaskId);
+    for (const sibling of await this.taskService.listSubtasks(parentTaskId)) {
+      if (sibling.id === task.id) {
+        continue;
+      }
+      for (const workspaceId of await this.collectFamilyWorkspaceIds(sibling.id)) {
+        family.add(workspaceId);
+      }
+    }
+    for (const workspaceId of own) {
+      if (family.has(workspaceId)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Boot recovery: any step run still "running" when the daemon went down
@@ -443,6 +576,25 @@ export class TaskWorkflowEngine {
     this.assertGateOpen(steps, stepIndex);
     this.assertNotRunning(steps[stepIndex]);
     return this.dispatchRun(identifier, steps, stepIndex, null);
+  }
+
+  /** Reconciles a plan after editing. Enabling an automatic trigger after its
+   * predecessor already settled should continue the plan instead of waiting
+   * for a completion event that already happened. */
+  async continueReadyWorkflow(taskId: string): Promise<void> {
+    const steps = await this.requireSteps(taskId);
+    for (let stepIndex = 0; stepIndex < steps.length; stepIndex += 1) {
+      const latest = latestRunOf(steps[stepIndex]);
+      if (latest?.status === "succeeded" || latest?.status === "skipped") {
+        continue;
+      }
+      if (latest || stepIndex === 0) {
+        return;
+      }
+      this.assertGateOpen(steps, stepIndex);
+      await this.advanceStep(taskId, steps, stepIndex);
+      return;
+    }
   }
 
   async retryStep(identifier: TaskStepIdentifier): Promise<Step> {
@@ -590,6 +742,7 @@ export class TaskWorkflowEngine {
       throw new Error(`Step ${step.id} does not have a schedule trigger`);
     }
     await this.taskService.assertTaskClaimable(identifier.taskId);
+    await this.taskService.assertTaskExecutable(identifier.taskId);
     if (step.agents.length !== 1) {
       throw new Error(
         `Step ${step.id} uses a schedule and must have exactly one agent; scheduled fan-out is not supported`,
@@ -654,6 +807,7 @@ export class TaskWorkflowEngine {
     if (!scheduled) return;
     if (event.type === "before_run" || event.type === "before_agent_start") {
       await this.taskService.assertTaskClaimable(scheduled.taskId);
+      await this.taskService.assertTaskExecutable(scheduled.taskId);
       return;
     }
     if (event.type === "agent_started") {
@@ -1001,6 +1155,7 @@ export class TaskWorkflowEngine {
       throw new Error(`Task not found: ${input.taskId}`);
     }
     await this.taskService.assertTaskClaimable(input.taskId);
+    await this.taskService.assertTaskExecutable(input.taskId);
     const project = await this.taskService.getProject(task.projectId);
     if (!project) {
       throw new Error(`Task project not found: ${task.projectId}`);
@@ -1011,20 +1166,41 @@ export class TaskWorkflowEngine {
       projectPrefix: project.prefix,
       instructions: preset.instructions,
     });
-    const target = await this.resolveDelegateTarget(input.taskId, preset, prompt);
+    return this.startAgentOnTask({
+      taskId: input.taskId,
+      preset,
+      prompt,
+      title: task.title,
+      allowAggregate: false,
+    });
+  }
 
+  /** Creates the agent, then commits the attachment — and undoes the agent and
+   * any worktree it was given when the attachment is refused, so a card that
+   * cannot be claimed does not leave a process running against it. */
+  private async startAgentOnTask(input: {
+    taskId: string;
+    preset: Pick<
+      ResolvedDelegateSpec,
+      "id" | "provider" | "model" | "modeId" | "thinkingOptionId" | "environmentKind" | "baseBranch"
+    >;
+    prompt: string;
+    title: string;
+    allowAggregate: boolean;
+  }): Promise<{ agentId: string }> {
+    const target = await this.resolveDelegateTarget(input.taskId, input.preset, input.prompt);
     const created = await this.createAgent({
       kind: "mcp",
       provider: formatProviderModel(
-        preset.provider as StepAgentSpec["provider"],
-        preset.model ?? undefined,
+        input.preset.provider as StepAgentSpec["provider"],
+        input.preset.model ?? undefined,
       ),
-      title: task.title,
-      initialPrompt: prompt,
+      title: input.title,
+      initialPrompt: input.prompt,
       cwd: target.cwd,
       workspaceId: target.workspaceId,
-      mode: preset.modeId ?? undefined,
-      thinking: preset.thinkingOptionId ?? undefined,
+      mode: input.preset.modeId ?? undefined,
+      thinking: input.preset.thinkingOptionId ?? undefined,
       unattended: false,
       promptFailure: "return-error",
       background: true,
@@ -1039,7 +1215,8 @@ export class TaskWorkflowEngine {
         taskId: input.taskId,
         agentId: created.snapshot.id,
         workspaceId: target.workspaceId,
-        presetId: preset.id,
+        presetId: input.preset.id,
+        ...(input.allowAggregate ? { allowAggregate: true } : {}),
       });
     } catch (error) {
       await this.cancelCreatedAgent(created.snapshot.id);
@@ -1105,11 +1282,7 @@ export class TaskWorkflowEngine {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
-    const project = await this.taskService.getProject(task.projectId);
-    const workspacePolicy = resolveTaskExecutionPolicy(
-      project?.board,
-      task.executionPolicy,
-    ).workspace;
+    const workspacePolicy = (await this.resolveEffectivePolicy(task)).workspace;
     let environmentKind = preset.environmentKind;
     if (workspacePolicy === "dedicated") {
       environmentKind = "new_worktree";
@@ -1161,10 +1334,7 @@ export class TaskWorkflowEngine {
     if (!project) {
       return null;
     }
-    const presetId = resolveTaskExecutionPolicy(
-      project.board,
-      task.executionPolicy,
-    ).reviewerPresetId;
+    const presetId = (await this.resolveEffectivePolicy(task)).reviewerPresetId;
     if (!presetId) {
       return null;
     }
@@ -1174,11 +1344,24 @@ export class TaskWorkflowEngine {
       // reviewer and is not getting one.
       throw new Error(`The reviewer preset ${presetId} no longer exists`);
     }
-    const prompt = buildReviewPrompt({
-      task,
-      projectPrefix: project.prefix,
-      instructions: preset.instructions,
-    });
+    const children = await this.taskService.listSubtasks(taskId);
+    const prompt =
+      children.length > 0
+        ? buildAggregateReviewPrompt({
+            task,
+            projectPrefix: project.prefix,
+            instructions: preset.instructions,
+            childVerdicts: await this.collectChildVerdicts({
+              projectId: task.projectId,
+              projectPrefix: project.prefix,
+              children,
+            }),
+          })
+        : buildReviewPrompt({
+            task,
+            projectPrefix: project.prefix,
+            instructions: preset.instructions,
+          });
     const gitBase = await this.resolveTaskGitBase(taskId);
     // Without a branch there is no separate checkout to review; the reviewer
     // reads the same folder the work happened in.
@@ -1232,6 +1415,35 @@ export class TaskWorkflowEngine {
   }
 
   /**
+   * How each subtask was judged, read back out of the board's feed. The feed is
+   * where every verdict was recorded, so there is no second store of review
+   * outcomes to keep in step with it.
+   */
+  private async collectChildVerdicts(input: {
+    projectId: string;
+    projectPrefix: string;
+    children: readonly Task[];
+  }): Promise<string[]> {
+    const childrenById = new Map(input.children.map((child) => [child.id, child]));
+    const verdicts = new Map<string, string>();
+    for (const entry of await this.taskService.listBoardFeed({ projectId: input.projectId })) {
+      if (!entry.taskId || !childrenById.has(entry.taskId) || entry.kind !== "system") {
+        continue;
+      }
+      if (isReviewVerdictNote(entry.body)) {
+        verdicts.set(entry.taskId, entry.body);
+      }
+    }
+    return input.children.map((child) => {
+      const recorded = verdicts.get(child.id);
+      return (
+        recorded ??
+        `${input.projectPrefix}-${child.number} "${child.title}" reached ${child.status} with no review verdict recorded.`
+      );
+    });
+  }
+
+  /**
    * A rejected review goes back to every worker attached to the card, each in
    * its own checkout. Resuming only the newest one is wrong the moment a task
    * fans out: the review judged the integrated branch, so findings can belong to
@@ -1252,6 +1464,13 @@ export class TaskWorkflowEngine {
     if (!task) {
       return null;
     }
+    const project = await this.taskService.getProject(task.projectId);
+    if (!project) {
+      return null;
+    }
+    if ((await this.taskService.countSubtasks(input.taskId)) > 0) {
+      return this.correctAggregate({ task, project, feedback: input.feedback });
+    }
     const workers = new Map<string, TaskAgentLink>();
     for (const link of await this.taskService.listTaskAgents(input.taskId)) {
       if ((link.role ?? "worker") === "worker") {
@@ -1259,10 +1478,6 @@ export class TaskWorkflowEngine {
       }
     }
     if (workers.size === 0) {
-      return null;
-    }
-    const project = await this.taskService.getProject(task.projectId);
-    if (!project) {
       return null;
     }
     const feedback =
@@ -1314,6 +1529,82 @@ export class TaskWorkflowEngine {
       );
     }
     return { agentIds: resumed };
+  }
+
+  /**
+   * A rejected final review corrects on the branch it judged — the aggregate's
+   * own. The most recent worker whose checkout still exists is resumed there;
+   * when none can be, a fresh corrector is started on that branch. Subtasks
+   * already in Done are never reopened: their work is merged, and the finding
+   * belongs to the integration, not to a diff that was already judged.
+   */
+  private async correctAggregate(input: {
+    task: Task;
+    project: { prefix: string };
+    feedback: string | null;
+  }): Promise<{ agentIds: string[] } | null> {
+    const prompt = this.buildAggregateCorrectionPrompt(input);
+    const workers = (await this.taskService.listTaskAgents(input.task.id))
+      .toReversed()
+      .filter((link) => (link.role ?? "worker") === "worker");
+    if (this.resumeAgent) {
+      for (const worker of workers) {
+        const workspace = await this.getWorkspace(worker.workspaceId);
+        if (!workspace || workspace.archivedAt) {
+          continue;
+        }
+        await this.taskService.attachAgent({
+          taskId: input.task.id,
+          agentId: worker.agentId,
+          workspaceId: worker.workspaceId,
+          presetId: worker.presetId,
+          role: "worker",
+          completionOwner: "attachment",
+          allowAggregate: true,
+        });
+        await this.resumeAgent({ agentId: worker.agentId, prompt });
+        return { agentIds: [worker.agentId] };
+      }
+    }
+    const presetId =
+      input.task.executionSpec?.presetId ??
+      workers.find((worker) => worker.presetId)?.presetId ??
+      null;
+    if (!presetId) {
+      return null;
+    }
+    const preset = await this.taskService.getPreset(presetId);
+    if (!preset) {
+      return null;
+    }
+    const started = await this.startAgentOnTask({
+      taskId: input.task.id,
+      preset,
+      prompt,
+      title: `Correct ${input.task.title}`,
+      allowAggregate: true,
+    });
+    return { agentIds: [started.agentId] };
+  }
+
+  private buildAggregateCorrectionPrompt(input: {
+    task: Task;
+    project: { prefix: string };
+    feedback: string | null;
+  }): string {
+    const feedback =
+      input.feedback ??
+      "The final review rejected the integrated result. Read the board feed for the findings.";
+    return [
+      `The final review rejected ${input.project.prefix}-${input.task.number}.`,
+      `Task ID: ${input.task.id}`,
+      `Title: ${input.task.title}`,
+      "",
+      feedback,
+      "",
+      "This workspace is on the task's own branch, which already carries every subtask's merged work. Correct the integrated result here; the subtasks that are Done stay done.",
+      "Comment on the task with what changed when finished.",
+    ].join("\n");
   }
 
   /**
@@ -1615,6 +1906,7 @@ export class TaskWorkflowEngine {
     reuseWorkspaceIds: string[] | null,
   ): Promise<Step> {
     await this.taskService.assertTaskClaimable(identifier.taskId);
+    await this.taskService.assertTaskExecutable(identifier.taskId);
     if (!this.hasFreeSlot()) {
       return this.enqueueRun(identifier, reuseWorkspaceIds);
     }
@@ -2036,31 +2328,22 @@ export class TaskWorkflowEngine {
    * Runs once the last step settles, and only when the board asked for it:
    * tearing down a worktree is not something a board should do to you unasked.
    */
-  private async archiveWorkspacesIfConfigured(taskId: string, steps: Step[]): Promise<void> {
+  private async archiveWorkspacesIfConfigured(
+    taskId: string,
+    workspaceIds: Set<string>,
+  ): Promise<void> {
     try {
       const task = await this.taskService.getTask(taskId);
-      const project = task ? await this.taskService.getProject(task.projectId) : null;
-      if (
-        !task ||
-        !resolveTaskExecutionPolicy(project?.board, task.executionPolicy).archiveWorkspacesOnDone
-      ) {
+      if (!task || !(await this.resolveEffectivePolicy(task)).archiveWorkspacesOnDone) {
         return;
       }
-      await this.archivePaseoOwnedWorktrees(steps);
+      await this.archivePaseoOwnedWorktrees(workspaceIds);
     } catch (error) {
       this.logger.error({ err: error, taskId }, "Archiving workflow worktrees on done failed");
     }
   }
 
-  private async archivePaseoOwnedWorktrees(steps: Step[]): Promise<void> {
-    const workspaceIds = new Set<string>();
-    for (const step of steps) {
-      for (const run of step.runs) {
-        for (const workspaceId of run.workspaceIds) {
-          workspaceIds.add(workspaceId);
-        }
-      }
-    }
+  private async archivePaseoOwnedWorktrees(workspaceIds: Set<string>): Promise<void> {
     for (const workspaceId of workspaceIds) {
       try {
         const workspace = await this.getWorkspace(workspaceId);

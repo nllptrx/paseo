@@ -56,6 +56,10 @@ export type TaskBoardConfig = z.infer<typeof TaskBoardConfigSchema>;
  * board has an agent reviewer. */
 export const TaskExecutionPolicySchema = z.object({
   review: z.enum(["inherit", "required", "disabled"]).optional(),
+  /** Whether this task's subtasks are reviewed, written on the parent. It is a
+   * field of its own because `review` decides the parent's own final review:
+   * "final review only" is this set to `disabled` while `review` is required. */
+  subtaskReview: z.enum(["inherit", "required", "disabled"]).optional(),
   reviewerPresetId: z.string().nullable().optional(),
   reviewOnReject: z.enum(["in_progress", "todo", "backlog"]).optional(),
   maxReviewIterations: z.number().int().positive().max(10).optional(),
@@ -63,57 +67,95 @@ export const TaskExecutionPolicySchema = z.object({
   /** How ordinary delegation resolves its checkout. Explicit workflow steps
    * continue to carry their own workspace strategy. */
   workspace: z.enum(["inherit", "dedicated", "reuse"]).optional(),
-  /** Maximum sibling subtasks that may become ready together. New subtasks are
-   * linked into dependency waves at creation; the daemon-wide cap still wins. */
-  maxParallelSubtasks: z.number().int().positive().max(10).optional(),
 });
 export type TaskExecutionPolicy = z.infer<typeof TaskExecutionPolicySchema>;
 
+/**
+ * How a task starts itself. `on_unblocked` is what makes a subtask chain run
+ * hands-free: the preset dispatches when the task's last open blocker reaches a
+ * terminal status, so each phase starts when its predecessor settles.
+ */
+export const TaskExecutionSpecSchema = z.object({
+  presetId: z.string(),
+  trigger: z.enum(["manual", "on_unblocked"]),
+});
+export type TaskExecutionSpec = z.infer<typeof TaskExecutionSpecSchema>;
+
 export interface ResolvedTaskExecutionPolicy {
   reviewEnabled: boolean;
+  /** What this task's own subtasks inherit for review, before the board. */
+  subtaskReview: "inherit" | "required" | "disabled";
   reviewerPresetId: string | null;
   reviewOnReject: TaskBoardConfig["reviewOnReject"];
   maxReviewIterations: number;
   archiveWorkspacesOnDone: boolean;
   workspace: "inherit" | "dedicated" | "reuse";
-  maxParallelSubtasks: number | null;
 }
 
 function resolveReviewEnabled(
   board: TaskBoardConfig | undefined,
   override: TaskExecutionPolicy | undefined,
+  parent: TaskExecutionPolicy | undefined,
 ): boolean {
   if (override?.review === "required") return true;
   if (override?.review === "disabled") return false;
+  if (parent?.subtaskReview === "required") return true;
+  if (parent?.subtaskReview === "disabled") return false;
   return board?.reviewEnabled ?? false;
 }
 
 function resolveReviewerPresetId(
   board: TaskBoardConfig | undefined,
   override: TaskExecutionPolicy | undefined,
+  parent: TaskExecutionPolicy | undefined,
 ): string | null {
   if (override && "reviewerPresetId" in override) {
     return override.reviewerPresetId ?? null;
   }
+  if (parent && "reviewerPresetId" in parent) {
+    return parent.reviewerPresetId ?? null;
+  }
   return board?.reviewerPresetId ?? null;
 }
 
-/** One resolver for transitions, dispatch and UI summaries. Keeping inheritance
- * here prevents three surfaces from showing different effective behaviour. */
+/**
+ * One resolver for transitions, dispatch and UI summaries. Keeping inheritance
+ * here prevents three surfaces from showing different effective behaviour.
+ *
+ * Three tiers: this task's override, then the parent aggregate's, then the
+ * board. A subtask therefore follows the plan its parent set without every
+ * subtask having to repeat it, and a subtask that says otherwise still wins.
+ */
 export function resolveTaskExecutionPolicy(
   board: TaskBoardConfig | undefined,
   override: TaskExecutionPolicy | undefined,
+  parent?: TaskExecutionPolicy | undefined,
 ): ResolvedTaskExecutionPolicy {
+  const tiers = [override, parent];
   return {
-    reviewEnabled: resolveReviewEnabled(board, override),
-    reviewerPresetId: resolveReviewerPresetId(board, override),
-    reviewOnReject: override?.reviewOnReject ?? board?.reviewOnReject ?? "in_progress",
-    maxReviewIterations: override?.maxReviewIterations ?? board?.maxReviewIterations ?? 3,
+    reviewEnabled: resolveReviewEnabled(board, override, parent),
+    subtaskReview: override?.subtaskReview ?? "inherit",
+    reviewerPresetId: resolveReviewerPresetId(board, override, parent),
+    reviewOnReject: firstSet(tiers, "reviewOnReject") ?? board?.reviewOnReject ?? "in_progress",
+    maxReviewIterations: firstSet(tiers, "maxReviewIterations") ?? board?.maxReviewIterations ?? 3,
     archiveWorkspacesOnDone:
-      override?.archiveWorkspacesOnDone ?? board?.archiveWorkspacesOnDone ?? false,
-    workspace: override?.workspace ?? "inherit",
-    maxParallelSubtasks: override?.maxParallelSubtasks ?? null,
+      firstSet(tiers, "archiveWorkspacesOnDone") ?? board?.archiveWorkspacesOnDone ?? false,
+    workspace: firstSet(tiers, "workspace") ?? "inherit",
   };
+}
+
+/** The nearest tier that set the field: the task, then its parent aggregate. */
+function firstSet<K extends keyof TaskExecutionPolicy>(
+  tiers: readonly (TaskExecutionPolicy | undefined)[],
+  key: K,
+): TaskExecutionPolicy[K] | undefined {
+  for (const tier of tiers) {
+    const value = tier?.[key];
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 export const TaskProjectSchema = z.object({
@@ -232,6 +274,9 @@ export const TaskSchema = z.object({
   reviewIteration: z.number().int().nonnegative().optional(),
   /** Absent means every execution choice inherits from the board/preset. */
   executionPolicy: TaskExecutionPolicySchema.optional(),
+  /** How this task starts itself, when it was given a way to. Optional for
+   * clients connected to a host from before per-task execution specs. */
+  executionSpec: TaskExecutionSpecSchema.optional(),
   /** Optional for clients connected to a host from before task branches. */
   integration: TaskIntegrationSchema.optional(),
   createdAt: z.string(),

@@ -30,14 +30,25 @@ export interface TasksSessionOptions {
 
 type Inbound<T extends SessionInboundMessage["type"]> = Extract<SessionInboundMessage, { type: T }>;
 
-/** Steps arrive without identity: the client describes what to run, the daemon
- * decides what to call each one and starts its run history empty. */
-function stampSteps(steps: readonly StepInput[]): Step[] {
-  return steps.map((step) => ({
-    ...step,
-    id: `stp_${randomBytes(4).toString("hex")}`,
-    runs: [],
-  }));
+/** New steps receive daemon-owned identity. Existing steps keep the identity
+ * and run history named by the editor; changing a plan must not make completed
+ * work read as not started. */
+function stampSteps(steps: readonly StepInput[], existingSteps: readonly Step[]): Step[] {
+  const existingById = new Map(existingSteps.map((step) => [step.id, step]));
+  const retainedIds = new Set<string>();
+  return steps.map((input) => {
+    const { existingStepId, ...step } = input;
+    const existing = existingStepId ? existingById.get(existingStepId) : undefined;
+    if (existing && !retainedIds.has(existing.id)) {
+      retainedIds.add(existing.id);
+      return { ...step, id: existing.id, runs: existing.runs };
+    }
+    return {
+      ...step,
+      id: `stp_${randomBytes(4).toString("hex")}`,
+      runs: [],
+    };
+  });
 }
 
 /**
@@ -143,6 +154,8 @@ export class TasksSession {
         ...(request.executionPolicy === undefined
           ? {}
           : { executionPolicy: request.executionPolicy }),
+        ...(request.executionSpec === undefined ? {} : { executionSpec: request.executionSpec }),
+        ...(request.parallel === undefined ? {} : { parallel: request.parallel }),
       });
       this.host.emit({
         type: "tasks.create.response",
@@ -167,6 +180,7 @@ export class TasksSession {
         ...(request.executionPolicy === undefined
           ? {}
           : { executionPolicy: request.executionPolicy }),
+        ...(request.executionSpec === undefined ? {} : { executionSpec: request.executionSpec }),
       });
       this.host.emit({
         type: "tasks.update.response",
@@ -303,10 +317,22 @@ export class TasksSession {
 
   async handleWorkflowSetRequest(request: Inbound<"tasks.workflow.set.request">): Promise<void> {
     try {
-      const workflow = await this.taskService.setWorkflow({
+      const existing = await this.taskService.getWorkflow(request.taskId);
+      let workflow = await this.taskService.setWorkflow({
         taskId: request.taskId,
-        steps: stampSteps(request.steps),
+        steps: stampSteps(request.steps, existing?.steps ?? []),
       });
+      if (this.workflowEngine) {
+        try {
+          await this.workflowEngine.continueReadyWorkflow(request.taskId);
+          workflow = (await this.taskService.getWorkflow(request.taskId)) ?? workflow;
+        } catch (error) {
+          this.logger.error(
+            { err: error, taskId: request.taskId },
+            "Failed to continue edited task workflow",
+          );
+        }
+      }
       this.host.emit({
         type: "tasks.workflow.set.response",
         payload: { requestId: request.requestId, workflow, error: null },

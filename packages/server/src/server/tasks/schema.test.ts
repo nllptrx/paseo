@@ -105,7 +105,7 @@ describe("migrateTasksDatabase", () => {
         .prepare("SELECT version FROM schema_version ORDER BY version")
         .all()
         .map((row) => (row as { version: number }).version);
-      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
       const project = second.prepare("SELECT * FROM task_projects WHERE id = 'tprj_1'").get() as {
         name: string;
@@ -156,7 +156,7 @@ describe("migrateTasksDatabase", () => {
       const applied = second.prepare("SELECT count(*) AS total FROM schema_version").get() as {
         total: number;
       };
-      expect(applied.total).toBe(9);
+      expect(applied.total).toBe(10);
     } finally {
       second.close();
     }

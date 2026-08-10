@@ -61,6 +61,7 @@ export const TaskRowSchema = z.object({
   updated_at: z.string(),
   review_iteration: z.number().int().nonnegative(),
   execution_policy: z.string().nullable(),
+  execution_spec: z.string().nullable(),
   integration_branch: z.string().nullable(),
   integration_status: z.enum(["pending", "conflicted", "integrated", "not_applicable"]).nullable(),
   integration_error: z.string().nullable(),

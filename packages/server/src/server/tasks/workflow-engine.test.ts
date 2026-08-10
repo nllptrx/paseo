@@ -9,6 +9,7 @@ import type { CreateAgentCommandResult } from "../agent/create-agent/create.js";
 import type { CreatePaseoWorktreeWorkflowResult } from "../worktree-session.js";
 import type { PersistedWorkspaceRecord } from "../workspace-registry.js";
 import { createStub } from "../test-utils/class-mocks.js";
+import { REVIEW_APPROVED_NOTE } from "./review-verdict-notes.js";
 import { TaskService } from "./service.js";
 import { TaskWorkflowEngine } from "./workflow-engine.js";
 
@@ -332,6 +333,29 @@ describe("TaskWorkflowEngine", () => {
     await waitFor(() => settledTaskIds.length === 1);
 
     expect(settledTaskIds).toEqual([taskId]);
+  });
+
+  test("editing a paused plan to auto-continue starts its ready next step", async () => {
+    const { taskId, stepIds } = await seedWorkflow([
+      makeStepInput({ name: "Step 1", trigger: { type: "manual" } }),
+      makeStepInput({ name: "Step 2", trigger: { type: "manual" } }),
+    ]);
+    const first = await engine.runStep({ taskId, stepId: stepIds[0] });
+    const firstAgentId = first.runs[0].agentIds[0];
+    agentManager.setLifecycle(firstAgentId, "running");
+    agentManager.setLifecycle(firstAgentId, "idle");
+    await waitFor(async () => (await getStep(taskId, 0))?.runs[0]?.status === "succeeded");
+
+    const workflow = await service.getWorkflow(taskId);
+    const firstStep = workflow!.steps[0]!;
+    const secondStep = workflow!.steps[1]!;
+    await service.setWorkflow({
+      taskId,
+      steps: [firstStep, { ...secondStep, trigger: { type: "immediate" } }],
+    });
+    await engine.continueReadyWorkflow(taskId);
+
+    expect((await getStep(taskId, 1))?.runs[0]?.status).toBe("running");
   });
 
   test("attaches and settles a scheduled step from schedule lifecycle events", async () => {
@@ -680,6 +704,7 @@ describe("TaskWorkflowEngine", () => {
       projectId: parent.projectId,
       title: "Second child",
       parentTaskId: parent.taskId,
+      parallel: true,
     });
     await service.attachAgent({ taskId: first.id, agentId: "agt_first", workspaceId: "ws_shared" });
     await service.attachAgent({
@@ -1154,6 +1179,170 @@ describe("TaskWorkflowEngine", () => {
     await engine.releaseReviewer({ taskId, agentId: "agt_reviewer", cancelAgent: false });
 
     expect(archivedWorkspaceIds).toEqual([]);
+  });
+
+  /** A leaf executes and an aggregate aggregates: a worker on a task with
+   * subtasks would deliver into a branch its own children are merging into. */
+  test("refuses to delegate a task that has subtasks", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    await service.createTask({ projectId, title: "Phase one", parentTaskId: taskId });
+    const preset = await service.createPreset({
+      name: "Implement",
+      provider: "claude",
+      environmentKind: "new_worktree",
+    });
+    const beforeCreateCount = createdAgentCounter;
+
+    await expect(engine.delegate({ taskId, presetId: preset.id })).rejects.toThrow(
+      /workers attach to its subtasks instead/,
+    );
+    expect(createdAgentCounter).toBe(beforeCreateCount);
+  });
+
+  test("refuses to run a workflow step on a task that has subtasks", async () => {
+    const { projectId, taskId, stepIds } = await seedWorkflow([makeStepInput()]);
+    await service.createTask({ projectId, title: "Phase one", parentTaskId: taskId });
+
+    await expect(engine.runStep({ taskId, stepId: stepIds[0] })).rejects.toThrow(
+      /workers attach to its subtasks instead/,
+    );
+  });
+
+  /** The subtasks were each judged on their own branch. What nobody has looked
+   * at is the integrated result. */
+  test("the final review of an aggregate carries the child verdicts and asks about the integration", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    const child = await service.createTask({ projectId, title: "Phase one", parentTaskId: taskId });
+    await service.createComment({
+      taskId: child.id,
+      kind: "system",
+      authorName: "board",
+      body: `PSE${seededProjects}-2 "Phase one" ${REVIEW_APPROVED_NOTE}, integrated into its parent, and moved to done.`,
+    });
+    const preset = await service.createPreset({
+      name: "Reviewer",
+      provider: "claude",
+      environmentKind: "project_default",
+    });
+    await service.configureBoard({ projectId, reviewerPresetId: preset.id });
+
+    await engine.requestReview(taskId);
+
+    const prompt = createdAgentPrompts.at(-1) ?? "";
+    expect(prompt).toContain("integrated result");
+    expect(prompt).toContain(`PSE${seededProjects}-2 "Phase one" ${REVIEW_APPROVED_NOTE}`);
+    expect(prompt).toContain("Do not review each subtask's diff again");
+  });
+
+  test("a rejected final review resumes the aggregate's most recent surviving worker", async () => {
+    const resumed: Array<{ agentId: string; prompt: string }> = [];
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      resumeAgent: async (input) => {
+        resumed.push(input);
+      },
+    });
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    await service.createTask({ projectId, title: "Phase one", parentTaskId: taskId });
+    await service.attachAgent({
+      taskId,
+      agentId: "agt_old",
+      workspaceId: "ws_gone",
+      allowAggregate: true,
+    });
+    await service.attachAgent({
+      taskId,
+      agentId: "agt_recent",
+      workspaceId: "ws_shared",
+      allowAggregate: true,
+    });
+
+    const correction = await engine.requestCorrection({
+      taskId,
+      feedback: "The two phases disagree about the config shape",
+    });
+
+    expect(correction).toEqual({ agentIds: ["agt_recent"] });
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0].prompt).toContain("The two phases disagree about the config shape");
+    expect(resumed[0].prompt).toContain("the subtasks that are Done stay done");
+  });
+
+  test("starts a fresh corrector on the task branch when no aggregate worker survives", async () => {
+    engine = new TaskWorkflowEngine({
+      ...engineDeps(),
+      resumeAgent: async () => {
+        throw new Error("agent unavailable");
+      },
+    });
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    await service.createTask({ projectId, title: "Phase one", parentTaskId: taskId });
+    const preset = await service.createPreset({
+      name: "Implement",
+      provider: "claude",
+      environmentKind: "new_worktree",
+    });
+    await service.updateTask({
+      taskId,
+      executionSpec: { presetId: preset.id, trigger: "manual" },
+    });
+
+    const correction = await engine.requestCorrection({ taskId, feedback: "Wire the phases up" });
+
+    expect(correction?.agentIds).toHaveLength(1);
+    const corrector = (await service.getTask(taskId))?.agents.at(-1);
+    expect(corrector?.agentId).toBe(correction?.agentIds[0]);
+    expect(worktreeBaseBranches.at(-1)).toMatch(/^paseo\/tasks\/pse\d+-1$/);
+    expect(createdAgentPrompts.at(-1)).toContain("Wire the phases up");
+  });
+
+  /** The next phase is still working in the checkout its predecessor used, so
+   * the chain's worktree outlives each subtask's Done. */
+  test("keeps a worktree a subtask chain shares until the aggregate settles", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    await service.configureBoard({ projectId, archiveWorkspacesOnDone: true });
+    const first = await service.createTask({ projectId, title: "Phase one", parentTaskId: taskId });
+    const second = await service.createTask({
+      projectId,
+      title: "Phase two",
+      parentTaskId: taskId,
+    });
+    await service.attachAgent({ taskId: first.id, agentId: "agt_first", workspaceId: "ws_wt_1" });
+    workspaces.set("ws_wt_1", {
+      workspaceId: "ws_wt_1",
+      cwd: "/wt/ws_wt_1",
+      isPaseoOwnedWorktree: true,
+      archivedAt: null,
+    });
+    await service.updateTask({ taskId: first.id, status: "done" });
+    await service.attachAgent({ taskId: second.id, agentId: "agt_second", workspaceId: "ws_wt_1" });
+
+    await engine.archiveTaskWorkspacesAfterDone(first.id);
+    expect(archivedWorkspaceIds).toEqual([]);
+
+    await engine.archiveTaskWorkspacesAfterDone(taskId);
+    expect(archivedWorkspaceIds).toEqual(["ws_wt_1"]);
+  });
+
+  test("releases a subtask's own worktree at its own Done", async () => {
+    const { projectId, taskId } = await seedWorkflow([makeStepInput()]);
+    await service.configureBoard({ projectId, archiveWorkspacesOnDone: true });
+    const child = await service.createTask({ projectId, title: "Phase one", parentTaskId: taskId });
+    workspaces.set("ws_wt_child", {
+      workspaceId: "ws_wt_child",
+      cwd: "/wt/ws_wt_child",
+      isPaseoOwnedWorktree: true,
+      archivedAt: null,
+    });
+    await service.attachAgent({
+      taskId: child.id,
+      agentId: "agt_child",
+      workspaceId: "ws_wt_child",
+    });
+
+    await engine.archiveTaskWorkspacesAfterDone(child.id);
+
+    expect(archivedWorkspaceIds).toEqual(["ws_wt_child"]);
   });
 
   test("restores workflow completion ownership when resuming a correction fails", async () => {

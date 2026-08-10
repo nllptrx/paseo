@@ -5,6 +5,11 @@ import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskBoardConfig } from "@getpaseo/protocol/tasks/types";
 import type { ManagedAgent } from "../agent/agent-manager.js";
+import {
+  isReviewVerdictNote,
+  REVIEW_APPROVED_NOTE,
+  REVIEW_REJECTED_NOTE,
+} from "./review-verdict-notes.js";
 import { TaskService } from "./service.js";
 import { TaskTransitionEngine } from "./transitions.js";
 
@@ -89,6 +94,7 @@ describe("TaskTransitionEngine", () => {
     });
     engine.setIntegrateTaskWork(async () => undefined);
     engine.setIntegrateTaskIntoParent(async () => undefined);
+    service.setTaskStatusListener((change) => engine.handleTaskStatusChange(change));
     return { task, engine, agentManager, projectId: project.id };
   }
 
@@ -181,6 +187,351 @@ describe("TaskTransitionEngine", () => {
     await service.updateTask({ taskId: child.id, status: "canceled" });
     const completed = await engine.completeTask(task.id);
     expect(completed.status).toBe("done");
+  });
+
+  it("moves a parent to in_progress when its first subtask starts", async () => {
+    const { engine, projectId } = await seedTask();
+    void engine;
+    const parent = await service.createTask({ projectId, title: "Parent", status: "todo" });
+    const child = await service.createTask({
+      projectId,
+      parentTaskId: parent.id,
+      title: "First phase",
+    });
+
+    await service.updateTask({ taskId: child.id, status: "in_progress" });
+
+    await vi.waitFor(async () =>
+      expect((await service.getTask(parent.id))?.status).toBe("in_progress"),
+    );
+    expect(await feedText(projectId)).toContain(
+      `moved to in_progress: its subtask PSE-${child.number} started`,
+    );
+  });
+
+  it("moves a parent to in_review when its last subtask merges and its policy reviews", async () => {
+    const { engine, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    void engine;
+    const parent = await service.createTask({ projectId, title: "Parent", status: "in_progress" });
+    const first = await service.createTask({ projectId, parentTaskId: parent.id, title: "One" });
+    const second = await service.createTask({ projectId, parentTaskId: parent.id, title: "Two" });
+
+    await service.updateTask({ taskId: first.id, status: "done" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect((await service.getTask(parent.id))?.status).toBe("in_progress");
+
+    await service.updateTask({ taskId: second.id, status: "done" });
+
+    await vi.waitFor(async () =>
+      expect((await service.getTask(parent.id))?.status).toBe("in_review"),
+    );
+    expect(await feedText(projectId)).toContain(
+      `moved to in_review: its last subtask PSE-${second.number} merged`,
+    );
+  });
+
+  it("completes a parent without review once its subtasks have merged", async () => {
+    const { engine, projectId } = await seedTask();
+    void engine;
+    const parent = await service.createTask({ projectId, title: "Parent", status: "in_progress" });
+    const child = await service.createTask({ projectId, parentTaskId: parent.id, title: "Only" });
+
+    await service.updateTask({ taskId: child.id, status: "done" });
+
+    await vi.waitFor(async () => expect((await service.getTask(parent.id))?.status).toBe("done"));
+  });
+
+  /** Nothing was delivered, so calling the parent finished would be a claim its
+   * children never made. */
+  it("leaves a parent alone when every subtask was canceled", async () => {
+    const { engine, projectId } = await seedTask();
+    void engine;
+    const parent = await service.createTask({ projectId, title: "Parent", status: "in_progress" });
+    const child = await service.createTask({ projectId, parentTaskId: parent.id, title: "Only" });
+
+    await service.updateTask({ taskId: child.id, status: "canceled" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect((await service.getTask(parent.id))?.status).toBe("in_progress");
+  });
+
+  it("reviews a subtask because its parent's plan asks for it", async () => {
+    const { engine, projectId } = await seedTask();
+    const parent = await service.createTask({
+      projectId,
+      title: "Parent",
+      executionPolicy: { subtaskReview: "required" },
+    });
+    const child = await service.createTask({
+      projectId,
+      parentTaskId: parent.id,
+      title: "Phase",
+      status: "in_progress",
+    });
+
+    await engine.onWorkSettled(child.id);
+
+    expect((await service.getTask(child.id))?.status).toBe("in_review");
+  });
+
+  it("keeps subtasks out of review when the parent asks for a final review only", async () => {
+    const { engine, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    const parent = await service.createTask({
+      projectId,
+      title: "Parent",
+      executionPolicy: { review: "required", subtaskReview: "disabled" },
+    });
+    const child = await service.createTask({
+      projectId,
+      parentTaskId: parent.id,
+      title: "Phase",
+      status: "in_progress",
+    });
+
+    await engine.onWorkSettled(child.id);
+
+    expect((await service.getTask(child.id))?.status).toBe("done");
+    await vi.waitFor(async () =>
+      expect((await service.getTask(parent.id))?.status).toBe("in_review"),
+    );
+  });
+
+  it("starts a waiting task from its execution spec when its last blocker settles", async () => {
+    const { engine, projectId } = await seedTask();
+    const blocker = await service.createTask({ projectId, title: "First", status: "in_progress" });
+    const next = await service.createTask({
+      projectId,
+      title: "Second",
+      executionSpec: { presetId: "tpst_impl", trigger: "on_unblocked" },
+    });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: blocker.id });
+    const delegations: Array<{ taskId: string; presetId: string }> = [];
+    engine.setRequestDelegation(async (input) => {
+      delegations.push(input);
+      return { agentId: "agt_next" };
+    });
+
+    await service.updateTask({ taskId: blocker.id, status: "done" });
+
+    await vi.waitFor(() =>
+      expect(delegations).toEqual([{ taskId: next.id, presetId: "tpst_impl" }]),
+    );
+    expect(await feedText(projectId)).toContain("started automatically: its last blocker settled");
+  });
+
+  it("waits for every blocker before starting a task from its execution spec", async () => {
+    const { engine, projectId } = await seedTask();
+    const first = await service.createTask({ projectId, title: "First", status: "in_progress" });
+    const second = await service.createTask({ projectId, title: "Second", status: "in_progress" });
+    const next = await service.createTask({
+      projectId,
+      title: "Third",
+      executionSpec: { presetId: "tpst_impl", trigger: "on_unblocked" },
+    });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: first.id });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: second.id });
+    const delegations: Array<{ taskId: string; presetId: string }> = [];
+    engine.setRequestDelegation(async (input) => {
+      delegations.push(input);
+      return { agentId: "agt_next" };
+    });
+
+    await service.updateTask({ taskId: first.id, status: "done" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(delegations).toEqual([]);
+
+    await service.updateTask({ taskId: second.id, status: "canceled" });
+
+    await vi.waitFor(() => expect(delegations).toHaveLength(1));
+  });
+
+  /**
+   * Two blockers of one task reporting settled together must start it once, not
+   * twice. The settles are reported directly rather than through two stored
+   * writes: a write lets the first report finish before the second lands, which
+   * is the easy case, while reporting both at once is what puts the two dispatch
+   * attempts in flight over the same task.
+   */
+  it("starts a task once when two blockers report settled together", async () => {
+    const { engine, projectId } = await seedTask();
+    const first = await service.createTask({ projectId, title: "First", status: "in_progress" });
+    const second = await service.createTask({ projectId, title: "Second", status: "in_progress" });
+    const next = await service.createTask({
+      projectId,
+      title: "Third",
+      executionSpec: { presetId: "tpst_impl", trigger: "on_unblocked" },
+    });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: first.id });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: second.id });
+    const delegations: Array<{ taskId: string; presetId: string }> = [];
+    engine.setRequestDelegation(async (input) => {
+      delegations.push(input);
+      return { agentId: `agt_${delegations.length}` };
+    });
+    service.setTaskStatusListener(() => undefined);
+    await service.updateTask({ taskId: first.id, status: "done" });
+    await service.updateTask({ taskId: second.id, status: "done" });
+
+    for (const blocker of [first, second]) {
+      engine.handleTaskStatusChange({
+        taskId: blocker.id,
+        parentTaskId: null,
+        previousStatus: "in_progress",
+        status: "done",
+      });
+    }
+
+    await vi.waitFor(() =>
+      expect(delegations).toEqual([{ taskId: next.id, presetId: "tpst_impl" }]),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(delegations).toHaveLength(1);
+  });
+
+  /** A blocker that settles while the daemon is down leaves its dependent ready
+   * and unstarted: the trigger fires on a status change that already happened. */
+  it("starts a task whose blocker settled while the daemon was down", async () => {
+    const { engine, projectId } = await seedTask();
+    const blocker = await service.createTask({ projectId, title: "First", status: "in_progress" });
+    const next = await service.createTask({
+      projectId,
+      title: "Second",
+      executionSpec: { presetId: "tpst_impl", trigger: "on_unblocked" },
+    });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: blocker.id });
+    await service.updateTask({ taskId: blocker.id, status: "done" });
+    const delegations: Array<{ taskId: string; presetId: string }> = [];
+    engine.setRequestDelegation(async (input) => {
+      delegations.push(input);
+      return { agentId: "agt_next" };
+    });
+
+    await engine.start();
+
+    expect(delegations).toEqual([{ taskId: next.id, presetId: "tpst_impl" }]);
+  });
+
+  it("does not restart a task that already has the agent its spec asked for", async () => {
+    const { engine, projectId } = await seedTask();
+    const blocker = await service.createTask({ projectId, title: "First", status: "in_progress" });
+    const next = await service.createTask({
+      projectId,
+      title: "Second",
+      executionSpec: { presetId: "tpst_impl", trigger: "on_unblocked" },
+    });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: blocker.id });
+    await service.updateTask({ taskId: blocker.id, status: "done" });
+    await service.attachAgent({ taskId: next.id, agentId: "agt_running", workspaceId: "ws_1" });
+    const delegations: Array<{ taskId: string; presetId: string }> = [];
+    engine.setRequestDelegation(async (input) => {
+      delegations.push(input);
+      return { agentId: "agt_next" };
+    });
+
+    await engine.start();
+
+    expect(delegations).toEqual([]);
+  });
+
+  /** A subtask captured straight into a working status is the same event as one
+   * moved there, so the parent has to see it. */
+  it("moves a parent from a subtask created directly in progress", async () => {
+    const { engine, projectId } = await seedTask();
+    void engine;
+    const parent = await service.createTask({ projectId, title: "Parent", status: "todo" });
+
+    await service.createTask({
+      projectId,
+      parentTaskId: parent.id,
+      title: "Phase",
+      status: "in_progress",
+    });
+
+    await vi.waitFor(async () =>
+      expect((await service.getTask(parent.id))?.status).toBe("in_progress"),
+    );
+  });
+
+  it("starts a waiting task from a blocker created already canceled", async () => {
+    const { engine, projectId } = await seedTask();
+    const next = await service.createTask({
+      projectId,
+      title: "Second",
+      executionSpec: { presetId: "tpst_impl", trigger: "on_unblocked" },
+    });
+    const delegations: Array<{ taskId: string; presetId: string }> = [];
+    engine.setRequestDelegation(async (input) => {
+      delegations.push(input);
+      return { agentId: "agt_next" };
+    });
+    const blocker = await service.createTask({
+      projectId,
+      title: "Skipped",
+      status: "in_progress",
+    });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: blocker.id });
+
+    await service.updateTask({ taskId: blocker.id, status: "canceled" });
+
+    await vi.waitFor(() => expect(delegations).toHaveLength(1));
+  });
+
+  /** The aggregate's final review is handed its children's verdicts read back
+   * out of the feed, so the verdict wording is a contract, not prose. */
+  it("marks an approval and a rejection in the feed as review verdicts", async () => {
+    const { task, engine, projectId } = await seedTask({
+      review: {
+        reviewEnabled: true,
+        reviewOnReject: "in_progress",
+        archiveWorkspacesOnDone: false,
+      },
+    });
+    engine.setRequestCorrection(async () => ({ agentIds: ["worker"] }));
+    await service.updateTask({ taskId: task.id, status: "in_review" });
+    await engine.applyReviewVerdict({ taskId: task.id, verdict: "reject", feedback: "Again" });
+    await service.updateTask({ taskId: task.id, status: "in_review" });
+    await engine.applyReviewVerdict({ taskId: task.id, verdict: "approve" });
+
+    const verdicts = (await service.listBoardFeed({ projectId }))
+      .filter((entry) => entry.taskId === task.id && isReviewVerdictNote(entry.body))
+      .map((entry) => entry.body);
+
+    expect(verdicts).toHaveLength(2);
+    expect(verdicts.some((body) => body.includes(REVIEW_REJECTED_NOTE))).toBe(true);
+    expect(verdicts.some((body) => body.includes(REVIEW_APPROVED_NOTE))).toBe(true);
+  });
+
+  it("leaves a task without an on_unblocked trigger for a hand to start", async () => {
+    const { engine, projectId } = await seedTask();
+    const blocker = await service.createTask({ projectId, title: "First", status: "in_progress" });
+    const next = await service.createTask({
+      projectId,
+      title: "Second",
+      executionSpec: { presetId: "tpst_impl", trigger: "manual" },
+    });
+    await service.addDependency({ taskId: next.id, dependsOnTaskId: blocker.id });
+    const delegations: Array<{ taskId: string; presetId: string }> = [];
+    engine.setRequestDelegation(async (input) => {
+      delegations.push(input);
+      return { agentId: "agt_next" };
+    });
+
+    await service.updateTask({ taskId: blocker.id, status: "done" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(delegations).toEqual([]);
   });
 
   it("lets one task override the board review default", async () => {

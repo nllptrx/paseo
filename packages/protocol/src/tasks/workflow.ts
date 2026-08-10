@@ -103,5 +103,9 @@ export const TaskWorkflowSchema = z.object({
 });
 export type TaskWorkflow = z.infer<typeof TaskWorkflowSchema>;
 
-export const StepInputSchema = StepSchema.omit({ id: true, runs: true });
+export const StepInputSchema = StepSchema.omit({ id: true, runs: true }).extend({
+  /** Present when editing an existing step. The daemon uses it to retain the
+   * step's identity and run history while applying the new definition. */
+  existingStepId: z.string().optional(),
+});
 export type StepInput = z.infer<typeof StepInputSchema>;

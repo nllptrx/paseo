@@ -296,6 +296,12 @@ const MIGRATIONS: readonly string[] = [
       UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
     END;
   `,
+  `
+    -- How a task starts itself: the preset to run and whether the daemon
+    -- dispatches it when the task's last blocker settles. A document rather
+    -- than columns, for the same reason the execution policy is one.
+    ALTER TABLE tasks ADD COLUMN execution_spec TEXT;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

@@ -71,6 +71,7 @@ import {
 } from "@getpaseo/protocol/tasks/workflow";
 import {
   TaskCommentSchema,
+  TaskExecutionSpecSchema,
   TaskPrioritySchema,
   TaskPresetSchema,
   TaskSchema,
@@ -3081,7 +3082,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     {
       title: "Create task",
       description:
-        "Capture a task in a tracker project. Defaults to backlog — the column drafts are found in.",
+        "Capture a task in a tracker project. Defaults to backlog — the column drafts are found in. A subtask waits on the sibling created before it unless `parallel` is set, and an execution spec lets it start itself when its last blocker settles.",
       inputSchema: {
         projectId: z.string().trim().min(1),
         title: z.string().trim().min(1),
@@ -3089,10 +3090,21 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         status: TaskStatusSchema.optional(),
         priority: TaskPrioritySchema.optional(),
         parentTaskId: z.string().trim().min(1).optional(),
+        parallel: z.boolean().optional(),
+        executionSpec: TaskExecutionSpecSchema.optional(),
       },
       outputSchema: { task: TaskSchema },
     },
-    async ({ projectId, title, description, status, priority, parentTaskId }) => {
+    async ({
+      projectId,
+      title,
+      description,
+      status,
+      priority,
+      parentTaskId,
+      parallel,
+      executionSpec,
+    }) => {
       const task = await requireTaskService().createTask({
         projectId,
         title,
@@ -3100,6 +3112,8 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         ...(status === undefined ? {} : { status }),
         ...(priority === undefined ? {} : { priority }),
         ...(parentTaskId === undefined ? {} : { parentTaskId }),
+        ...(parallel === undefined ? {} : { parallel }),
+        ...(executionSpec === undefined ? {} : { executionSpec }),
       });
       return { content: [], structuredContent: ensureValidJson({ task }) };
     },

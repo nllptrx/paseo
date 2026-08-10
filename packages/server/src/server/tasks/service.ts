@@ -11,6 +11,7 @@ import type {
 import type { Step, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import type pino from "pino";
 import {
+  DEFAULT_TASK_STATUS,
   openTaskStore,
   type CreateTaskCommentInput,
   type CreateTaskInput,
@@ -23,6 +24,16 @@ import {
 } from "./store.js";
 
 export type TaskRevisionListener = (revision: number) => void;
+
+/** Every stored status change, wherever it was written from. The aggregation
+ * rules read this: a parent's status is written from its children, and a child
+ * settling is what unblocks the next phase of a chain. */
+export type TaskStatusListener = (input: {
+  taskId: string;
+  parentTaskId: string | null;
+  previousStatus: TaskStatus;
+  status: TaskStatus;
+}) => void;
 
 /** Either a task (the board comes from it) or a board directly. */
 export type CreateFeedEntryInput = Omit<CreateTaskCommentInput, "projectId"> & {
@@ -45,6 +56,7 @@ export class TaskService {
   private unavailableReason: string | null = null;
   private available = false;
   private completeTaskHandler: ((taskId: string) => Promise<Task>) | null = null;
+  private statusListener: TaskStatusListener | null = null;
 
   constructor(input: { databasePath: string; logger: pino.Logger }) {
     this.databasePath = input.databasePath;
@@ -249,6 +261,13 @@ export class TaskService {
     }
     const store = await this.require();
     const task = store.createTask(input);
+    // A task captured straight into a working or terminal status is the same
+    // event as one moved there, so the aggregation and chain rules have to see
+    // it: a subtask created as in_progress starts its parent, and one created as
+    // canceled unblocks whatever waited on it.
+    if (task.status !== DEFAULT_TASK_STATUS) {
+      this.announceStatusChange(task, DEFAULT_TASK_STATUS);
+    }
     this.announce(store);
     return task;
   }
@@ -258,9 +277,43 @@ export class TaskService {
       return await this.completeThroughGate(input.taskId, input);
     }
     const store = await this.require();
-    const task = store.updateTask(input);
+    const task = this.writeTask(store, input);
     this.announce(store);
     return task;
+  }
+
+  /**
+   * Every status change is announced once, from the single place tasks are
+   * written. The aggregation rules and the chain triggers hang off this rather
+   * than off each caller, which is how the three of them stayed in step.
+   */
+  setTaskStatusListener(listener: TaskStatusListener): void {
+    this.statusListener = listener;
+  }
+
+  private writeTask(store: TaskStore, input: UpdateTaskInput): Task {
+    const previousStatus = input.status === undefined ? null : store.getTask(input.taskId)?.status;
+    const task = store.updateTask(input);
+    if (previousStatus && previousStatus !== task.status) {
+      this.announceStatusChange(task, previousStatus);
+    }
+    return task;
+  }
+
+  private announceStatusChange(task: Task, previousStatus: TaskStatus): void {
+    if (!this.statusListener) {
+      return;
+    }
+    try {
+      this.statusListener({
+        taskId: task.id,
+        parentTaskId: task.parentTaskId,
+        previousStatus,
+        status: task.status,
+      });
+    } catch (error) {
+      this.logger.warn({ err: error, taskId: task.id }, "A task status listener threw");
+    }
   }
 
   async moveTask(input: {
@@ -274,7 +327,11 @@ export class TaskService {
       if (completed.status !== "done") return completed;
     }
     const store = await this.require();
+    const previousStatus = store.getTask(input.taskId)?.status;
     const task = store.moveTask(input);
+    if (previousStatus && previousStatus !== task.status) {
+      this.announceStatusChange(task, previousStatus);
+    }
     this.announce(store);
     return task;
   }
@@ -291,7 +348,7 @@ export class TaskService {
    * request and does not open a bypass to RPC or MCP callers. */
   async finalizeTaskDone(taskId: string): Promise<Task> {
     const store = await this.require();
-    const task = store.updateTask({ taskId, status: "done" });
+    const task = this.writeTask(store, { taskId, status: "done" });
     this.announce(store);
     return task;
   }
@@ -335,9 +392,15 @@ export class TaskService {
     presetId?: string | null;
     role?: TaskAgentRole;
     completionOwner?: TaskAgentCompletionOwner;
+    /** The corrector the aggregate's own final review sends back is the one
+     * worker a task with subtasks may hold. */
+    allowAggregate?: boolean;
   }): Promise<void> {
     const store = await this.require();
     this.assertClaimable(store, input.taskId);
+    if ((input.role ?? "worker") === "worker" && input.allowAggregate !== true) {
+      this.assertLeaf(store, input.taskId);
+    }
     store.attachAgent(input);
     this.moveToWorkingOnStart(store, input.taskId);
     this.announce(store);
@@ -356,7 +419,7 @@ export class TaskService {
     if (!task || (task.status !== "backlog" && task.status !== "todo")) {
       return;
     }
-    store.updateTask({ taskId, status: "in_progress" });
+    this.writeTask(store, { taskId, status: "in_progress" });
     store.createComment({
       projectId: task.projectId,
       taskId,
@@ -381,6 +444,44 @@ export class TaskService {
     throw new Error(
       `Task ${taskId} is blocked by ${keys}; finish or cancel them before working it`,
     );
+  }
+
+  /**
+   * Throws when the task has subtasks. A leaf executes and an aggregate
+   * aggregates: a task with children is moved by them, and a worker on it would
+   * be delivering work into a branch its own children are still merging into.
+   * Reviewers are exempt — the aggregate's final review needs one.
+   */
+  private assertLeaf(store: TaskStore, taskId: string): void {
+    const subtasks = store.countSubtasks(taskId);
+    if (subtasks === 0) {
+      return;
+    }
+    const task = store.getTask(taskId);
+    const name = task ? `#${task.number}` : taskId;
+    throw new Error(
+      `Task ${name} has ${subtasks} subtask${subtasks === 1 ? "" : "s"}, so workers attach to its subtasks instead: a task with subtasks is moved by them and holds no workers of its own. Attach to a subtask, or split this work out into one.`,
+    );
+  }
+
+  /** Check the leaf rule before allocating a worktree or starting an agent.
+   * `attachAgent` checks again when the link is committed. */
+  async assertTaskExecutable(taskId: string): Promise<void> {
+    const store = await this.require();
+    this.assertLeaf(store, taskId);
+  }
+
+  async listSubtasks(parentTaskId: string): Promise<Task[]> {
+    return (await this.require()).listSubtasks(parentTaskId);
+  }
+
+  async countSubtasks(parentTaskId: string): Promise<number> {
+    return (await this.require()).countSubtasks(parentTaskId);
+  }
+
+  /** The tasks waiting on this one. */
+  async listDependents(taskId: string): Promise<string[]> {
+    return (await this.require()).listDependents(taskId);
   }
 
   /** The blockers a caller should show before offering to start work. */

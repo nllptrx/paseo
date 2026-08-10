@@ -1,10 +1,13 @@
 import {
   resolveTaskExecutionPolicy,
+  type ResolvedTaskExecutionPolicy,
   type TaskBoardConfig,
   type Task,
+  type TaskStatus,
 } from "@getpaseo/protocol/tasks/types";
 import type pino from "pino";
 import { observeAgentCompletion } from "../agent/agent-completion.js";
+import { REVIEW_APPROVED_NOTE, REVIEW_REJECTED_NOTE } from "./review-verdict-notes.js";
 import type { AgentManager } from "../agent/agent-manager.js";
 import type { TaskService } from "./service.js";
 
@@ -18,6 +21,10 @@ export interface TaskTransitionEngineDeps {
     | "finalizeTaskDone"
     | "listAgentLinks"
     | "listTaskAgents"
+    | "listSubtasks"
+    | "countSubtasks"
+    | "listDependents"
+    | "listUnmetDependencies"
     | "isAvailable"
     | "createComment"
   >;
@@ -89,6 +96,12 @@ export class TaskTransitionEngine {
   private requestIntegrationFix:
     | ((input: { taskId: string; error: string }) => Promise<void>)
     | null = null;
+  /** Starts a task from its own execution spec. Unset on hosts that do not run
+   * agents; a chain then waits for a hand, which is what it did before. */
+  private requestDelegation:
+    | ((input: { taskId: string; presetId: string }) => Promise<{ agentId: string } | null>)
+    | null = null;
+  private readonly autoStartsInFlight = new Set<string>();
 
   constructor(deps: TaskTransitionEngineDeps) {
     this.deps = deps;
@@ -96,8 +109,10 @@ export class TaskTransitionEngine {
     this.maxReviewAttempts = deps.maxReviewAttempts ?? DEFAULT_MAX_REVIEW_ATTEMPTS;
   }
 
-  /** Re-arm completion observers for every stored attachment. A daemon restart
-   * must not turn an attached agent's finish into a transition nobody saw. */
+  /** Re-arm completion observers for every stored attachment, and pick up the
+   * chains a restart interrupted. A daemon restart must not turn an attached
+   * agent's finish into a transition nobody saw, nor leave a task that became
+   * ready while the daemon was down waiting on a trigger that already fired. */
   async start(): Promise<void> {
     if (!(await this.deps.taskService.isAvailable())) {
       return;
@@ -113,6 +128,14 @@ export class TaskTransitionEngine {
       }
     } catch (error) {
       this.deps.logger.warn({ err: error }, "Could not re-arm task attachment observers");
+    }
+    try {
+      await this.startTasksReadyAfterRestart();
+    } catch (error) {
+      this.deps.logger.warn(
+        { err: error },
+        "Could not start the tasks whose blockers settled while the daemon was down",
+      );
     }
   }
 
@@ -241,7 +264,7 @@ export class TaskTransitionEngine {
       }
     }
     const project = await this.deps.taskService.getProject(task.projectId);
-    const policy = resolveTaskExecutionPolicy(project?.board, task.executionPolicy);
+    const policy = await this.resolveEffectivePolicy(task);
     try {
       await this.requireIntegrateTaskWork(taskId);
     } catch (error) {
@@ -259,6 +282,203 @@ export class TaskTransitionEngine {
       return;
     }
     await this.completeTask(taskId, "settled its attached work");
+  }
+
+  /**
+   * The effective policy for one task: its own override, then its parent
+   * aggregate's, then the board. A subtask chain configured once at the parent
+   * therefore behaves the same at every level that did not say otherwise.
+   */
+  private async resolveEffectivePolicy(task: Task): Promise<ResolvedTaskExecutionPolicy> {
+    const project = await this.deps.taskService.getProject(task.projectId);
+    const parent = task.parentTaskId
+      ? await this.deps.taskService.getTask(task.parentTaskId)
+      : null;
+    return resolveTaskExecutionPolicy(
+      project?.board,
+      task.executionPolicy,
+      parent?.executionPolicy,
+    );
+  }
+
+  /**
+   * The one reaction to a stored status change, wherever it was written from.
+   * Two rules hang off it: a parent's status is written from its children, and a
+   * task whose last blocker just settled starts itself when it was given a way
+   * to. Both are fire-and-forget, like the observer paths — the write that
+   * caused them has already landed.
+   */
+  handleTaskStatusChange(input: {
+    taskId: string;
+    parentTaskId: string | null;
+    previousStatus: TaskStatus;
+    status: TaskStatus;
+  }): void {
+    if (input.parentTaskId) {
+      const parentTaskId = input.parentTaskId;
+      void this.aggregateFromChildren(parentTaskId, input.taskId).catch((error) => {
+        this.deps.logger.error(
+          { err: error, taskId: parentTaskId, childTaskId: input.taskId },
+          "Failed to move a parent task from its children",
+        );
+      });
+    }
+    if (input.status === "done" || input.status === "canceled") {
+      void this.startUnblockedDependents(input.taskId).catch((error) => {
+        this.deps.logger.error(
+          { err: error, taskId: input.taskId },
+          "Failed to start the tasks a settled task unblocked",
+        );
+      });
+    }
+  }
+
+  /**
+   * Writes an aggregate's status from its children. The status is stored, not
+   * computed at read: the board's columns are the stored statuses, and a card
+   * whose column existed only in a projection could not be moved by hand.
+   *
+   * The child that caused the move is named in the feed, the same way every
+   * other automatic move is.
+   */
+  private async aggregateFromChildren(parentTaskId: string, childTaskId: string): Promise<void> {
+    const parent = await this.deps.taskService.getTask(parentTaskId);
+    if (!parent || parent.status === "done" || parent.status === "canceled") {
+      return;
+    }
+    const children = await this.deps.taskService.listSubtasks(parentTaskId);
+    const child = children.find((candidate) => candidate.id === childTaskId);
+    if (!child) {
+      return;
+    }
+    const project = await this.deps.taskService.getProject(parent.projectId);
+    const childKey = project ? `${project.prefix}-${child.number}` : `#${child.number}`;
+    if (
+      child.status === "in_progress" &&
+      (parent.status === "backlog" || parent.status === "todo")
+    ) {
+      await this.deps.taskService.updateTask({ taskId: parentTaskId, status: "in_progress" });
+      this.announceToBoard(project, {
+        task: parent,
+        note: `moved to in_progress: its subtask ${childKey} started`,
+      });
+      return;
+    }
+    if (parent.status === "in_review") {
+      return;
+    }
+    const open = children.filter(
+      (candidate) => candidate.status !== "done" && candidate.status !== "canceled",
+    );
+    // Nothing was delivered when every subtask was canceled, so the aggregate is
+    // left to a person rather than being called finished.
+    if (open.length > 0 || !children.some((candidate) => candidate.status === "done")) {
+      return;
+    }
+    const policy = await this.resolveEffectivePolicy(parent);
+    if (policy.reviewEnabled) {
+      await this.deps.taskService.updateTask({ taskId: parentTaskId, status: "in_review" });
+      this.reviewAttemptsByTask.delete(parentTaskId);
+      this.announceToBoard(project, {
+        task: parent,
+        note: `moved to in_review: its last subtask ${childKey} merged and the integration is ready to judge`,
+      });
+      this.startReview(parentTaskId);
+      return;
+    }
+    await this.completeTask(parentTaskId, `saw its last subtask ${childKey} merge`);
+  }
+
+  /**
+   * A settled blocker starts what was waiting on it, when the waiting task
+   * carries an execution spec asking for that. This is what lets a chain run
+   * hands-free: each phase starts itself once its predecessor is done or
+   * canceled — canceling a phase is how you skip it.
+   */
+  private async startUnblockedDependents(settledTaskId: string): Promise<void> {
+    if (!this.requestDelegation) {
+      return;
+    }
+    for (const dependentId of await this.deps.taskService.listDependents(settledTaskId)) {
+      await this.startTaskIfUnblocked(dependentId);
+    }
+  }
+
+  /**
+   * One attempt at starting one task, at most once.
+   *
+   * The claim on `autoStartsInFlight` is taken before the first await and held
+   * until the dispatch settles. Two blockers of the same task settling together
+   * both reach here, and every check between them is asynchronous: claiming
+   * after those reads would let both pass and dispatch two agents onto one task.
+   */
+  private async startTaskIfUnblocked(taskId: string): Promise<void> {
+    if (this.autoStartsInFlight.has(taskId)) {
+      return;
+    }
+    this.autoStartsInFlight.add(taskId);
+    try {
+      const task = await this.deps.taskService.getTask(taskId);
+      const spec = task?.executionSpec;
+      if (!task || !spec || spec.trigger !== "on_unblocked") {
+        return;
+      }
+      if (task.status !== "backlog" && task.status !== "todo") {
+        return;
+      }
+      if ((await this.deps.taskService.listUnmetDependencies(taskId)).length > 0) {
+        return;
+      }
+      if ((await this.deps.taskService.countSubtasks(taskId)) > 0) {
+        return;
+      }
+      await this.startTaskFromSpec(task, spec.presetId);
+    } finally {
+      this.autoStartsInFlight.delete(taskId);
+    }
+  }
+
+  /**
+   * Starts the chains a restart interrupted. A blocker that settled while the
+   * daemon was down leaves its dependent ready and unstarted, and nothing else
+   * would ever look at it again: the trigger fires on a status change, and that
+   * change already happened.
+   */
+  private async startTasksReadyAfterRestart(): Promise<void> {
+    if (!this.requestDelegation) {
+      return;
+    }
+    const ready = (await this.deps.taskService.snapshot()).tasks.filter(
+      (task) =>
+        task.executionSpec?.trigger === "on_unblocked" &&
+        (task.status === "backlog" || task.status === "todo") &&
+        task.agents.length === 0,
+    );
+    for (const task of ready) {
+      await this.startTaskIfUnblocked(task.id);
+    }
+  }
+
+  private async startTaskFromSpec(task: Task, presetId: string): Promise<void> {
+    const project = await this.deps.taskService.getProject(task.projectId);
+    try {
+      const started = await this.requestDelegation?.({ taskId: task.id, presetId });
+      if (!started) {
+        return;
+      }
+      this.observeAttachment({ taskId: task.id, agentId: started.agentId });
+      this.announceToBoard(project, {
+        task,
+        note: "started automatically: its last blocker settled",
+      });
+    } catch (error) {
+      this.announceToBoard(project, {
+        task,
+        note: `could not start automatically after its last blocker settled: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
   }
 
   /**
@@ -302,6 +522,12 @@ export class TaskTransitionEngine {
     listener: (input: { taskId: string; error: string }) => Promise<void>,
   ): void {
     this.requestIntegrationFix = listener;
+  }
+
+  setRequestDelegation(
+    listener: (input: { taskId: string; presetId: string }) => Promise<{ agentId: string } | null>,
+  ): void {
+    this.requestDelegation = listener;
   }
 
   private async finishTask(taskId: string): Promise<void> {
@@ -483,7 +709,7 @@ export class TaskTransitionEngine {
       const project = await this.deps.taskService.getProject(task.projectId);
       this.reviewAttemptsByTask.delete(input.taskId);
       if (input.verdict === "approve") {
-        return await this.completeTask(input.taskId, "was approved");
+        return await this.completeTask(input.taskId, REVIEW_APPROVED_NOTE);
       }
       return await this.applyReviewRejection({ task, project, feedback: input.feedback });
     } finally {
@@ -580,14 +806,14 @@ export class TaskTransitionEngine {
     feedback?: string;
   }): Promise<Task> {
     const { task, project } = input;
-    const policy = resolveTaskExecutionPolicy(project?.board, task.executionPolicy);
+    const policy = await this.resolveEffectivePolicy(task);
     const target = policy.reviewOnReject ?? DEFAULT_ON_REJECT;
     const currentIteration = task.reviewIteration ?? 0;
     const maxIterations = policy.maxReviewIterations;
     if (currentIteration >= maxIterations) {
       this.announceToBoard(project, {
         task,
-        note: `was rejected after ${currentIteration} correction rounds and now requires human review`,
+        note: `${REVIEW_REJECTED_NOTE} after ${currentIteration} correction rounds and now requires human review`,
       });
       return task;
     }
@@ -598,7 +824,7 @@ export class TaskTransitionEngine {
     });
     this.announceToBoard(project, {
       task,
-      note: `was rejected for correction ${currentIteration + 1}/${maxIterations} and moved back to ${target}`,
+      note: `${REVIEW_REJECTED_NOTE} for correction ${currentIteration + 1}/${maxIterations} and moved back to ${target}`,
     });
     if (target === "in_progress") {
       try {

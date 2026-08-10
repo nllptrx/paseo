@@ -1287,6 +1287,8 @@ export async function createPaseoDaemon(
   taskTransitions.setOnTaskDone((taskId) =>
     taskWorkflowEngine.archiveTaskWorkspacesAfterDone(taskId),
   );
+  taskTransitions.setRequestDelegation((input) => taskWorkflowEngine.delegate(input));
+  taskService.setTaskStatusListener((input) => taskTransitions.handleTaskStatusChange(input));
   taskWorkflowEngine.setOnWorkflowSettled((taskId) => {
     void taskTransitions.onWorkSettled(taskId).catch((error) => {
       logger.error({ err: error, taskId }, "Failed to move a task after its workflow settled");

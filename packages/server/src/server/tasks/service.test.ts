@@ -193,6 +193,62 @@ describe("TaskService", () => {
     }
   });
 
+  it("refuses to attach a worker to a task that has subtasks", async () => {
+    const service = createService();
+    try {
+      const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
+      const parent = await service.createTask({ projectId: project.id, title: "Parent" });
+      await service.createTask({
+        projectId: project.id,
+        title: "Child",
+        parentTaskId: parent.id,
+      });
+
+      await expect(
+        service.attachAgent({ taskId: parent.id, agentId: "agt_1", workspaceId: "ws_1" }),
+      ).rejects.toThrow(/holds no workers of its own/);
+      await expect(service.assertTaskExecutable(parent.id)).rejects.toThrow(
+        /workers attach to its subtasks instead/,
+      );
+    } finally {
+      await service.close();
+    }
+  });
+
+  /** The aggregate's own final review needs a reviewer on it, and a rejected
+   * final review needs one worker there to correct the integration. */
+  it("accepts a reviewer and a correction worker on a task that has subtasks", async () => {
+    const service = createService();
+    try {
+      const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
+      const parent = await service.createTask({ projectId: project.id, title: "Parent" });
+      await service.createTask({
+        projectId: project.id,
+        title: "Child",
+        parentTaskId: parent.id,
+      });
+
+      await expect(
+        service.attachAgent({
+          taskId: parent.id,
+          agentId: "agt_review",
+          workspaceId: "ws_1",
+          role: "reviewer",
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        service.attachAgent({
+          taskId: parent.id,
+          agentId: "agt_fix",
+          workspaceId: "ws_2",
+          allowAggregate: true,
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await service.close();
+    }
+  });
+
   it("reports the blockers a task is still waiting on", async () => {
     const service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
     try {

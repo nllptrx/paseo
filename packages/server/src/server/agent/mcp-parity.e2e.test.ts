@@ -1044,6 +1044,45 @@ describe("Suite G: Task Tools", () => {
     expect(recordArr((read.workflow as StructuredContent).steps)).toHaveLength(1);
   }, 20_000);
 
+  /** A task with subtasks holds no workers of its own; MCP has to refuse the
+   * same way the RPC and the service do, naming the rule instead of leaving
+   * an agent to wonder why the attach did nothing. */
+  test("refuses to attach an agent to a task that has subtasks", async () => {
+    const project = await callToolStructured(topLevelClient, "create_task_project", {
+      name: "Aggregate guard",
+      prefix: "agg",
+    });
+    const projectId = str(project.projectId);
+    const parent = await callToolStructured(topLevelClient, "create_task", {
+      projectId,
+      title: "Phase parent",
+    });
+    const parentId = str((parent.task as StructuredContent).id);
+    await callToolStructured(topLevelClient, "create_task", {
+      projectId,
+      title: "Phase one",
+      parentTaskId: parentId,
+    });
+
+    let agentId: string | null = null;
+    let agentClient: McpClient | null = null;
+    try {
+      agentId = await createTopLevelAgent({ title: "Aggregate worker" });
+      agentClient = await createMcpClient(
+        `http://127.0.0.1:${daemonHandle.port}/mcp/agents?callerAgentId=${encodeURIComponent(agentId)}`,
+      );
+      await expectToolError(
+        agentClient,
+        "attach_task_agent",
+        { taskId: parentId },
+        /has 1 subtask, so workers attach to its subtasks instead/i,
+      );
+    } finally {
+      await agentClient?.close();
+      await archiveAgentIfPresent(agentId);
+    }
+  }, 20_000);
+
   test("an agent attaches itself and its comment carries its identity", async () => {
     const project = await callToolStructured(topLevelClient, "create_task_project", {
       name: "Attach tracker",

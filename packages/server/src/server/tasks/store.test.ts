@@ -82,13 +82,13 @@ describe("TaskStore", () => {
       executionPolicy: {
         review: "required",
         workspace: "dedicated",
-        maxParallelSubtasks: 2,
+        subtaskReview: "disabled",
       },
     });
     expect(task.executionPolicy).toEqual({
       review: "required",
       workspace: "dedicated",
-      maxParallelSubtasks: 2,
+      subtaskReview: "disabled",
     });
 
     expect(store.updateTask({ taskId: task.id, executionPolicy: null }).executionPolicy).toBe(
@@ -96,24 +96,67 @@ describe("TaskStore", () => {
     );
   });
 
-  it("turns a parent's subtask concurrency into dependency waves", () => {
-    const parent = store.createTask({
+  it("stores how a task starts itself and can stop it starting", () => {
+    const task = store.createTask({
       projectId,
-      title: "Parent",
-      executionPolicy: { maxParallelSubtasks: 2 },
+      title: "Phase two",
+      executionSpec: { presetId: "tpst_1", trigger: "on_unblocked" },
     });
+    expect(task.executionSpec).toEqual({ presetId: "tpst_1", trigger: "on_unblocked" });
+
+    expect(store.updateTask({ taskId: task.id, executionSpec: null }).executionSpec).toBe(
+      undefined,
+    );
+  });
+
+  it("chains each new subtask behind the sibling created before it", () => {
+    const parent = store.createTask({ projectId, title: "Parent" });
     const first = store.createTask({ projectId, title: "One", parentTaskId: parent.id });
     const second = store.createTask({ projectId, title: "Two", parentTaskId: parent.id });
     const third = store.createTask({ projectId, title: "Three", parentTaskId: parent.id });
-    const fourth = store.createTask({ projectId, title: "Four", parentTaskId: parent.id });
 
     expect(store.listDependencies()).toEqual(
       expect.arrayContaining([
-        { taskId: fourth.id, dependsOnTaskId: second.id },
-        { taskId: third.id, dependsOnTaskId: first.id },
+        { taskId: second.id, dependsOnTaskId: first.id },
+        { taskId: third.id, dependsOnTaskId: second.id },
       ]),
     );
     expect(store.listDependencies()).toHaveLength(2);
+  });
+
+  it("leaves a parallel subtask ready alongside its predecessor", () => {
+    const parent = store.createTask({ projectId, title: "Parent" });
+    store.createTask({ projectId, title: "One", parentTaskId: parent.id });
+    const parallel = store.createTask({
+      projectId,
+      title: "Two",
+      parentTaskId: parent.id,
+      parallel: true,
+    });
+
+    expect(store.listUnmetDependencies(parallel.id)).toEqual([]);
+  });
+
+  it("does not rewrite the edges a chain already stored when a subtask is edited", () => {
+    const parent = store.createTask({ projectId, title: "Parent" });
+    const first = store.createTask({ projectId, title: "One", parentTaskId: parent.id });
+    const second = store.createTask({ projectId, title: "Two", parentTaskId: parent.id });
+    store.removeDependency({ taskId: second.id, dependsOnTaskId: first.id });
+
+    store.updateTask({ taskId: second.id, title: "Two, renamed" });
+
+    expect(store.listDependencies()).toEqual([]);
+  });
+
+  it("reads a task's children and the tasks waiting on it", () => {
+    const parent = store.createTask({ projectId, title: "Parent" });
+    const child = store.createTask({ projectId, title: "Child", parentTaskId: parent.id });
+    const after = store.createTask({ projectId, title: "After" });
+    store.addDependency({ taskId: after.id, dependsOnTaskId: child.id });
+
+    expect(store.listSubtasks(parent.id).map((task) => task.id)).toEqual([child.id]);
+    expect(store.countSubtasks(parent.id)).toBe(1);
+    expect(store.listDependents(child.id)).toEqual([after.id]);
   });
 
   it("persists the task branch and its delivery state", () => {

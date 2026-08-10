@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   TaskCommentSchema,
   TaskExecutionPolicySchema,
+  TaskExecutionSpecSchema,
   TaskPrioritySchema,
   TaskPresetSchema,
   TaskProjectSchema,
@@ -72,6 +73,10 @@ export const TasksCreateRequestSchema = z.object({
   parentTaskId: z.string().nullable().optional(),
   labelIds: z.array(z.string()).optional(),
   executionPolicy: TaskExecutionPolicySchema.optional(),
+  executionSpec: TaskExecutionSpecSchema.optional(),
+  /** Subtasks chain sequentially by default; this one is ready with its
+   * predecessor instead. Ignored without a `parentTaskId`. */
+  parallel: z.boolean().optional(),
 });
 
 export const TasksCreateResponseSchema = z.object({
@@ -96,6 +101,8 @@ export const TasksUpdateRequestSchema = z.object({
   labelIds: z.array(z.string()).optional(),
   /** Null clears all task-level exceptions back to board defaults. */
   executionPolicy: TaskExecutionPolicySchema.nullable().optional(),
+  /** Null stops the task starting itself. */
+  executionSpec: TaskExecutionSpecSchema.nullable().optional(),
 });
 
 export const TasksUpdateResponseSchema = z.object({

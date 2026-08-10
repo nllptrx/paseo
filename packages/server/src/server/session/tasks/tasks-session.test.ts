@@ -79,6 +79,58 @@ describe("TasksSession workflow requests", () => {
     });
   });
 
+  it("creates a subtask with its execution spec and its place in the chain", async () => {
+    const { projectId, taskId } = await seedTask();
+    await session.handleCreateRequest({
+      type: "tasks.create.request",
+      requestId: "r1",
+      projectId,
+      title: "Phase one",
+      parentTaskId: taskId,
+      executionSpec: { presetId: "tpst_1", trigger: "on_unblocked" },
+    });
+
+    await session.handleCreateRequest({
+      type: "tasks.create.request",
+      requestId: "r2",
+      projectId,
+      title: "Phase two",
+      parentTaskId: taskId,
+      parallel: true,
+    });
+
+    const first = payloadOf(emitted, "tasks.create.response").task;
+    expect(first?.executionSpec).toEqual({ presetId: "tpst_1", trigger: "on_unblocked" });
+    const second = (await service.snapshot()).tasks.find((task) => task.title === "Phase two");
+    expect(await service.listUnmetDependencies(second?.id ?? "")).toEqual([]);
+  });
+
+  /** A task with subtasks holds no workers of its own; the RPC surface has to
+   * refuse the same way the service does, naming the rule rather than leaving
+   * the caller to guess why nothing happened. */
+  it("refuses to attach a worker to an aggregate over RPC, naming the rule", async () => {
+    const { projectId, taskId } = await seedTask();
+    await session.handleCreateRequest({
+      type: "tasks.create.request",
+      requestId: "r1",
+      projectId,
+      title: "Phase one",
+      parentTaskId: taskId,
+    });
+
+    await session.handleAgentAttachRequest({
+      type: "tasks.agent.attach.request",
+      requestId: "r2",
+      taskId,
+      agentId: "agt_1",
+      workspaceId: "ws_1",
+    });
+
+    expect(payloadOf(emitted, "rpc_error").error).toMatch(
+      /has 1 subtask, so workers attach to its subtasks instead/,
+    );
+  });
+
   /** The client describes what to run; identity is the daemon's to hand out, so
    * two steps sent with the same shape still address separately. */
   it("stamps step ids on the way in", async () => {
@@ -104,6 +156,60 @@ describe("TasksSession workflow requests", () => {
     const [first, second] = workflow!.steps;
     expect(first.id).not.toBe(second.id);
     expect(first.runs).toEqual([]);
+  });
+
+  it("preserves an edited step's identity and run history", async () => {
+    const { taskId } = await seedTask();
+    await service.setWorkflow({
+      taskId,
+      steps: [
+        {
+          id: "stp_existing",
+          name: "Implement",
+          prompt: "do the thing",
+          agents: [{ provider: "claude" }],
+          completion: "all",
+          workspace: { mode: "worktree" },
+          trigger: { type: "manual" },
+          runs: [
+            {
+              id: "run_1",
+              startedAt: "2026-01-01T00:00:00.000Z",
+              endedAt: "2026-01-01T00:01:00.000Z",
+              status: "succeeded",
+              agentIds: ["agt_1"],
+              workspaceIds: ["wsp_1"],
+              scheduleId: null,
+              error: null,
+            },
+          ],
+        },
+      ],
+    });
+
+    await session.handleWorkflowSetRequest({
+      type: "tasks.workflow.set.request",
+      requestId: "r1",
+      taskId,
+      steps: [
+        {
+          existingStepId: "stp_existing",
+          name: "Implement and verify",
+          prompt: "do the thing and verify it",
+          agents: [{ provider: "claude" }],
+          completion: "all",
+          workspace: { mode: "worktree" },
+          trigger: { type: "immediate" },
+        },
+      ],
+    });
+
+    const [step] = payloadOf(emitted, "tasks.workflow.set.response").workflow?.steps ?? [];
+    expect(step.id).toBe("stp_existing");
+    expect(step.name).toBe("Implement and verify");
+    expect(step.trigger).toEqual({ type: "immediate" });
+    expect(step.runs).toEqual([expect.objectContaining({ id: "run_1", status: "succeeded" })]);
+    expect(step).not.toHaveProperty("existingStepId");
   });
 
   it("clears a task's workflow", async () => {

@@ -21,10 +21,12 @@ import type {
   TaskSnapshot,
   TaskStatus,
   TaskExecutionPolicy,
+  TaskExecutionSpec,
   TaskIntegration,
 } from "@getpaseo/protocol/tasks/types";
 import {
   TaskExecutionPolicySchema,
+  TaskExecutionSpecSchema,
   TaskMessageRecipientSchema,
 } from "@getpaseo/protocol/tasks/types";
 import {
@@ -63,6 +65,9 @@ const POSITION_STEP = 1024;
  * not to scroll further. */
 const DEFAULT_FEED_LIMIT = 200;
 
+/** Where a captured task lands unless the caller names a status. */
+export const DEFAULT_TASK_STATUS: TaskStatus = "backlog";
+
 function generateId(prefix: string): string {
   return `${prefix}_${randomBytes(8).toString("hex")}`;
 }
@@ -84,6 +89,9 @@ export interface CreateTaskInput {
   parentTaskId?: string | null;
   labelIds?: readonly string[];
   executionPolicy?: TaskExecutionPolicy;
+  executionSpec?: TaskExecutionSpec;
+  /** A subtask is chained behind its previous sibling unless this is set. */
+  parallel?: boolean;
 }
 
 export interface UpdateTaskInput {
@@ -99,6 +107,8 @@ export interface UpdateTaskInput {
   reviewIteration?: number;
   /** Null returns the task to board/preset defaults. */
   executionPolicy?: TaskExecutionPolicy | null;
+  /** Null stops the task starting itself. */
+  executionSpec?: TaskExecutionSpec | null;
   /** Internal Git delivery state; clients cannot write it through tasks.update. */
   integration?: TaskIntegration | null;
 }
@@ -445,7 +455,7 @@ export class TaskStore {
         .prepare("UPDATE task_projects SET next_task_number = ? WHERE id = ?")
         .run(number + 1, input.projectId);
 
-      const status = input.status ?? "backlog";
+      const status = input.status ?? DEFAULT_TASK_STATUS;
       const id = generateId("task");
       const timestamp = this.timestamp();
       if (input.parentTaskId) {
@@ -460,8 +470,9 @@ export class TaskStore {
         .prepare(
           `INSERT INTO tasks (
              id, project_id, number, title, description, status, priority,
-             due_date, parent_task_id, position, created_at, updated_at, execution_policy
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             due_date, parent_task_id, position, created_at, updated_at, execution_policy,
+             execution_spec
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -477,28 +488,27 @@ export class TaskStore {
           timestamp,
           timestamp,
           input.executionPolicy ? JSON.stringify(input.executionPolicy) : null,
+          input.executionSpec ? JSON.stringify(input.executionSpec) : null,
         );
 
       this.replaceLabels(id, input.labelIds ?? []);
-      if (input.parentTaskId) {
-        this.linkSubtaskConcurrencyWave({ taskId: id, parentTaskId: input.parentTaskId });
+      if (input.parentTaskId && input.parallel !== true) {
+        this.chainBehindPreviousSibling({ taskId: id, parentTaskId: input.parentTaskId });
       }
       return this.requireTask(id);
     });
   }
 
-  /** A parent's concurrency limit becomes ordinary dependency edges. This
-   * keeps readiness inspectable and makes every dispatch path honour it without
-   * a second scheduler-specific blocking model. */
-  private linkSubtaskConcurrencyWave(input: { taskId: string; parentTaskId: string }): void {
-    const parent = this.requireTaskRow(input.parentTaskId);
-    const policy = parent.execution_policy
-      ? TaskExecutionPolicySchema.parse(JSON.parse(parent.execution_policy))
-      : undefined;
-    const limit = policy?.maxParallelSubtasks;
-    if (!limit) {
-      return;
-    }
+  /**
+   * A new subtask waits on the sibling created before it, so a decomposition is
+   * a chain unless somebody asks for parallel work. The order becomes ordinary
+   * dependency edges: readiness stays inspectable and every dispatch path
+   * honours it without a second scheduler-specific blocking model.
+   *
+   * Edges already stored are never rewritten — a chain a person reordered by
+   * hand is the chain they meant.
+   */
+  private chainBehindPreviousSibling(input: { taskId: string; parentTaskId: string }): void {
     const siblings = selectAll(
       this.db.prepare(
         `SELECT id AS task_id FROM tasks
@@ -509,15 +519,15 @@ export class TaskStore {
       "tasks",
       [input.parentTaskId, input.taskId],
     );
-    if (siblings.length < limit) {
+    const previous = siblings.at(-1);
+    if (!previous) {
       return;
     }
-    const blocker = siblings[siblings.length - limit];
     this.db
       .prepare(
         "INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id) VALUES (?, ?)",
       )
-      .run(input.taskId, blocker.task_id);
+      .run(input.taskId, previous.task_id);
   }
 
   /** Hierarchy stays inside one board and cannot fold back onto itself. */
@@ -591,6 +601,12 @@ export class TaskStore {
       } else if (input.executionPolicy !== undefined) {
         executionPolicy = JSON.stringify(input.executionPolicy);
       }
+      let executionSpec = current.execution_spec;
+      if (input.executionSpec === null) {
+        executionSpec = null;
+      } else if (input.executionSpec !== undefined) {
+        executionSpec = JSON.stringify(input.executionSpec);
+      }
       const integration = resolveIntegrationUpdate(current, input.integration);
 
       this.db
@@ -598,8 +614,8 @@ export class TaskStore {
           `UPDATE tasks SET
              title = ?, description = ?, status = ?, priority = ?,
              due_date = ?, parent_task_id = ?, position = ?, updated_at = ?, review_iteration = ?,
-             execution_policy = ?, integration_branch = ?, integration_status = ?,
-             integration_error = ?
+             execution_policy = ?, execution_spec = ?, integration_branch = ?,
+             integration_status = ?, integration_error = ?
            WHERE id = ?`,
         )
         .run(
@@ -613,6 +629,7 @@ export class TaskStore {
           this.timestamp(),
           reviewIteration,
           executionPolicy,
+          executionSpec,
           integration.branch,
           integration.status,
           integration.error,
@@ -621,9 +638,6 @@ export class TaskStore {
 
       if (input.labelIds) {
         this.replaceLabels(input.taskId, input.labelIds);
-      }
-      if (parentTaskId && parentTaskId !== current.parent_task_id) {
-        this.linkSubtaskConcurrencyWave({ taskId: input.taskId, parentTaskId });
       }
       return this.requireTask(input.taskId);
     });
@@ -714,6 +728,9 @@ export class TaskStore {
       ...(row.execution_policy
         ? { executionPolicy: TaskExecutionPolicySchema.parse(JSON.parse(row.execution_policy)) }
         : {}),
+      ...(row.execution_spec
+        ? { executionSpec: TaskExecutionSpecSchema.parse(JSON.parse(row.execution_spec)) }
+        : {}),
       ...(row.integration_branch && row.integration_status
         ? {
             integration: {
@@ -726,6 +743,42 @@ export class TaskStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  /** The task's direct children, in board order. A task that has any is an
+   * aggregate: it is moved by them and holds no workers of its own. */
+  listSubtasks(parentTaskId: string): Task[] {
+    return selectAll(
+      this.db.prepare(
+        "SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY position, created_at, id",
+      ),
+      TaskRowSchema,
+      "tasks",
+      [parentTaskId],
+    ).map((row) => this.toTask(row));
+  }
+
+  countSubtasks(parentTaskId: string): number {
+    return (
+      selectOne(
+        this.db.prepare("SELECT COUNT(*) AS total FROM tasks WHERE parent_task_id = ?"),
+        CountRowSchema,
+        "tasks",
+        [parentTaskId],
+      )?.total ?? 0
+    );
+  }
+
+  /** The tasks waiting on this one — who a settle may have just unblocked. */
+  listDependents(taskId: string): string[] {
+    return selectAll(
+      this.db.prepare(
+        "SELECT task_id FROM task_dependencies WHERE depends_on_task_id = ? ORDER BY task_id",
+      ),
+      TaskIdRowSchema,
+      "task_dependencies",
+      [taskId],
+    ).map((row) => row.task_id);
   }
 
   /** One read for a whole view, stamped with the revision it saw. */
