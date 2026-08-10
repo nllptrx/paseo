@@ -103,16 +103,24 @@ describe("TaskTransitionEngine", () => {
     return feed.map((entry) => entry.body).join("\n");
   }
 
-  it("moves a task to done when work settles and the board does not review", async () => {
+  /** Done means somebody accepted the work. A board without a reviewer parks
+   * the card in review for a person instead of calling it finished. */
+  it("moves a root task to in_review for a human when the board does not review", async () => {
     const { task, engine, projectId } = await seedTask();
+    const reviews: string[] = [];
+    engine.setRequestReview(async (taskId) => {
+      reviews.push(taskId);
+      return null;
+    });
     await engine.onWorkSettled(task.id);
-    expect((await service.getTask(task.id))?.status).toBe("done");
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
+    expect(reviews).toEqual([]);
 
     const feed = await service.listBoardFeed({ projectId });
     expect(feed.map((entry) => ({ kind: entry.kind, body: entry.body }))).toEqual([
       {
         kind: "system",
-        body: `PSE-1 "Ship it" settled its attached work and moved to done.`,
+        body: `PSE-1 "Ship it" settled its attached work and moved to in_review to await a verdict.`,
       },
     ]);
     expect(feed[0].taskId).toBe(task.id);
@@ -236,7 +244,9 @@ describe("TaskTransitionEngine", () => {
     );
   });
 
-  it("completes a parent without review once its subtasks have merged", async () => {
+  /** The aggregate is the human gate of its chain: with no reviewer configured
+   * it waits for a verdict rather than calling the delivery accepted. */
+  it("parks a parent in review for a human once its subtasks have merged", async () => {
     const { engine, projectId } = await seedTask();
     void engine;
     const parent = await service.createTask({ projectId, title: "Parent", status: "in_progress" });
@@ -244,7 +254,9 @@ describe("TaskTransitionEngine", () => {
 
     await service.updateTask({ taskId: child.id, status: "done" });
 
-    await vi.waitFor(async () => expect((await service.getTask(parent.id))?.status).toBe("done"));
+    await vi.waitFor(async () =>
+      expect((await service.getTask(parent.id))?.status).toBe("in_review"),
+    );
   });
 
   /** Nothing was delivered, so calling the parent finished would be a claim its
@@ -546,7 +558,9 @@ describe("TaskTransitionEngine", () => {
     expect((await service.getTask(task.id))?.status).toBe("in_review");
   });
 
-  it("lets one task skip review on a reviewing board", async () => {
+  /** The override turns the agent reviewer off; the root still waits for a
+   * person, because Done is a verdict. */
+  it("lets one task trade the agent reviewer for a human on a reviewing board", async () => {
     const { task, engine } = await seedTask({
       review: {
         reviewEnabled: true,
@@ -558,10 +572,16 @@ describe("TaskTransitionEngine", () => {
       taskId: task.id,
       executionPolicy: { review: "disabled" },
     });
+    const reviews: string[] = [];
+    engine.setRequestReview(async (taskId) => {
+      reviews.push(taskId);
+      return null;
+    });
 
     await engine.onWorkSettled(task.id);
 
-    expect((await service.getTask(task.id))?.status).toBe("done");
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
+    expect(reviews).toEqual([]);
   });
 
   it("leaves done and canceled tasks alone", async () => {
@@ -762,7 +782,7 @@ describe("TaskTransitionEngine", () => {
     agentManager.emitLifecycle("agent-1", "running");
     agentManager.emitLifecycle("agent-1", "idle");
     await new Promise((resolve) => setImmediate(resolve));
-    expect((await service.getTask(task.id))?.status).toBe("done");
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
   });
 
   it("keeps observing across turns: a second finish moves a task pushed back to work", async () => {
@@ -772,13 +792,13 @@ describe("TaskTransitionEngine", () => {
     agentManager.emitLifecycle("agent-1", "running");
     agentManager.emitLifecycle("agent-1", "idle");
     await new Promise((resolve) => setImmediate(resolve));
-    expect((await service.getTask(task.id))?.status).toBe("done");
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
 
     await service.updateTask({ taskId: task.id, status: "in_progress" });
     agentManager.emitLifecycle("agent-1", "running");
     agentManager.emitLifecycle("agent-1", "idle");
     await new Promise((resolve) => setImmediate(resolve));
-    expect((await service.getTask(task.id))?.status).toBe("done");
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
   });
 
   it("waits for every attached worker before advancing a task", async () => {
@@ -796,7 +816,7 @@ describe("TaskTransitionEngine", () => {
 
     agentManager.emitLifecycle("agent-2", "idle");
     await new Promise((resolve) => setImmediate(resolve));
-    expect((await service.getTask(task.id))?.status).toBe("done");
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
   });
 
   it("starts a fresh reviewer when the first one finishes without a verdict", async () => {
@@ -956,7 +976,7 @@ describe("TaskTransitionEngine", () => {
     agentManager.emitLifecycle("agent-1", "running");
     agentManager.emitLifecycle("agent-1", "idle");
     await new Promise((resolve) => setImmediate(resolve));
-    expect((await service.getTask(task.id))?.status).toBe("done");
+    expect((await service.getTask(task.id))?.status).toBe("in_review");
   });
 
   it("does not re-arm workflow-owned step agents as task completion", async () => {
@@ -1032,7 +1052,7 @@ describe("TaskTransitionEngine", () => {
     agentManager.emitLifecycle("agt_1", "idle");
 
     await vi.waitFor(async () => {
-      expect((await service.getTask(task.id))?.status).toBe("done");
+      expect((await service.getTask(task.id))?.status).toBe("in_review");
     });
     void projectId;
   });

@@ -271,14 +271,24 @@ export class TaskTransitionEngine {
       await this.handleIntegrationFailure(task, project, error);
       return;
     }
-    if (policy.reviewEnabled) {
+    // A root task always parks in review: Done means somebody accepted the
+    // work, so only a verdict or a hand reaches it. The review toggle decides
+    // who judges — an agent reviewer, or a person when it is off. A subtask
+    // whose own review is off still completes on its own: its delivery is
+    // judged by the parent's final review, and a chain that stopped for a
+    // verdict at every phase would not be a chain.
+    if (policy.reviewEnabled || task.parentTaskId === null) {
       await this.deps.taskService.updateTask({ taskId, status: "in_review" });
       this.reviewAttemptsByTask.delete(taskId);
       this.announceToBoard(project, {
         task,
-        note: "settled its attached work, integrated it into the task branch, and moved to in_review",
+        note: policy.reviewEnabled
+          ? "settled its attached work, integrated it into the task branch, and moved to in_review"
+          : "settled its attached work and moved to in_review to await a verdict",
       });
-      this.startReview(taskId);
+      if (policy.reviewEnabled) {
+        this.startReview(taskId);
+      }
       return;
     }
     await this.completeTask(taskId, "settled its attached work");
@@ -376,14 +386,19 @@ export class TaskTransitionEngine {
       return;
     }
     const policy = await this.resolveEffectivePolicy(parent);
-    if (policy.reviewEnabled) {
+    // Same rule as a settling leaf: a root aggregate waits for a verdict, and
+    // only a nested aggregate whose own review is off flows through — its
+    // integration is judged one level further up.
+    if (policy.reviewEnabled || parent.parentTaskId === null) {
       await this.deps.taskService.updateTask({ taskId: parentTaskId, status: "in_review" });
       this.reviewAttemptsByTask.delete(parentTaskId);
       this.announceToBoard(project, {
         task: parent,
         note: `moved to in_review: its last subtask ${childKey} merged and the integration is ready to judge`,
       });
-      this.startReview(parentTaskId);
+      if (policy.reviewEnabled) {
+        this.startReview(parentTaskId);
+      }
       return;
     }
     await this.completeTask(parentTaskId, `saw its last subtask ${childKey} merge`);

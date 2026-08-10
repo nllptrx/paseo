@@ -140,9 +140,14 @@ are independent writes from different call sites, which is how they drift.
 
 `packages/server/src/server/tasks/transitions.ts`, unit-tested:
 
-- Attached work settles green → the task moves to `in_review` when its effective
-  review policy requires it, else to `done`. The task override wins over the
-  board default.
+- Attached work settles green → a root task always moves to `in_review`: Done
+  means somebody accepted the work, so only a verdict or a hand reaches it. The
+  effective review policy decides who judges — enabled starts the configured
+  reviewer, disabled waits for a person. A subtask whose own review is off
+  moves to `done` on its own: its delivery is judged by the parent's final
+  review, and a chain that stopped for a verdict at every phase would not be a
+  chain. The task override wins over the parent's, which wins over the board
+  default.
   - Workflow-dispatched agents attach without observers; the last step
     settling is the signal, so a 3-step workflow does not move the task on
     step 1. Each attachment stores whether the workflow or the attachment
