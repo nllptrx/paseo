@@ -1021,11 +1021,13 @@ class DaemonRpcError extends Error {
   readonly requestType?: string;
   readonly code?: string;
 
+  /**
+   * `message` carries only what the daemon reported, because callers surface it
+   * to people. The request type and error code stay addressable as fields for
+   * capability checks and logs.
+   */
   constructor(params: { requestId: string; error: string; requestType?: string; code?: string }) {
-    const parts = [params.error];
-    if (params.requestType) parts.push(`requestType=${params.requestType}`);
-    if (params.code) parts.push(`code=${params.code}`);
-    super(parts.join(" "));
+    super(params.error);
     this.name = "DaemonRpcError";
     this.requestId = params.requestId;
     this.requestType = params.requestType;
