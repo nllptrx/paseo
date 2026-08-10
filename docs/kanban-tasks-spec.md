@@ -132,23 +132,17 @@ worktree, each phase reusing its predecessor's; parallel phases get their own.
 Shared worktrees are released when the aggregate settles, not at each
 subtask's Done (§6.2).
 
-### 2.4 Board event bus [DECIDED]
+### 2.4 Board event bus [SHIPPED]
 
 One emission point for board events — task created, moved, settled, approved,
 rejected, agent attached, agent stalled — and three consumers: the feed room
-post (§6), the `tasks.update` push, and the daemon rules (§6.1). Today those
-are independent writes from different call sites, which is how they drift.
+post (§6), the `tasks.update` push, and the daemon rules (§6.1).
 
 An event is typed data, not prose: a kind plus its references (task, agent,
 verdict, cause), stored on the feed entry. The feed renders the sentence from
 the event; every reader — the aggregate reviewer collecting child verdicts,
 `get_task_context` (§4.1), the daemon rules — reads the kind, never the
-wording. Matching feed prose to find a verdict is the failure mode this
-section exists to end.
-
-The bus comes first in the awareness work (§4.1): the agent layer reads the
-feed as the machine's history, and a history assembled from ad-hoc prose
-cannot be projected reliably.
+wording. Matching feed prose to find a verdict is forbidden.
 
 ## 3. Automatic transitions [SHIPPED]
 
@@ -234,18 +228,19 @@ one-move undo is what prevents it.
 ## 4. Agent access [SHIPPED]
 
 - MCP tools: `create_task_project`, `list_tasks`, `create_task`, `update_task`,
-  `comment_task` (agent identity on the comment), `attach_task_agent`
-  (defaults to the calling agent — "I'm taking PSE-3"), `review_task`.
-  Parity Suite G covers capture→review, self-attach, and workflow replace.
+  `comment_task` (agent identity on the comment, with optional delivery to the
+  target task's attached agents), `get_task_context` (the caller's live task
+  position), `attach_task_agent` (defaults to the calling agent — "I'm taking
+  PSE-3"), `review_task`.
+  Parity Suite G covers capture→review, self-attach, workflow replace, live
+  task context, and cross-card delivery.
 - CLI: `paseo task ls|create|move`, by key (`PSE-42`) or id.
 
-### 4.1 Agent awareness [DECIDED]
+### 4.1 Agent awareness [SHIPPED]
 
-An agent the tracker dispatches works inside a machine it cannot see: statuses
-move when it stops, gates open when siblings settle, review judges what it
-integrated. Today it receives a task key and a prompt; everything else it has
-to guess. Three pieces close that, and they sit on the event bus: §2.4 lands
-first, so the history the agent layer reads is typed events, not prose.
+An agent the tracker dispatches works inside a machine where statuses move when
+it stops, gates open when siblings settle, and review judges what it integrated.
+Three pieces expose that machine through the typed event history in §2.4.
 
 - **The briefing.** Every task-dispatched agent — worker, reviewer, corrector,
   preset delegate, scheduled step — gets one standard prompt preamble, built
@@ -421,7 +416,7 @@ updates, system events, and messages rather than opening a second chat room.
 Every entry has one kind and an optional task; a task-scoped entry appears in
 the task detail and the board feed.
 
-**[DECIDED]** One write primitive under every surface: an entry on a card,
+**[SHIPPED]** One write primitive under every surface: an entry on a card,
 optionally delivered to its attached agents. `tasks.feed.post`,
 `tasks.feed.send_message`, `comment_task` and the system events off the bus
 (§2.4) are thin wrappers over it — the wire RPCs stay as they are; what
@@ -509,9 +504,9 @@ and the board e2e.
    `tasks.workflow.*` and `tasks.step.*` RPCs, the agent tools, and the
    workflow form.
 2. **Board is the task project** (§2.1). **Done.**
-3. **Event bus and feed** (§2.4, §6) — _next_. Single emission point, room per board,
-   `comment_task` mirroring, composer with mention fanout, mesh retirement,
-   Feed tab.
+3. **Event bus and feed** (§2.4, §6). **Done.** Single emission point, room per
+   board, `comment_task` mirroring, composer with mention fanout, mesh
+   retirement, Feed tab.
 4. **Hierarchy and rules** (§2.3, §6.1, §6.2). **Done.**
 5. **Detail sheet and delegate** (§5.4, §5.5). **Done.**
 6. **Leaf/aggregate model** (§2.3, §2.5, §3 two-level review). Aggregation
