@@ -34,6 +34,9 @@ describe("TasksSession workflow requests", () => {
     service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
     emitted = [];
     notified = [];
+    service.setFeedDeliveryHandler(async (input) => {
+      notified.push(input);
+    });
     session = new TasksSession({
       host: { emit: (msg) => emitted.push(msg) },
       taskService: service,
@@ -46,9 +49,6 @@ describe("TasksSession workflow requests", () => {
         },
         logger,
       }),
-      notifyAgent: async (input) => {
-        notified.push(input);
-      },
       logger,
     });
   });
@@ -401,6 +401,9 @@ describe("TasksSession workflow requests", () => {
   it("persists failed delivery when an agent prompt cannot be sent", async () => {
     const { projectId, taskId } = await seedTask();
     await service.attachAgent({ taskId, agentId: "agt_1", workspaceId: "ws_1" });
+    service.setFeedDeliveryHandler(async () => {
+      throw new Error("agent unavailable");
+    });
     const failingSession = new TasksSession({
       host: { emit: (msg) => emitted.push(msg) },
       taskService: service,
@@ -413,9 +416,6 @@ describe("TasksSession workflow requests", () => {
         },
         logger,
       }),
-      notifyAgent: async () => {
-        throw new Error("agent unavailable");
-      },
       logger,
     });
 

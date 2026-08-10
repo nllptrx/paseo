@@ -129,7 +129,7 @@ import type { RequestedSpeechProviders } from "./speech/speech-types.js";
 import { createSpeechService } from "./speech/speech-runtime.js";
 import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
-import { sendPromptToAgent } from "./agent/agent-prompt.js";
+import { formatSystemNotificationPrompt, sendPromptToAgent } from "./agent/agent-prompt.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
 import {
@@ -1233,6 +1233,16 @@ export async function createPaseoDaemon(
   const taskService = new TaskService({
     databasePath: path.join(config.paseoHome, "tasks.db"),
     logger,
+  });
+  taskService.setFeedDeliveryHandler(async ({ agentId, text }) => {
+    await sendPromptToAgent({
+      agentManager,
+      agentStorage,
+      agentId,
+      prompt: formatSystemNotificationPrompt(text),
+      unarchive: false,
+      logger,
+    });
   });
   const taskTransitions = new TaskTransitionEngine({
     taskService,

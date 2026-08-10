@@ -249,6 +249,37 @@ describe("TaskService", () => {
     }
   });
 
+  it("writes and delivers a feed entry through one path", async () => {
+    const service = createService();
+    try {
+      const delivered: Array<{ agentId: string; text: string }> = [];
+      service.setFeedDeliveryHandler(async (input) => delivered.push(input));
+      const project = await service.createProject({ name: "P", prefix: "P", color: "#fff" });
+      const task = await service.createTask({ projectId: project.id, title: "Ship it" });
+      await service.attachAgent({ taskId: task.id, agentId: "agt_1", workspaceId: "ws_1" });
+
+      const entry = await service.writeFeedEntry({
+        taskId: task.id,
+        kind: "user",
+        authorName: "user",
+        body: "Please continue",
+        delivery: {
+          scope: "task",
+          agentIds: ["agt_1"],
+          text: "Task message",
+        },
+      });
+
+      expect(entry.entryKind).toBe("message");
+      expect(entry.recipients).toEqual([
+        { agentId: "agt_1", workspaceId: "ws_1", deliveryStatus: "delivered" },
+      ]);
+      expect(delivered).toEqual([{ agentId: "agt_1", text: "Task message" }]);
+    } finally {
+      await service.close();
+    }
+  });
+
   it("reports the blockers a task is still waiting on", async () => {
     const service = new TaskService({ databasePath: join(directory, "tasks.db"), logger });
     try {

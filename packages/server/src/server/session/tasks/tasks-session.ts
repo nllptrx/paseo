@@ -22,9 +22,6 @@ export interface TasksSessionOptions {
   /** Absent on hosts that never dispatch work; the workflow requests then fail
    * with a reason rather than silently doing nothing. */
   workflowEngine?: TaskWorkflowEngine;
-  /** Delivers a feed mention to the agent it named. Absent on hosts that only
-   * read the tracker; mentions then post without waking anyone. */
-  notifyAgent?: (input: { agentId: string; text: string }) => Promise<void>;
   logger: pino.Logger;
 }
 
@@ -64,9 +61,6 @@ export class TasksSession {
   private readonly taskService: TaskService;
   private readonly transitions: TaskTransitionEngine;
   private readonly workflowEngine: TaskWorkflowEngine | null;
-  private readonly notifyAgent:
-    | ((input: { agentId: string; text: string }) => Promise<void>)
-    | null;
   private readonly logger: pino.Logger;
   private unsubscribe: (() => void) | null = null;
 
@@ -75,7 +69,6 @@ export class TasksSession {
     this.taskService = options.taskService;
     this.transitions = options.transitions;
     this.workflowEngine = options.workflowEngine ?? null;
-    this.notifyAgent = options.notifyAgent ?? null;
     this.logger = options.logger;
   }
 
@@ -470,36 +463,28 @@ export class TasksSession {
         }
       }
 
-      const recipientSnapshot = [...recipients].map((agentId) => ({
-        agentId,
-        workspaceId: null,
-        deliveryStatus: "pending" as const,
-      }));
-      let entry = await this.taskService.createComment({
+      const project = await this.taskService.getProject(request.projectId);
+      const task = request.taskId ? await this.taskService.getTask(request.taskId) : null;
+      const text = project
+        ? formatFeedMentionNotification({ project, task, body: request.body })
+        : request.body;
+      const entry = await this.taskService.writeFeedEntry({
         projectId: request.projectId,
         taskId: request.taskId ?? null,
         kind: "user",
         authorName: "user",
         body: request.body,
-        entryKind: recipients.size > 0 ? "message" : "note",
-        ...(recipientSnapshot.length > 0 ? { recipients: recipientSnapshot } : {}),
+        entryKind: "note",
+        ...(recipients.size > 0
+          ? {
+              delivery: {
+                scope: "board",
+                agentIds: [...recipients],
+                text,
+              } as const,
+            }
+          : {}),
       });
-
-      const delivery = await this.notifyMentionedAgents({
-        projectId: request.projectId,
-        taskId: request.taskId ?? null,
-        body: request.body,
-        agentIds: [...recipients],
-      });
-      if (entry.recipients) {
-        entry = await this.taskService.updateCommentRecipients(
-          entry.id,
-          entry.recipients.map((recipient) => ({
-            ...recipient,
-            deliveryStatus: delivery.get(recipient.agentId) ?? "failed",
-          })),
-        );
-      }
 
       this.host.emit({
         type: "tasks.feed.post.response",
@@ -518,48 +503,19 @@ export class TasksSession {
       if (!task || task.projectId !== request.projectId) {
         throw new Error("The message task does not belong to this board");
       }
-      const links = await this.taskService.listTaskAgents(request.taskId);
-      const linksByAgentId = new Map(links.map((link) => [link.agentId, link]));
       const recipientIds = [...new Set(request.recipientAgentIds)];
-      const missing = recipientIds.filter((agentId) => !linksByAgentId.has(agentId));
-      if (missing.length > 0) {
-        throw new Error(`Message recipients are not attached to this task: ${missing.join(", ")}`);
-      }
-
-      let entry = await this.taskService.createComment({
+      const project = await this.taskService.getProject(request.projectId);
+      const text = project
+        ? formatTaskMessageNotification({ project, task, body: request.body })
+        : request.body;
+      const entry = await this.taskService.writeFeedEntry({
         projectId: request.projectId,
         taskId: request.taskId,
         kind: "user",
         authorName: "user",
         body: request.body,
-        entryKind: "message",
-        recipients: recipientIds.map((agentId) => ({
-          agentId,
-          workspaceId: linksByAgentId.get(agentId)?.workspaceId ?? null,
-          deliveryStatus: "pending",
-        })),
+        delivery: { scope: "task", agentIds: recipientIds, text },
       });
-
-      const project = await this.taskService.getProject(request.projectId);
-      const text = project
-        ? formatTaskMessageNotification({ project, task, body: request.body })
-        : request.body;
-      const recipients = await Promise.all(
-        entry.recipients?.map(async (recipient) => {
-          try {
-            if (!this.notifyAgent) throw new Error("Agent delivery is unavailable on this host");
-            await this.notifyAgent({ agentId: recipient.agentId, text });
-            return { ...recipient, deliveryStatus: "delivered" as const };
-          } catch (error) {
-            this.logger.warn(
-              { err: error, agentId: recipient.agentId, taskId: request.taskId },
-              "Could not deliver a task feed message",
-            );
-            return { ...recipient, deliveryStatus: "failed" as const };
-          }
-        }) ?? [],
-      );
-      entry = await this.taskService.updateCommentRecipients(entry.id, recipients);
 
       this.host.emit({
         type: "tasks.feed.send_message.response",
@@ -568,45 +524,6 @@ export class TasksSession {
     } catch (error) {
       this.emitError(request, error);
     }
-  }
-
-  /**
-   * A mention wakes the agent it names. The note is already in the feed by the
-   * time this runs, so a prompt that fails to send leaves a board you can read
-   * rather than a post that never happened.
-   */
-  private async notifyMentionedAgents(input: {
-    projectId: string;
-    taskId: string | null;
-    body: string;
-    agentIds: readonly string[];
-  }): Promise<Map<string, "delivered" | "failed">> {
-    const delivery = new Map<string, "delivered" | "failed">();
-    if (input.agentIds.length === 0 || !this.notifyAgent) {
-      return delivery;
-    }
-    const project = await this.taskService.getProject(input.projectId);
-    if (!project) {
-      return delivery;
-    }
-    const task = input.taskId ? await this.taskService.getTask(input.taskId) : null;
-    const text = formatFeedMentionNotification({ project, task, body: input.body });
-
-    await Promise.all(
-      input.agentIds.map(async (agentId) => {
-        try {
-          await this.notifyAgent?.({ agentId, text });
-          delivery.set(agentId, "delivered");
-        } catch (error) {
-          this.logger.warn(
-            { err: error, agentId },
-            "Could not deliver a feed mention to the agent it named",
-          );
-          delivery.set(agentId, "failed");
-        }
-      }),
-    );
-    return delivery;
   }
 
   async handleDependencyAddRequest(

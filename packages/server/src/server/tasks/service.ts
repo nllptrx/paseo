@@ -51,6 +51,16 @@ export type CreateFeedEntryInput = Omit<CreateTaskCommentInput, "projectId"> & {
   projectId?: string;
 };
 
+export interface FeedDeliveryInput {
+  scope: "board" | "task";
+  agentIds: readonly string[];
+  text: string;
+}
+
+export type WriteFeedEntryInput = CreateFeedEntryInput & {
+  delivery?: FeedDeliveryInput;
+};
+
 /**
  * The tracker, and the one place that decides whether there is one.
  *
@@ -69,6 +79,9 @@ export class TaskService {
   private completeTaskHandler: ((taskId: string) => Promise<Task>) | null = null;
   private reviewEntryHandler: ((taskId: string) => Promise<void>) | null = null;
   private boardEventListener: BoardEventListener | null = null;
+  private feedDeliveryHandler:
+    | ((input: { agentId: string; text: string }) => Promise<void>)
+    | null = null;
 
   constructor(input: { databasePath: string; logger: pino.Logger }) {
     this.databasePath = input.databasePath;
@@ -303,6 +316,12 @@ export class TaskService {
    */
   setBoardEventListener(listener: BoardEventListener): void {
     this.boardEventListener = listener;
+  }
+
+  setFeedDeliveryHandler(
+    handler: (input: { agentId: string; text: string }) => Promise<void>,
+  ): void {
+    this.feedDeliveryHandler = handler;
   }
 
   private writeTask(
@@ -636,9 +655,46 @@ export class TaskService {
    * pass both would let the two disagree.
    */
   async createComment(input: CreateFeedEntryInput): Promise<TaskComment> {
+    return await this.writeFeedEntry(input);
+  }
+
+  async writeFeedEntry(input: WriteFeedEntryInput): Promise<TaskComment> {
     const store = await this.require();
     const projectId = await this.resolveFeedProjectId(store, input);
-    const comment = store.createComment({ ...input, projectId });
+    const { delivery, ...entry } = input;
+    const recipients = delivery
+      ? this.resolveDeliveryRecipients(store, {
+          projectId,
+          taskId: input.taskId ?? null,
+          delivery,
+        })
+      : [];
+    let comment = this.createFeedEntryFromStore(store, {
+      ...entry,
+      projectId,
+      ...(delivery ? { entryKind: "message", recipients } : {}),
+    });
+    if (!delivery) {
+      return comment;
+    }
+    const delivered = await Promise.all(
+      recipients.map(async (recipient) => {
+        try {
+          if (!this.feedDeliveryHandler) {
+            throw new Error("Agent delivery is unavailable on this host");
+          }
+          await this.feedDeliveryHandler({ agentId: recipient.agentId, text: delivery.text });
+          return Object.assign({}, recipient, { deliveryStatus: "delivered" as const });
+        } catch (error) {
+          this.logger.warn(
+            { err: error, agentId: recipient.agentId, taskId: input.taskId ?? null },
+            "Could not deliver a task feed entry",
+          );
+          return Object.assign({}, recipient, { deliveryStatus: "failed" as const });
+        }
+      }),
+    );
+    comment = store.updateCommentRecipients(comment.id, delivered);
     this.announce(store);
     return comment;
   }
@@ -658,7 +714,7 @@ export class TaskService {
       throw new Error(`No board ${task.projectId} for task ${input.taskId}`);
     }
     const event = toTaskBoardEvent(input);
-    const comment = store.createComment({
+    const comment = this.createFeedEntryFromStore(store, {
       projectId: project.id,
       taskId: task.id,
       kind: "system",
@@ -668,7 +724,6 @@ export class TaskService {
       entryKind: "system_event",
       event,
     });
-    this.announce(store);
     if (this.boardEventListener) {
       try {
         this.boardEventListener(event);
@@ -679,14 +734,43 @@ export class TaskService {
     return comment;
   }
 
-  async updateCommentRecipients(
-    commentId: string,
-    recipients: NonNullable<TaskComment["recipients"]>,
-  ): Promise<TaskComment> {
-    const store = await this.require();
-    const comment = store.updateCommentRecipients(commentId, recipients);
+  private createFeedEntryFromStore(store: TaskStore, input: CreateTaskCommentInput): TaskComment {
+    const comment = store.createComment(input);
     this.announce(store);
     return comment;
+  }
+
+  private resolveDeliveryRecipients(
+    store: TaskStore,
+    input: { projectId: string; taskId: string | null; delivery: FeedDeliveryInput },
+  ): NonNullable<TaskComment["recipients"]> {
+    const agentIds = [...new Set(input.delivery.agentIds)];
+    if (input.delivery.scope === "board") {
+      const attached = new Set(store.listBoardAgentIds(input.projectId));
+      const missing = agentIds.filter((agentId) => !attached.has(agentId));
+      if (missing.length > 0) {
+        throw new Error(`Feed recipients are not attached to this board: ${missing.join(", ")}`);
+      }
+      return agentIds.map((agentId) => ({
+        agentId,
+        workspaceId: null,
+        deliveryStatus: "pending",
+      }));
+    }
+    if (!input.taskId) {
+      throw new Error("Task delivery requires a task-scoped feed entry");
+    }
+    const links = store.listTaskAgents(input.taskId);
+    const linksByAgentId = new Map(links.map((link) => [link.agentId, link]));
+    const missing = agentIds.filter((agentId) => !linksByAgentId.has(agentId));
+    if (missing.length > 0) {
+      throw new Error(`Message recipients are not attached to this task: ${missing.join(", ")}`);
+    }
+    return agentIds.map((agentId) => ({
+      agentId,
+      workspaceId: linksByAgentId.get(agentId)?.workspaceId ?? null,
+      deliveryStatus: "pending",
+    }));
   }
 
   private async resolveFeedProjectId(
