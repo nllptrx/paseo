@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import {
   Bot,
+  Check,
   ChevronDown,
   ChevronUp,
   GitBranch,
@@ -11,7 +12,7 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TaskComment } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
-import type { Theme } from "@/styles/theme";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import { useSessionStore } from "@/stores/session-store";
 import {
@@ -28,11 +29,13 @@ const ThemedSend = withUnistyles(SendHorizontal);
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedBot = withUnistyles(Bot);
 const ThemedGitBranch = withUnistyles(GitBranch);
+const ThemedCheck = withUnistyles(Check);
 
 const ACTIVITY_ICON_SIZE = 14;
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const extraMutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 const accentIconMapping = (theme: Theme) => ({ color: theme.colors.accentBright });
+const successIconMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
 
 /** Wall-clock time only: a feed you read top to bottom already carries the day. */
 export function formatEntryTime(createdAt: string): string {
@@ -318,17 +321,37 @@ function MessageRecipientRow({
       >
         {identity}
       </Text>
-      <Text
-        style={[
-          styles.delivery,
-          appearance === "activity" && styles.activityDelivery,
-          recipient.deliveryStatus === "delivered" && styles.deliverySucceeded,
-          recipient.deliveryStatus === "failed" && styles.deliveryFailed,
-        ]}
-      >
-        {recipient.deliveryStatus}
-      </Text>
+      <DeliveryMark status={recipient.deliveryStatus} appearance={appearance} />
     </View>
+  );
+}
+
+/**
+ * Whether the message reached its agent, as one mark: a tick that turns from
+ * waiting to delivered. A failure is the only state that earns a word, because
+ * it is the only one that asks for something to be done.
+ */
+function DeliveryMark({
+  status,
+  appearance,
+}: {
+  status: NonNullable<TaskComment["recipients"]>[number]["deliveryStatus"];
+  appearance: "standard" | "activity";
+}): ReactElement {
+  if (status === "failed") {
+    return (
+      <Text style={[styles.delivery, styles.deliveryFailed]} numberOfLines={1}>
+        Not delivered
+      </Text>
+    );
+  }
+  const mapping = status === "delivered" ? successIconMapping : extraMutedIconMapping;
+  return (
+    <ThemedCheck
+      size={appearance === "activity" ? ACTIVITY_ICON_SIZE : ICON_SIZE.sm}
+      uniProps={mapping}
+      accessibilityLabel={status === "delivered" ? "Delivered" : "Waiting for delivery"}
+    />
   );
 }
 
@@ -454,6 +477,7 @@ const styles = StyleSheet.create((theme) => ({
   activityEntry: {
     flexDirection: "row",
     alignItems: "stretch",
+    gap: theme.spacing[3],
   },
   activityTime: {
     marginLeft: "auto",
@@ -473,7 +497,7 @@ const styles = StyleSheet.create((theme) => ({
     flexGrow: 1,
   },
   activityMarker: {
-    width: 20,
+    width: ACTIVITY_ICON_SIZE,
     alignItems: "center",
     paddingTop: theme.spacing[2] + 2,
   },
@@ -482,7 +506,6 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     gap: theme.spacing[1],
     paddingVertical: theme.spacing[2],
-    paddingRight: theme.spacing[2],
   },
   activityHeader: {
     flexDirection: "row",
