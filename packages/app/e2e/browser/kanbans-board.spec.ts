@@ -508,7 +508,10 @@ test.describe("Kanbans board", () => {
     await expect(detail.getByTestId("task-detail-workflow")).toContainText("Inspect the project");
     await detail.getByTestId("task-detail-workflow-edit").click();
 
-    const form = page.getByTestId("task-workflow-form-sheet");
+    // Editing a saved plan stacks inside the task rather than opening a sheet of
+    // its own, so leaving it returns to the task. The standalone form sheet is
+    // still the board's own entry point, covered above.
+    const form = detail.getByTestId("task-detail-plan-surface");
     await expect(form).toBeVisible({ timeout: 10_000 });
     await form.getByTestId("task-workflow-form-step-toggle-0").click();
     await expect(form.getByTestId("task-workflow-form-step-name-input-0")).toHaveValue(
@@ -542,7 +545,7 @@ test.describe("Kanbans board", () => {
       .poll(async () => (await promptInput.boundingBox())?.height ?? 0)
       .toBeGreaterThan(beforeResize.height + 40);
 
-    await form.getByTestId("task-workflow-form-add-step").click();
+    await form.getByTestId("task-detail-plan-add-step").click();
     const secondPromptInput = form.getByTestId("task-workflow-form-step-prompt-input-1");
     await expect(secondPromptInput).toHaveCSS("resize", "none");
     await expect(secondPromptInput).toHaveCSS("overflow-y", "auto");
