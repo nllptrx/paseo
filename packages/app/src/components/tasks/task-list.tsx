@@ -32,6 +32,12 @@ import {
   partitionTaskLabels,
   resolveTaskLabels,
 } from "@/tasks/task-views";
+import { StatusRing } from "@/components/status-ring";
+import { STATUS_RING_FRAME_SIZE } from "@/components/status-ring/geometry";
+import {
+  STATUS_INDICATOR_DOT_SIZE,
+  STATUS_INDICATOR_FILLED_DOT_SIZE,
+} from "@/utils/status-indicator-geometry";
 import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
 import {
   TASK_PRIORITY_LABEL_KEYS,
@@ -197,20 +203,32 @@ export function TaskList({
   );
 }
 
-/** The one status → dot mapping for tracker statuses; menus and headers reuse
- * it rather than restating which status is which color. */
+/**
+ * The one status → dot mapping for tracker statuses; menus and headers reuse it rather than
+ * restating which status is which color.
+ *
+ * Colors come from the `statusDot*` band only, never the status family beside it, and the
+ * running mark is the same rotating ring an agent row draws — a task in progress and the agent
+ * running it are the same event seen from two surfaces, so they cannot look like two things.
+ * Every variant is centred in one ring-sized slot so the row's text baseline does not shift as a
+ * task moves between columns.
+ */
 export function TaskStatusDot({ status }: { status: TaskStatus }): ReactElement {
   return (
-    <View
-      style={[
-        styles.statusDot,
-        status === "todo" && styles.statusTodo,
-        status === "in_progress" && styles.statusWorking,
-        status === "in_review" && styles.statusReview,
-        status === "done" && styles.statusDone,
-        status === "canceled" && styles.statusCanceled,
-      ]}
-    />
+    <View style={styles.statusDotSlot}>
+      {status === "in_progress" ? (
+        <StatusRing />
+      ) : (
+        <View
+          style={[
+            status === "in_review" && [styles.statusFill, styles.statusReview],
+            status === "done" && [styles.statusFill, styles.statusDone],
+            status === "canceled" && [styles.statusRing, styles.statusCanceled],
+            (status === "backlog" || status === "todo") && [styles.statusRing, styles.statusTodo],
+          ]}
+        />
+      )}
+    </View>
   );
 }
 
@@ -519,27 +537,27 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.medium,
   },
   groupCount: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.xs },
-  statusDot: {
-    width: 10,
-    height: 10,
+  statusDotSlot: {
+    width: STATUS_RING_FRAME_SIZE,
+    height: STATUS_RING_FRAME_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusFill: {
+    width: STATUS_INDICATOR_FILLED_DOT_SIZE,
+    height: STATUS_INDICATOR_FILLED_DOT_SIZE,
+    borderRadius: theme.borderRadius.full,
+  },
+  statusRing: {
+    width: STATUS_INDICATOR_DOT_SIZE,
+    height: STATUS_INDICATOR_DOT_SIZE,
     borderRadius: theme.borderRadius.full,
     borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.foregroundMuted,
   },
-  statusTodo: { borderColor: theme.colors.foreground },
-  statusWorking: {
-    borderColor: theme.colors.statusDotRunning,
-    backgroundColor: theme.colors.statusDotRunning,
-  },
-  statusReview: {
-    borderColor: theme.colors.statusDotSuccess,
-    backgroundColor: theme.colors.statusDotSuccess,
-  },
-  statusDone: {
-    borderColor: theme.colors.statusSuccess,
-    backgroundColor: theme.colors.statusSuccess,
-  },
-  statusCanceled: { borderColor: theme.colors.statusDanger },
+  statusTodo: { borderColor: theme.colors.foregroundMuted },
+  statusReview: { backgroundColor: theme.colors.statusDotWarning },
+  statusDone: { backgroundColor: theme.colors.statusDotSuccess },
+  statusCanceled: { borderColor: theme.colors.border },
   row: {
     minHeight: 38,
     flexDirection: "row",
