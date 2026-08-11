@@ -42,7 +42,14 @@ import type {
   TaskStatus,
 } from "@getpaseo/protocol/tasks/types";
 import { resolveTaskExecutionPolicy } from "@getpaseo/protocol/tasks/types";
-import type { Step, StepInput, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
+import type {
+  Step,
+  StepAgentSpec,
+  StepInput,
+  StepWorkspaceStrategy,
+  TaskWorkflow,
+} from "@getpaseo/protocol/tasks/workflow";
+import type { AgentModelDefinition, AgentProvider } from "@getpaseo/protocol/agent-types";
 import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -81,6 +88,7 @@ import { resolveStepAgentTarget } from "@/tasks/task-workflow-view";
 import { buildTaskWorkflowSteps } from "@/tasks/task-workflow-form-model";
 import { useTaskWorkflowFormModel } from "@/tasks/use-task-workflow-form-model";
 import { useKanbanProjectCwd } from "@/tasks/use-kanban-project-cwd";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { TaskWorkflowStepEditor } from "./task-workflow-step-editor";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import {
@@ -158,8 +166,11 @@ function DetailSection({
 
 /** The rail beside the tabs on desktop: properties, live agents, relations. */
 const DETAIL_RAIL_WIDTH = 256;
-/** The plan's right column, so duration and status align down every step. */
-const STEP_TRAILING_WIDTH = 104;
+/** The plan's right columns: each is fixed so durations and statuses line up
+ * down the plan, while the model stays beside the time rather than being pushed
+ * off by a short status. */
+const STEP_DURATION_WIDTH = 48;
+const STEP_STATUS_WIDTH = 56;
 /** Rhythm and type the design fixes outside the token scales. */
 const RAIL_GROUP_GAP = 20;
 const DETAIL_TEXT_SIZE = 13;
@@ -167,7 +178,24 @@ const STEP_DURATION_FONT_SIZE = 11;
 /** The facts block: one label column, one line height, one rhythm. */
 const META_LABEL_WIDTH = 96;
 const META_LINE_HEIGHT = 18;
+const EMPTY_MODELS: readonly AgentModelDefinition[] = [];
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** The workspace strategies a step can be moved between from the plan. The
+ * fourth, `existing`, names a checkout and is only authored in the editor. */
+type StepWorkspaceChoice = "worktree" | "worktree_per_agent" | "reuse_previous";
+
+const STEP_WORKSPACE_CHOICES: readonly StepWorkspaceChoice[] = [
+  "worktree",
+  "worktree_per_agent",
+  "reuse_previous",
+];
+
+const STEP_WORKSPACE_CHOICE_LABELS: Record<StepWorkspaceChoice, string> = {
+  worktree: "New worktree",
+  worktree_per_agent: "Worktree per agent",
+  reuse_previous: "Previous workspace",
+};
 /** Keeps the rail's divider full height when the left pane is short. */
 const DESKTOP_SPLIT_MIN_HEIGHT = 480;
 const DESKTOP_MAX_WIDTH = 900;
@@ -515,26 +543,52 @@ function OpenTaskDetailSheet({
     },
     [labelIdsDraft, setLabelIdsDraft, task.id, updateTask],
   );
-  /** Rewrites the saved plan with one step's brief changed; `existingStepId`
-   * keeps every step's identity and run history intact. */
-  const saveStepBrief = useCallback(
-    (stepId: string, prompt: string) => {
+  /** Rewrites the saved plan with one step changed; `existingStepId` keeps every
+   * step's identity and run history intact. */
+  const patchStep = useCallback(
+    (stepId: string, patch: (definition: StepInput) => StepInput) => {
       if (!workflow) return;
-      const trimmed = prompt.trim();
-      if (!trimmed) return;
       const steps: StepInput[] = workflow.steps.map((step) => {
         const { id, runs: _runs, ...definition } = step;
-        return {
-          ...definition,
-          existingStepId: id,
-          prompt: id === stepId ? trimmed : definition.prompt,
-        };
+        const base: StepInput = { ...definition, existingStepId: id };
+        return id === stepId ? patch(base) : base;
       });
       void setWorkflow({ taskId: task.id, steps }).catch((error) => {
         toast.show(toErrorMessage(error));
       });
     },
     [setWorkflow, task.id, toast, workflow],
+  );
+  const saveStepBrief = useCallback(
+    (stepId: string, prompt: string) => {
+      const trimmed = prompt.trim();
+      if (!trimmed) return;
+      patchStep(stepId, (definition) => ({ ...definition, prompt: trimmed }));
+    },
+    [patchStep],
+  );
+  const saveStepAgent = useCallback(
+    (stepId: string, selection: { provider: AgentProvider; model: string | null }) => {
+      patchStep(stepId, (definition) => {
+        const [lead, ...rest] = definition.agents;
+        const next: StepAgentSpec = {
+          ...lead,
+          provider: selection.provider,
+          ...(selection.model ? { model: selection.model } : {}),
+        };
+        if (!selection.model) {
+          delete next.model;
+        }
+        return { ...definition, agents: [next, ...rest] };
+      });
+    },
+    [patchStep],
+  );
+  const saveStepWorkspace = useCallback(
+    (stepId: string, workspace: StepWorkspaceStrategy) => {
+      patchStep(stepId, (definition) => ({ ...definition, workspace }));
+    },
+    [patchStep],
   );
 
   const saveBrief = useCallback(() => {
@@ -599,6 +653,7 @@ function OpenTaskDetailSheet({
     [onDeleteTask, task.id],
   );
 
+  const planCwd = useKanbanProjectCwd(serverId, paseoProjectId);
   const taskKey = formatTaskKey(project, task);
   // Stable identity: the plan editor seeds its form from this, and a fresh empty
   // array on every render would re-run that seeding mid-edit.
@@ -852,6 +907,8 @@ function OpenTaskDetailSheet({
             onOpenTask={onOpenTask}
           />
           <TaskPlanSection
+            serverId={serverId}
+            cwd={planCwd}
             workflow={workflow}
             isAggregate={isAggregate}
             isActing={isActing}
@@ -863,6 +920,8 @@ function OpenTaskDetailSheet({
             onOpenAgent={handleOpenAgent}
             onOpenStep={openStepSurface}
             onSaveBrief={saveStepBrief}
+            onSaveAgent={saveStepAgent}
+            onSaveWorkspace={saveStepWorkspace}
           />
         </View>
       ) : null}
@@ -2262,6 +2321,8 @@ function formatCompactAutomationSummary(
  * rail owns it on desktop, so here it is only the drill-in row compact needs.
  */
 function TaskPlanSection({
+  serverId,
+  cwd,
   workflow,
   isAggregate,
   isActing,
@@ -2273,7 +2334,11 @@ function TaskPlanSection({
   onOpenAgent,
   onOpenStep,
   onSaveBrief,
+  onSaveAgent,
+  onSaveWorkspace,
 }: {
+  serverId: string;
+  cwd: string | null;
   workflow: TaskWorkflow | null;
   isAggregate: boolean;
   isActing: boolean;
@@ -2285,6 +2350,11 @@ function TaskPlanSection({
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenStep: (stepId: string) => void;
   onSaveBrief: (stepId: string, prompt: string) => void;
+  onSaveAgent: (
+    stepId: string,
+    selection: { provider: AgentProvider; model: string | null },
+  ) => void;
+  onSaveWorkspace: (stepId: string, workspace: StepWorkspaceStrategy) => void;
 }): ReactElement {
   const steps = workflow?.steps ?? [];
   const trailing = useMemo(
@@ -2304,6 +2374,8 @@ function TaskPlanSection({
           {steps.map((step, index) => (
             <PlanStepRow
               key={step.id}
+              serverId={serverId}
+              cwd={cwd}
               step={step}
               index={index}
               withBorder={index > 0}
@@ -2314,6 +2386,8 @@ function TaskPlanSection({
               onOpenAgent={onOpenAgent}
               onOpenStep={onOpenStep}
               onSaveBrief={onSaveBrief}
+              onSaveAgent={onSaveAgent}
+              onSaveWorkspace={onSaveWorkspace}
             />
           ))}
           {isAggregate ? null : (
@@ -2373,6 +2447,8 @@ function TaskPlanSection({
  * screen on compact — read where you run, edit where you read.
  */
 function PlanStepRow({
+  serverId,
+  cwd,
   step,
   index,
   withBorder,
@@ -2383,19 +2459,28 @@ function PlanStepRow({
   onOpenAgent,
   onOpenStep,
   onSaveBrief,
+  onSaveAgent,
+  onSaveWorkspace,
 }: {
+  serverId: string;
+  cwd: string | null;
   step: Step;
   index: number;
   withBorder: boolean;
   disabled: boolean;
   isCompact: boolean;
   onAct: (stepId: string, action: TaskStepAction) => void;
-  /** The agent and workspace of a step are chosen in the plan editor, so the
-   * chips that state them here lead there instead of forking a second picker. */
+  /** Everything a step carries beyond its agent, workspace and brief is chosen
+   * in the plan editor, so the expanded row leads there for the rest. */
   onEdit: () => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenStep: (stepId: string) => void;
   onSaveBrief: (stepId: string, prompt: string) => void;
+  onSaveAgent: (
+    stepId: string,
+    selection: { provider: AgentProvider; model: string | null },
+  ) => void;
+  onSaveWorkspace: (stepId: string, workspace: StepWorkspaceStrategy) => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -2405,7 +2490,7 @@ function PlanStepRow({
   const agentTarget = resolveStepAgentTarget(step);
   const elapsed = formatSettledRunDuration(step);
   const isActive = status === "running" || status === "queued";
-  const isFailed = status === "failed" || status === "interrupted" || status === "canceled";
+  const isSettled = status === "succeeded" || status === "skipped";
   const handlePress = useCallback(() => {
     if (isCompact) {
       onOpenStep(step.id);
@@ -2428,6 +2513,7 @@ function PlanStepRow({
     >
       <Pressable
         onPress={handlePress}
+        disabled={!isCompact && isSettled}
         accessibilityRole="button"
         accessibilityState={accessibilityState}
         accessibilityLabel={`Step ${index + 1}: ${step.name}`}
@@ -2435,62 +2521,46 @@ function PlanStepRow({
         testID={`task-detail-step-toggle-${step.id}`}
       >
         <PlanStepStatusDot status={status} />
-        <View style={styles.rowContent}>
-          <View style={styles.stepTitleRow}>
-            <Text
-              style={[styles.stepTitle, isActive ? styles.stepTitleActive : null]}
-              numberOfLines={1}
-            >
-              {step.name}
-            </Text>
-            <Text style={styles.stepMeta} numberOfLines={1}>
-              {formatStepAgentLabel(step)}
-            </Text>
-          </View>
+        <View style={[styles.rowContent, styles.stepTitleColumn]}>
+          <Text
+            style={[styles.stepTitle, isActive ? styles.stepTitleActive : null]}
+            numberOfLines={1}
+          >
+            {step.name}
+          </Text>
           {error ? (
             <Text style={styles.rowError} testID={`task-detail-step-${step.id}-error`}>
               {error}
             </Text>
           ) : null}
         </View>
-        <View style={styles.stepTrailing}>
-          {elapsed ? <Text style={styles.stepDuration}>{elapsed}</Text> : null}
-          {primaryAction ? (
-            <StepActionButton
-              stepId={step.id}
-              action={primaryAction}
-              disabled={disabled}
-              onAct={onAct}
-            />
-          ) : (
-            <Text
-              style={[
-                styles.stepStatus,
-                status === "succeeded" ? styles.stepStatusSucceeded : null,
-                isActive ? styles.stepStatusActive : null,
-                isFailed ? styles.stepStatusFailed : null,
-              ]}
-            >
-              {t(`tasks.detail.stepStatus.${status}`)}
-            </Text>
-          )}
-        </View>
+        <StepModelControl
+          serverId={serverId}
+          cwd={cwd}
+          step={step}
+          editable={!disabled && !isSettled}
+          onSaveAgent={onSaveAgent}
+        />
+        <PlanStepTrailing
+          stepId={step.id}
+          status={status}
+          elapsed={elapsed}
+          action={primaryAction}
+          disabled={disabled}
+          onAct={onAct}
+        />
         {isCompact ? <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} /> : null}
       </Pressable>
-      {!isCompact && isExpanded ? (
+      {!isCompact && isExpanded && !isSettled ? (
         <View style={styles.stepExpanded} testID={`task-detail-step-expanded-${step.id}`}>
           <StepBriefEditor step={step} editable={!disabled} onSaveBrief={onSaveBrief} />
           <View style={styles.stepExpandedFooter}>
             <View style={styles.stepChipRow}>
-              <StepFactChip
-                label={formatStepAgentLabel(step)}
-                onPress={onEdit}
-                testID={`task-detail-step-agent-${step.id}`}
-              />
-              <StepFactChip
-                label={formatWorkspaceMode(step)}
-                onPress={onEdit}
-                testID={`task-detail-step-workspace-${step.id}`}
+              <StepWorkspaceControl
+                step={step}
+                editable={!disabled && status === "pending"}
+                onSaveWorkspace={onSaveWorkspace}
+                onEdit={onEdit}
               />
             </View>
             <View style={styles.actionRow}>
@@ -2523,7 +2593,224 @@ function PlanStepRow({
   );
 }
 
+/**
+ * Which model the step runs on, stated beside its duration. A step that already
+ * ran is history and says so as plain text; anything still ahead can be pointed
+ * at another model from here, because that is the choice worth changing after
+ * reading a plan.
+ */
+function StepModelControl({
+  serverId,
+  cwd,
+  step,
+  editable,
+  onSaveAgent,
+}: {
+  serverId: string;
+  cwd: string | null;
+  step: Step;
+  editable: boolean;
+  onSaveAgent: (
+    stepId: string,
+    selection: { provider: AgentProvider; model: string | null },
+  ) => void;
+}): ReactElement {
+  const snapshot = useProvidersSnapshot(serverId, { cwd });
+  const lead = step.agents[0];
+  const entry =
+    snapshot.entries?.find((candidate) => candidate.provider === lead?.provider) ?? null;
+  const models = entry?.models ?? EMPTY_MODELS;
+  const label = formatStepAgentLabel(step);
+  if (!editable || !lead || models.length === 0) {
+    return (
+      <Text style={styles.stepMeta} numberOfLines={1}>
+        {label}
+      </Text>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownTrigger
+        style={styles.stepModelTrigger}
+        chevron={null}
+        testID={`task-detail-step-model-${step.id}`}
+      >
+        <Text style={styles.stepMeta} numberOfLines={1}>
+          {label}
+        </Text>
+        <ThemedChevronDown size={ICON_SIZE.xs} uniProps={extraMutedIconMapping} />
+      </DropdownTrigger>
+      <DropdownMenuContent align="end">
+        {models.map((model) => (
+          <StepModelMenuItem
+            key={model.id}
+            stepId={step.id}
+            provider={lead.provider}
+            model={model}
+            selected={model.id === lead.model}
+            onSaveAgent={onSaveAgent}
+          />
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function StepModelMenuItem({
+  stepId,
+  provider,
+  model,
+  selected,
+  onSaveAgent,
+}: {
+  stepId: string;
+  provider: AgentProvider;
+  model: AgentModelDefinition;
+  selected: boolean;
+  onSaveAgent: (
+    stepId: string,
+    selection: { provider: AgentProvider; model: string | null },
+  ) => void;
+}): ReactElement {
+  const handleSelect = useCallback(
+    () => onSaveAgent(stepId, { provider, model: model.id }),
+    [model.id, onSaveAgent, provider, stepId],
+  );
+  return (
+    <DropdownMenuItem
+      selected={selected}
+      showSelectedCheck
+      onSelect={handleSelect}
+      testID={`task-detail-step-model-${stepId}-${model.id}`}
+    >
+      {model.label ?? model.id}
+    </DropdownMenuItem>
+  );
+}
+
+/**
+ * Where the step checks out. Only a step that has not run yet can be moved: a
+ * run already happened somewhere, and rewriting that would describe history
+ * that never was.
+ */
+function StepWorkspaceControl({
+  step,
+  editable,
+  onSaveWorkspace,
+  onEdit,
+}: {
+  step: Step;
+  editable: boolean;
+  onSaveWorkspace: (stepId: string, workspace: StepWorkspaceStrategy) => void;
+  onEdit: () => void;
+}): ReactElement {
+  if (!editable || step.workspace.mode === "existing") {
+    return (
+      <StepFactChip
+        label={formatWorkspaceMode(step)}
+        onPress={onEdit}
+        testID={`task-detail-step-workspace-${step.id}`}
+      />
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownTrigger
+        style={styles.stepChip}
+        chevron={null}
+        testID={`task-detail-step-workspace-${step.id}`}
+      >
+        <Text style={styles.stepChipLabel} numberOfLines={1}>
+          {formatWorkspaceMode(step)}
+        </Text>
+        <ThemedChevronDown size={ICON_SIZE.xs} uniProps={extraMutedIconMapping} />
+      </DropdownTrigger>
+      <DropdownMenuContent align="start">
+        {STEP_WORKSPACE_CHOICES.map((mode) => (
+          <StepWorkspaceMenuItem
+            key={mode}
+            stepId={step.id}
+            mode={mode}
+            selected={mode === step.workspace.mode}
+            onSaveWorkspace={onSaveWorkspace}
+          />
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function StepWorkspaceMenuItem({
+  stepId,
+  mode,
+  selected,
+  onSaveWorkspace,
+}: {
+  stepId: string;
+  mode: StepWorkspaceChoice;
+  selected: boolean;
+  onSaveWorkspace: (stepId: string, workspace: StepWorkspaceStrategy) => void;
+}): ReactElement {
+  const handleSelect = useCallback(
+    () => onSaveWorkspace(stepId, { mode }),
+    [mode, onSaveWorkspace, stepId],
+  );
+  return (
+    <DropdownMenuItem
+      selected={selected}
+      showSelectedCheck
+      onSelect={handleSelect}
+      testID={`task-detail-step-workspace-${stepId}-${mode}`}
+    >
+      {STEP_WORKSPACE_CHOICE_LABELS[mode]}
+    </DropdownMenuItem>
+  );
+}
+
 /** The step's state as the one mark the eye lands on first, before any word. */
+/** The plan's right column: how long the last run took, then the one thing the
+ * step can do or the state it is in. */
+function PlanStepTrailing({
+  stepId,
+  status,
+  elapsed,
+  action,
+  disabled,
+  onAct,
+}: {
+  stepId: string;
+  status: TaskStepDisplayStatus;
+  elapsed: string | null;
+  action: TaskStepAction | undefined;
+  disabled: boolean;
+  onAct: (stepId: string, action: TaskStepAction) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const isActive = status === "running" || status === "queued";
+  const isFailed = status === "failed" || status === "interrupted" || status === "canceled";
+  return (
+    <View style={styles.stepTrailing}>
+      <Text style={styles.stepDuration}>{elapsed ?? ""}</Text>
+      <View style={styles.stepStatusSlot}>
+        {action ? (
+          <StepActionButton stepId={stepId} action={action} disabled={disabled} onAct={onAct} />
+        ) : (
+          <Text
+            style={[
+              styles.stepStatus,
+              status === "succeeded" ? styles.stepStatusSucceeded : null,
+              isActive ? styles.stepStatusActive : null,
+              isFailed ? styles.stepStatusFailed : null,
+            ]}
+          >
+            {t(`tasks.detail.stepStatus.${status}`)}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 function PlanStepStatusDot({ status }: { status: TaskStepDisplayStatus }): ReactElement {
   return <View style={[styles.stepDot, resolveStepDotTone(status)]} />;
 }
@@ -3557,7 +3844,7 @@ function TaskRailAgent({
           <Text style={styles.railDetailLink} numberOfLines={1}>
             {name}
           </Text>
-          {elapsed ? <Text style={styles.stepDuration}>{elapsed}</Text> : null}
+          {elapsed ? <Text style={styles.railElapsed}>{elapsed}</Text> : null}
         </View>
         <Text
           style={[
@@ -3733,6 +4020,11 @@ const styles = StyleSheet.create((theme) => ({
   railFactSpacer: {
     flex: 1,
   },
+  railElapsed: {
+    color: theme.colors.foregroundExtraMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: STEP_DURATION_FONT_SIZE,
+  },
   railFinished: {
     color: theme.colors.foregroundExtraMuted,
     fontSize: DETAIL_TEXT_SIZE,
@@ -3834,13 +4126,18 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.xs,
   },
   stepTrailing: {
-    width: STEP_TRAILING_WIDTH,
     flexGrow: 0,
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: theme.spacing[2],
+  },
+  stepStatusSlot: {
+    width: STEP_STATUS_WIDTH,
+    flexGrow: 0,
+    flexShrink: 0,
+    alignItems: "flex-end",
   },
   stepDot: {
     width: 8,
@@ -3877,6 +4174,10 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
     lineHeight: 15,
+  },
+  stepModelTrigger: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   stepChipRow: {
     flexDirection: "row",
@@ -4057,6 +4358,9 @@ const styles = StyleSheet.create((theme) => ({
   planStepRow: {
     gap: theme.spacing[2],
   },
+  stepTitleColumn: {
+    marginRight: 0,
+  },
   planStepOpen: {
     backgroundColor: theme.colors.surface2,
   },
@@ -4103,6 +4407,10 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.xs,
   },
   stepDuration: {
+    width: STEP_DURATION_WIDTH,
+    flexGrow: 0,
+    flexShrink: 0,
+    textAlign: "right",
     color: theme.colors.foregroundExtraMuted,
     fontFamily: theme.fontFamily.mono,
     fontSize: STEP_DURATION_FONT_SIZE,
