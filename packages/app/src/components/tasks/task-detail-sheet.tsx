@@ -179,6 +179,9 @@ const META_LINE_HEIGHT = 18;
 const EMPTY_MODELS: readonly AgentModelDefinition[] = [];
 const TITLE_INPUT_TEST_ID = "task-detail-title-input";
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+/** The composer reads as one control: the field and its send button share a
+ * height, as they do in the design. */
+const COMPOSER_CONTROL_HEIGHT = 44;
 
 /** The workspace strategies a step can be moved between from the plan. The
  * fourth, `existing`, names a checkout and is only authored in the editor. */
@@ -1938,12 +1941,14 @@ function TaskUnifiedComposer({
               activeMode === "instruction" ? "Instruct the agent..." : "Write an internal note..."
             }
             multiline
+            numberOfLines={1}
             testID={`task-detail-${activeMode}-input`}
           />
         </View>
         <Button
           variant="secondary"
           size="sm"
+          style={styles.composerSend}
           leftIcon={SendHorizontal}
           onPress={submit}
           disabled={
@@ -4561,5 +4566,8 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "flex-end",
     gap: theme.spacing[2],
+  },
+  composerSend: {
+    height: COMPOSER_CONTROL_HEIGHT,
   },
 }));
