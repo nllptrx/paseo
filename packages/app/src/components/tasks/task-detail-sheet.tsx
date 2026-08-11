@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useMemo,
   useRef,
@@ -163,6 +164,7 @@ const STEP_TRAILING_WIDTH = 104;
 const RAIL_GROUP_GAP = 20;
 const DETAIL_TEXT_SIZE = 13;
 const STEP_DURATION_FONT_SIZE = 11;
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Keeps the rail's divider full height when the left pane is short. */
 const DESKTOP_SPLIT_MIN_HEIGHT = 480;
 const DESKTOP_MAX_WIDTH = 900;
@@ -2175,22 +2177,60 @@ function TaskUpdatesSection({
   }
   return (
     <View testID="task-detail-activity-feed">
-      {groups.map(({ entry, repeatCount, firstCreatedAt }, index) => (
-        <BoardFeedEntryRow
-          key={entry.id}
-          entry={entry}
-          serverId={serverId}
-          appearance="activity"
-          collapsible
-          activityRepeatCount={repeatCount}
-          activityFirstCreatedAt={firstCreatedAt}
-          activityShowHeader={activityFeedShowsHeader(groups[index - 1]?.entry, entry)}
-          activityIsFirst={index === 0}
-          activityIsLast={index === groups.length - 1}
-        />
-      ))}
+      {groups.map(({ entry, repeatCount, firstCreatedAt }, index) => {
+        const previous = groups[index - 1]?.entry;
+        const day = resolveActivityDay(entry.createdAt);
+        return (
+          <Fragment key={entry.id}>
+            {day && day !== resolveActivityDay(previous?.createdAt) ? (
+              <ActivityDayDivider label={day} />
+            ) : null}
+            <BoardFeedEntryRow
+              entry={entry}
+              serverId={serverId}
+              appearance="activity"
+              collapsible
+              activityRepeatCount={repeatCount}
+              activityFirstCreatedAt={firstCreatedAt}
+              activityShowHeader={activityFeedShowsHeader(previous, entry)}
+            />
+          </Fragment>
+        );
+      })}
     </View>
   );
+}
+
+/** Where one day of the feed ends and the next begins: a label centred between
+ * two hairlines, so the break is read as a break rather than as another entry
+ * in the column of events. */
+function ActivityDayDivider({ label }: { label: string }): ReactElement {
+  return (
+    <View style={styles.activityDay}>
+      <View style={styles.activityDayRule} />
+      <Text style={styles.activityDayLabel}>{label}</Text>
+      <View style={styles.activityDayRule} />
+    </View>
+  );
+}
+
+/** The day a feed entry belongs to, as the timeline labels it: today and
+ * yesterday by name, anything older by its date. */
+function resolveActivityDay(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  const now = new Date();
+  const days = Math.round(
+    (startOfDay(now).getTime() - startOfDay(at).getTime()) / MILLISECONDS_PER_DAY,
+  );
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 /** The automation policy as one short line, stated once per surface. */
@@ -4108,6 +4148,21 @@ const styles = StyleSheet.create((theme) => ({
   },
   executionGroups: {
     gap: theme.spacing[2],
+  },
+  activityDay: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+    paddingVertical: theme.spacing[3],
+  },
+  activityDayRule: {
+    flex: 1,
+    height: theme.borderWidth[1],
+    backgroundColor: theme.colors.border,
+  },
+  activityDayLabel: {
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: theme.fontSize.xs,
   },
   activityEmpty: {
     paddingVertical: theme.spacing[8],

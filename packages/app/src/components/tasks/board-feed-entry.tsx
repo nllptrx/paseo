@@ -1,9 +1,17 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
-import { ChevronDown, ChevronUp } from "lucide-react-native";
-import { StyleSheet } from "react-native-unistyles";
+import {
+  Bot,
+  ChevronDown,
+  ChevronUp,
+  GitBranch,
+  Pencil,
+  SendHorizontal,
+} from "lucide-react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { TaskComment } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
+import type { Theme } from "@/styles/theme";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import { useSessionStore } from "@/stores/session-store";
 import {
@@ -15,6 +23,16 @@ import {
 } from "./board-feed-entry.logic";
 
 export { resolveFeedEntryKind } from "./board-feed-entry.logic";
+
+const ThemedSend = withUnistyles(SendHorizontal);
+const ThemedPencil = withUnistyles(Pencil);
+const ThemedBot = withUnistyles(Bot);
+const ThemedGitBranch = withUnistyles(GitBranch);
+
+const ACTIVITY_ICON_SIZE = 14;
+const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const extraMutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
+const accentIconMapping = (theme: Theme) => ({ color: theme.colors.accentBright });
 
 /** Wall-clock time only: a feed you read top to bottom already carries the day. */
 export function formatEntryTime(createdAt: string): string {
@@ -42,7 +60,6 @@ const ENTRY_KIND_LABELS: Record<NonNullable<TaskComment["entryKind"]>, string> =
 const INLINE_HIT_SLOP = 8;
 
 const ACTIVITY_LINE_HEIGHT = 20;
-const ACTIVITY_PIP_SIZE = 7;
 
 function resolveDisclosureIcon(isExpanded: boolean): typeof ChevronDown {
   if (isExpanded) return ChevronUp;
@@ -59,8 +76,6 @@ export function BoardFeedEntryRow({
   activityRepeatCount = 1,
   activityFirstCreatedAt,
   activityShowHeader = true,
-  activityIsFirst = false,
-  activityIsLast = false,
 }: {
   entry: TaskComment;
   taskKey?: string | undefined;
@@ -75,8 +90,6 @@ export function BoardFeedEntryRow({
   /** False on entries that continue a same-author run — the run's first entry
    * already named the author. */
   activityShowHeader?: boolean | undefined;
-  activityIsFirst?: boolean | undefined;
-  activityIsLast?: boolean | undefined;
 }): ReactElement {
   const [isExpanded, setIsExpanded] = useState(false);
   const taskId = entry.taskId;
@@ -112,8 +125,6 @@ export function BoardFeedEntryRow({
         repeatCount={activityRepeatCount}
         firstCreatedAt={activityFirstCreatedAt}
         showHeader={activityShowHeader}
-        isFirst={activityIsFirst}
-        isLast={activityIsLast}
       />
     );
   }
@@ -177,8 +188,6 @@ function ActivityFeedEntry({
   repeatCount,
   firstCreatedAt,
   showHeader,
-  isFirst,
-  isLast,
 }: {
   entry: TaskComment;
   body: string;
@@ -190,8 +199,6 @@ function ActivityFeedEntry({
   repeatCount: number;
   firstCreatedAt: string | undefined;
   showHeader: boolean;
-  isFirst: boolean;
-  isLast: boolean;
 }): ReactElement {
   const isSystem = entryKind === "system_event";
   const hasHeader = showHeader && !isSystem;
@@ -200,7 +207,6 @@ function ActivityFeedEntry({
     repeatCount > 1 && firstCreatedAt
       ? ` · ×${repeatCount} since ${formatEntryTime(firstCreatedAt)}`
       : null;
-  const hasEmphasizedBody = !isSystem && (canCollapse || entryKind === "note");
   const bodyText = (
     <Text
       style={[styles.activityBody, isSystem && styles.activityBodySystem, styles.activityBodyFlex]}
@@ -211,23 +217,16 @@ function ActivityFeedEntry({
     </Text>
   );
   const expandControl = canCollapse ? (
-    <Button
-      variant="ghost"
-      size="xs"
-      leftIcon={resolveDisclosureIcon(isExpanded)}
+    <Pressable
       onPress={onToggleExpanded}
-      style={hasEmphasizedBody ? styles.activityExpandButtonInset : styles.activityExpandButton}
+      accessibilityRole="button"
+      style={styles.activityExpand}
       testID={`board-feed-entry-${entry.id}-expand`}
     >
-      {isExpanded ? "Show less" : "Show more"}
-    </Button>
+      <Text style={styles.activityExpandLabel}>{isExpanded ? "Show less" : "Show more"}</Text>
+    </Pressable>
   ) : null;
-  const authoredBody = hasEmphasizedBody ? (
-    <View style={styles.activityBodySurface}>
-      {bodyText}
-      {expandControl}
-    </View>
-  ) : (
+  const authoredBody = (
     <>
       {bodyText}
       {expandControl}
@@ -236,21 +235,7 @@ function ActivityFeedEntry({
   return (
     <View style={styles.activityEntry} testID={`board-feed-entry-${entry.id}`}>
       <View style={styles.activityMarker}>
-        <View
-          style={[
-            styles.activityRail,
-            styles.activityRailTop,
-            isFirst && styles.activityRailHidden,
-          ]}
-        />
-        <View style={[styles.activityPip, styles[`activityPip_${entryKind}`]]} />
-        <View
-          style={[
-            styles.activityRail,
-            styles.activityRailBottom,
-            isLast && styles.activityRailHidden,
-          ]}
-        />
+        <ActivityEntryIcon entryKind={entryKind} />
       </View>
       <View style={styles.activityContent}>
         {hasHeader ? (
@@ -285,6 +270,24 @@ function ActivityFeedEntry({
       </View>
     </View>
   );
+}
+
+/** What kind of thing happened, as the one glyph the timeline reads by. */
+function ActivityEntryIcon({
+  entryKind,
+}: {
+  entryKind: NonNullable<TaskComment["entryKind"]>;
+}): ReactElement {
+  if (entryKind === "message") {
+    return <ThemedSend size={ACTIVITY_ICON_SIZE} uniProps={accentIconMapping} />;
+  }
+  if (entryKind === "note") {
+    return <ThemedPencil size={ACTIVITY_ICON_SIZE} uniProps={mutedIconMapping} />;
+  }
+  if (entryKind === "agent_update") {
+    return <ThemedBot size={ACTIVITY_ICON_SIZE} uniProps={mutedIconMapping} />;
+  }
+  return <ThemedGitBranch size={ACTIVITY_ICON_SIZE} uniProps={extraMutedIconMapping} />;
 }
 
 function MessageRecipientRow({
@@ -472,39 +475,7 @@ const styles = StyleSheet.create((theme) => ({
   activityMarker: {
     width: 20,
     alignItems: "center",
-  },
-  activityRail: {
-    width: 1,
-    backgroundColor: theme.colors.border,
-  },
-  activityRailTop: {
-    // Entry top padding (8) plus the offset that centers the 7px pip on the
-    // 20px first text line.
-    height: theme.spacing[2] + (ACTIVITY_LINE_HEIGHT - ACTIVITY_PIP_SIZE) / 2,
-  },
-  activityRailBottom: {
-    flex: 1,
-  },
-  activityRailHidden: {
-    backgroundColor: "transparent",
-  },
-  activityPip: {
-    width: ACTIVITY_PIP_SIZE,
-    height: ACTIVITY_PIP_SIZE,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.foregroundExtraMuted,
-  },
-  activityPip_note: {
-    backgroundColor: theme.colors.foregroundMuted,
-  },
-  activityPip_agent_update: {
-    backgroundColor: theme.colors.accentBright,
-  },
-  activityPip_system_event: {
-    backgroundColor: theme.colors.foregroundExtraMuted,
-  },
-  activityPip_message: {
-    backgroundColor: theme.colors.foreground,
+    paddingTop: theme.spacing[2] + 2,
   },
   activityContent: {
     flex: 1,
@@ -538,13 +509,13 @@ const styles = StyleSheet.create((theme) => ({
   activityBodySystem: {
     color: theme.colors.foregroundMuted,
   },
-  activityBodySurface: {
-    gap: theme.spacing[1],
-    padding: theme.spacing[3],
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surface2,
+  activityExpand: {
+    alignSelf: "flex-start",
+  },
+  activityExpandLabel: {
+    color: theme.colors.accentBright,
+    fontSize: theme.fontSize.sm,
+    lineHeight: ACTIVITY_LINE_HEIGHT,
   },
   activityRepeat: {
     color: theme.colors.foregroundExtraMuted,
