@@ -197,7 +197,9 @@ export function TaskList({
   );
 }
 
-function TaskStatusDot({ status }: { status: TaskStatus }): ReactElement {
+/** The one status → dot mapping for tracker statuses; menus and headers reuse
+ * it rather than restating which status is which color. */
+export function TaskStatusDot({ status }: { status: TaskStatus }): ReactElement {
   return (
     <View
       style={[

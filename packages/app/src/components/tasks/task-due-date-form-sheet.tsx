@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState, useSyncExternalStore, type ReactElement } from "react";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import type { Task } from "@getpaseo/protocol/tasks/types";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/form-field";
@@ -13,7 +12,7 @@ import { TaskDueDateInput } from "./task-due-date-input";
 
 export interface TaskDueDateFormSheetProps {
   currentDueDate: string | null;
-  onSubmit: (dueDate: string) => Promise<Task>;
+  onSubmit: (dueDate: string) => Promise<unknown>;
   onClose: () => void;
 }
 

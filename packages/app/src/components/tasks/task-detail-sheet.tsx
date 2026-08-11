@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useMemo, useRef, useState, type ReactElement } from "react";
+import { Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, SendHorizontal } from "lucide-react-native";
+import { ChevronDown, ChevronRight, ChevronUp, SendHorizontal } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import type {
   Task,
   TaskComment,
@@ -15,28 +16,17 @@ import type {
   TaskStatus,
 } from "@getpaseo/protocol/tasks/types";
 import { resolveTaskExecutionPolicy } from "@getpaseo/protocol/tasks/types";
-import type { Step, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
-import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
+import type { Step, StepInput, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSubTrigger,
-  type MenuPageDefinition,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
 import { FormTextInput } from "@/components/ui/form-field";
 import { Switch } from "@/components/ui/switch";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
 import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
-import { IDENTITY_COLOR_NAMES, identityColor } from "@/styles/identity-colors";
 import { useToast } from "@/contexts/toast-context";
-import { confirmDialog } from "@/utils/confirm-dialog";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import { useSessionStore } from "@/stores/session-store";
@@ -46,7 +36,6 @@ import {
   applyReviewMode,
   canCreateSubtask,
   EMPTY_SUBTASK_DRAFT,
-  formatReviewModeSummary,
   resolveReviewMode,
   REVIEW_MODE_LABELS,
   REVIEW_MODES,
@@ -75,11 +64,13 @@ import { toErrorMessage } from "@/utils/error-messages";
 import { BoardFeedEntryRow } from "./board-feed-entry";
 import { activityFeedShowsHeader, groupActivityFeedEntries } from "./board-feed-entry.logic";
 import { TaskExecutionStateDot } from "./task-execution-summary";
+import { TASK_STATUS_LABEL_KEYS } from "./task-board-parts";
 import {
-  TASK_PRIORITY_LABEL_KEYS,
-  TASK_STATUS_LABEL_KEYS,
-  TaskLabelChips,
-} from "./task-board-parts";
+  TaskDueDateChip,
+  TaskLabelsChip,
+  TaskPriorityChip,
+  TaskStatusChip,
+} from "./task-property-chips";
 import {
   canStartTaskReview,
   groupTaskExecutionsByWorkspace,
@@ -89,15 +80,16 @@ import {
   type TaskExecutionWorkspaceGroup,
 } from "@/tasks/task-execution";
 import { resolveProviderLabel } from "@/tasks/use-task-available-providers";
-import { resolveTaskDueDatePreset, type TaskDueDatePreset } from "@/tasks/task-due-date";
-import { TaskDueDateFormSheet } from "./task-due-date-form-sheet";
-
-const TASK_PRIORITIES: readonly TaskPriority[] = ["none", "urgent", "high", "medium", "low"];
 
 type TaskDetailTab = "execution" | "details" | "activity";
 
+/** The body a sub-surface replaces on compact: a step's own screen or the
+ * automation & delivery screen, reached with a back arrow (wireframe 1d). */
+type TaskDetailSubSurface = { kind: "automation" } | { kind: "step"; stepId: string };
+
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const ThemedChevronDown = withUnistyles(ChevronDown);
+const ThemedChevronUp = withUnistyles(ChevronUp);
 
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
@@ -196,10 +188,24 @@ function OpenTaskDetailSheet({
     startReview,
     updateTask,
     createTask,
+    setWorkflow,
     isReviewing,
     isBusy,
   } = useTaskMutations(serverId);
   const supportsLabelDeletion = useTaskLabelDeletionSupported(serverId);
+  const isCompact = useIsCompactFormFactor();
+  const [subSurface, setSubSurface] = useState<TaskDetailSubSurface | null>(null);
+  const closeSubSurface = useCallback(() => setSubSurface(null), []);
+  const openAutomationSurface = useCallback(() => setSubSurface({ kind: "automation" }), []);
+  const openStepSurface = useCallback(
+    (stepId: string) => setSubSurface({ kind: "step", stepId }),
+    [],
+  );
+  const [isAutomationExpanded, setIsAutomationExpanded] = useState(false);
+  const toggleAutomationExpanded = useCallback(
+    () => setIsAutomationExpanded((current) => !current),
+    [],
+  );
   const { entries } = useBoardFeed({ serverId, projectId: task.projectId });
   const { post, sendMessage, isPosting } = useBoardFeedComposer({
     serverId,
@@ -209,8 +215,11 @@ function OpenTaskDetailSheet({
   const [activeTab, setActiveTab] = useState<TaskDetailTab>("execution");
   const [noteDraft, setNoteDraft] = useState("");
   const [reviewFeedback, setReviewFeedback] = useState("");
-  const [titleDraft, setTitleDraft] = useState(task.title);
-  const [descriptionDraft, setDescriptionDraft] = useState(task.description);
+  // The brief inputs remount on external edits (their resetKey is the server
+  // value), so the parallel drafts must follow — a stale draft would win the
+  // comparison in saveBrief and silently revert the concurrent edit on blur.
+  const [titleDraft, setTitleDraft] = useServerSyncedDraft(task.title, Object.is);
+  const [descriptionDraft, setDescriptionDraft] = useServerSyncedDraft(task.description, Object.is);
   const [subtaskDraft, setSubtaskDraft] = useState<SubtaskDraft>(EMPTY_SUBTASK_DRAFT);
   const [noteResetKey, setNoteResetKey] = useState(0);
   const [subtaskResetKey, setSubtaskResetKey] = useState(0);
@@ -359,9 +368,44 @@ function OpenTaskDetailSheet({
     (dueDate: string | null) => updateTask({ taskId: task.id, dueDate }),
     [task.id, updateTask],
   );
+  // Label toggles keep a local draft so checks in the open menu answer the
+  // press immediately; the write rolls the draft back when the host refuses,
+  // and a content change arriving from the server re-derives it.
+  const [labelIdsDraft, setLabelIdsDraft] = useServerSyncedDraft<readonly string[]>(
+    task.labelIds,
+    sameStringArrays,
+  );
   const handleSetLabelIds = useCallback(
-    (labelIds: string[]) => updateTask({ taskId: task.id, labelIds }),
-    [task.id, updateTask],
+    (labelIds: string[]) => {
+      const previous = labelIdsDraft;
+      setLabelIdsDraft(labelIds);
+      return updateTask({ taskId: task.id, labelIds }).catch((error: unknown) => {
+        setLabelIdsDraft(previous);
+        throw error;
+      });
+    },
+    [labelIdsDraft, setLabelIdsDraft, task.id, updateTask],
+  );
+  /** Rewrites the saved plan with one step's brief changed; `existingStepId`
+   * keeps every step's identity and run history intact. */
+  const saveStepBrief = useCallback(
+    (stepId: string, prompt: string) => {
+      if (!workflow) return;
+      const trimmed = prompt.trim();
+      if (!trimmed) return;
+      const steps: StepInput[] = workflow.steps.map((step) => {
+        const { id, runs: _runs, ...definition } = step;
+        return {
+          ...definition,
+          existingStepId: id,
+          prompt: id === stepId ? trimmed : definition.prompt,
+        };
+      });
+      void setWorkflow({ taskId: task.id, steps }).catch((error) => {
+        toast.show(toErrorMessage(error));
+      });
+    },
+    [setWorkflow, task.id, toast, workflow],
   );
 
   const saveBrief = useCallback(() => {
@@ -420,92 +464,135 @@ function OpenTaskDetailSheet({
   }, [isPosting, noteDraft, post, task.id, toast]);
 
   const taskKey = formatTaskKey(project, task);
-  const header = useMemo(
-    () => ({
+  const steps = workflow?.steps ?? [];
+  const { surfaceStep, surfaceStepIndex } = resolveSurfaceStep(subSurface, steps);
+  const header = useMemo(() => {
+    if (subSurface) {
+      let title = "Step";
+      if (subSurface.kind === "automation") {
+        title = "Automation & delivery";
+      } else if (surfaceStep) {
+        title = `Step ${surfaceStepIndex + 1} · ${surfaceStep.name}`;
+      }
+      return { title, back: { onPress: closeSubSurface } };
+    }
+    return {
       title: task.title,
-      titleContent: (
-        <View style={styles.headerIdentity}>
-          <Text style={styles.taskKey}>{taskKey}</Text>
-          <AdaptiveTextInput
-            initialValue={task.title}
-            resetKey={task.title}
-            onChangeText={setTitleDraft}
-            onFocus={focusTitle}
-            onBlur={blurTitle}
-            onEndEditing={saveBrief}
-            placeholder="What needs to be done?"
-            style={[
-              styles.headerTitleInput,
-              isTitleFocused ? styles.headerTitleInputFocused : null,
-              isWeb ? { outlineWidth: 0, outlineColor: "transparent" } : null,
-            ]}
-            testID="task-detail-title-input"
-          />
-        </View>
-      ),
-      actions: (
-        <TaskStartControl
-          presets={presets}
-          isAggregate={isAggregate}
-          disabled={blockers.length > 0 || isDelegating}
-          onStart={handleDelegate}
-        />
-      ),
+      titleContent: <Text style={styles.taskKey}>{taskKey}</Text>,
       after: (
-        <TaskDetailNavigation
+        <TaskDetailHeaderBody
           task={task}
+          isCompact={isCompact}
+          isTitleFocused={isTitleFocused}
+          onTitleChange={setTitleDraft}
+          onTitleFocus={focusTitle}
+          onTitleBlur={blurTitle}
+          onTitleSave={saveBrief}
           projectLabels={projectLabels}
+          selectedLabelIds={labelIdsDraft}
           supportsLabelDeletion={supportsLabelDeletion}
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
           onSelectStatus={handleSelectStatus}
           onSelectPriority={handleSelectPriority}
           onSetDueDate={handleSetDueDate}
+          onSetLabelIds={handleSetLabelIds}
           onCreateLabel={createLabel}
           onDeleteLabel={deleteLabel}
-          onSetLabelIds={handleSetLabelIds}
+          presets={presets}
+          isAggregate={isAggregate}
+          startDisabled={blockers.length > 0 || isDelegating}
+          onStart={handleDelegate}
+          stepCount={steps.length}
+          activityCount={comments.length}
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
         />
       ),
-    }),
-    [
-      activeTab,
-      blockers.length,
-      handleDelegate,
-      handleSelectPriority,
-      handleSelectStatus,
-      handleSetDueDate,
-      handleSetLabelIds,
-      blurTitle,
-      focusTitle,
-      isAggregate,
-      isDelegating,
-      isTitleFocused,
-      createLabel,
-      deleteLabel,
-      presets,
-      projectLabels,
-      saveBrief,
-      task,
-      taskKey,
-      supportsLabelDeletion,
-    ],
-  );
-  const footer = useMemo(
-    () => (
-      <TaskUnifiedComposer
-        serverId={serverId}
-        task={task}
-        supportsMessages={supportsMessages}
-        noteDraft={noteDraft}
-        noteResetKey={noteResetKey}
-        isPosting={isPosting}
-        onNoteChange={setNoteDraft}
-        onSubmitNote={submitNote}
-        sendMessage={sendMessage}
-      />
-    ),
-    [isPosting, noteDraft, noteResetKey, sendMessage, serverId, submitNote, supportsMessages, task],
-  );
+    };
+  }, [
+    activeTab,
+    blockers.length,
+    closeSubSurface,
+    comments.length,
+    createLabel,
+    deleteLabel,
+    handleDelegate,
+    handleSelectPriority,
+    handleSelectStatus,
+    handleSetDueDate,
+    handleSetLabelIds,
+    blurTitle,
+    focusTitle,
+    isAggregate,
+    isCompact,
+    isDelegating,
+    isTitleFocused,
+    labelIdsDraft,
+    presets,
+    projectLabels,
+    saveBrief,
+    setTitleDraft,
+    steps.length,
+    subSurface,
+    surfaceStep,
+    surfaceStepIndex,
+    task,
+    taskKey,
+    supportsLabelDeletion,
+  ]);
+  // The composer belongs to the conversation, so it only shows with it; on the
+  // other tabs a compact layout uses the footer for the one primary action.
+  const footer = useMemo(() => {
+    if (subSurface) {
+      return undefined;
+    }
+    if (activeTab === "activity") {
+      return (
+        <TaskUnifiedComposer
+          serverId={serverId}
+          task={task}
+          supportsMessages={supportsMessages}
+          noteDraft={noteDraft}
+          noteResetKey={noteResetKey}
+          isPosting={isPosting}
+          onNoteChange={setNoteDraft}
+          onSubmitNote={submitNote}
+          sendMessage={sendMessage}
+        />
+      );
+    }
+    if (isCompact && presets.length > 0 && !isAggregate) {
+      return (
+        <View style={styles.startFooter}>
+          <TaskStartControl
+            presets={presets}
+            isAggregate={isAggregate}
+            disabled={blockers.length > 0 || isDelegating}
+            onStart={handleDelegate}
+          />
+        </View>
+      );
+    }
+    return undefined;
+  }, [
+    activeTab,
+    blockers.length,
+    handleDelegate,
+    isAggregate,
+    isCompact,
+    isDelegating,
+    isPosting,
+    noteDraft,
+    noteResetKey,
+    presets,
+    sendMessage,
+    serverId,
+    subSurface,
+    submitNote,
+    supportsMessages,
+    task,
+  ]);
+
+  const automationSummary = resolveAutomationSummary(task, project, isAggregate);
 
   return (
     <AdaptiveModalSheet
@@ -517,34 +604,61 @@ function OpenTaskDetailSheet({
       footer={footer}
       footerContainerStyle={styles.unifiedComposerFooter}
     >
-      {activeTab === "execution" ? (
+      {subSurface ? (
+        <TaskDetailSubSurfaceBody
+          subSurface={subSurface}
+          surfaceStep={surfaceStep}
+          serverId={serverId}
+          task={task}
+          project={project}
+          presets={presets}
+          isAggregate={isAggregate}
+          isActing={isActing}
+          onAct={handleStepAction}
+          onOpenAgent={handleOpenAgent}
+          onSaveBrief={saveStepBrief}
+        />
+      ) : null}
+
+      {!subSurface && activeTab === "execution" ? (
         <View style={styles.tabContent} testID="task-detail-execution-tab">
-          {task.status === "in_review" || blockers.length > 0 ? (
-            <View style={styles.groupContent} testID="task-detail-attention">
-              {task.status === "in_review" ? (
-                <TaskReviewSection
-                  iteration={task.reviewIteration}
-                  canStartReview={canArmReview}
-                  isReviewing={isReviewing}
-                  onFeedbackChange={setReviewFeedback}
-                  onApprove={handleApprove}
-                  onReject={handleReject}
-                  onStartReview={handleStartReview}
-                />
-              ) : null}
-              {blockers.length > 0 ? (
-                <TaskBlockersSection blockers={blockers} projectsById={projectsById} />
-              ) : null}
-            </View>
-          ) : null}
+          <TaskDetailAttentionSection
+            task={task}
+            blockers={blockers}
+            projectsById={projectsById}
+            canArmReview={canArmReview}
+            isReviewing={isReviewing}
+            onFeedbackChange={setReviewFeedback}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onStartReview={handleStartReview}
+          />
           <TaskPlanSection
             workflow={workflow}
             isAggregate={isAggregate}
             isActing={isActing}
+            isCompact={isCompact}
+            automationSummary={automationSummary}
+            isAutomationExpanded={isAutomationExpanded}
+            onChangeAutomation={isCompact ? openAutomationSurface : toggleAutomationExpanded}
             onEdit={handleEditWorkflow}
             onAct={handleStepAction}
             onOpenAgent={handleOpenAgent}
+            onOpenStep={openStepSurface}
+            onSaveBrief={saveStepBrief}
           />
+          {!isCompact && isAutomationExpanded ? (
+            <View style={styles.groupContent} testID="task-detail-automation-expanded">
+              <TaskAutomationSection
+                serverId={serverId}
+                task={task}
+                project={project}
+                presets={presets}
+                hasSubtasks={isAggregate}
+              />
+              <TaskDeliverySection task={task} />
+            </View>
+          ) : null}
           <TaskAgentsSection groups={executionGroups} onOpenAgent={handleOpenAgent} />
           {subtasks.length > 0 || isAggregate ? (
             <TaskSubtasksSection
@@ -562,17 +676,10 @@ function OpenTaskDetailSheet({
               onOpenAgent={handleOpenAgent}
             />
           ) : null}
-          <TaskAutomationDeliverySection
-            serverId={serverId}
-            task={task}
-            project={project}
-            presets={presets}
-            hasSubtasks={isAggregate}
-          />
         </View>
       ) : null}
 
-      {activeTab === "details" ? (
+      {!subSurface && activeTab === "details" ? (
         <View style={styles.tabContent} testID="task-detail-details-tab">
           <TaskOverview task={task} onDescriptionChange={setDescriptionDraft} onSave={saveBrief} />
           <View style={styles.groupContent} testID="task-detail-details-group">
@@ -596,12 +703,303 @@ function OpenTaskDetailSheet({
         </View>
       ) : null}
 
-      {activeTab === "activity" ? (
+      {!subSurface && activeTab === "activity" ? (
         <View style={styles.tabContent} testID="task-detail-activity-tab">
           <TaskUpdatesSection comments={comments} serverId={serverId} />
         </View>
       ) : null}
     </AdaptiveModalSheet>
+  );
+}
+
+function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+/**
+ * Local draft state that re-derives from the server value when it changes —
+ * an edit made on another client must not lose to a draft seeded at open time.
+ * The adjustment happens during render (the React "adjusting state when props
+ * change" pattern), so the stale draft never paints.
+ */
+function useServerSyncedDraft<T>(
+  serverValue: T,
+  isEqual: (a: T, b: T) => boolean,
+): [T, (value: T) => void] {
+  const [draft, setDraft] = useState(serverValue);
+  const serverValueRef = useRef(serverValue);
+  if (!isEqual(serverValueRef.current, serverValue)) {
+    serverValueRef.current = serverValue;
+    setDraft(serverValue);
+  }
+  return [draft, setDraft];
+}
+
+function resolveSurfaceStep(
+  subSurface: TaskDetailSubSurface | null,
+  steps: readonly Step[],
+): { surfaceStep: Step | undefined; surfaceStepIndex: number } {
+  if (subSurface?.kind !== "step") {
+    return { surfaceStep: undefined, surfaceStepIndex: -1 };
+  }
+  const surfaceStepIndex = steps.findIndex((step) => step.id === subSurface.stepId);
+  return {
+    surfaceStep: surfaceStepIndex >= 0 ? steps[surfaceStepIndex] : undefined,
+    surfaceStepIndex,
+  };
+}
+
+/** The one automation line: the delivery branch when there is one, otherwise
+ * the effective policy compressed to workspace · review. */
+function resolveAutomationSummary(
+  task: Task,
+  project: TaskProject | undefined,
+  isAggregate: boolean,
+): string {
+  if (task.integration?.branch) {
+    return task.integration.branch;
+  }
+  const effectivePolicy = resolveTaskExecutionPolicy(project?.board, task.executionPolicy);
+  const reviewMode = isAggregate ? resolveReviewMode(task.executionPolicy ?? {}) : null;
+  return formatCompactAutomationSummary(effectivePolicy, reviewMode);
+}
+
+/** The stacked screen a sub-surface replaces the tab body with. */
+function TaskDetailSubSurfaceBody({
+  subSurface,
+  surfaceStep,
+  serverId,
+  task,
+  project,
+  presets,
+  isAggregate,
+  isActing,
+  onAct,
+  onOpenAgent,
+  onSaveBrief,
+}: {
+  subSurface: TaskDetailSubSurface;
+  surfaceStep: Step | undefined;
+  serverId: string;
+  task: Task;
+  project: TaskProject | undefined;
+  presets: readonly TaskPreset[];
+  isAggregate: boolean;
+  isActing: boolean;
+  onAct: (stepId: string, action: TaskStepAction) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onSaveBrief: (stepId: string, prompt: string) => void;
+}): ReactElement {
+  return (
+    <View style={styles.tabContent} testID="task-detail-sub-surface">
+      {subSurface.kind === "automation" ? (
+        <>
+          <TaskAutomationSection
+            serverId={serverId}
+            task={task}
+            project={project}
+            presets={presets}
+            hasSubtasks={isAggregate}
+          />
+          <TaskDeliverySection task={task} />
+        </>
+      ) : null}
+      {subSurface.kind === "step" && surfaceStep ? (
+        <TaskStepSurface
+          step={surfaceStep}
+          disabled={isActing || isAggregate}
+          onAct={onAct}
+          onOpenAgent={onOpenAgent}
+          onSaveBrief={onSaveBrief}
+        />
+      ) : null}
+      {subSurface.kind === "step" && !surfaceStep ? (
+        <Text style={styles.emptyComments} testID="task-detail-step-surface-missing">
+          This step is no longer in the plan
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** What needs a person first: the review verdict and the blockers, above the
+ * plan when either applies. */
+function TaskDetailAttentionSection({
+  task,
+  blockers,
+  projectsById,
+  canArmReview,
+  isReviewing,
+  onFeedbackChange,
+  onApprove,
+  onReject,
+  onStartReview,
+}: {
+  task: Task;
+  blockers: readonly Task[];
+  projectsById: ReadonlyMap<string, TaskProject>;
+  canArmReview: boolean;
+  isReviewing: boolean;
+  onFeedbackChange: (feedback: string) => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onStartReview: () => void;
+}): ReactElement | null {
+  if (task.status !== "in_review" && blockers.length === 0) {
+    return null;
+  }
+  return (
+    <View style={styles.groupContent} testID="task-detail-attention">
+      {task.status === "in_review" ? (
+        <TaskReviewSection
+          iteration={task.reviewIteration}
+          canStartReview={canArmReview}
+          isReviewing={isReviewing}
+          onFeedbackChange={onFeedbackChange}
+          onApprove={onApprove}
+          onReject={onReject}
+          onStartReview={onStartReview}
+        />
+      ) : null}
+      {blockers.length > 0 ? (
+        <TaskBlockersSection blockers={blockers} projectsById={projectsById} />
+      ) : null}
+    </View>
+  );
+}
+
+/** The header below the key row: full-width editable title, the property chip
+ * rail, and the tab bar — one surface for identity and properties. */
+function TaskDetailHeaderBody({
+  task,
+  isCompact,
+  isTitleFocused,
+  onTitleChange,
+  onTitleFocus,
+  onTitleBlur,
+  onTitleSave,
+  projectLabels,
+  selectedLabelIds,
+  supportsLabelDeletion,
+  onSelectStatus,
+  onSelectPriority,
+  onSetDueDate,
+  onSetLabelIds,
+  onCreateLabel,
+  onDeleteLabel,
+  presets,
+  isAggregate,
+  startDisabled,
+  onStart,
+  stepCount,
+  activityCount,
+  activeTab,
+  onSelectTab,
+}: {
+  task: Task;
+  isCompact: boolean;
+  isTitleFocused: boolean;
+  onTitleChange: (title: string) => void;
+  onTitleFocus: () => void;
+  onTitleBlur: () => void;
+  onTitleSave: () => void;
+  projectLabels: readonly TaskLabel[];
+  selectedLabelIds: readonly string[];
+  supportsLabelDeletion: boolean;
+  onSelectStatus: (status: TaskStatus) => void;
+  onSelectPriority: (priority: TaskPriority) => void;
+  onSetDueDate: (dueDate: string | null) => Promise<Task>;
+  onSetLabelIds: (labelIds: string[]) => Promise<Task>;
+  onCreateLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
+  onDeleteLabel: (labelId: string) => Promise<void>;
+  presets: readonly TaskPreset[];
+  isAggregate: boolean;
+  startDisabled: boolean;
+  onStart: (presetId: string) => void;
+  stepCount: number;
+  activityCount: number;
+  activeTab: TaskDetailTab;
+  onSelectTab: (tab: TaskDetailTab) => void;
+}): ReactElement {
+  return (
+    <View style={styles.headerBody}>
+      <View style={styles.headerTitleBlock}>
+        <AdaptiveTextInput
+          initialValue={task.title}
+          resetKey={task.title}
+          onChangeText={onTitleChange}
+          onFocus={onTitleFocus}
+          onBlur={onTitleBlur}
+          onEndEditing={onTitleSave}
+          placeholder="What needs to be done?"
+          style={[
+            styles.headerTitleInput,
+            isTitleFocused ? styles.headerTitleInputFocused : null,
+            isWeb ? { outlineWidth: 0, outlineColor: "transparent" } : null,
+          ]}
+          testID="task-detail-title-input"
+        />
+      </View>
+      <View style={styles.chipRow}>
+        <TaskStatusChip
+          status={task.status}
+          onSelect={onSelectStatus}
+          testID="task-detail-status-trigger"
+        />
+        <TaskPriorityChip
+          priority={task.priority}
+          onSelect={onSelectPriority}
+          testID="task-detail-priority-trigger"
+        />
+        <TaskDueDateChip
+          dueDate={task.dueDate}
+          onSetDueDate={onSetDueDate}
+          testID="task-detail-due-trigger"
+        />
+        <TaskLabelsChip
+          projectId={task.projectId}
+          projectLabels={projectLabels}
+          selectedLabelIds={selectedLabelIds}
+          supportsDeletion={supportsLabelDeletion}
+          onSetLabelIds={onSetLabelIds}
+          onCreateLabel={onCreateLabel}
+          onDeleteLabel={onDeleteLabel}
+          testID="task-detail-labels-trigger"
+        />
+        {isCompact ? null : (
+          <View style={styles.chipRowTrailing}>
+            <TaskStartControl
+              presets={presets}
+              isAggregate={isAggregate}
+              disabled={startDisabled}
+              onStart={onStart}
+            />
+          </View>
+        )}
+      </View>
+      <View style={styles.tabBar} accessibilityRole="tablist">
+        <TaskDetailTabButton
+          tab="execution"
+          label="Execution"
+          count={stepCount}
+          activeTab={activeTab}
+          onSelect={onSelectTab}
+        />
+        <TaskDetailTabButton
+          tab="details"
+          label="Details"
+          activeTab={activeTab}
+          onSelect={onSelectTab}
+        />
+        <TaskDetailTabButton
+          tab="activity"
+          label="Activity"
+          count={activityCount}
+          activeTab={activeTab}
+          onSelect={onSelectTab}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -668,522 +1066,17 @@ function TaskStartPresetItem({
   );
 }
 
-function TaskDetailNavigation({
-  task,
-  projectLabels,
-  supportsLabelDeletion,
-  activeTab,
-  onSelectTab,
-  onSelectStatus,
-  onSelectPriority,
-  onSetDueDate,
-  onCreateLabel,
-  onDeleteLabel,
-  onSetLabelIds,
-}: {
-  task: Task;
-  projectLabels: readonly TaskLabel[];
-  supportsLabelDeletion: boolean;
-  activeTab: TaskDetailTab;
-  onSelectTab: (tab: TaskDetailTab) => void;
-  onSelectStatus: (status: TaskStatus) => void;
-  onSelectPriority: (priority: TaskPriority) => void;
-  onSetDueDate: (dueDate: string | null) => Promise<Task>;
-  onCreateLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
-  onDeleteLabel: (labelId: string) => Promise<void>;
-  onSetLabelIds: (labelIds: string[]) => Promise<Task>;
-}): ReactElement {
-  const { t } = useTranslation();
-  const [isCustomDueDateOpen, setIsCustomDueDateOpen] = useState(false);
-  const openCustomDueDate = useCallback(() => setIsCustomDueDateOpen(true), []);
-  const closeCustomDueDate = useCallback(() => setIsCustomDueDateOpen(false), []);
-  return (
-    <View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.propertyRow}
-        style={styles.propertyScroller}
-      >
-        <TaskProperty label="Status" testID="task-detail-property-status">
-          <DropdownMenu>
-            <DropdownTrigger testID="task-detail-status-trigger">
-              <Text style={styles.propertyValue}>{t(TASK_STATUS_LABEL_KEYS[task.status])}</Text>
-            </DropdownTrigger>
-            <DropdownMenuContent align="start">
-              {TASK_STATUSES.map((status) => (
-                <StatusMenuItem
-                  key={status}
-                  status={status}
-                  selected={status === task.status}
-                  onSelect={onSelectStatus}
-                />
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </TaskProperty>
-        <TaskProperty label="Priority" testID="task-detail-property-priority">
-          <DropdownMenu>
-            <DropdownTrigger testID="task-detail-priority-trigger">
-              <Text
-                style={[
-                  styles.propertyPriorityValue,
-                  task.priority === "urgent" ? styles.priorityValueDanger : null,
-                  task.priority === "high" ? styles.priorityValueWarning : null,
-                ]}
-              >
-                {task.priority === "none"
-                  ? t("tasks.detail.priorityNone")
-                  : t(TASK_PRIORITY_LABEL_KEYS[task.priority])}
-              </Text>
-            </DropdownTrigger>
-            <DropdownMenuContent align="start">
-              {TASK_PRIORITIES.map((priority) => (
-                <PriorityMenuItem
-                  key={priority}
-                  priority={priority}
-                  selected={priority === task.priority}
-                  onSelect={onSelectPriority}
-                />
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </TaskProperty>
-        <TaskProperty label="Due" testID="task-detail-property-due">
-          <TaskDueDateMenu
-            dueDate={task.dueDate}
-            onSetDueDate={onSetDueDate}
-            onCustom={openCustomDueDate}
-          />
-        </TaskProperty>
-        <TaskProperty label="Labels" testID="task-detail-property-labels">
-          <TaskLabelsMenu
-            task={task}
-            projectLabels={projectLabels}
-            supportsDeletion={supportsLabelDeletion}
-            onCreateLabel={onCreateLabel}
-            onDeleteLabel={onDeleteLabel}
-            onSetLabelIds={onSetLabelIds}
-          />
-        </TaskProperty>
-      </ScrollView>
-      <View style={styles.tabBar} accessibilityRole="tablist">
-        <TaskDetailTabButton
-          tab="execution"
-          label="Execution"
-          activeTab={activeTab}
-          onSelect={onSelectTab}
-        />
-        <TaskDetailTabButton
-          tab="details"
-          label="Details"
-          activeTab={activeTab}
-          onSelect={onSelectTab}
-        />
-        <TaskDetailTabButton
-          tab="activity"
-          label="Activity"
-          activeTab={activeTab}
-          onSelect={onSelectTab}
-        />
-      </View>
-      {isCustomDueDateOpen ? (
-        <TaskDueDateFormSheet
-          key={task.dueDate ?? "empty"}
-          currentDueDate={task.dueDate}
-          onSubmit={onSetDueDate}
-          onClose={closeCustomDueDate}
-        />
-      ) : null}
-    </View>
-  );
-}
-
-function TaskDueDateMenu({
-  dueDate,
-  onSetDueDate,
-  onCustom,
-}: {
-  dueDate: string | null;
-  onSetDueDate: (dueDate: string | null) => Promise<Task>;
-  onCustom: () => void;
-}): ReactElement {
-  const toast = useToast();
-  const setQuickDueDate = useCallback(
-    (preset: TaskDueDatePreset) => {
-      void onSetDueDate(resolveTaskDueDatePreset(preset)).catch((error) => {
-        toast.show(toErrorMessage(error));
-      });
-    },
-    [onSetDueDate, toast],
-  );
-  const clearDueDate = useCallback(() => {
-    void onSetDueDate(null).catch((error) => toast.show(toErrorMessage(error)));
-  }, [onSetDueDate, toast]);
-
-  return (
-    <DropdownMenu compactMode="sheet">
-      <DropdownTrigger testID="task-detail-due-trigger">
-        <Text style={dueDate ? styles.propertyValue : styles.propertyEmpty}>
-          {dueDate ?? "Set due date"}
-        </Text>
-      </DropdownTrigger>
-      <DropdownMenuContent align="start" sheetTitle="Due date" testID="task-detail-due-menu">
-        <DueDatePresetMenuItem preset="today" label="Today" onSelect={setQuickDueDate} />
-        <DueDatePresetMenuItem preset="tomorrow" label="Tomorrow" onSelect={setQuickDueDate} />
-        <DueDatePresetMenuItem preset="next-week" label="Next week" onSelect={setQuickDueDate} />
-        <DropdownMenuItem onSelect={onCustom} testID="task-detail-due-custom">
-          Custom
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onSelect={clearDueDate}
-          disabled={dueDate === null}
-          testID="task-detail-due-clear"
-        >
-          Clear
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function DueDatePresetMenuItem({
-  preset,
-  label,
-  onSelect,
-}: {
-  preset: TaskDueDatePreset;
-  label: string;
-  onSelect: (preset: TaskDueDatePreset) => void;
-}): ReactElement {
-  const handleSelect = useCallback(() => onSelect(preset), [onSelect, preset]);
-  return (
-    <DropdownMenuItem onSelect={handleSelect} testID={`task-detail-due-${preset}`}>
-      {label}
-    </DropdownMenuItem>
-  );
-}
-
-function TaskLabelsMenu({
-  task,
-  projectLabels,
-  supportsDeletion,
-  onCreateLabel,
-  onDeleteLabel,
-  onSetLabelIds,
-}: {
-  task: Task;
-  projectLabels: readonly TaskLabel[];
-  supportsDeletion: boolean;
-  onCreateLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
-  onDeleteLabel: (labelId: string) => Promise<void>;
-  onSetLabelIds: (labelIds: string[]) => Promise<Task>;
-}): ReactElement {
-  const toast = useToast();
-  const [selectedLabelIds, setSelectedLabelIds] = useState<Set<string>>(
-    () => new Set(task.labelIds),
-  );
-  const [isChanging, setIsChanging] = useState(false);
-  const selectedLabels = useMemo(
-    () => projectLabels.filter((label) => selectedLabelIds.has(label.id)),
-    [projectLabels, selectedLabelIds],
-  );
-
-  const toggleLabel = useCallback(
-    (labelId: string) => {
-      if (isChanging) return;
-      const previous = selectedLabelIds;
-      const next = new Set(previous);
-      if (next.has(labelId)) next.delete(labelId);
-      else next.add(labelId);
-      setSelectedLabelIds(next);
-      setIsChanging(true);
-      void onSetLabelIds([...next])
-        .catch((error) => {
-          setSelectedLabelIds(previous);
-          toast.show(toErrorMessage(error));
-        })
-        .finally(() => setIsChanging(false));
-    },
-    [isChanging, onSetLabelIds, selectedLabelIds, toast],
-  );
-
-  const createAndSelectLabel = useCallback(
-    async (input: { name: string; color: string }) => {
-      const labelId = await onCreateLabel({ projectId: task.projectId, ...input });
-      const previous = selectedLabelIds;
-      const next = new Set(selectedLabelIds);
-      next.add(labelId);
-      setSelectedLabelIds(next);
-      try {
-        await onSetLabelIds([...next]);
-      } catch (error) {
-        setSelectedLabelIds(previous);
-        throw error;
-      }
-    },
-    [onCreateLabel, onSetLabelIds, selectedLabelIds, task.projectId],
-  );
-
-  const deleteProjectLabel = useCallback(
-    (label: TaskLabel) => {
-      void (async () => {
-        const confirmed = await confirmDialog({
-          title: "Delete label?",
-          message: `Delete “${label.name}” from this project and every task that uses it?`,
-          confirmLabel: "Delete",
-          destructive: true,
-        });
-        if (!confirmed) return;
-        try {
-          await onDeleteLabel(label.id);
-          setSelectedLabelIds((current) => {
-            const next = new Set(current);
-            next.delete(label.id);
-            return next;
-          });
-        } catch (error) {
-          toast.show(toErrorMessage(error));
-        }
-      })();
-    },
-    [onDeleteLabel, toast],
-  );
-
-  const pages = useMemo<MenuPageDefinition[]>(
-    () => [
-      {
-        id: "create-label",
-        title: "New label",
-        content: <CreateTaskLabelPage onCreate={createAndSelectLabel} />,
-      },
-      {
-        id: "delete-label",
-        title: "Delete label",
-        content:
-          projectLabels.length > 0 ? (
-            projectLabels.map((label) => (
-              <DeleteTaskLabelItem key={label.id} label={label} onDelete={deleteProjectLabel} />
-            ))
-          ) : (
-            <DropdownMenuLabel>No project labels</DropdownMenuLabel>
-          ),
-      },
-    ],
-    [createAndSelectLabel, deleteProjectLabel, projectLabels],
-  );
-
-  return (
-    <DropdownMenu compactMode="sheet">
-      <DropdownTrigger testID="task-detail-labels-trigger">
-        {selectedLabels.length > 0 ? (
-          <TaskLabelChips labels={selectedLabels} />
-        ) : (
-          <Text style={styles.propertyEmpty}>Add label</Text>
-        )}
-      </DropdownTrigger>
-      <DropdownMenuContent
-        align="start"
-        width={260}
-        maxHeight={360}
-        pages={pages}
-        sheetTitle="Labels"
-        testID="task-detail-labels-menu"
-      >
-        {projectLabels.length > 0 ? (
-          projectLabels.map((label) => (
-            <TaskLabelMenuItem
-              key={label.id}
-              label={label}
-              selected={selectedLabelIds.has(label.id)}
-              disabled={isChanging}
-              onToggle={toggleLabel}
-            />
-          ))
-        ) : (
-          <DropdownMenuLabel>No project labels</DropdownMenuLabel>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuSubTrigger id="create-label" testID="task-detail-label-create">
-          New label
-        </DropdownMenuSubTrigger>
-        {supportsDeletion && projectLabels.length > 0 ? (
-          <DropdownMenuSubTrigger id="delete-label" testID="task-detail-label-delete">
-            Delete label
-          </DropdownMenuSubTrigger>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function TaskLabelMenuItem({
-  label,
-  selected,
-  disabled,
-  onToggle,
-}: {
-  label: TaskLabel;
-  selected: boolean;
-  disabled: boolean;
-  onToggle: (labelId: string) => void;
-}): ReactElement {
-  const handleSelect = useCallback(() => onToggle(label.id), [label.id, onToggle]);
-  const leading = useMemo(
-    () => <View style={[styles.labelDot, { backgroundColor: label.color }]} />,
-    [label.color],
-  );
-  return (
-    <DropdownMenuItem
-      selected={selected}
-      showSelectedCheck
-      leading={leading}
-      closeOnSelect={false}
-      disabled={disabled}
-      onSelect={handleSelect}
-      testID={`task-detail-label-${label.id}`}
-    >
-      {label.name}
-    </DropdownMenuItem>
-  );
-}
-
-function DeleteTaskLabelItem({
-  label,
-  onDelete,
-}: {
-  label: TaskLabel;
-  onDelete: (label: TaskLabel) => void;
-}): ReactElement {
-  const handleSelect = useCallback(() => onDelete(label), [label, onDelete]);
-  const leading = useMemo(
-    () => <View style={[styles.labelDot, { backgroundColor: label.color }]} />,
-    [label.color],
-  );
-  return (
-    <DropdownMenuItem
-      destructive
-      closeOnSelect={false}
-      leading={leading}
-      onSelect={handleSelect}
-      testID={`task-detail-label-delete-${label.id}`}
-    >
-      {label.name}
-    </DropdownMenuItem>
-  );
-}
-
-function CreateTaskLabelPage({
-  onCreate,
-}: {
-  onCreate: (input: { name: string; color: string }) => Promise<void>;
-}): ReactElement {
-  const toast = useToast();
-  const [name, setName] = useState("");
-  const [resetKey, setResetKey] = useState(0);
-  const [colorName, setColorName] = useState<(typeof IDENTITY_COLOR_NAMES)[number]>("violet");
-  const [isCreating, setIsCreating] = useState(false);
-  const submit = useCallback(() => {
-    const trimmedName = name.trim();
-    if (!trimmedName || isCreating) return;
-    setIsCreating(true);
-    void (async () => {
-      try {
-        await onCreate({ name: trimmedName, color: identityColor(colorName) });
-        setName("");
-        setResetKey((current) => current + 1);
-      } catch (error) {
-        toast.show(toErrorMessage(error));
-      } finally {
-        setIsCreating(false);
-      }
-    })();
-  }, [colorName, isCreating, name, onCreate, toast]);
-
-  return (
-    <View style={styles.labelCreateForm}>
-      <FormTextInput
-        initialValue=""
-        resetKey={resetKey}
-        onChangeText={setName}
-        onSubmitEditing={submit}
-        placeholder="Label name"
-        testID="task-detail-label-name"
-      />
-      <View style={styles.labelPalette} accessibilityRole="radiogroup">
-        {IDENTITY_COLOR_NAMES.map((candidate) => (
-          <TaskLabelColorSwatch
-            key={candidate}
-            colorName={candidate}
-            selected={candidate === colorName}
-            onSelect={setColorName}
-          />
-        ))}
-      </View>
-      <Button
-        variant="default"
-        size="sm"
-        onPress={submit}
-        disabled={!name.trim() || isCreating}
-        loading={isCreating}
-        testID="task-detail-label-create-submit"
-      >
-        Create label
-      </Button>
-    </View>
-  );
-}
-
-function TaskLabelColorSwatch({
-  colorName,
-  selected,
-  onSelect,
-}: {
-  colorName: (typeof IDENTITY_COLOR_NAMES)[number];
-  selected: boolean;
-  onSelect: (colorName: (typeof IDENTITY_COLOR_NAMES)[number]) => void;
-}): ReactElement {
-  const handlePress = useCallback(() => onSelect(colorName), [colorName, onSelect]);
-  const accessibilityState = useMemo(() => ({ checked: selected }), [selected]);
-  const colorStyle = useMemo(() => ({ backgroundColor: identityColor(colorName) }), [colorName]);
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityLabel={colorName}
-      accessibilityState={accessibilityState}
-      onPress={handlePress}
-      style={[styles.labelSwatch, colorStyle, selected ? styles.labelSwatchSelected : null]}
-      testID={`task-detail-label-color-${colorName}`}
-    />
-  );
-}
-
-function TaskProperty({
-  label,
-  children,
-  testID,
-}: {
-  label: string;
-  children: ReactNode;
-  testID?: string;
-}): ReactElement {
-  return (
-    <View style={styles.property} testID={testID}>
-      <Text style={styles.propertyLabel}>{label}</Text>
-      {children}
-    </View>
-  );
-}
-
 function TaskDetailTabButton({
   tab,
   label,
+  count,
   activeTab,
   onSelect,
 }: {
   tab: TaskDetailTab;
   label: string;
+  /** Shown beside the label when there is something to count. */
+  count?: number;
   activeTab: TaskDetailTab;
   onSelect: (tab: TaskDetailTab) => void;
 }): ReactElement {
@@ -1199,7 +1092,10 @@ function TaskDetailTabButton({
       style={[styles.tab, active ? styles.tabActive : null]}
       testID={`task-detail-tab-${tab}`}
     >
-      <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{label}</Text>
+      <View style={styles.tabInner}>
+        <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{label}</Text>
+        {count ? <Text style={styles.tabCount}>{count}</Text> : null}
+      </View>
     </Pressable>
   );
 }
@@ -1611,69 +1507,414 @@ function TaskUpdatesSection({
   );
 }
 
+/** The automation policy as one short line, stated once per surface. */
+function formatCompactAutomationSummary(
+  effective: ReturnType<typeof resolveTaskExecutionPolicy>,
+  reviewMode: ReviewMode | null,
+): string {
+  let workspace = "Preset workspace";
+  if (effective.workspace === "dedicated") {
+    workspace = "Dedicated worktrees";
+  } else if (effective.workspace === "reuse") {
+    workspace = "Task workspace";
+  }
+  if (reviewMode) {
+    return `${workspace} · ${REVIEW_MODE_LABELS[reviewMode]}`;
+  }
+  const review = effective.reviewEnabled ? `review ×${effective.maxReviewIterations}` : "no review";
+  return `${workspace} · ${review}`;
+}
+
 /**
- * The task's saved plan. On an aggregate the plan is refused rather than hidden:
- * the steps of one authored before the subtasks existed stay readable, with
- * their run history, but nothing new can be authored on a card that holds no
- * workers.
+ * The task's saved plan as one card of rows. On an aggregate the plan is
+ * refused rather than hidden: the steps of one authored before the subtasks
+ * existed stay readable, with their run history, but nothing new can be
+ * authored on a card that holds no workers. Automation is stated once — the
+ * compact line beside the section title on desktop, a drill-in row on compact.
  */
 function TaskPlanSection({
   workflow,
   isAggregate,
   isActing,
+  isCompact,
+  automationSummary,
+  isAutomationExpanded,
+  onChangeAutomation,
   onEdit,
   onAct,
   onOpenAgent,
+  onOpenStep,
+  onSaveBrief,
 }: {
   workflow: TaskWorkflow | null;
   isAggregate: boolean;
   isActing: boolean;
+  isCompact: boolean;
+  automationSummary: string;
+  isAutomationExpanded: boolean;
+  onChangeAutomation: () => void;
   onEdit: () => void;
   onAct: (stepId: string, action: TaskStepAction) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onOpenStep: (stepId: string) => void;
+  onSaveBrief: (stepId: string, prompt: string) => void;
 }): ReactElement {
   const steps = workflow?.steps ?? [];
   const trailing = useMemo(
-    () => (
-      <Button
-        variant="ghost"
-        size="sm"
-        onPress={onEdit}
-        disabled={isAggregate}
-        testID="task-detail-workflow-edit"
-      >
-        {workflow ? "Edit" : "Add plan"}
-      </Button>
-    ),
-    [isAggregate, onEdit, workflow],
+    () =>
+      isCompact ? null : (
+        <View style={styles.planTrailing}>
+          <Text style={styles.planAutomationSummary} numberOfLines={1}>
+            {automationSummary}
+          </Text>
+          <Button
+            variant="ghost"
+            size="xs"
+            onPress={onChangeAutomation}
+            testID="task-detail-automation-change"
+          >
+            {isAutomationExpanded ? "Done" : "Change"}
+          </Button>
+        </View>
+      ),
+    [automationSummary, isAutomationExpanded, isCompact, onChangeAutomation],
   );
   return (
-    <SettingsSection title="Agent plan" flush testID="task-detail-workflow" trailing={trailing}>
-      <Text style={settingsStyles.rowHint}>
-        {isAggregate
-          ? AGGREGATE_WORK_REFUSAL
-          : "The task brief is sent with every step. Add instructions only where they differ."}
-      </Text>
+    <SettingsSection title="Plan" flush testID="task-detail-workflow" trailing={trailing}>
+      {isAggregate ? <Text style={settingsStyles.rowHint}>{AGGREGATE_WORK_REFUSAL}</Text> : null}
       {steps.length > 0 ? (
-        <View style={styles.planSteps}>
+        <View style={settingsStyles.card}>
           {steps.map((step, index) => (
-            <WorkflowStepRow
+            <PlanStepRow
               key={step.id}
               step={step}
               index={index}
-              disabled={isActing}
+              withBorder={index > 0}
+              disabled={isActing || isAggregate}
+              isCompact={isCompact}
               onAct={onAct}
               onOpenAgent={onOpenAgent}
+              onOpenStep={onOpenStep}
+              onSaveBrief={onSaveBrief}
             />
           ))}
+          {isAggregate ? null : (
+            <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
+              <Button variant="ghost" size="sm" onPress={onEdit} testID="task-detail-workflow-edit">
+                Add step
+              </Button>
+            </View>
+          )}
         </View>
       ) : null}
       {steps.length > 0 || isAggregate ? null : (
-        <Text style={styles.emptyComments}>
-          No saved plan. Start from a preset, or add a multi-step agent plan.
-        </Text>
+        <View style={styles.planEmpty}>
+          <Text style={styles.emptyComments}>
+            No saved plan. Start from a preset, or add a multi-step agent plan.
+          </Text>
+          <Button variant="ghost" size="sm" onPress={onEdit} testID="task-detail-workflow-edit">
+            Add plan
+          </Button>
+        </View>
       )}
+      {isCompact ? (
+        <View style={settingsStyles.card}>
+          <Pressable
+            onPress={onChangeAutomation}
+            accessibilityRole="button"
+            style={settingsStyles.row}
+            testID="task-detail-automation-open"
+          >
+            <View style={settingsStyles.rowContent}>
+              <Text style={settingsStyles.rowTitle}>Automation & delivery</Text>
+              <Text style={settingsStyles.rowHint} numberOfLines={1}>
+                {automationSummary}
+              </Text>
+            </View>
+            <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+          </Pressable>
+        </View>
+      ) : null}
     </SettingsSection>
+  );
+}
+
+/**
+ * One plan step as a row: number, name, its agent once, and the one action its
+ * last run allows. The brief expands in place on desktop and gets its own
+ * screen on compact — read where you run, edit where you read.
+ */
+function PlanStepRow({
+  step,
+  index,
+  withBorder,
+  disabled,
+  isCompact,
+  onAct,
+  onOpenAgent,
+  onOpenStep,
+  onSaveBrief,
+}: {
+  step: Step;
+  index: number;
+  withBorder: boolean;
+  disabled: boolean;
+  isCompact: boolean;
+  onAct: (stepId: string, action: TaskStepAction) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onOpenStep: (stepId: string) => void;
+  onSaveBrief: (stepId: string, prompt: string) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const { status, actions, error } = resolveStepState(step);
+  const primaryAction = actions.find((action) => action !== "skip");
+  const hasSkip = actions.includes("skip");
+  const agentTarget = resolveStepAgentTarget(step);
+  const isActive = status === "running" || status === "queued";
+  const isFailed = status === "failed" || status === "interrupted" || status === "canceled";
+  const handlePress = useCallback(() => {
+    if (isCompact) {
+      onOpenStep(step.id);
+      return;
+    }
+    setIsExpanded((current) => !current);
+  }, [isCompact, onOpenStep, step.id]);
+  const handleOpenAgent = useCallback(() => {
+    if (agentTarget) onOpenAgent(agentTarget);
+  }, [agentTarget, onOpenAgent]);
+  const handleSkip = useCallback(() => onAct(step.id, "skip"), [onAct, step.id]);
+  const accessibilityState = useMemo(
+    () => (isCompact ? undefined : { expanded: isExpanded }),
+    [isCompact, isExpanded],
+  );
+  return (
+    <View
+      style={withBorder ? settingsStyles.rowBorder : null}
+      testID={`task-detail-step-${step.id}`}
+    >
+      <Pressable
+        onPress={handlePress}
+        accessibilityRole="button"
+        accessibilityState={accessibilityState}
+        accessibilityLabel={`Step ${index + 1}: ${step.name}`}
+        style={[settingsStyles.row, styles.planStepRow]}
+        testID={`task-detail-step-toggle-${step.id}`}
+      >
+        <View style={styles.stepIndexBadge}>
+          <Text style={styles.stepIndexText}>{index + 1}</Text>
+        </View>
+        <View style={settingsStyles.rowContent}>
+          <View style={styles.stepTitleRow}>
+            <Text
+              style={[styles.stepTitle, isActive ? styles.stepTitleActive : null]}
+              numberOfLines={1}
+            >
+              {step.name}
+            </Text>
+            <Text
+              style={[
+                styles.stepStatus,
+                status === "succeeded" ? styles.stepStatusSucceeded : null,
+                isFailed ? styles.stepStatusFailed : null,
+              ]}
+            >
+              {t(`tasks.detail.stepStatus.${status}`)}
+            </Text>
+          </View>
+          <Text style={styles.stepMeta}>
+            {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"}
+          </Text>
+          {error ? (
+            <Text style={settingsStyles.rowError} testID={`task-detail-step-${step.id}-error`}>
+              {error}
+            </Text>
+          ) : null}
+        </View>
+        {primaryAction ? (
+          <StepActionButton
+            stepId={step.id}
+            action={primaryAction}
+            disabled={disabled}
+            onAct={onAct}
+          />
+        ) : null}
+        <PlanStepRowChevron isCompact={isCompact} isExpanded={isExpanded} />
+      </Pressable>
+      {!isCompact && isExpanded ? (
+        <View style={styles.stepExpanded} testID={`task-detail-step-expanded-${step.id}`}>
+          <StepBriefEditor step={step} editable={!disabled} onSaveBrief={onSaveBrief} />
+          <View style={styles.stepExpandedFooter}>
+            <Text style={styles.stepMeta}>{formatWorkspaceMode(step)}</Text>
+            <View style={styles.actionRow}>
+              {agentTarget ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onPress={handleOpenAgent}
+                  testID={`task-detail-step-chat-${step.id}`}
+                >
+                  Open agent
+                </Button>
+              ) : null}
+              {hasSkip ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onPress={handleSkip}
+                  disabled={disabled}
+                  testID={`task-detail-step-${step.id}-skip`}
+                >
+                  {t("tasks.detail.stepAction.skip")}
+                </Button>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function PlanStepRowChevron({
+  isCompact,
+  isExpanded,
+}: {
+  isCompact: boolean;
+  isExpanded: boolean;
+}): ReactElement {
+  if (isCompact) {
+    return <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />;
+  }
+  if (isExpanded) {
+    return <ThemedChevronUp size={ICON_SIZE.sm} uniProps={mutedIconMapping} />;
+  }
+  return <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedIconMapping} />;
+}
+
+/** The step's brief where it is read: saves on blur, only when it changed. */
+function StepBriefEditor({
+  step,
+  editable,
+  onSaveBrief,
+}: {
+  step: Step;
+  editable: boolean;
+  onSaveBrief: (stepId: string, prompt: string) => void;
+}): ReactElement {
+  const [draft, setDraft] = useState(step.prompt);
+  const save = useCallback(() => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== step.prompt) {
+      onSaveBrief(step.id, trimmed);
+    }
+  }, [draft, onSaveBrief, step.id, step.prompt]);
+  return (
+    <AdaptiveTextInput
+      initialValue={step.prompt}
+      resetKey={`${step.id}-${step.prompt}`}
+      onChangeText={setDraft}
+      onBlur={save}
+      onEndEditing={save}
+      editable={editable}
+      placeholder="What should the agent do in this step?"
+      style={styles.stepBriefInput}
+      multiline
+      testID={`task-detail-step-brief-${step.id}`}
+    />
+  );
+}
+
+/** A step's own screen on compact: the brief, the facts, and the actions the
+ * last run allows — the same content the desktop row expands in place. */
+function TaskStepSurface({
+  step,
+  disabled,
+  onAct,
+  onOpenAgent,
+  onSaveBrief,
+}: {
+  step: Step;
+  disabled: boolean;
+  onAct: (stepId: string, action: TaskStepAction) => void;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onSaveBrief: (stepId: string, prompt: string) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const { status, actions, error } = resolveStepState(step);
+  const primaryAction = actions.find((action) => action !== "skip");
+  const hasSkip = actions.includes("skip");
+  const agentTarget = resolveStepAgentTarget(step);
+  const handleOpenAgent = useCallback(() => {
+    if (agentTarget) onOpenAgent(agentTarget);
+  }, [agentTarget, onOpenAgent]);
+  const handlePrimary = useCallback(() => {
+    if (primaryAction) onAct(step.id, primaryAction);
+  }, [onAct, primaryAction, step.id]);
+  const handleSkip = useCallback(() => onAct(step.id, "skip"), [onAct, step.id]);
+  return (
+    <View style={styles.groupContent} testID={`task-detail-step-surface-${step.id}`}>
+      <SettingsSection title="Agent brief" flush>
+        <StepBriefEditor step={step} editable={!disabled} onSaveBrief={onSaveBrief} />
+      </SettingsSection>
+      <View style={settingsStyles.card}>
+        <View style={settingsStyles.row}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Agent</Text>
+          </View>
+          <Text style={styles.policyValue}>
+            {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"}
+          </Text>
+        </View>
+        <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Workspace</Text>
+          </View>
+          <Text style={styles.policyValue}>{formatWorkspaceMode(step)}</Text>
+        </View>
+        <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Status</Text>
+            {error ? <Text style={settingsStyles.rowError}>{error}</Text> : null}
+          </View>
+          <Text style={styles.policyValue}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
+        </View>
+      </View>
+      <View style={styles.actionRow}>
+        {primaryAction ? (
+          <Button
+            variant="default"
+            size="sm"
+            onPress={handlePrimary}
+            disabled={disabled}
+            testID={`task-detail-step-${step.id}-${primaryAction}`}
+          >
+            {t(`tasks.detail.stepAction.${primaryAction}`)}
+          </Button>
+        ) : null}
+        {hasSkip ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onPress={handleSkip}
+            disabled={disabled}
+            testID={`task-detail-step-${step.id}-skip`}
+          >
+            {t("tasks.detail.stepAction.skip")}
+          </Button>
+        ) : null}
+        {agentTarget ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={handleOpenAgent}
+            testID={`task-detail-step-chat-${step.id}`}
+          >
+            Open agent
+          </Button>
+        ) : null}
+      </View>
+    </View>
   );
 }
 
@@ -1918,69 +2159,6 @@ function formatSubtaskDetail(input: {
   return details.join(" · ");
 }
 
-function TaskAutomationDeliverySection({
-  serverId,
-  task,
-  project,
-  presets,
-  hasSubtasks,
-}: {
-  serverId: string;
-  task: Task;
-  project: TaskProject | undefined;
-  presets: readonly TaskPreset[];
-  hasSubtasks: boolean;
-}): ReactElement {
-  const [expanded, setExpanded] = useState(false);
-  const toggleExpanded = useCallback(() => setExpanded((current) => !current), []);
-  const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
-  const effectivePolicy = resolveTaskExecutionPolicy(project?.board, task.executionPolicy);
-  const reviewMode = hasSubtasks ? resolveReviewMode(task.executionPolicy ?? {}) : null;
-  const summary = task.integration?.branch
-    ? task.integration.branch
-    : formatAutomationSummary(effectivePolicy, presets, reviewMode);
-  return (
-    <SettingsSection title="Automation & delivery" flush testID="task-detail-automation-delivery">
-      <View style={styles.automationDeliveryCard}>
-        <Pressable
-          onPress={toggleExpanded}
-          accessibilityRole="button"
-          accessibilityState={accessibilityState}
-          style={styles.automationDeliveryHeader}
-          testID="task-detail-automation-delivery-toggle"
-        >
-          <Text
-            style={[
-              styles.automationDeliverySummary,
-              task.integration?.branch ? styles.automationDeliveryBranchSummary : null,
-            ]}
-            numberOfLines={1}
-          >
-            {summary}
-          </Text>
-          {expanded ? (
-            <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
-          ) : (
-            <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
-          )}
-        </Pressable>
-        {expanded ? (
-          <View style={styles.automationDeliveryContent}>
-            <TaskAutomationSection
-              serverId={serverId}
-              task={task}
-              project={project}
-              presets={presets}
-              hasSubtasks={hasSubtasks}
-            />
-            <TaskDeliverySection task={task} />
-          </View>
-        ) : null}
-      </View>
-    </SettingsSection>
-  );
-}
-
 function TaskDeliverySection({ task }: { task: Task }): ReactElement | null {
   if (!task.integration) return null;
   let status = "Task branch ready";
@@ -2007,140 +2185,6 @@ function TaskDeliverySection({ task }: { task: Task }): ReactElement | null {
         </View>
       </View>
     </SettingsSection>
-  );
-}
-
-/** A step reads as one line: what it is, what its last run said, and the only
- * actions that run says are possible. */
-function WorkflowStepRow({
-  step,
-  index,
-  disabled,
-  onAct,
-  onOpenAgent,
-}: {
-  step: Step;
-  index: number;
-  disabled: boolean;
-  onAct: (stepId: string, action: TaskStepAction) => void;
-  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  const { status, actions, error } = resolveStepState(step);
-  const primaryAction = actions.find((action) => action !== "skip");
-  const hasSkip = actions.includes("skip");
-  const agentTarget = resolveStepAgentTarget(step);
-  const isActive = status === "running" || status === "queued";
-  const isFailed = status === "failed" || status === "interrupted" || status === "canceled";
-  const handleOpenAgent = useCallback(() => {
-    if (agentTarget) onOpenAgent(agentTarget);
-  }, [agentTarget, onOpenAgent]);
-  const stepLinkStyle = useCallback(
-    ({ pressed, hovered = false }: { pressed: boolean; hovered?: boolean }) => [
-      styles.stepLink,
-      pressed || hovered ? styles.stepLinkActive : null,
-    ],
-    [],
-  );
-  return (
-    <View
-      style={[styles.stepCard, isActive ? styles.stepCardActive : null]}
-      testID={`task-detail-step-${step.id}`}
-    >
-      <Pressable
-        onPress={handleOpenAgent}
-        disabled={!agentTarget}
-        accessibilityRole={agentTarget ? "button" : undefined}
-        accessibilityLabel={
-          agentTarget ? `Open chat for step ${index + 1}: ${step.name}` : undefined
-        }
-        style={stepLinkStyle}
-        testID={agentTarget ? `task-detail-step-chat-${step.id}` : undefined}
-      >
-        <Text style={styles.stepIndex}>{index + 1}</Text>
-        <View style={settingsStyles.rowContent}>
-          <View style={styles.stepTitleRow}>
-            <Text
-              style={[styles.stepTitle, isActive ? styles.stepTitleActive : null]}
-              numberOfLines={1}
-            >
-              {step.name}
-            </Text>
-            <Text
-              style={[
-                styles.stepStatus,
-                status === "succeeded" ? styles.stepStatusSucceeded : null,
-                isFailed ? styles.stepStatusFailed : null,
-              ]}
-            >
-              {t(`tasks.detail.stepStatus.${status}`)}
-            </Text>
-          </View>
-          {step.prompt ? (
-            <Text style={settingsStyles.rowHint} numberOfLines={2}>
-              {step.prompt}
-            </Text>
-          ) : null}
-          <Text style={styles.stepMeta}>
-            {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"} ·{" "}
-            {formatWorkspaceMode(step)}
-          </Text>
-          {error ? (
-            <Text style={settingsStyles.rowError} testID={`task-detail-step-${step.id}-error`}>
-              {error}
-            </Text>
-          ) : null}
-        </View>
-        {agentTarget ? (
-          <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
-        ) : null}
-      </Pressable>
-      <WorkflowStepActions
-        stepId={step.id}
-        primaryAction={primaryAction}
-        hasSkip={hasSkip}
-        disabled={disabled}
-        onAct={onAct}
-      />
-    </View>
-  );
-}
-
-function WorkflowStepActions({
-  stepId,
-  primaryAction,
-  hasSkip,
-  disabled,
-  onAct,
-}: {
-  stepId: string;
-  primaryAction: TaskStepAction | undefined;
-  hasSkip: boolean;
-  disabled: boolean;
-  onAct: (stepId: string, action: TaskStepAction) => void;
-}): ReactElement | null {
-  if (!primaryAction && !hasSkip) return null;
-  return (
-    <View style={styles.stepActions}>
-      {primaryAction ? (
-        <StepActionButton
-          stepId={stepId}
-          action={primaryAction}
-          disabled={disabled}
-          onAct={onAct}
-        />
-      ) : null}
-      {hasSkip ? (
-        <DropdownMenu>
-          <DropdownTrigger testID={`task-detail-step-${stepId}-more`} chevron={null}>
-            <Text style={styles.moreAction}>•••</Text>
-          </DropdownTrigger>
-          <DropdownMenuContent align="end">
-            <StepActionMenuItem stepId={stepId} action="skip" disabled={disabled} onAct={onAct} />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-    </View>
   );
 }
 
@@ -2174,26 +2218,6 @@ function StepActionButton({
     >
       {t(`tasks.detail.stepAction.${action}`)}
     </Button>
-  );
-}
-
-function StepActionMenuItem({
-  stepId,
-  action,
-  disabled,
-  onAct,
-}: {
-  stepId: string;
-  action: TaskStepAction;
-  disabled: boolean;
-  onAct: (stepId: string, action: TaskStepAction) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  const handleSelect = useCallback(() => onAct(stepId, action), [action, onAct, stepId]);
-  return (
-    <DropdownMenuItem disabled={disabled} onSelect={handleSelect}>
-      {t(`tasks.detail.stepAction.${action}`)}
-    </DropdownMenuItem>
   );
 }
 
@@ -2248,34 +2272,6 @@ function selectCleanupPolicy(policy: TaskExecutionPolicy): "inherit" | "archive"
   return policy.archiveWorkspacesOnDone ? "archive" : "keep";
 }
 
-function formatAutomationSummary(
-  effective: ReturnType<typeof resolveTaskExecutionPolicy>,
-  presets: readonly TaskPreset[],
-  reviewMode: ReviewMode | null,
-): string {
-  let workspace = "Agents use the selected preset's workspace.";
-  if (effective.workspace === "dedicated") {
-    workspace = "Agents use dedicated worktrees.";
-  } else if (effective.workspace === "reuse") {
-    workspace = "Agents continue in the task workspace.";
-  }
-  if (reviewMode) {
-    return `${workspace} ${formatReviewModeSummary(reviewMode, effective)}`;
-  }
-  let review = "No review is required.";
-  if (effective.reviewEnabled) {
-    const roundLabel = effective.maxReviewIterations === 1 ? "round" : "rounds";
-    if (effective.reviewerPresetId) {
-      const reviewer =
-        presets.find((preset) => preset.id === effective.reviewerPresetId)?.name ?? "An agent";
-      review = `${reviewer} reviews the result, with up to ${effective.maxReviewIterations} correction ${roundLabel}.`;
-    } else {
-      review = `A person reviews the result, with up to ${effective.maxReviewIterations} correction ${roundLabel}.`;
-    }
-  }
-  return `${workspace} ${review}`;
-}
-
 function TaskAutomationSection({
   serverId,
   task,
@@ -2294,10 +2290,8 @@ function TaskAutomationSection({
   const supportsExecutionPolicy = useTaskExecutionPolicySupported(serverId);
   const { updateTask } = useTaskMutations(serverId);
   const [policy, setPolicy] = useState<TaskExecutionPolicy>(task.executionPolicy ?? {});
-  const [isEditing, setIsEditing] = useState(false);
   const effectivePolicy = resolveTaskExecutionPolicy(project?.board, policy);
   const reviewMode = hasSubtasks ? resolveReviewMode(policy) : null;
-  const summary = formatAutomationSummary(effectivePolicy, presets, reviewMode);
   const writePolicy = useCallback(
     (next: TaskExecutionPolicy | null) => {
       const previous = policy;
@@ -2366,26 +2360,26 @@ function TaskAutomationSection({
     [policy, writePolicy],
   );
   const resetPolicy = useCallback(() => writePolicy(null), [writePolicy]);
-  const toggleEditing = useCallback(() => setIsEditing((current) => !current), []);
 
-  const canReset = isEditing && Object.keys(policy).length > 0;
+  const canReset = Object.keys(policy).length > 0;
   const trailing = useMemo(
     () =>
-      supportsExecutionPolicy ? (
-        <AutomationSectionActions
-          isEditing={isEditing}
-          canReset={canReset}
-          onReset={resetPolicy}
-          onToggleEditing={toggleEditing}
-        />
+      supportsExecutionPolicy && canReset ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={resetPolicy}
+          testID="task-detail-automation-reset"
+        >
+          Use defaults
+        </Button>
       ) : null,
-    [canReset, isEditing, resetPolicy, supportsExecutionPolicy, toggleEditing],
+    [canReset, resetPolicy, supportsExecutionPolicy],
   );
 
   return (
     <SettingsSection title="Automation" flush trailing={trailing} testID="task-detail-automation">
-      <Text style={styles.automationSummary}>{summary}</Text>
-      {supportsExecutionPolicy && isEditing ? (
+      {supportsExecutionPolicy ? (
         <View style={settingsStyles.card}>
           <View style={settingsStyles.row}>
             <Text style={settingsStyles.rowHint}>
@@ -2498,36 +2492,6 @@ function TaskAutomationSection({
   );
 }
 
-function AutomationSectionActions({
-  isEditing,
-  canReset,
-  onReset,
-  onToggleEditing,
-}: {
-  isEditing: boolean;
-  canReset: boolean;
-  onReset: () => void;
-  onToggleEditing: () => void;
-}): ReactElement {
-  return (
-    <View style={styles.sectionTrailing}>
-      {canReset ? (
-        <Button variant="ghost" size="sm" onPress={onReset}>
-          Use defaults
-        </Button>
-      ) : null}
-      <Button
-        variant="ghost"
-        size="sm"
-        onPress={onToggleEditing}
-        testID="task-detail-automation-edit"
-      >
-        {isEditing ? "Done" : "Edit"}
-      </Button>
-    </View>
-  );
-}
-
 function PolicySelect<T extends string>({
   label,
   value,
@@ -2612,50 +2576,6 @@ function TaskRelationshipRow({
       </View>
       <Text style={styles.relationshipStatus}>{task.status.replaceAll("_", " ")}</Text>
     </View>
-  );
-}
-
-function StatusMenuItem({
-  status,
-  selected,
-  onSelect,
-}: {
-  status: TaskStatus;
-  selected: boolean;
-  onSelect: (status: TaskStatus) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  const handleSelect = useCallback(() => onSelect(status), [onSelect, status]);
-  return (
-    <DropdownMenuItem
-      selected={selected}
-      testID={`task-detail-status-${status}`}
-      onSelect={handleSelect}
-    >
-      {t(TASK_STATUS_LABEL_KEYS[status])}
-    </DropdownMenuItem>
-  );
-}
-
-function PriorityMenuItem({
-  priority,
-  selected,
-  onSelect,
-}: {
-  priority: TaskPriority;
-  selected: boolean;
-  onSelect: (priority: TaskPriority) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-  const handleSelect = useCallback(() => onSelect(priority), [onSelect, priority]);
-  return (
-    <DropdownMenuItem
-      selected={selected}
-      testID={`task-detail-priority-${priority}`}
-      onSelect={handleSelect}
-    >
-      {priority === "none" ? t("tasks.detail.priorityNone") : t(TASK_PRIORITY_LABEL_KEYS[priority])}
-    </DropdownMenuItem>
   );
 }
 
@@ -2750,19 +2670,19 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.xs,
     lineHeight: 16,
   },
-  headerIdentity: {
-    minWidth: 0,
-    alignItems: "flex-start",
-    gap: theme.spacing[0.5],
+  headerBody: {
+    gap: theme.spacing[3],
+  },
+  headerTitleBlock: {
+    paddingHorizontal: theme.spacing[6],
   },
   headerTitleInput: {
     width: "100%",
     minWidth: 0,
-    maxWidth: 360,
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
+    fontSize: theme.fontSize.lg,
     fontWeight: theme.fontWeight.medium,
-    lineHeight: 20,
+    lineHeight: 24,
     textAlign: "left",
     paddingVertical: 0,
     paddingBottom: theme.spacing[0.5],
@@ -2771,6 +2691,20 @@ const styles = StyleSheet.create((theme) => ({
   },
   headerTitleInputFocused: {
     borderBottomColor: theme.colors.accentBright,
+  },
+  chipRow: {
+    paddingHorizontal: theme.spacing[6],
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[1.5],
+  },
+  chipRowTrailing: {
+    marginLeft: "auto",
+  },
+  startFooter: {
+    flex: 1,
+    alignItems: "stretch",
   },
   startWorkTrigger: {
     minHeight: 32,
@@ -2784,73 +2718,6 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.accentForeground,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
-  },
-  propertyScroller: {
-    backgroundColor: theme.colors.surface0,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-  },
-  propertyRow: {
-    minHeight: 58,
-    paddingHorizontal: theme.spacing[6],
-    paddingVertical: theme.spacing[2],
-    alignItems: "flex-start",
-    gap: theme.spacing[6],
-  },
-  property: {
-    minWidth: 96,
-    alignItems: "flex-start",
-    gap: theme.spacing[1],
-  },
-  propertyLabel: {
-    color: theme.colors.foregroundExtraMuted,
-    fontFamily: theme.fontFamily.mono,
-    fontSize: theme.fontSize.xs,
-    textTransform: "uppercase",
-  },
-  propertyValue: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-  },
-  propertyEmpty: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-  },
-  propertyPriorityValue: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-  },
-  priorityValueDanger: {
-    color: theme.colors.statusDanger,
-  },
-  priorityValueWarning: {
-    color: theme.colors.statusWarning,
-  },
-  labelDot: {
-    width: 8,
-    height: 8,
-    borderRadius: theme.borderRadius.full,
-  },
-  labelCreateForm: {
-    width: "100%",
-    gap: theme.spacing[3],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[2],
-  },
-  labelPalette: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing[2],
-  },
-  labelSwatch: {
-    width: 22,
-    height: 22,
-    borderRadius: theme.borderRadius.full,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  labelSwatchSelected: {
-    borderColor: theme.colors.foreground,
   },
   tabBar: {
     minHeight: 42,
@@ -2878,39 +2745,72 @@ const styles = StyleSheet.create((theme) => ({
   tabContent: {
     gap: theme.spacing[6],
   },
-  stepLink: {
-    minWidth: 0,
-    flex: 1,
+  tabInner: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing[3],
+    alignItems: "baseline",
+    gap: theme.spacing[1.5],
   },
-  stepLinkActive: {
-    backgroundColor: theme.colors.surface2,
-  },
-  planSteps: {
-    gap: theme.spacing[2],
-  },
-  stepCard: {
-    borderRadius: theme.borderRadius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface0,
-  },
-  stepCardActive: {
-    borderColor: theme.colors.statusDotRunning,
-    backgroundColor: theme.colors.surface2,
-  },
-  stepIndex: {
-    alignSelf: "flex-start",
-    minWidth: 14,
-    color: theme.colors.foregroundExtraMuted,
+  tabCount: {
+    color: theme.colors.foregroundMuted,
     fontFamily: theme.fontFamily.mono,
     fontSize: theme.fontSize.xs,
+  },
+  planTrailing: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  planAutomationSummary: {
+    flexShrink: 1,
+    minWidth: 0,
+    color: theme.colors.foregroundMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
+  },
+  planEmpty: {
+    gap: theme.spacing[2],
+    alignItems: "flex-start",
+  },
+  planStepRow: {
+    gap: theme.spacing[2],
+  },
+  stepIndexBadge: {
+    width: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.full,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+  },
+  stepIndexText: {
+    color: theme.colors.foregroundMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 14,
+  },
+  stepExpanded: {
+    gap: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+    paddingBottom: theme.spacing[4],
+  },
+  stepExpandedFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+  },
+  stepBriefInput: {
+    minHeight: 72,
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface0,
+    fontSize: theme.fontSize.sm,
     lineHeight: 20,
-    textAlign: "right",
+    padding: theme.spacing[3],
   },
   stepTitleRow: {
     flexDirection: "row",
@@ -2932,14 +2832,6 @@ const styles = StyleSheet.create((theme) => ({
     fontFamily: theme.fontFamily.mono,
     fontSize: theme.fontSize.xs,
   },
-  stepActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: theme.spacing[1],
-    paddingHorizontal: theme.spacing[2],
-    paddingBottom: theme.spacing[2],
-  },
   stepStatus: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
@@ -2949,10 +2841,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   stepStatusFailed: {
     color: theme.colors.statusDanger,
-  },
-  moreAction: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
   },
   blocker: {
     color: theme.colors.statusWarning,
@@ -2975,52 +2863,10 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     fontSize: theme.fontSize.sm,
   },
-  sectionTrailing: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
-  },
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
-  },
-  automationSummary: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    lineHeight: 20,
-  },
-  automationDeliveryCard: {
-    overflow: "hidden",
-    borderRadius: theme.borderRadius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
-  },
-  automationDeliveryHeader: {
-    minHeight: 52,
-    paddingHorizontal: theme.spacing[4],
-    paddingVertical: theme.spacing[3],
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: theme.spacing[3],
-  },
-  automationDeliverySummary: {
-    flex: 1,
-    minWidth: 0,
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.xs,
-  },
-  automationDeliveryBranchSummary: {
-    fontFamily: theme.fontFamily.mono,
-  },
-  automationDeliveryContent: {
-    gap: theme.spacing[6],
-    padding: theme.spacing[4],
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    backgroundColor: theme.colors.surface1,
   },
   deliveryBranch: {
     color: theme.colors.foregroundMuted,

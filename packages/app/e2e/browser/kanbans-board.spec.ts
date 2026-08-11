@@ -60,12 +60,6 @@ interface TrackerSeedClient {
 
 const DRAG_ACTIVATION_DISTANCE_PX = 6;
 
-async function readTestIds(locator: Locator): Promise<Array<string | null>> {
-  return locator.evaluateAll((elements) =>
-    elements.map((element) => element.getAttribute("data-testid")),
-  );
-}
-
 function trackerClient(workspace: SeededWorkspace): TrackerSeedClient {
   return workspace.client as unknown as TrackerSeedClient;
 }
@@ -510,7 +504,7 @@ test.describe("Kanbans board", () => {
     await page.getByTestId(`task-card-${taskId}`).click();
     const detail = page.getByTestId("task-detail-sheet");
     await expect(detail).toBeVisible({ timeout: 10_000 });
-    await expect(detail.getByTestId("task-detail-workflow-edit")).toHaveText("Edit");
+    await expect(detail.getByTestId("task-detail-workflow-edit")).toHaveText("Add step");
     await expect(detail.getByTestId("task-detail-workflow")).toContainText("Inspect the project");
     await detail.getByTestId("task-detail-workflow-edit").click();
 
@@ -729,10 +723,10 @@ test.describe("Kanbans board", () => {
     await expect(sheet.getByTestId("task-detail-title-input")).toHaveValue(title);
 
     const note = `Update ${Date.now()}`;
+    await sheet.getByTestId("task-detail-tab-activity").click();
     await sheet.getByTestId("task-detail-composer-note").click();
     await sheet.getByTestId("task-detail-note-input").fill(note);
     await sheet.getByTestId("task-detail-note-send").click();
-    await sheet.getByTestId("task-detail-tab-activity").click();
     await expect(sheet).toContainText(note, { timeout: 30_000 });
   });
 
@@ -749,18 +743,14 @@ test.describe("Kanbans board", () => {
     const sheet = page.getByTestId("task-detail-sheet");
     await expect(sheet).toBeVisible({ timeout: 10_000 });
 
-    const propertyIds = await readTestIds(sheet.locator('[data-testid^="task-detail-property-"]'));
-    expect(propertyIds).toEqual([
-      "task-detail-property-status",
-      "task-detail-property-priority",
-      "task-detail-property-due",
-      "task-detail-property-labels",
-    ]);
+    await expect(sheet.getByTestId("task-detail-status-trigger")).toBeVisible();
+    await expect(sheet.getByTestId("task-detail-priority-trigger")).toBeVisible();
+    await expect(sheet.getByTestId("task-detail-labels-trigger")).toBeVisible();
 
     const dueTrigger = sheet.getByTestId("task-detail-due-trigger");
-    await expect(dueTrigger).toContainText("Set due date");
+    await expect(dueTrigger).toContainText("+ Due");
     await dueTrigger.click();
-    const dueMenu = page.getByTestId("task-detail-due-menu");
+    const dueMenu = page.getByTestId("task-due-menu");
     await expect(dueMenu.getByText("Today", { exact: true })).toBeVisible();
     await expect(dueMenu.getByText("Tomorrow", { exact: true })).toBeVisible();
     await expect(dueMenu.getByText("Next week", { exact: true })).toBeVisible();
@@ -774,12 +764,12 @@ test.describe("Kanbans board", () => {
       const day = String(now.getDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
     });
-    await dueMenu.getByTestId("task-detail-due-today").click();
+    await dueMenu.getByTestId("task-due-today").click();
     await expect(dueTrigger).toContainText(today, { timeout: 30_000 });
     await expect.poll(() => readTaskDueDate(workspace, seeded.taskId)).toBe(today);
 
     await dueTrigger.click();
-    await page.getByTestId("task-detail-due-custom").click();
+    await page.getByTestId("task-due-custom").click();
     const customSheet = page.getByTestId("task-due-date-custom-sheet");
     await expect(customSheet).toBeVisible();
     const customInput = customSheet.getByTestId("task-due-date-custom-input");
@@ -791,8 +781,8 @@ test.describe("Kanbans board", () => {
     await expect.poll(() => readTaskDueDate(workspace, seeded.taskId)).toBe("2031-06-14");
 
     await dueTrigger.click();
-    await page.getByTestId("task-detail-due-clear").click();
-    await expect(dueTrigger).toContainText("Set due date", { timeout: 30_000 });
+    await page.getByTestId("task-due-clear").click();
+    await expect(dueTrigger).toContainText("+ Due", { timeout: 30_000 });
     await expect.poll(() => readTaskDueDate(workspace, seeded.taskId)).toBeNull();
   });
 
@@ -815,28 +805,18 @@ test.describe("Kanbans board", () => {
     await expect(detailsTabLabel).toHaveCSS("font-weight", "400");
     await expect(activityTabLabel).toHaveCSS("font-weight", "400");
 
-    const planHeading = sheet.getByTestId("task-detail-workflow").getByText("Agent plan", {
+    const planHeading = sheet.getByTestId("task-detail-workflow").getByText("Plan", {
       exact: true,
     });
-    const automationHeading = sheet
-      .getByTestId("task-detail-automation-delivery")
-      .getByText("Automation & delivery", { exact: true });
     await expect(planHeading).toHaveCSS("font-weight", "500");
-    await expect(automationHeading).toHaveCSS("font-weight", "500");
-    const automationCard = sheet.getByTestId("task-detail-automation-delivery-toggle");
-    const [executionTabBox, planHeadingBox, automationHeadingBox, automationCardBox] =
-      await Promise.all([
-        executionTabLabel.boundingBox(),
-        planHeading.boundingBox(),
-        automationHeading.boundingBox(),
-        automationCard.boundingBox(),
-      ]);
-    if (!executionTabBox || !planHeadingBox || !automationHeadingBox || !automationCardBox) {
+    const [executionTabBox, planHeadingBox] = await Promise.all([
+      executionTabLabel.boundingBox(),
+      planHeading.boundingBox(),
+    ]);
+    if (!executionTabBox || !planHeadingBox) {
       throw new Error("Task detail navigation and section headings are not laid out");
     }
     expect(Math.abs(executionTabBox.x - planHeadingBox.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(planHeadingBox.x - automationHeadingBox.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(planHeadingBox.x - automationCardBox.x)).toBeLessThanOrEqual(1);
 
     const refinedTitle = `Refined outcome ${Date.now()}`;
     await sheet.getByTestId("task-detail-title-input").fill(refinedTitle);
@@ -860,8 +840,7 @@ test.describe("Kanbans board", () => {
       .getByTestId("task-detail-description-input")
       .fill("Implement this outcome with the constraints in the task.");
     await sheet.getByTestId("task-detail-tab-execution").click();
-    await sheet.getByTestId("task-detail-automation-delivery-toggle").click();
-    await sheet.getByTestId("task-detail-automation-edit").click();
+    await sheet.getByTestId("task-detail-automation-change").click();
     await sheet.getByTestId("task-detail-policy-review").click();
     await page.getByTestId("task-detail-policy-review-required").click();
     await sheet.getByTestId("task-detail-policy-workspace").click();
@@ -915,29 +894,29 @@ test.describe("Kanbans board", () => {
     const labelName = `Needs review ${Date.now()}`;
 
     await trigger.click();
-    await page.getByTestId("task-detail-label-create").click();
-    await page.getByTestId("task-detail-label-name").fill(labelName);
-    await page.getByTestId("task-detail-label-color-orange").click();
-    await page.getByTestId("task-detail-label-create-submit").click();
+    await page.getByTestId("task-label-create").click();
+    await page.getByTestId("task-label-name").fill(labelName);
+    await page.getByTestId("task-label-color-orange").click();
+    await page.getByTestId("task-label-create-submit").click();
     await expect(trigger).toContainText(labelName, { timeout: 30_000 });
 
-    const labelItem = page.locator('[data-testid^="task-detail-label-tlbl_"]').filter({
+    const labelItem = page.locator('[data-testid^="task-label-tlbl_"]').filter({
       hasText: labelName,
     });
     await labelItem.click();
-    await expect(trigger).toContainText("Add label", { timeout: 30_000 });
+    await expect(trigger).toContainText("+ Label", { timeout: 30_000 });
     await labelItem.click();
     await expect(trigger).toContainText(labelName, { timeout: 30_000 });
 
-    await page.getByTestId("task-detail-label-delete").click();
+    await page.getByTestId("task-label-delete").click();
     page.once("dialog", (dialog) => dialog.accept());
     await page
-      .locator('[data-testid^="task-detail-label-delete-tlbl_"]')
+      .locator('[data-testid^="task-label-delete-tlbl_"]')
       .filter({
         hasText: labelName,
       })
       .click();
-    await expect(trigger).toContainText("Add label", { timeout: 30_000 });
+    await expect(trigger).toContainText("+ Label", { timeout: 30_000 });
   });
 
   /** The feed is where an automatic move says what it did, and where a note you
