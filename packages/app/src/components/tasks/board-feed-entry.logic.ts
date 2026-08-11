@@ -31,6 +31,29 @@ export function activityFeedShowsHeader(
 }
 
 /**
+ * A board event as one task's own timeline states it.
+ *
+ * The daemon renders these for the board feed, where a line has to name the
+ * card it is about — so every sentence opens with `KEY "Title"`. Inside that
+ * card's sheet the key and the title are already in the header, and repeating
+ * them buries the one thing the line carries. The typed `event` is what makes
+ * the shorter sentence possible; an entry from a daemon that predates it keeps
+ * the body it was given.
+ */
+export function resolveTaskActivityBody(
+  entry: Pick<TaskComment, "kind" | "entryKind" | "body" | "event">,
+): string {
+  if (resolveFeedEntryKind(entry) !== "system_event" || !entry.event?.cause) {
+    return entry.body;
+  }
+  const cause = entry.event.cause.trim();
+  if (cause.length === 0) {
+    return entry.body;
+  }
+  return `${cause.charAt(0).toLocaleUpperCase()}${cause.slice(1)}.`;
+}
+
+/**
  * The activity feed is a log, not a document. Agent updates arrive as markdown,
  * and literal `##`/backtick syntax rendered as plain text is noise — flattening
  * keeps the prose while preserving line structure, so numberOfLines collapse

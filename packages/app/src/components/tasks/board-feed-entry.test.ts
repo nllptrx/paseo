@@ -5,6 +5,7 @@ import {
   feedEntryCanCollapse,
   flattenMarkdownForFeed,
   groupActivityFeedEntries,
+  resolveTaskActivityBody,
 } from "./board-feed-entry.logic";
 
 describe("feedEntryCanCollapse", () => {
@@ -126,5 +127,41 @@ describe("activityFeedShowsHeader", () => {
   it("never labels system events and breaks runs around them", () => {
     expect(activityFeedShowsHeader(agentUpdate("Scaffold"), systemEvent)).toBe(false);
     expect(activityFeedShowsHeader(systemEvent, agentUpdate("Scaffold"))).toBe(true);
+  });
+});
+
+describe("resolveTaskActivityBody", () => {
+  const systemEntry = (body: string, event?: { kind: string; taskId: string; cause?: string }) => ({
+    kind: "system" as const,
+    entryKind: "system_event" as const,
+    body,
+    ...(event ? { event } : {}),
+  });
+
+  it("states the cause without the card the board feed had to name", () => {
+    expect(
+      resolveTaskActivityBody(
+        systemEntry('LEG-1 "Publish motu" was approved and moved to done.', {
+          kind: "task_approved",
+          taskId: "task_1",
+          cause: "was approved and moved to done",
+        }),
+      ),
+    ).toBe("Was approved and moved to done.");
+  });
+
+  it("keeps the daemon's own sentence when there is no typed event", () => {
+    const body = 'LEG-1 "Publish motu" was approved and moved to done.';
+    expect(resolveTaskActivityBody(systemEntry(body))).toBe(body);
+  });
+
+  it("leaves anything a person or an agent wrote alone", () => {
+    expect(
+      resolveTaskActivityBody({
+        kind: "agent" as const,
+        entryKind: "agent_update" as const,
+        body: "Scaffolded the API.",
+      }),
+    ).toBe("Scaffolded the API.");
   });
 });

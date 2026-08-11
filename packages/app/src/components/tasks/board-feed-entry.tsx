@@ -21,6 +21,7 @@ import {
   feedEntryCanCollapse,
   flattenMarkdownForFeed,
   resolveFeedEntryKind,
+  resolveTaskActivityBody,
 } from "./board-feed-entry.logic";
 
 export { resolveFeedEntryKind } from "./board-feed-entry.logic";
@@ -106,8 +107,11 @@ export function BoardFeedEntryRow({
   const isSystem = entry.kind === "system";
   const entryKind = resolveFeedEntryKind(entry);
   const activityBody = useMemo(
-    () => (appearance === "activity" ? flattenMarkdownForFeed(entry.body) : entry.body),
-    [appearance, entry.body],
+    () =>
+      appearance === "activity"
+        ? flattenMarkdownForFeed(resolveTaskActivityBody(entry))
+        : entry.body,
+    [appearance, entry],
   );
   const canCollapse =
     collapsible &&
