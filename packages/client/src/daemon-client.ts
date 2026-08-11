@@ -564,6 +564,10 @@ type TasksLabelCreatePayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.label.create.response" }
 >["payload"];
+type TasksLabelDeletePayload = Extract<
+  SessionOutboundMessage,
+  { type: "tasks.label.delete.response" }
+>["payload"];
 type TasksCreatePayload = Extract<
   SessionOutboundMessage,
   { type: "tasks.create.response" }
@@ -5443,6 +5447,13 @@ export class DaemonClient {
     return this.sendNamespacedCorrelatedSessionRequest<"tasks.label.create.response">({
       requestId,
       message: { type: "tasks.label.create.request", ...options },
+    });
+  }
+
+  async tasksLabelDelete(labelId: string, requestId?: string): Promise<TasksLabelDeletePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"tasks.label.delete.response">({
+      requestId,
+      message: { type: "tasks.label.delete.request", labelId },
     });
   }
 

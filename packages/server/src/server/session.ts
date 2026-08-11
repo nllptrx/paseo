@@ -2452,6 +2452,8 @@ export class Session {
         return session.handleProjectCreateRequest(msg);
       case "tasks.label.create.request":
         return session.handleLabelCreateRequest(msg);
+      case "tasks.label.delete.request":
+        return session.handleLabelDeleteRequest(msg);
       case "tasks.create.request":
         return session.handleCreateRequest(msg);
       case "tasks.update.request":

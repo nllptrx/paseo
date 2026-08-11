@@ -133,6 +133,18 @@ export class TasksSession {
     }
   }
 
+  async handleLabelDeleteRequest(request: Inbound<"tasks.label.delete.request">): Promise<void> {
+    try {
+      await this.taskService.deleteLabel(request.labelId);
+      this.host.emit({
+        type: "tasks.label.delete.response",
+        payload: { requestId: request.requestId, labelId: request.labelId, error: null },
+      });
+    } catch (error) {
+      this.emitError(request, error);
+    }
+  }
+
   async handleCreateRequest(request: Inbound<"tasks.create.request">): Promise<void> {
     try {
       const task = await this.taskService.createTask({

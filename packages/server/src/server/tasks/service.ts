@@ -280,6 +280,12 @@ export class TaskService {
     return label.id;
   }
 
+  async deleteLabel(labelId: string): Promise<void> {
+    const store = await this.require();
+    store.deleteLabel(labelId);
+    this.announce(store);
+  }
+
   async createTask(input: CreateTaskInput): Promise<Task> {
     if (input.parentTaskId && input.status === "done") {
       throw new Error("A subtask cannot be created as Done before it is integrated");

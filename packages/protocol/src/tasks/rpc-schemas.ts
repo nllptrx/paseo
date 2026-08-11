@@ -61,6 +61,21 @@ export const TasksLabelCreateResponseSchema = z.object({
   }),
 });
 
+export const TasksLabelDeleteRequestSchema = z.object({
+  type: z.literal("tasks.label.delete.request"),
+  requestId: z.string(),
+  labelId: z.string(),
+});
+
+export const TasksLabelDeleteResponseSchema = z.object({
+  type: z.literal("tasks.label.delete.response"),
+  payload: z.object({
+    requestId: z.string(),
+    labelId: z.string(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const TasksCreateRequestSchema = z.object({
   type: z.literal("tasks.create.request"),
   requestId: z.string(),

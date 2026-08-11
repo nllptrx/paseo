@@ -313,6 +313,16 @@ const MIGRATIONS: readonly string[] = [
     -- JSON keeps provider-owned feature ids out of the tracker schema.
     ALTER TABLE task_presets ADD COLUMN feature_values TEXT;
   `,
+  `
+    -- Labels are project data even before a task uses them. Creating or deleting
+    -- one must advance the snapshot revision for every subscribed client.
+    CREATE TRIGGER task_revision_label_insert AFTER INSERT ON task_labels BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+    CREATE TRIGGER task_revision_label_delete AFTER DELETE ON task_labels BEGIN
+      UPDATE task_revision SET revision = revision + 1 WHERE id = 1;
+    END;
+  `,
 ];
 
 export function migrateTasksDatabase(db: DatabaseSync): void {

@@ -485,7 +485,15 @@ describe("TaskStore", () => {
     expect(afterUpdate).toBeGreaterThan(afterCreate);
 
     store.attachAgent({ taskId: task.id, agentId: "agt_1", workspaceId: "ws_1" });
-    expect(store.getRevision()).toBeGreaterThan(afterUpdate);
+    const afterAttach = store.getRevision();
+    expect(afterAttach).toBeGreaterThan(afterUpdate);
+
+    const label = store.createLabel({ projectId, name: "watched", color: "#f00" });
+    const afterLabelCreate = store.getRevision();
+    expect(afterLabelCreate).toBeGreaterThan(afterAttach);
+
+    store.deleteLabel(label.id);
+    expect(store.getRevision()).toBeGreaterThan(afterLabelCreate);
   });
 
   it("does not bump the revision for a read", () => {

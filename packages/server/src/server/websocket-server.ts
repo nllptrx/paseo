@@ -1673,6 +1673,8 @@ export class VoiceAssistantWebSocketServer {
         taskExecutionPolicy: this.taskService?.isAvailableNow ?? false,
         // COMPAT(taskMessages): added in v0.3.0-beta.2, remove after 2027-02-09.
         taskMessages: this.taskService?.isAvailableNow ?? false,
+        // COMPAT(taskLabelDeletion): added in v0.3.1, remove after 2027-02-11.
+        taskLabelDeletion: this.taskService?.isAvailableNow ?? false,
       },
     };
   }

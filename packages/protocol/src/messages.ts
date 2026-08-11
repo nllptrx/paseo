@@ -60,6 +60,8 @@ import {
   TasksProjectCreateResponseSchema,
   TasksLabelCreateRequestSchema,
   TasksLabelCreateResponseSchema,
+  TasksLabelDeleteRequestSchema,
+  TasksLabelDeleteResponseSchema,
   TasksCreateRequestSchema,
   TasksCreateResponseSchema,
   TasksUpdateRequestSchema,
@@ -2854,6 +2856,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   TasksSnapshotRequestSchema,
   TasksProjectCreateRequestSchema,
   TasksLabelCreateRequestSchema,
+  TasksLabelDeleteRequestSchema,
   TasksCreateRequestSchema,
   TasksUpdateRequestSchema,
   TasksMoveRequestSchema,
@@ -3157,6 +3160,8 @@ export const ServerInfoStatusPayloadSchema = z
         taskExecutionPolicy: z.boolean().optional(),
         // COMPAT(taskMessages): added in v0.3.0-beta.2, remove after 2027-02-09.
         taskMessages: z.boolean().optional(),
+        // COMPAT(taskLabelDeletion): added in v0.3.1, remove after 2027-02-11.
+        taskLabelDeletion: z.boolean().optional(),
       })
       .optional(),
   })
@@ -5844,6 +5849,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   TasksReviewResponseSchema,
   TasksProjectCreateResponseSchema,
   TasksLabelCreateResponseSchema,
+  TasksLabelDeleteResponseSchema,
   TasksCreateResponseSchema,
   TasksUpdateResponseSchema,
   TasksMoveResponseSchema,
