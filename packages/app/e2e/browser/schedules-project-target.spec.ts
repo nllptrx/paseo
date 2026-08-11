@@ -178,6 +178,9 @@ test.describe("Schedules project target", () => {
   test("creates a schedule from a project picker instead of a raw CWD selector", async ({
     page,
   }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("@paseo:app-settings", JSON.stringify({ theme: "dark" }));
+    });
     const workspace = await seedWorkspace({ repoPrefix: "schedule-project-target-", git: false });
     cleanupTasks.push(() => workspace.cleanup());
     const scheduleName = `Project schedule ${Date.now()}`;
@@ -190,6 +193,15 @@ test.describe("Schedules project target", () => {
     await expect(page).toHaveURL(/\/schedules$/);
     await expect(page).not.toHaveURL(/\/h\//);
     await expect(page.getByTestId("schedules-empty")).toBeVisible();
+    const [calendarColor, descriptionColor] = await Promise.all([
+      page
+        .getByTestId("schedules-empty-icon")
+        .evaluate((element) => getComputedStyle(element).color),
+      page
+        .getByText("Schedules run agents on a cadence.", { exact: true })
+        .evaluate((element) => getComputedStyle(element).color),
+    ]);
+    expect(calendarColor).toBe(descriptionColor);
 
     await page.getByTestId("schedules-empty-new").click();
     const formSheet = page.getByTestId("schedule-form-sheet");

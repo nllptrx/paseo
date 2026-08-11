@@ -1,5 +1,5 @@
 import { MoreVertical, Pause, Pencil, Play, RotateCw, Trash2 } from "lucide-react-native";
-import { useCallback, useState, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
@@ -118,14 +118,12 @@ function buildMeta(
   return parts.join(" · ");
 }
 
-/** Small provider glyph. Reads the icon color off a StyleSheet object so the
- * dynamic component (getProviderIcon) stays compliant without useUnistyles. */
 function ProviderGlyph({ provider }: { provider: string | null }): ReactElement | null {
-  if (!provider) {
-    return null;
-  }
-  const Icon = getProviderIcon(provider);
-  return <Icon size={PROVIDER_ICON_SIZE} color={styles.providerIcon.color} />;
+  const ThemedIcon = useMemo(
+    () => (provider ? withUnistyles(getProviderIcon(provider)) : null),
+    [provider],
+  );
+  return ThemedIcon ? <ThemedIcon size={PROVIDER_ICON_SIZE} uniProps={mutedColorMapping} /> : null;
 }
 
 /**
@@ -364,10 +362,6 @@ function kebabTriggerStyle({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  // Static color holder for the dynamic provider icon (compliant idiom).
-  providerIcon: {
-    color: theme.colors.foregroundMuted,
-  },
   rowContainer: {
     position: "relative",
   },

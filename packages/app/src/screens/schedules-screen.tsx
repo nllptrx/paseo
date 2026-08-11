@@ -9,7 +9,7 @@ import {
 import { ScrollView, Text, View } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { CalendarClock, Plus } from "lucide-react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { ExternalLink } from "@/components/ui/external-link";
 import { HostFilter } from "@/components/hosts/host-filter";
@@ -19,6 +19,7 @@ import { SchedulesTable, type ScheduleRowView } from "@/components/schedules/sch
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { useAggregatedAgents } from "@/hooks/use-aggregated-agents";
 import { useProjects } from "@/hooks/use-projects";
 import {
@@ -51,6 +52,9 @@ const STATUS_FILTER_OPTIONS: { value: ScheduleBucket; label: string; testID: str
 ];
 
 const EMPTY_SCHEDULES: AggregatedSchedule[] = [];
+const ThemedCalendarClock = withUnistyles(CalendarClock);
+const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
+const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 export function SchedulesScreen(): ReactElement {
   const isFocused = useIsFocused();
@@ -226,7 +230,7 @@ function SchedulesScreenBody({
   if (bodyState.kind === "loading") {
     return (
       <View style={styles.centered}>
-        <LoadingSpinner size="large" color={styles.spinner.color} />
+        <ThemedLoadingSpinner size="large" uniProps={mutedColorMapping} />
       </View>
     );
   }
@@ -317,7 +321,11 @@ function SchedulesEmptyState({
 }): ReactElement {
   return (
     <View style={styles.emptyState} testID={testID}>
-      <CalendarClock size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
+      <ThemedCalendarClock
+        size={ICON_SIZE.lg}
+        uniProps={mutedColorMapping}
+        testID="schedules-empty-icon"
+      />
       <View style={styles.emptyTextStack}>
         <Text style={styles.emptyTitle}>No active schedules</Text>
         <Text style={styles.emptyDescription}>Schedules run agents on a cadence.</Text>
@@ -334,7 +342,11 @@ function SchedulesEndedEmptyState(): ReactElement {
   return (
     <View style={styles.filterEmpty}>
       <View style={styles.endedEmptyState}>
-        <CalendarClock size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
+        <ThemedCalendarClock
+          size={ICON_SIZE.lg}
+          uniProps={mutedColorMapping}
+          testID="schedules-ended-empty-icon"
+        />
         <Text style={styles.emptyTitle}>No ended schedules</Text>
       </View>
     </View>
@@ -446,14 +458,5 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.lg,
     textAlign: "center",
-  },
-  // Static color holder read by the spinner; keeps the muted token without
-  // useUnistyles (banned in new code).
-  spinner: {
-    color: theme.colors.foregroundMuted,
-  },
-  emptyIcon: {
-    color: theme.colors.foregroundMuted,
-    width: theme.iconSize.lg,
   },
 }));

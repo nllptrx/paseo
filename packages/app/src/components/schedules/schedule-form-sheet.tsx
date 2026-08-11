@@ -11,7 +11,7 @@ import {
 } from "react";
 import { Text, View } from "react-native";
 import { Brain, Folder, GitBranch } from "lucide-react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import type { ScheduleCadence, ScheduleSummary } from "@getpaseo/protocol/schedule/types";
 import { useStoreWithEqualityFn } from "zustand/traditional";
@@ -57,6 +57,12 @@ import type {
 import { validateCron } from "@/utils/schedule-format";
 import { toErrorMessage } from "@/utils/error-messages";
 import { getDeviceTimeZone } from "@/utils/device-timezone";
+import type { Theme } from "@/styles/theme";
+
+const ThemedBrain = withUnistyles(Brain);
+const ThemedFolder = withUnistyles(Folder);
+const ThemedGitBranch = withUnistyles(GitBranch);
+const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 export interface ScheduleFormSheetProps {
   serverId?: string;
@@ -849,9 +855,9 @@ function ScheduleIsolationField({
     () => (
       <View style={styles.optionIconBox}>
         {state.effectiveIsolation === "worktree" ? (
-          <GitBranch size={16} color={styles.providerIcon.color} />
+          <ThemedGitBranch size={16} uniProps={mutedIconMapping} />
         ) : (
-          <Folder size={16} color={styles.providerIcon.color} />
+          <ThemedFolder size={16} uniProps={mutedIconMapping} />
         )}
       </View>
     ),
@@ -927,9 +933,9 @@ function IsolationOptionItem({
     () => (
       <View style={styles.optionIconBox}>
         {option.value === "worktree" ? (
-          <GitBranch size={16} color={styles.providerIcon.color} />
+          <ThemedGitBranch size={16} uniProps={mutedIconMapping} />
         ) : (
-          <Folder size={16} color={styles.providerIcon.color} />
+          <ThemedFolder size={16} uniProps={mutedIconMapping} />
         )}
       </View>
     ),
@@ -977,7 +983,7 @@ function ProjectOptionItem({
   const leadingSlot = useMemo(
     () => (
       <View style={styles.optionIconBox}>
-        <Folder size={16} color={styles.providerIcon.color} />
+        <ThemedFolder size={16} uniProps={mutedIconMapping} />
       </View>
     ),
     [],
@@ -1004,7 +1010,7 @@ function ThinkingOptionItem({
   const leadingSlot = useMemo(
     () => (
       <View style={styles.optionIconBox}>
-        <Brain size={16} color={styles.providerIcon.color} />
+        <ThemedBrain size={16} uniProps={mutedIconMapping} />
       </View>
     ),
     [],
@@ -1023,11 +1029,11 @@ function ThinkingOptionItem({
 }
 
 function ProviderGlyph({ provider }: { provider: string | null }): ReactElement | null {
-  if (!provider) {
-    return null;
-  }
-  const Icon = getProviderIcon(provider);
-  return <Icon size={16} color={styles.providerIcon.color} />;
+  const ThemedIcon = useMemo(
+    () => (provider ? withUnistyles(getProviderIcon(provider)) : null),
+    [provider],
+  );
+  return ThemedIcon ? <ThemedIcon size={16} uniProps={mutedIconMapping} /> : null;
 }
 
 const styles = StyleSheet.create((theme) => {
@@ -1078,9 +1084,6 @@ const styles = StyleSheet.create((theme) => {
     submitError: {
       color: theme.colors.palette.red[300],
       fontSize: theme.fontSize.xs,
-    },
-    providerIcon: {
-      color: theme.colors.foregroundMuted,
     },
   };
 });
