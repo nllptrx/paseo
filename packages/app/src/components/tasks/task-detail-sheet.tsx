@@ -2004,7 +2004,7 @@ function TaskOverview({
     [],
   );
   return (
-    <DetailSection title="Task description" testID="task-detail-brief" trailing={trailing}>
+    <DetailSection title="Brief" testID="task-detail-brief" trailing={trailing}>
       <AdaptiveTextInput
         initialValue={task.description}
         resetKey={task.description}

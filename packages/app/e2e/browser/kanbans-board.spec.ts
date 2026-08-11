@@ -821,20 +821,20 @@ test.describe("Kanbans board", () => {
     const refinedTitle = `Refined outcome ${Date.now()}`;
     await sheet.getByTestId("task-detail-title-input").fill(refinedTitle);
     await sheet.getByTestId("task-detail-tab-details").click();
-    const taskDescriptionHeading = sheet.getByText("Task description", { exact: true });
+    const briefHeading = sheet.getByText("Brief", { exact: true });
     const detailsSubtaskHeading = sheet.getByText("Subtasks", { exact: true });
-    await expect(taskDescriptionHeading).toHaveCSS("font-size", "14px");
-    await expect(taskDescriptionHeading).toHaveCSS("font-weight", "600");
+    await expect(briefHeading).toHaveCSS("font-size", "14px");
+    await expect(briefHeading).toHaveCSS("font-weight", "600");
     await expect(detailsSubtaskHeading).toHaveCSS("font-size", "14px");
     await expect(sheet.getByText("Breakdown", { exact: true })).toHaveCount(0);
-    const [taskDescriptionHeadingBox, detailsSubtaskHeadingBox] = await Promise.all([
-      taskDescriptionHeading.boundingBox(),
+    const [briefHeadingBox, detailsSubtaskHeadingBox] = await Promise.all([
+      briefHeading.boundingBox(),
       detailsSubtaskHeading.boundingBox(),
     ]);
-    if (!taskDescriptionHeadingBox || !detailsSubtaskHeadingBox) {
+    if (!briefHeadingBox || !detailsSubtaskHeadingBox) {
       throw new Error("Task detail headings are not laid out");
     }
-    expect(Math.abs(planHeadingBox.x - taskDescriptionHeadingBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(planHeadingBox.x - briefHeadingBox.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(planHeadingBox.x - detailsSubtaskHeadingBox.x)).toBeLessThanOrEqual(1);
     await sheet
       .getByTestId("task-detail-description-input")
