@@ -510,6 +510,10 @@ export interface AdaptiveModalSheetProps {
   contentStyle?: StyleProp<ViewStyle>;
   /** Size compact sheet content to the live snap height instead of its largest snap point. */
   sizeContentToCurrentSnapPoint?: boolean;
+  /** Turn off swipe-down dismissal on compact. A sheet showing a stacked
+   * surface with unsaved input in it should only be left through its back
+   * arrow, so a gesture cannot throw the input away. */
+  enableSwipeToDismiss?: boolean;
 }
 
 export function AdaptiveModalSheet({
@@ -527,6 +531,7 @@ export function AdaptiveModalSheet({
   presentation,
   contentStyle,
   sizeContentToCurrentSnapPoint = false,
+  enableSwipeToDismiss = true,
 }: AdaptiveModalSheetProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
@@ -699,7 +704,7 @@ export function AdaptiveModalSheet({
         onChange={handleSheetChange}
         onDismiss={handleDismiss}
         backdropComponent={renderBackdrop}
-        enablePanDownToClose
+        enablePanDownToClose={enableSwipeToDismiss}
         backgroundComponent={SheetBackground}
         handleIndicatorStyle={handleIndicatorStyle}
         keyboardBehavior="extend"
