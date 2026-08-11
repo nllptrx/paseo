@@ -1,4 +1,4 @@
-import type { TaskProject, TaskStatus } from "@getpaseo/protocol/tasks/types";
+import type { TaskPriority, TaskProject, TaskStatus } from "@getpaseo/protocol/tasks/types";
 
 /** The tracker stores prefixes uppercase and at most this long, so the form
  * cannot let anything else through: past here the failure is a constraint
@@ -57,6 +57,11 @@ export interface NewTaskFormState {
   title: string;
   projectName: string;
   prefix: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string | null;
+  labelIds: readonly string[];
+  description: string;
   isSubmitting: boolean;
   submitError: string | null;
   canSubmit: boolean;
@@ -69,6 +74,11 @@ export interface NewTaskFormModel {
   setTitle: (value: string) => void;
   setProjectName: (value: string) => void;
   setPrefix: (value: string) => void;
+  setStatus: (value: TaskStatus) => void;
+  setPriority: (value: TaskPriority) => void;
+  setDueDate: (value: string | null) => void;
+  setLabelIds: (value: readonly string[]) => void;
+  setDescription: (value: string) => void;
   setSubmitting: (value: boolean) => void;
   setSubmitError: (value: string | null) => void;
 }
@@ -106,6 +116,11 @@ export function openNewTaskForm(snapshot: NewTaskFormSnapshot): NewTaskFormModel
     prefix: needsProject
       ? suggestTaskProjectPrefix(snapshot.suggestedProjectName)
       : (snapshot.project?.prefix ?? ""),
+    status: snapshot.initialStatus,
+    priority: "none",
+    dueDate: null,
+    labelIds: [],
+    description: "",
     isSubmitting: false,
     submitError: null,
     canSubmit: false,
@@ -145,6 +160,21 @@ export function openNewTaskForm(snapshot: NewTaskFormSnapshot): NewTaskFormModel
     },
     setPrefix(value) {
       publish({ ...state, prefix: normalizeTaskProjectPrefix(value), submitError: null });
+    },
+    setStatus(value) {
+      publish({ ...state, status: value, submitError: null });
+    },
+    setPriority(value) {
+      publish({ ...state, priority: value, submitError: null });
+    },
+    setDueDate(value) {
+      publish({ ...state, dueDate: value, submitError: null });
+    },
+    setLabelIds(value) {
+      publish({ ...state, labelIds: value, submitError: null });
+    },
+    setDescription(value) {
+      publish({ ...state, description: value, submitError: null });
     },
     setSubmitting(value) {
       publish({ ...state, isSubmitting: value });

@@ -508,6 +508,7 @@ export function TaskBoardSurface({
       <TaskCaptureSheet
         serverId={serverId}
         project={board.projects[0] ?? null}
+        labels={board.labels}
         paseoProjectId={paseoProjectId}
         projectDisplayName={projectDisplayName}
         status={capturingStatus}
@@ -534,6 +535,7 @@ export function TaskBoardSurface({
 function TaskCaptureSheet({
   serverId,
   project,
+  labels,
   paseoProjectId,
   projectDisplayName,
   status,
@@ -544,6 +546,7 @@ function TaskCaptureSheet({
 }: {
   serverId: string;
   project: TaskProject | null;
+  labels: ProjectBoardSelection["labels"];
   paseoProjectId: string;
   projectDisplayName: string;
   status: TaskStatus | null;
@@ -557,6 +560,7 @@ function TaskCaptureSheet({
     <NewTaskSheet
       serverId={serverId}
       project={project}
+      labels={labels}
       paseoProjectId={paseoProjectId}
       suggestedProjectName={projectDisplayName}
       initialStatus={status}
