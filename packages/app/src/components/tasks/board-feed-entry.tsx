@@ -504,7 +504,7 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.foregroundExtraMuted,
   },
   activityPip_message: {
-    backgroundColor: theme.colors.statusDotRunning,
+    backgroundColor: theme.colors.foreground,
   },
   activityContent: {
     flex: 1,
