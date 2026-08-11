@@ -808,7 +808,7 @@ test.describe("Kanbans board", () => {
     const planHeading = sheet.getByTestId("task-detail-workflow").getByText("Plan", {
       exact: true,
     });
-    await expect(planHeading).toHaveCSS("font-weight", "500");
+    await expect(planHeading).toHaveCSS("font-weight", "600");
     const [executionTabBox, planHeadingBox] = await Promise.all([
       executionTabLabel.boundingBox(),
       planHeading.boundingBox(),
@@ -823,9 +823,9 @@ test.describe("Kanbans board", () => {
     await sheet.getByTestId("task-detail-tab-details").click();
     const taskDescriptionHeading = sheet.getByText("Task description", { exact: true });
     const detailsSubtaskHeading = sheet.getByText("Subtasks", { exact: true });
-    await expect(taskDescriptionHeading).toHaveCSS("font-size", "12px");
-    await expect(taskDescriptionHeading).toHaveCSS("font-weight", "500");
-    await expect(detailsSubtaskHeading).toHaveCSS("font-size", "12px");
+    await expect(taskDescriptionHeading).toHaveCSS("font-size", "14px");
+    await expect(taskDescriptionHeading).toHaveCSS("font-weight", "600");
+    await expect(detailsSubtaskHeading).toHaveCSS("font-size", "14px");
     await expect(sheet.getByText("Breakdown", { exact: true })).toHaveCount(0);
     const [taskDescriptionHeadingBox, detailsSubtaskHeadingBox] = await Promise.all([
       taskDescriptionHeading.boundingBox(),
@@ -839,7 +839,6 @@ test.describe("Kanbans board", () => {
     await sheet
       .getByTestId("task-detail-description-input")
       .fill("Implement this outcome with the constraints in the task.");
-    await sheet.getByTestId("task-detail-tab-execution").click();
     await sheet.getByTestId("task-detail-automation-change").click();
     await sheet.getByTestId("task-detail-policy-review").click();
     await page.getByTestId("task-detail-policy-review-required").click();
@@ -853,6 +852,7 @@ test.describe("Kanbans board", () => {
         policy: { review: "required", workspace: "dedicated" },
       });
 
+    await sheet.getByTestId("sheet-header-back").click();
     await sheet.getByTestId("task-detail-tab-details").click();
     const firstTitle = `First child ${Date.now()}`;
     await sheet.getByTestId("task-detail-subtask-input").fill(firstTitle);
@@ -873,10 +873,9 @@ test.describe("Kanbans board", () => {
       )
       .toBe(true);
 
-    await sheet.getByTestId("task-detail-tab-execution").click();
     const subtaskHeading = sheet.getByText("Subtasks", { exact: true });
     await expect(subtaskHeading).toHaveCount(1);
-    await expect(subtaskHeading).toHaveCSS("font-weight", "500");
+    await expect(subtaskHeading).toHaveCSS("font-weight", "600");
     const subtaskHeadingBox = await subtaskHeading.boundingBox();
     if (!subtaskHeadingBox) throw new Error("Subtasks heading is not laid out");
     expect(Math.abs(planHeadingBox.x - subtaskHeadingBox.x)).toBeLessThanOrEqual(1);

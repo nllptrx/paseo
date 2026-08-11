@@ -360,7 +360,7 @@ export function TaskBoardSurface({
           message: t("tasks.board.confirmDeleteMessage", {
             title: task?.title ?? "",
           }),
-          confirmLabel: t("common.actions.delete"),
+          confirmLabel: t("tasks.board.delete"),
           destructive: true,
         });
         if (!confirmed) {
@@ -534,6 +534,8 @@ export function TaskBoardSurface({
         labels={board.labels}
         projectsById={projectsById}
         executionByTaskId={executionByTaskId}
+        onOpenTask={handleOpenTask}
+        onDeleteTask={handleDeleteTask}
         onClose={handleCloseTask}
       />
     </>
@@ -590,6 +592,8 @@ function SurfaceTaskDetail({
   labels,
   projectsById,
   executionByTaskId,
+  onOpenTask,
+  onDeleteTask,
   onClose,
 }: {
   serverId: string;
@@ -601,6 +605,8 @@ function SurfaceTaskDetail({
   labels: ProjectBoardSelection["labels"];
   projectsById: ReadonlyMap<string, TaskProject>;
   executionByTaskId: ReturnType<typeof useTaskExecutionSummaries>;
+  onOpenTask: (taskId: string) => void;
+  onDeleteTask: (taskId: string) => void;
   onClose: () => void;
 }): ReactElement {
   const executionSummary = openTaskId ? executionByTaskId.get(openTaskId) : undefined;
@@ -617,6 +623,8 @@ function SurfaceTaskDetail({
       workflows={snapshot?.workflows ?? EMPTY_WORKFLOWS}
       executionSummary={executionSummary}
       executionByTaskId={executionByTaskId}
+      onOpenTask={onOpenTask}
+      onDeleteTask={onDeleteTask}
       onClose={onClose}
     />
   );

@@ -5,10 +5,28 @@ import {
   useState,
   useSyncExternalStore,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, ChevronUp, Plus, SendHorizontal } from "lucide-react-native";
+import {
+  Archive,
+  Check,
+  CircleAlert,
+  CircleX,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
+  Clock,
+  CornerUpLeft,
+  Eye,
+  GitBranch,
+  Layers,
+  MoreHorizontal,
+  Play,
+  Plus,
+  SendHorizontal,
+} from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -30,8 +48,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/component
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
 import { FormTextInput } from "@/components/ui/form-field";
 import { Switch } from "@/components/ui/switch";
-import { SettingsSection } from "@/screens/settings/settings-section";
-import { settingsStyles } from "@/styles/settings";
 import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
 import { useToast } from "@/contexts/toast-context";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
@@ -58,6 +74,7 @@ import {
   resolveStepState,
   useTaskStepActions,
   type TaskStepAction,
+  type TaskStepDisplayStatus,
 } from "@/tasks/use-task-workflow";
 import { resolveStepAgentTarget } from "@/tasks/task-workflow-view";
 import { buildTaskWorkflowSteps } from "@/tasks/task-workflow-form-model";
@@ -72,6 +89,7 @@ import {
   useTaskMutations,
 } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
+import { formatCompactTimeAgo, formatDuration, formatMessageTimestamp } from "@/utils/time";
 import { BoardFeedEntryRow } from "./board-feed-entry";
 import {
   resolveSubSurfaceTitle,
@@ -90,8 +108,10 @@ import {
 import {
   canStartTaskReview,
   groupTaskExecutionsByWorkspace,
+  TASK_EXECUTION_LIVE_STATES,
   TASK_EXECUTION_STATE_LABELS,
   type TaskExecutionEntry,
+  type TaskExecutionState,
   type TaskExecutionSummary,
   type TaskExecutionWorkspaceGroup,
 } from "@/tasks/task-execution";
@@ -99,18 +119,76 @@ import { resolveProviderLabel } from "@/tasks/use-task-available-providers";
 
 type TaskDetailTab = "execution" | "details" | "activity";
 
+type TaskRelationKind = "parent" | "blocker";
+
+/** What the task hangs off: its parent, or a task that has to settle first. */
+interface TaskRelationship {
+  kind: TaskRelationKind;
+  label: string;
+  task: Task;
+}
+
+/**
+ * One block of the task surface: a 14px heading with an optional trailing
+ * control, then its content. Local to this sheet because the task detail sets
+ * its own density — settings screens keep theirs.
+ */
+function DetailSection({
+  title,
+  trailing,
+  testID,
+  children,
+}: {
+  title: string;
+  trailing?: ReactNode;
+  testID?: string;
+  children: ReactNode;
+}): ReactElement {
+  return (
+    <View style={styles.section} testID={testID}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        {trailing}
+      </View>
+      {children}
+    </View>
+  );
+}
+
 /** The rail beside the tabs on desktop: properties, live agents, relations. */
-const DETAIL_RAIL_WIDTH = 250;
+const DETAIL_RAIL_WIDTH = 256;
+/** The plan's right column, so duration and status align down every step. */
+const STEP_TRAILING_WIDTH = 104;
+/** Rhythm and type the design fixes outside the token scales. */
+const RAIL_GROUP_GAP = 20;
+const DETAIL_TEXT_SIZE = 13;
+const STEP_DURATION_FONT_SIZE = 11;
 /** Keeps the rail's divider full height when the left pane is short. */
-const DESKTOP_SPLIT_MIN_HEIGHT = 340;
-const DESKTOP_MAX_WIDTH = 880;
+const DESKTOP_SPLIT_MIN_HEIGHT = 480;
+const DESKTOP_MAX_WIDTH = 900;
 const EMPTY_STEPS: readonly Step[] = [];
 
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const ThemedChevronDown = withUnistyles(ChevronDown);
+const ThemedClock = withUnistyles(Clock);
+const ThemedEye = withUnistyles(Eye);
+const ThemedMoreHorizontal = withUnistyles(MoreHorizontal);
+const ThemedGitBranch = withUnistyles(GitBranch);
+const ThemedArchive = withUnistyles(Archive);
+const ThemedLayers = withUnistyles(Layers);
+const ThemedPlus = withUnistyles(Plus);
+const ThemedCornerUpLeft = withUnistyles(CornerUpLeft);
+const ThemedCheck = withUnistyles(Check);
+const ThemedPlay = withUnistyles(Play);
+const ThemedCircleAlert = withUnistyles(CircleAlert);
+const ThemedCircleX = withUnistyles(CircleX);
 const ThemedChevronUp = withUnistyles(ChevronUp);
 
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const warningIconMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
+const dangerIconMapping = (theme: Theme) => ({ color: theme.colors.statusDanger });
+const extraMutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
+const runningIconMapping = (theme: Theme) => ({ color: theme.colors.statusDotRunning });
 
 export interface TaskDetailSheetProps {
   serverId: string;
@@ -130,6 +208,10 @@ export interface TaskDetailSheetProps {
   /** Opens straight onto a sub-surface — capture's "Create & plan" lands on the
    * new task with its plan editor already up. */
   initialSubSurface?: TaskDetailSubSurface | null | undefined;
+  /** Swaps the sheet onto another task — what a blocker or a relation opens. */
+  onOpenTask?: ((taskId: string) => void) | undefined;
+  /** Confirms and deletes on the host's terms; the sheet only asks. */
+  onDeleteTask?: ((taskId: string) => void) | undefined;
   onClose: () => void;
 }
 
@@ -150,6 +232,8 @@ export function TaskDetailSheet({
   executionSummary,
   executionByTaskId,
   initialSubSurface,
+  onOpenTask,
+  onDeleteTask,
   onClose,
 }: TaskDetailSheetProps): ReactElement | null {
   const task = taskId ? tasks.find((entry) => entry.id === taskId) : undefined;
@@ -171,6 +255,8 @@ export function TaskDetailSheet({
       executionByTaskId={executionByTaskId}
       initialSubSurface={initialSubSurface}
       labels={labels}
+      onOpenTask={onOpenTask}
+      onDeleteTask={onDeleteTask}
       onClose={onClose}
     />
   );
@@ -189,6 +275,8 @@ function OpenTaskDetailSheet({
   executionByTaskId,
   initialSubSurface,
   labels,
+  onOpenTask,
+  onDeleteTask,
   onClose,
 }: {
   serverId: string;
@@ -203,6 +291,8 @@ function OpenTaskDetailSheet({
   executionByTaskId?: ReadonlyMap<string, TaskExecutionSummary> | undefined;
   initialSubSurface?: TaskDetailSubSurface | null | undefined;
   labels: readonly TaskLabel[];
+  onOpenTask?: ((taskId: string) => void) | undefined;
+  onDeleteTask?: ((taskId: string) => void) | undefined;
   onClose: () => void;
 }): ReactElement {
   const toast = useToast();
@@ -241,11 +331,6 @@ function OpenTaskDetailSheet({
     }
     onClose();
   }, [closeSubSurface, onClose, subSurface]);
-  const [isAutomationExpanded, setIsAutomationExpanded] = useState(false);
-  const toggleAutomationExpanded = useCallback(
-    () => setIsAutomationExpanded((current) => !current),
-    [],
-  );
   const { entries } = useBoardFeed({ serverId, projectId: task.projectId });
   const { post, sendMessage, isPosting } = useBoardFeedComposer({
     serverId,
@@ -299,10 +384,14 @@ function OpenTaskDetailSheet({
   );
   // Subtasks have a section of their own: they are worked, reviewed and started
   // from here, which a one-line relationship row cannot carry.
-  const relationships = useMemo<readonly { label: string; task: Task }[]>(
+  const relationships = useMemo<readonly TaskRelationship[]>(
     () => [
-      ...(parent ? [{ label: "Parent", task: parent }] : []),
-      ...dependenciesForTask.map((dependency) => ({ label: "Waits for", task: dependency })),
+      ...(parent ? [{ kind: "parent" as const, label: "Parent", task: parent }] : []),
+      ...dependenciesForTask.map((dependency) => ({
+        kind: "blocker" as const,
+        label: "Waits for",
+        task: dependency,
+      })),
     ],
     [dependenciesForTask, parent],
   );
@@ -498,6 +587,13 @@ function OpenTaskDetailSheet({
     });
   }, [isPosting, noteDraft, post, task.id, toast]);
 
+  // The host confirms before it deletes, so this only asks. The sheet stops
+  // rendering on its own once the task is gone from the snapshot.
+  const handleDelete = useMemo(
+    () => (onDeleteTask ? () => onDeleteTask(task.id) : undefined),
+    [onDeleteTask, task.id],
+  );
+
   const taskKey = formatTaskKey(project, task);
   // Stable identity: the plan editor seeds its form from this, and a fresh empty
   // array on every render would re-run that seeding mid-edit.
@@ -516,8 +612,10 @@ function OpenTaskDetailSheet({
       return {
         title: task.title,
         titleContent: (
-          <View style={styles.headerTitleColumn}>
-            <Text style={styles.taskKey}>{taskKey}</Text>
+          <View style={styles.headerIdentityRow}>
+            <Text style={styles.taskKeyBadge} numberOfLines={1}>
+              {taskKey}
+            </Text>
             <TaskDetailTitleInput
               task={task}
               isTitleFocused={isTitleFocused}
@@ -529,12 +627,20 @@ function OpenTaskDetailSheet({
           </View>
         ),
         actions: (
-          <TaskStartControl
-            presets={presets}
-            isAggregate={isAggregate}
-            disabled={blockers.length > 0 || isDelegating}
-            onStart={handleDelegate}
-          />
+          <View style={styles.headerActions}>
+            <TaskStartControl
+              presets={presets}
+              isAggregate={isAggregate}
+              disabled={blockers.length > 0 || isDelegating}
+              onStart={handleDelegate}
+            />
+            <TaskDetailOverflowMenu
+              isAggregate={isAggregate}
+              onEditPlan={openPlanSurface}
+              onChangeAutomation={openAutomationSurface}
+              onDelete={handleDelete}
+            />
+          </View>
         ),
       };
     }
@@ -571,6 +677,9 @@ function OpenTaskDetailSheet({
     closeSubSurface,
     comments.length,
     createLabel,
+    handleDelete,
+    openAutomationSurface,
+    openPlanSurface,
     deleteLabel,
     handleDelegate,
     handleSelectPriority,
@@ -598,11 +707,42 @@ function OpenTaskDetailSheet({
   ]);
   // The composer belongs to the conversation, so it only shows with it; on the
   // other tabs a compact layout uses the footer for the one primary action.
+  const composer = useMemo(
+    () =>
+      subSurface || activeTab !== "activity" ? null : (
+        <TaskUnifiedComposer
+          serverId={serverId}
+          task={task}
+          supportsMessages={supportsMessages}
+          noteDraft={noteDraft}
+          noteResetKey={noteResetKey}
+          isPosting={isPosting}
+          onNoteChange={setNoteDraft}
+          onSubmitNote={submitNote}
+          sendMessage={sendMessage}
+        />
+      ),
+    [
+      activeTab,
+      isPosting,
+      noteDraft,
+      noteResetKey,
+      sendMessage,
+      serverId,
+      subSurface,
+      submitNote,
+      supportsMessages,
+      task,
+    ],
+  );
+
+  // On desktop the composer belongs to the conversation pane, not to the sheet:
+  // the rail runs past it to the bottom edge, as the design has it.
   const footer = useMemo(() => {
     if (subSurface) {
       return undefined;
     }
-    if (activeTab === "activity") {
+    if (isCompact && activeTab === "activity") {
       return (
         <TaskUnifiedComposer
           serverId={serverId}
@@ -650,24 +790,26 @@ function OpenTaskDetailSheet({
   ]);
 
   const automationSummary = resolveAutomationSummary(task, project, isAggregate);
+  const automationFacts = resolveAutomationFacts(task, project);
 
-  const subtasksSection =
-    subtasks.length > 0 || isAggregate ? (
-      <TaskSubtasksSection
-        subtasks={subtasks}
-        projectsById={projectsById}
-        presets={presets}
-        draft={subtaskDraft}
-        draftResetKey={subtaskResetKey}
-        executionByTaskId={executionByTaskId}
-        isBusy={isBusy}
-        isReviewing={isReviewing}
-        onDraftChange={setSubtaskDraft}
-        onCreate={createSubtask}
-        onReview={handleReviewSubtask}
-        onOpenAgent={handleOpenAgent}
-      />
-    ) : null;
+  // Details owns the breakdown, on every task: the section is how the first
+  // subtask gets created, so hiding it until one exists would close the door.
+  const subtasksSection = (
+    <TaskSubtasksSection
+      subtasks={subtasks}
+      projectsById={projectsById}
+      presets={presets}
+      draft={subtaskDraft}
+      draftResetKey={subtaskResetKey}
+      executionByTaskId={executionByTaskId}
+      isBusy={isBusy}
+      isReviewing={isReviewing}
+      onDraftChange={setSubtaskDraft}
+      onCreate={createSubtask}
+      onReview={handleReviewSubtask}
+      onOpenAgent={handleOpenAgent}
+    />
+  );
 
   const body = subSurface ? (
     <TaskDetailSubSurfaceBody
@@ -702,6 +844,7 @@ function OpenTaskDetailSheet({
             onApprove={handleApprove}
             onReject={handleReject}
             onStartReview={handleStartReview}
+            onOpenTask={onOpenTask}
           />
           <TaskPlanSection
             workflow={workflow}
@@ -709,27 +852,13 @@ function OpenTaskDetailSheet({
             isActing={isActing}
             isCompact={isCompact}
             automationSummary={automationSummary}
-            isAutomationExpanded={isAutomationExpanded}
-            onChangeAutomation={isCompact ? openAutomationSurface : toggleAutomationExpanded}
+            onChangeAutomation={openAutomationSurface}
             onEdit={openPlanSurface}
             onAct={handleStepAction}
             onOpenAgent={handleOpenAgent}
             onOpenStep={openStepSurface}
             onSaveBrief={saveStepBrief}
           />
-          {!isCompact && isAutomationExpanded ? (
-            <View style={styles.groupContent} testID="task-detail-automation-expanded">
-              <TaskAutomationSection
-                serverId={serverId}
-                task={task}
-                project={project}
-                presets={presets}
-                hasSubtasks={isAggregate}
-              />
-              <TaskDeliverySection task={task} />
-            </View>
-          ) : null}
-          {subtasksSection}
         </View>
       ) : null}
 
@@ -738,8 +867,11 @@ function OpenTaskDetailSheet({
           <TaskOverview task={task} onDescriptionChange={setDescriptionDraft} onSave={saveBrief} />
           <View style={styles.groupContent} testID="task-detail-details-group">
             {subtasksSection}
-            <TaskRelationshipsSection relationships={relationships} projectsById={projectsById} />
+            {isCompact ? (
+              <TaskRelationshipsSection relationships={relationships} projectsById={projectsById} />
+            ) : null}
             <TaskAttachmentsSection task={task} />
+            <TaskDetailMetaSection task={task} project={project} presets={presets} />
           </View>
         </View>
       ) : null}
@@ -775,7 +907,6 @@ function OpenTaskDetailSheet({
                 <TaskDetailTabButton
                   tab="execution"
                   label="Execution"
-                  count={steps.length}
                   activeTab={activeTab}
                   onSelect={setActiveTab}
                 />
@@ -788,7 +919,6 @@ function OpenTaskDetailSheet({
                 <TaskDetailTabButton
                   tab="activity"
                   label="Activity"
-                  count={comments.length}
                   activeTab={activeTab}
                   onSelect={setActiveTab}
                 />
@@ -801,6 +931,7 @@ function OpenTaskDetailSheet({
             >
               <View style={styles.desktopPaneContent}>{body}</View>
             </ScrollView>
+            {composer ? <View style={styles.desktopComposer}>{composer}</View> : null}
           </View>
           <TaskDetailPropertyRail
             task={task}
@@ -816,8 +947,11 @@ function OpenTaskDetailSheet({
             onDeleteLabel={deleteLabel}
             executionGroups={executionGroups}
             relationships={relationships}
-            subtaskCount={subtasks.length}
+            subtasks={subtasks}
+            automation={automationFacts}
+            onChangeAutomation={openAutomationSurface}
             onOpenAgent={handleOpenAgent}
+            onOpenTask={onOpenTask}
           />
         </View>
       )}
@@ -991,8 +1125,8 @@ function TaskDetailPlanSurface({
     <View style={styles.planForm} testID="task-detail-plan-surface">
       <View style={styles.planContinuation} testID="task-detail-plan-auto-continue">
         <View style={styles.planContinuationCopy}>
-          <Text style={settingsStyles.rowTitle}>Continue automatically</Text>
-          <Text style={settingsStyles.rowHint}>
+          <Text style={styles.rowTitle}>Continue automatically</Text>
+          <Text style={styles.rowHint}>
             Start each next step when the previous step succeeds. Turn this off to pause between
             steps.
           </Text>
@@ -1005,7 +1139,7 @@ function TaskDetailPlanSurface({
         />
       </View>
       <View style={styles.planFormHeader}>
-        <Text style={settingsStyles.rowTitle}>
+        <Text style={styles.rowTitle}>
           {state.steps.length} {state.steps.length === 1 ? "step" : "steps"}
         </Text>
         <Button
@@ -1068,8 +1202,11 @@ function TaskDetailPropertyRail({
   onDeleteLabel,
   executionGroups,
   relationships,
-  subtaskCount,
+  subtasks,
+  automation,
+  onChangeAutomation,
   onOpenAgent,
+  onOpenTask,
 }: {
   task: Task;
   projectsById: ReadonlyMap<string, TaskProject>;
@@ -1083,11 +1220,16 @@ function TaskDetailPropertyRail({
   onCreateLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
   onDeleteLabel: (labelId: string) => Promise<void>;
   executionGroups: readonly TaskExecutionWorkspaceGroup[];
-  relationships: readonly { label: string; task: Task }[];
-  subtaskCount: number;
+  relationships: readonly TaskRelationship[];
+  subtasks: readonly Task[];
+  automation: TaskAutomationFacts;
+  onChangeAutomation: () => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+  onOpenTask: ((taskId: string) => void) | undefined;
 }): ReactElement {
-  const { t } = useTranslation();
+  const openSubtaskCount = subtasks.filter(
+    (subtask) => subtask.status !== "done" && subtask.status !== "canceled",
+  ).length;
   return (
     <ScrollView
       style={styles.rail}
@@ -1095,7 +1237,6 @@ function TaskDetailPropertyRail({
       testID="task-detail-rail"
     >
       <View style={styles.railGroup}>
-        <Text style={styles.railHeading}>Properties</Text>
         <View style={styles.railChips}>
           <TaskStatusChip
             status={task.status}
@@ -1107,11 +1248,6 @@ function TaskDetailPropertyRail({
             onSelect={onSelectPriority}
             testID="task-detail-priority-trigger"
           />
-          <TaskDueDateChip
-            dueDate={task.dueDate}
-            onSetDueDate={onSetDueDate}
-            testID="task-detail-due-trigger"
-          />
           <TaskLabelsChip
             projectId={task.projectId}
             projectLabels={projectLabels}
@@ -1122,43 +1258,135 @@ function TaskDetailPropertyRail({
             onDeleteLabel={onDeleteLabel}
             testID="task-detail-labels-trigger"
           />
+          <TaskDueDateChip
+            dueDate={task.dueDate}
+            onSetDueDate={onSetDueDate}
+            testID="task-detail-due-trigger"
+          />
         </View>
       </View>
-      {executionGroups.length > 0 ? (
-        <View style={styles.railGroup}>
-          <Text style={styles.railHeading}>{t("tasks.detail.agentsHeading")}</Text>
-          <View style={styles.executionGroups}>
-            {executionGroups.map((group) => (
-              <WorkspaceExecutionGroupCard
-                key={group.workspaceId}
-                group={group}
-                onOpenAgent={onOpenAgent}
-              />
-            ))}
-          </View>
+      <TaskRailAgents groups={executionGroups} onOpenAgent={onOpenAgent} />
+      <View style={styles.railGroup} testID="task-detail-rail-automation">
+        <View style={styles.railGroupHeader}>
+          <Text style={styles.railHeading}>Automation</Text>
+          <Button
+            variant="ghost"
+            size="xs"
+            onPress={onChangeAutomation}
+            testID="task-detail-automation-change"
+          >
+            Change
+          </Button>
         </View>
-      ) : null}
-      {relationships.length > 0 || subtaskCount > 0 ? (
+        <TaskRailFact icon={ThemedGitBranch} label={automation.workspace} />
+        <TaskRailFact icon={ThemedEye} label={automation.review} />
+        <TaskRailFact icon={ThemedArchive} label={automation.cleanup} />
+      </View>
+      {relationships.length > 0 || subtasks.length > 0 ? (
         <View style={styles.railGroup} testID="task-detail-rail-relations">
           <Text style={styles.railHeading}>Relations</Text>
           {relationships.map((relationship) => (
-            <Text
+            <TaskRailRelationRow
               key={`${relationship.label}-${relationship.task.id}`}
-              style={styles.railDetail}
-              numberOfLines={1}
-            >
-              {relationship.label} ·{" "}
-              {formatTaskKey(projectsById.get(relationship.task.projectId), relationship.task)}
-            </Text>
+              kind={relationship.kind}
+              label={relationship.label}
+              task={relationship.task}
+              taskKey={formatTaskKey(
+                projectsById.get(relationship.task.projectId),
+                relationship.task,
+              )}
+              onOpenTask={onOpenTask}
+            />
           ))}
-          {subtaskCount > 0 ? (
-            <Text style={styles.railDetail}>
-              {subtaskCount} {subtaskCount === 1 ? "subtask" : "subtasks"}
-            </Text>
+          {subtasks.length > 0 ? (
+            <TaskRailFact
+              icon={ThemedLayers}
+              label={`${subtasks.length} ${subtasks.length === 1 ? "subtask" : "subtasks"} · ${openSubtaskCount} open`}
+            />
           ) : null}
         </View>
       ) : null}
     </ScrollView>
+  );
+}
+
+/** The three automation facts the rail states, one line each. */
+interface TaskAutomationFacts {
+  workspace: string;
+  review: string;
+  cleanup: string;
+}
+
+function resolveAutomationFacts(task: Task, project: TaskProject | undefined): TaskAutomationFacts {
+  const effective = resolveTaskExecutionPolicy(project?.board, task.executionPolicy);
+  let workspace = "Preset workspace";
+  if (effective.workspace === "dedicated") {
+    workspace = "Dedicated worktrees";
+  } else if (effective.workspace === "reuse") {
+    workspace = "Task workspace";
+  }
+  return {
+    workspace,
+    review: effective.reviewEnabled ? `Review ×${effective.maxReviewIterations}` : "No review",
+    cleanup: effective.archiveWorkspacesOnDone ? "Archive worktrees" : "Keep worktrees",
+  };
+}
+
+/** One fact of the rail: a 14px icon and the line it labels. */
+function TaskRailFact({
+  icon: Icon,
+  iconMapping = mutedIconMapping,
+  label,
+}: {
+  icon: typeof ThemedGitBranch;
+  iconMapping?: (theme: Theme) => { color: string };
+  label: string;
+}): ReactElement {
+  return (
+    <View style={styles.railFact}>
+      <Icon size={ICON_SIZE.sm} uniProps={iconMapping} />
+      <Text style={styles.railDetail} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/** One relation as the rail states it: what it is, which task, and a press that
+ * swaps the sheet onto it. */
+function TaskRailRelationRow({
+  kind,
+  label,
+  task,
+  taskKey,
+  onOpenTask,
+}: {
+  kind: TaskRelationKind;
+  label: string;
+  task: Task;
+  taskKey: string;
+  onOpenTask: ((taskId: string) => void) | undefined;
+}): ReactElement {
+  const handlePress = useCallback(() => onOpenTask?.(task.id), [onOpenTask, task.id]);
+  const Icon = kind === "blocker" ? ThemedClock : ThemedCornerUpLeft;
+  const iconMapping = kind === "blocker" ? dangerIconMapping : mutedIconMapping;
+  const sentence = `${label} ${taskKey}`;
+  if (!onOpenTask) {
+    return <TaskRailFact icon={Icon} iconMapping={iconMapping} label={sentence} />;
+  }
+  return (
+    <Pressable
+      onPress={handlePress}
+      accessibilityRole="button"
+      hitSlop={SPACING[1]}
+      style={styles.railFact}
+      testID={`task-detail-rail-relation-${task.id}`}
+    >
+      <Icon size={ICON_SIZE.sm} uniProps={iconMapping} />
+      <Text style={styles.railDetailLink} numberOfLines={1}>
+        {sentence}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -1174,6 +1402,7 @@ function TaskDetailAttentionSection({
   onApprove,
   onReject,
   onStartReview,
+  onOpenTask,
 }: {
   task: Task;
   blockers: readonly Task[];
@@ -1184,12 +1413,20 @@ function TaskDetailAttentionSection({
   onApprove: () => void;
   onReject: () => void;
   onStartReview: () => void;
+  onOpenTask: ((taskId: string) => void) | undefined;
 }): ReactElement | null {
   if (task.status !== "in_review" && blockers.length === 0) {
     return null;
   }
   return (
-    <View style={styles.groupContent} testID="task-detail-attention">
+    <View style={styles.bannerStack} testID="task-detail-attention">
+      {blockers.length > 0 ? (
+        <TaskBlockersSection
+          blockers={blockers}
+          projectsById={projectsById}
+          onOpenTask={onOpenTask}
+        />
+      ) : null}
       {task.status === "in_review" ? (
         <TaskReviewSection
           iteration={task.reviewIteration}
@@ -1200,9 +1437,6 @@ function TaskDetailAttentionSection({
           onReject={onReject}
           onStartReview={onStartReview}
         />
-      ) : null}
-      {blockers.length > 0 ? (
-        <TaskBlockersSection blockers={blockers} projectsById={projectsById} />
       ) : null}
     </View>
   );
@@ -1328,7 +1562,7 @@ function TaskDetailHeaderBody({
           testID="task-detail-labels-trigger"
         />
       </View>
-      <View style={styles.tabBar} accessibilityRole="tablist">
+      <View style={[styles.tabBar, styles.compactTabBar]} accessibilityRole="tablist">
         <TaskDetailTabButton
           tab="execution"
           label="Execution"
@@ -1397,6 +1631,50 @@ function TaskStartControl({
         {presets.map((preset) => (
           <TaskStartPresetItem key={preset.id} preset={preset} onStart={onStart} />
         ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The header's overflow: what the task can do that no other control on the
+ * surface already offers. */
+function TaskDetailOverflowMenu({
+  isAggregate,
+  onEditPlan,
+  onChangeAutomation,
+  onDelete,
+}: {
+  isAggregate: boolean;
+  onEditPlan: () => void;
+  onChangeAutomation: () => void;
+  onDelete: (() => void) | undefined;
+}): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <DropdownMenu>
+      <DropdownTrigger
+        style={styles.headerMenuTrigger}
+        chevron={null}
+        testID="task-detail-overflow"
+      >
+        <ThemedMoreHorizontal size={ICON_SIZE.md} uniProps={mutedIconMapping} />
+      </DropdownTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onSelect={onEditPlan}
+          disabled={isAggregate}
+          testID="task-detail-overflow-plan"
+        >
+          {t("tasks.workflow.addToTask")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onChangeAutomation} testID="task-detail-overflow-automation">
+          Automation & delivery
+        </DropdownMenuItem>
+        {onDelete ? (
+          <DropdownMenuItem onSelect={onDelete} testID="task-detail-overflow-delete">
+            {t("tasks.board.delete")}
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1645,8 +1923,12 @@ function TaskOverview({
   onDescriptionChange: (description: string) => void;
   onSave: () => void;
 }): ReactElement {
+  const trailing = useMemo(
+    () => <Text style={styles.sectionHint}>Saved on blur · sent with every step</Text>,
+    [],
+  );
   return (
-    <SettingsSection title="Task description" flush testID="task-detail-brief">
+    <DetailSection title="Task description" testID="task-detail-brief" trailing={trailing}>
       <AdaptiveTextInput
         initialValue={task.description}
         resetKey={task.description}
@@ -1658,10 +1940,12 @@ function TaskOverview({
         multiline
         testID="task-detail-description-input"
       />
-    </SettingsSection>
+    </DetailSection>
   );
 }
 
+/** The verdict where the change is read: the banner states the round, takes the
+ * correction feedback, and settles the task without leaving the sheet. */
 function TaskReviewSection({
   iteration,
   canStartReview,
@@ -1681,7 +1965,12 @@ function TaskReviewSection({
 }): ReactElement {
   const { t } = useTranslation();
   return (
-    <SettingsSection title={t("tasks.detail.reviewerHeading")} flush testID="task-detail-review">
+    <View style={[styles.banner, styles.bannerReview]} testID="task-detail-review">
+      <View style={styles.bannerHeader}>
+        <ThemedEye size={ICON_SIZE.sm} uniProps={warningIconMapping} />
+        <Text style={styles.bannerTitle}>{t("tasks.detail.reviewerHeading")}</Text>
+        {iteration ? <Text style={styles.bannerHint}>Correction round {iteration}</Text> : null}
+      </View>
       <FormTextInput
         onChangeText={onFeedbackChange}
         placeholder="Correction feedback (sent to the worker on rejection)"
@@ -1689,7 +1978,6 @@ function TaskReviewSection({
         editable={!isReviewing}
         testID="task-detail-review-feedback"
       />
-      {iteration ? <Text style={settingsStyles.rowHint}>Correction round {iteration}</Text> : null}
       <View style={styles.actionRow}>
         <Button
           variant="default"
@@ -1721,38 +2009,68 @@ function TaskReviewSection({
           </Button>
         ) : null}
       </View>
-    </SettingsSection>
+    </View>
   );
 }
 
+/** What the task waits for, one banner per blocker, each opening the task that
+ * has to settle before any step here can run. */
 function TaskBlockersSection({
   blockers,
   projectsById,
+  onOpenTask,
 }: {
   blockers: readonly Task[];
   projectsById: ReadonlyMap<string, TaskProject>;
+  onOpenTask: ((taskId: string) => void) | undefined;
+}): ReactElement {
+  return (
+    <View style={styles.bannerStack} testID="task-detail-blockers">
+      {blockers.map((blocker) => (
+        <TaskBlockerBanner
+          key={blocker.id}
+          blocker={blocker}
+          blockerKey={formatTaskKey(projectsById.get(blocker.projectId), blocker)}
+          onOpenTask={onOpenTask}
+        />
+      ))}
+    </View>
+  );
+}
+
+function TaskBlockerBanner({
+  blocker,
+  blockerKey,
+  onOpenTask,
+}: {
+  blocker: Task;
+  blockerKey: string;
+  onOpenTask: ((taskId: string) => void) | undefined;
 }): ReactElement {
   const { t } = useTranslation();
+  const handleOpen = useCallback(() => onOpenTask?.(blocker.id), [blocker.id, onOpenTask]);
   return (
-    <SettingsSection title={t("tasks.detail.blockedHeading")} flush testID="task-detail-blockers">
-      <View style={settingsStyles.card}>
-        {blockers.map((blocker, index) => (
-          <View
-            key={blocker.id}
-            style={[settingsStyles.row, index > 0 ? settingsStyles.rowBorder : null]}
+    <View style={[styles.banner, styles.bannerBlocked]}>
+      <View style={styles.bannerHeader}>
+        <ThemedClock size={ICON_SIZE.sm} uniProps={dangerIconMapping} />
+        <View style={styles.bannerCopy}>
+          <Text style={styles.bannerTitle} numberOfLines={1}>
+            {t("tasks.detail.blockedHeading")} {blocker.title}
+          </Text>
+          <Text style={styles.bannerHintBlock}>Steps cannot run until {blockerKey} is done.</Text>
+        </View>
+        {onOpenTask ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            onPress={handleOpen}
+            testID={`task-detail-blocker-open-${blocker.id}`}
           >
-            <View style={settingsStyles.rowContent}>
-              <Text style={styles.blocker} numberOfLines={1}>
-                {blocker.title}
-              </Text>
-              <Text style={settingsStyles.rowHint}>
-                {formatTaskKey(projectsById.get(blocker.projectId), blocker)}
-              </Text>
-            </View>
-          </View>
-        ))}
+            Open
+          </Button>
+        ) : null}
       </View>
-    </SettingsSection>
+    </View>
   );
 }
 
@@ -1760,13 +2078,13 @@ function TaskRelationshipsSection({
   relationships,
   projectsById,
 }: {
-  relationships: readonly { label: string; task: Task }[];
+  relationships: readonly TaskRelationship[];
   projectsById: ReadonlyMap<string, TaskProject>;
 }): ReactElement | null {
   if (relationships.length === 0) return null;
   return (
-    <SettingsSection title="Relationships" flush testID="task-detail-relationships">
-      <View style={settingsStyles.card}>
+    <DetailSection title="Relationships" testID="task-detail-relationships">
+      <View style={styles.card}>
         {relationships.map((relationship, index) => (
           <TaskRelationshipRow
             key={`${relationship.label}-${relationship.task.id}`}
@@ -1777,30 +2095,71 @@ function TaskRelationshipsSection({
           />
         ))}
       </View>
-    </SettingsSection>
+    </DetailSection>
   );
 }
 
 function TaskAttachmentsSection({ task }: { task: Task }): ReactElement | null {
   if (task.attachments.length === 0) return null;
   return (
-    <SettingsSection title="Attachments" flush testID="task-detail-attachments">
-      <View style={settingsStyles.card}>
+    <DetailSection title="Attachments" testID="task-detail-attachments">
+      <View style={styles.card}>
         {task.attachments.map((attachment, index) => (
-          <View
-            key={attachment.id}
-            style={[settingsStyles.row, index > 0 ? settingsStyles.rowBorder : null]}
-          >
-            <View style={settingsStyles.rowContent}>
-              <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+          <View key={attachment.id} style={[styles.row, index > 0 ? styles.rowBorder : null]}>
+            <View style={styles.rowContent}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
                 {attachment.fileName}
               </Text>
             </View>
           </View>
         ))}
       </View>
-    </SettingsSection>
+    </DetailSection>
   );
+}
+
+/** The facts nobody edits: where the task lives, when it moved, what starts it.
+ * Last on Details because it answers questions asked after the work. */
+function TaskDetailMetaSection({
+  task,
+  project,
+  presets,
+}: {
+  task: Task;
+  project: TaskProject | undefined;
+  presets: readonly TaskPreset[];
+}): ReactElement {
+  const presetName = task.executionSpec
+    ? (presets.find((preset) => preset.id === task.executionSpec?.presetId)?.name ??
+      "Missing preset")
+    : "Started by hand";
+  return (
+    <View style={styles.metaRows} testID="task-detail-meta">
+      <TaskDetailMetaRow
+        label="Project"
+        value={project ? `${project.name} · ${project.prefix}` : "—"}
+      />
+      <TaskDetailMetaRow label="Created" value={formatMetaTimestamp(task.createdAt)} />
+      <TaskDetailMetaRow label="Updated" value={formatMetaTimestamp(task.updatedAt)} />
+      <TaskDetailMetaRow label="Preset" value={presetName} />
+    </View>
+  );
+}
+
+function TaskDetailMetaRow({ label, value }: { label: string; value: string }): ReactElement {
+  return (
+    <View style={styles.metaRow}>
+      <Text style={styles.metaLabel}>{label}</Text>
+      <Text style={styles.metaValue} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function formatMetaTimestamp(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "—" : formatMessageTimestamp(date);
 }
 
 function TaskUpdatesSection({
@@ -1857,7 +2216,7 @@ function formatCompactAutomationSummary(
  * refused rather than hidden: the steps of one authored before the subtasks
  * existed stay readable, with their run history, but nothing new can be
  * authored on a card that holds no workers. Automation is stated once — the
- * compact line beside the section title on desktop, a drill-in row on compact.
+ * rail owns it on desktop, so here it is only the drill-in row compact needs.
  */
 function TaskPlanSection({
   workflow,
@@ -1865,7 +2224,6 @@ function TaskPlanSection({
   isActing,
   isCompact,
   automationSummary,
-  isAutomationExpanded,
   onChangeAutomation,
   onEdit,
   onAct,
@@ -1878,7 +2236,6 @@ function TaskPlanSection({
   isActing: boolean;
   isCompact: boolean;
   automationSummary: string;
-  isAutomationExpanded: boolean;
   onChangeAutomation: () => void;
   onEdit: () => void;
   onAct: (stepId: string, action: TaskStepAction) => void;
@@ -1889,28 +2246,18 @@ function TaskPlanSection({
   const steps = workflow?.steps ?? [];
   const trailing = useMemo(
     () =>
-      isCompact ? null : (
-        <View style={styles.planTrailing}>
-          <Text style={styles.planAutomationSummary} numberOfLines={1}>
-            {automationSummary}
-          </Text>
-          <Button
-            variant="ghost"
-            size="xs"
-            onPress={onChangeAutomation}
-            testID="task-detail-automation-change"
-          >
-            {isAutomationExpanded ? "Done" : "Change"}
-          </Button>
-        </View>
-      ),
-    [automationSummary, isAutomationExpanded, isCompact, onChangeAutomation],
+      steps.length > 0 && !isAggregate ? (
+        <Button variant="ghost" size="xs" onPress={onEdit} testID="task-detail-plan-edit">
+          Edit
+        </Button>
+      ) : null,
+    [isAggregate, onEdit, steps.length],
   );
   return (
-    <SettingsSection title="Plan" flush testID="task-detail-workflow" trailing={trailing}>
-      {isAggregate ? <Text style={settingsStyles.rowHint}>{AGGREGATE_WORK_REFUSAL}</Text> : null}
+    <DetailSection title="Plan" testID="task-detail-workflow" trailing={trailing}>
+      {isAggregate ? <Text style={styles.rowHint}>{AGGREGATE_WORK_REFUSAL}</Text> : null}
       {steps.length > 0 ? (
-        <View style={settingsStyles.card}>
+        <View style={styles.card}>
           {steps.map((step, index) => (
             <PlanStepRow
               key={step.id}
@@ -1920,17 +2267,22 @@ function TaskPlanSection({
               disabled={isActing || isAggregate}
               isCompact={isCompact}
               onAct={onAct}
+              onEdit={onEdit}
               onOpenAgent={onOpenAgent}
               onOpenStep={onOpenStep}
               onSaveBrief={onSaveBrief}
             />
           ))}
           {isAggregate ? null : (
-            <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
-              <Button variant="ghost" size="sm" onPress={onEdit} testID="task-detail-workflow-edit">
-                Add step
-              </Button>
-            </View>
+            <Pressable
+              onPress={onEdit}
+              accessibilityRole="button"
+              style={[styles.row, styles.rowBorder, styles.addRow]}
+              testID="task-detail-workflow-edit"
+            >
+              <ThemedPlus size={ICON_SIZE.sm} uniProps={extraMutedIconMapping} />
+              <Text style={styles.addRowLabel}>Add step</Text>
+            </Pressable>
           )}
         </View>
       ) : null}
@@ -1939,22 +2291,28 @@ function TaskPlanSection({
           <Text style={styles.emptyComments}>
             No saved plan. Start from a preset, or add a multi-step agent plan.
           </Text>
-          <Button variant="ghost" size="sm" onPress={onEdit} testID="task-detail-workflow-edit">
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={Plus}
+            onPress={onEdit}
+            testID="task-detail-workflow-edit"
+          >
             Add plan
           </Button>
         </View>
       )}
       {isCompact ? (
-        <View style={settingsStyles.card}>
+        <View style={styles.card}>
           <Pressable
             onPress={onChangeAutomation}
             accessibilityRole="button"
-            style={settingsStyles.row}
+            style={styles.row}
             testID="task-detail-automation-open"
           >
-            <View style={settingsStyles.rowContent}>
-              <Text style={settingsStyles.rowTitle}>Automation & delivery</Text>
-              <Text style={settingsStyles.rowHint} numberOfLines={1}>
+            <View style={styles.rowContent}>
+              <Text style={styles.rowTitle}>Automation & delivery</Text>
+              <Text style={styles.rowHint} numberOfLines={1}>
                 {automationSummary}
               </Text>
             </View>
@@ -1962,7 +2320,7 @@ function TaskPlanSection({
           </Pressable>
         </View>
       ) : null}
-    </SettingsSection>
+    </DetailSection>
   );
 }
 
@@ -1978,6 +2336,7 @@ function PlanStepRow({
   disabled,
   isCompact,
   onAct,
+  onEdit,
   onOpenAgent,
   onOpenStep,
   onSaveBrief,
@@ -1988,6 +2347,9 @@ function PlanStepRow({
   disabled: boolean;
   isCompact: boolean;
   onAct: (stepId: string, action: TaskStepAction) => void;
+  /** The agent and workspace of a step are chosen in the plan editor, so the
+   * chips that state them here lead there instead of forking a second picker. */
+  onEdit: () => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenStep: (stepId: string) => void;
   onSaveBrief: (stepId: string, prompt: string) => void;
@@ -1998,6 +2360,7 @@ function PlanStepRow({
   const primaryAction = actions.find((action) => action !== "skip");
   const hasSkip = actions.includes("skip");
   const agentTarget = resolveStepAgentTarget(step);
+  const elapsed = formatSettledRunDuration(step);
   const isActive = status === "running" || status === "queued";
   const isFailed = status === "failed" || status === "interrupted" || status === "canceled";
   const handlePress = useCallback(() => {
@@ -2017,7 +2380,7 @@ function PlanStepRow({
   );
   return (
     <View
-      style={withBorder ? settingsStyles.rowBorder : null}
+      style={[withBorder ? styles.rowBorder : null, isExpanded ? styles.planStepOpen : null]}
       testID={`task-detail-step-${step.id}`}
     >
       <Pressable
@@ -2025,13 +2388,11 @@ function PlanStepRow({
         accessibilityRole="button"
         accessibilityState={accessibilityState}
         accessibilityLabel={`Step ${index + 1}: ${step.name}`}
-        style={[settingsStyles.row, styles.planStepRow]}
+        style={[styles.row, styles.planStepRow]}
         testID={`task-detail-step-toggle-${step.id}`}
       >
-        <View style={styles.stepIndexBadge}>
-          <Text style={styles.stepIndexText}>{index + 1}</Text>
-        </View>
-        <View style={settingsStyles.rowContent}>
+        <PlanStepStatusDot status={status} />
+        <View style={styles.rowContent}>
           <View style={styles.stepTitleRow}>
             <Text
               style={[styles.stepTitle, isActive ? styles.stepTitleActive : null]}
@@ -2039,40 +2400,56 @@ function PlanStepRow({
             >
               {step.name}
             </Text>
+            <Text style={styles.stepMeta} numberOfLines={1}>
+              {formatStepAgentLabel(step)}
+            </Text>
+          </View>
+          {error ? (
+            <Text style={styles.rowError} testID={`task-detail-step-${step.id}-error`}>
+              {error}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.stepTrailing}>
+          {elapsed ? <Text style={styles.stepDuration}>{elapsed}</Text> : null}
+          {primaryAction ? (
+            <StepActionButton
+              stepId={step.id}
+              action={primaryAction}
+              disabled={disabled}
+              onAct={onAct}
+            />
+          ) : (
             <Text
               style={[
                 styles.stepStatus,
                 status === "succeeded" ? styles.stepStatusSucceeded : null,
+                isActive ? styles.stepStatusActive : null,
                 isFailed ? styles.stepStatusFailed : null,
               ]}
             >
               {t(`tasks.detail.stepStatus.${status}`)}
             </Text>
-          </View>
-          <Text style={styles.stepMeta}>
-            {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"}
-          </Text>
-          {error ? (
-            <Text style={settingsStyles.rowError} testID={`task-detail-step-${step.id}-error`}>
-              {error}
-            </Text>
-          ) : null}
+          )}
         </View>
-        {primaryAction ? (
-          <StepActionButton
-            stepId={step.id}
-            action={primaryAction}
-            disabled={disabled}
-            onAct={onAct}
-          />
-        ) : null}
-        <PlanStepRowChevron isCompact={isCompact} isExpanded={isExpanded} />
+        {isCompact ? <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} /> : null}
       </Pressable>
       {!isCompact && isExpanded ? (
         <View style={styles.stepExpanded} testID={`task-detail-step-expanded-${step.id}`}>
           <StepBriefEditor step={step} editable={!disabled} onSaveBrief={onSaveBrief} />
           <View style={styles.stepExpandedFooter}>
-            <Text style={styles.stepMeta}>{formatWorkspaceMode(step)}</Text>
+            <View style={styles.stepChipRow}>
+              <StepFactChip
+                label={formatStepAgentLabel(step)}
+                onPress={onEdit}
+                testID={`task-detail-step-agent-${step.id}`}
+              />
+              <StepFactChip
+                label={formatWorkspaceMode(step)}
+                onPress={onEdit}
+                testID={`task-detail-step-workspace-${step.id}`}
+              />
+            </View>
             <View style={styles.actionRow}>
               {agentTarget ? (
                 <Button
@@ -2103,20 +2480,69 @@ function PlanStepRow({
   );
 }
 
-function PlanStepRowChevron({
-  isCompact,
-  isExpanded,
+/** The step's state as the one mark the eye lands on first, before any word. */
+function PlanStepStatusDot({ status }: { status: TaskStepDisplayStatus }): ReactElement {
+  return <View style={[styles.stepDot, resolveStepDotTone(status)]} />;
+}
+
+function resolveStepDotTone(status: TaskStepDisplayStatus) {
+  if (status === "succeeded") return styles.stepDotSucceeded;
+  if (status === "running" || status === "queued") return styles.stepDotActive;
+  if (status === "failed" || status === "interrupted" || status === "canceled") {
+    return styles.stepDotFailed;
+  }
+  return styles.stepDotPending;
+}
+
+/** One fact of the step, stated as a chip that leads to where it is chosen. */
+function StepFactChip({
+  label,
+  onPress,
+  testID,
 }: {
-  isCompact: boolean;
-  isExpanded: boolean;
+  label: string;
+  onPress: () => void;
+  testID: string;
 }): ReactElement {
-  if (isCompact) {
-    return <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      hitSlop={SPACING[1]}
+      style={styles.stepChip}
+      testID={testID}
+    >
+      <Text style={styles.stepChipLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <ThemedChevronDown size={ICON_SIZE.xs} uniProps={mutedIconMapping} />
+    </Pressable>
+  );
+}
+
+/** Which agent runs the step: the model when it names one, else the provider. */
+function formatStepAgentLabel(step: Step): string {
+  const agent = step.agents[0];
+  if (!agent) return "Agent";
+  return agent.model ?? resolveProviderLabel(agent.provider);
+}
+
+/**
+ * How long the step's last run took, once it is over. A running step is left
+ * without a number on purpose: nothing here ticks, and a frozen "12m" beside a
+ * live agent reads as progress that stopped.
+ */
+function formatSettledRunDuration(step: Step): string | null {
+  const latest = step.runs.at(-1);
+  if (!latest?.endedAt) {
+    return null;
   }
-  if (isExpanded) {
-    return <ThemedChevronUp size={ICON_SIZE.sm} uniProps={mutedIconMapping} />;
+  const started = new Date(latest.startedAt).getTime();
+  const ended = new Date(latest.endedAt).getTime();
+  if (Number.isNaN(started) || Number.isNaN(ended) || ended < started) {
+    return null;
   }
-  return <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedIconMapping} />;
+  return formatDuration(ended - started);
 }
 
 /** The step's brief where it is read: saves on blur, only when it changed. */
@@ -2181,28 +2607,28 @@ function TaskStepSurface({
   const handleSkip = useCallback(() => onAct(step.id, "skip"), [onAct, step.id]);
   return (
     <View style={styles.groupContent} testID={`task-detail-step-surface-${step.id}`}>
-      <SettingsSection title="Agent brief" flush>
+      <DetailSection title="Agent brief">
         <StepBriefEditor step={step} editable={!disabled} onSaveBrief={onSaveBrief} />
-      </SettingsSection>
-      <View style={settingsStyles.card}>
-        <View style={settingsStyles.row}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>Agent</Text>
+      </DetailSection>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowTitle}>Agent</Text>
           </View>
           <Text style={styles.policyValue}>
             {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"}
           </Text>
         </View>
-        <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>Workspace</Text>
+        <View style={[styles.row, styles.rowBorder]}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowTitle}>Workspace</Text>
           </View>
           <Text style={styles.policyValue}>{formatWorkspaceMode(step)}</Text>
         </View>
-        <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>Status</Text>
-            {error ? <Text style={settingsStyles.rowError}>{error}</Text> : null}
+        <View style={[styles.row, styles.rowBorder]}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowTitle}>Status</Text>
+            {error ? <Text style={styles.rowError}>{error}</Text> : null}
           </View>
           <Text style={styles.policyValue}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
         </View>
@@ -2295,7 +2721,7 @@ function TaskSubtasksSection({
     : "Start by hand";
 
   return (
-    <SettingsSection title="Subtasks" flush testID="task-detail-subtasks">
+    <DetailSection title="Subtasks" testID="task-detail-subtasks">
       {subtasks.length > 0 ? (
         <View style={styles.executionGroups}>
           {subtasks.map((subtask) => (
@@ -2311,8 +2737,8 @@ function TaskSubtasksSection({
           ))}
         </View>
       ) : null}
-      <View style={settingsStyles.card}>
-        <View style={settingsStyles.row}>
+      <View style={styles.card}>
+        <View style={styles.row}>
           <AdaptiveTextInput
             initialValue={draft.title}
             resetKey={draftResetKey}
@@ -2345,10 +2771,10 @@ function TaskSubtasksSection({
             testID="task-detail-subtask-preset"
           />
         ) : null}
-        <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>Run beside the previous subtask</Text>
-            <Text style={settingsStyles.rowHint}>
+        <View style={[styles.row, styles.rowBorder]}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowTitle}>Run beside the previous subtask</Text>
+            <Text style={styles.rowHint}>
               {draft.parallel
                 ? "Ready as soon as it is created."
                 : "Waits for the subtask created before it."}
@@ -2362,7 +2788,7 @@ function TaskSubtasksSection({
           />
         </View>
       </View>
-    </SettingsSection>
+    </DetailSection>
   );
 }
 
@@ -2399,21 +2825,21 @@ function SubtaskRow({
   const leadEntry = execution?.entries[0];
 
   return (
-    <View style={settingsStyles.card} testID={`task-detail-subtask-${subtask.id}`}>
+    <View style={styles.card} testID={`task-detail-subtask-${subtask.id}`}>
       <Pressable
         onPress={toggle}
         accessibilityRole="button"
         accessibilityLabel={`${isExpanded ? "Collapse" : "Expand"} ${subtask.title}`}
-        style={settingsStyles.row}
+        style={styles.row}
         testID={`task-detail-subtask-toggle-${subtask.id}`}
       >
         <View style={styles.agentIdentity}>
           {leadEntry ? <TaskExecutionStateDot state={leadEntry.state} /> : null}
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowTitle} numberOfLines={1}>
               {subtask.title}
             </Text>
-            <Text style={settingsStyles.rowHint} numberOfLines={1}>
+            <Text style={styles.rowHint} numberOfLines={1}>
               {formatSubtaskDetail({
                 subtask,
                 project,
@@ -2431,8 +2857,8 @@ function SubtaskRow({
             <AgentRow key={entry.agentId} entry={entry} onOpenAgent={onOpenAgent} />
           ))}
           {subtask.status === "in_review" ? (
-            <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
-              <View style={settingsStyles.rowContent}>
+            <View style={[styles.row, styles.rowBorder]}>
+              <View style={styles.rowContent}>
                 <FormTextInput
                   onChangeText={setFeedback}
                   placeholder="Correction feedback (sent to the worker on rejection)"
@@ -2497,21 +2923,21 @@ function TaskDeliverySection({ task }: { task: Task }): ReactElement | null {
     status = "Will deliver to parent when complete";
   }
   return (
-    <SettingsSection title="Delivery" flush testID="task-detail-delivery">
-      <View style={settingsStyles.card}>
-        <View style={settingsStyles.row}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>{status}</Text>
+    <DetailSection title="Delivery" testID="task-detail-delivery">
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowTitle}>{status}</Text>
             <Text style={styles.deliveryBranch} numberOfLines={1}>
               {task.integration.branch}
             </Text>
             {task.integration.error ? (
-              <Text style={settingsStyles.rowError}>{task.integration.error}</Text>
+              <Text style={styles.rowError}>{task.integration.error}</Text>
             ) : null}
           </View>
         </View>
       </View>
-    </SettingsSection>
+    </DetailSection>
   );
 }
 
@@ -2522,6 +2948,8 @@ function formatWorkspaceMode(step: Step): string {
   return "Existing workspace";
 }
 
+/** The one action a step's last run allows, as the plan's compact pill: it has
+ * to fit the row without growing it, which the shared button does not. */
 function StepActionButton({
   stepId,
   action,
@@ -2536,15 +2964,16 @@ function StepActionButton({
   const { t } = useTranslation();
   const handlePress = useCallback(() => onAct(stepId, action), [action, onAct, stepId]);
   return (
-    <Button
-      variant="ghost"
-      size="xs"
+    <Pressable
       onPress={handlePress}
       disabled={disabled}
+      accessibilityRole="button"
+      hitSlop={SPACING[2]}
+      style={[styles.stepActionPill, disabled ? styles.stepActionPillDisabled : null]}
       testID={`task-detail-step-${stepId}-${action}`}
     >
-      {t(`tasks.detail.stepAction.${action}`)}
-    </Button>
+      <Text style={styles.stepActionLabel}>{t(`tasks.detail.stepAction.${action}`)}</Text>
+    </Pressable>
   );
 }
 
@@ -2705,13 +3134,11 @@ function TaskAutomationSection({
   );
 
   return (
-    <SettingsSection title="Automation" flush trailing={trailing} testID="task-detail-automation">
+    <DetailSection title="Automation" trailing={trailing} testID="task-detail-automation">
       {supportsExecutionPolicy ? (
-        <View style={settingsStyles.card}>
-          <View style={settingsStyles.row}>
-            <Text style={settingsStyles.rowHint}>
-              Board defaults apply until this task overrides them.
-            </Text>
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <Text style={styles.rowHint}>Board defaults apply until this task overrides them.</Text>
           </View>
           {reviewMode ? (
             <PolicySelect
@@ -2815,7 +3242,7 @@ function TaskAutomationSection({
           Update this host to customize automation for individual tasks.
         </Text>
       ) : null}
-    </SettingsSection>
+    </DetailSection>
   );
 }
 
@@ -2835,9 +3262,9 @@ function PolicySelect<T extends string>({
   testID: string;
 }): ReactElement {
   return (
-    <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
-      <View style={settingsStyles.rowContent}>
-        <Text style={settingsStyles.rowTitle}>{label}</Text>
+    <View style={[styles.row, styles.rowBorder]}>
+      <View style={styles.rowContent}>
+        <Text style={styles.rowTitle}>{label}</Text>
       </View>
       <DropdownMenu>
         <DropdownTrigger testID={testID}>
@@ -2892,12 +3319,12 @@ function TaskRelationshipRow({
   withBorder: boolean;
 }): ReactElement {
   return (
-    <View style={[settingsStyles.row, withBorder ? settingsStyles.rowBorder : null]}>
-      <View style={settingsStyles.rowContent}>
-        <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+    <View style={[styles.row, withBorder ? styles.rowBorder : null]}>
+      <View style={styles.rowContent}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
           {task.title}
         </Text>
-        <Text style={settingsStyles.rowHint}>
+        <Text style={styles.rowHint}>
           {label} · {formatTaskKey(project, task)}
         </Text>
       </View>
@@ -2930,16 +3357,16 @@ function AgentRow({
     <Pressable
       onPress={handlePress}
       accessibilityRole="button"
-      style={[settingsStyles.row, settingsStyles.rowBorder]}
+      style={[styles.row, styles.rowBorder]}
       testID={`task-detail-agent-${entry.agentId}`}
     >
       <View style={styles.agentIdentity}>
         <TaskExecutionStateDot state={entry.state} />
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle} numberOfLines={1}>
+        <View style={styles.rowContent}>
+          <Text style={styles.rowTitle} numberOfLines={1}>
             {name}
           </Text>
-          <Text style={settingsStyles.rowHint} numberOfLines={1}>
+          <Text style={styles.rowHint} numberOfLines={1}>
             {detail}
           </Text>
         </View>
@@ -2949,48 +3376,214 @@ function AgentRow({
   );
 }
 
-function WorkspaceExecutionGroupCard({
-  group,
+/**
+ * The agents of the task in the rail: whoever can still change state, or is
+ * waiting on a person, gets a line. Anything settled collapses to one count —
+ * a finished agent is history, and history should not push the live work down.
+ */
+function TaskRailAgents({
+  groups,
   onOpenAgent,
 }: {
-  group: TaskExecutionWorkspaceGroup;
+  groups: readonly TaskExecutionWorkspaceGroup[];
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-}): ReactElement {
+}): ReactElement | null {
+  const { t } = useTranslation();
+  const [showFinished, setShowFinished] = useState(false);
+  const toggleFinished = useCallback(() => setShowFinished((current) => !current), []);
+  const entries = useMemo(() => groups.flatMap((group) => group.entries), [groups]);
+  const workspaceNameById = useMemo(
+    () => new Map(groups.map((group) => [group.workspaceId, group.workspaceName])),
+    [groups],
+  );
+  if (entries.length === 0) {
+    return null;
+  }
+  const open = entries.filter((entry) => entry.state !== "done");
+  const finished = entries.filter((entry) => entry.state === "done");
+  const liveCount = entries.filter((entry) =>
+    TASK_EXECUTION_LIVE_STATES.includes(entry.state),
+  ).length;
+  const summary = [
+    liveCount > 0 ? `${liveCount} live` : null,
+    finished.length > 0 ? `${finished.length} done` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+  const shown = showFinished ? [...open, ...finished] : open;
   return (
-    <View style={settingsStyles.card}>
-      <View style={settingsStyles.row}>
-        <View style={settingsStyles.rowContent}>
-          <Text style={settingsStyles.rowTitle} numberOfLines={1}>
-            {group.workspaceName}
-          </Text>
-          <Text style={settingsStyles.rowHint} numberOfLines={1}>
-            {workspaceExecutionDetail({
-              branch: group.branch,
-              pullRequestNumber: group.pullRequestNumber,
-              agentCount: group.entries.length,
-            })}
-          </Text>
-        </View>
+    <View style={styles.railGroup} testID="task-detail-rail-agents">
+      <View style={styles.railGroupHeader}>
+        <Text style={styles.railHeading}>{t("tasks.detail.agentsHeading")}</Text>
+        {summary ? <Text style={styles.railHeading}>{summary}</Text> : null}
       </View>
-      {group.entries.map((entry) => (
-        <AgentRow key={entry.agentId} entry={entry} onOpenAgent={onOpenAgent} />
+      {shown.map((entry) => (
+        <TaskRailAgent
+          key={entry.agentId}
+          entry={entry}
+          workspaceName={workspaceNameById.get(entry.workspaceId) ?? entry.workspaceName}
+          onOpenAgent={onOpenAgent}
+        />
       ))}
+      {finished.length > 0 && !showFinished ? (
+        <Pressable
+          onPress={toggleFinished}
+          accessibilityRole="button"
+          hitSlop={SPACING[1]}
+          style={styles.railFact}
+          testID="task-detail-rail-agents-finished"
+        >
+          <ThemedCheck size={ICON_SIZE.sm} uniProps={extraMutedIconMapping} />
+          <Text style={styles.railFinished}>{finished.length} finished</Text>
+          <View style={styles.railFactSpacer} />
+          <ThemedChevronDown size={ICON_SIZE.sm} uniProps={extraMutedIconMapping} />
+        </Pressable>
+      ) : null}
+      {finished.length > 0 && showFinished ? (
+        <Pressable
+          onPress={toggleFinished}
+          accessibilityRole="button"
+          hitSlop={SPACING[1]}
+          style={styles.railFact}
+          testID="task-detail-rail-agents-finished"
+        >
+          <ThemedCheck size={ICON_SIZE.sm} uniProps={extraMutedIconMapping} />
+          <Text style={styles.railFinished}>Hide finished</Text>
+          <View style={styles.railFactSpacer} />
+          <ThemedChevronUp size={ICON_SIZE.sm} uniProps={extraMutedIconMapping} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
-function workspaceExecutionDetail(input: {
-  branch: string | null;
-  pullRequestNumber: number | null;
-  agentCount: number;
-}): string {
-  const details = [input.branch];
-  if (input.pullRequestNumber !== null) details.push(`PR #${input.pullRequestNumber}`);
-  details.push(`${input.agentCount} ${input.agentCount === 1 ? "agent" : "agents"}`);
-  return details.filter((detail): detail is string => Boolean(detail)).join(" · ");
+/** What the agent is doing, as the one glyph the rail reads by: it is running,
+ * it waits for a person, it broke, or it is over. */
+function TaskRailAgentIcon({ state }: { state: TaskExecutionState }): ReactElement {
+  if (state === "running" || state === "starting") {
+    return <ThemedPlay size={ICON_SIZE.sm} uniProps={runningIconMapping} />;
+  }
+  if (state === "needs_input") {
+    return <ThemedCircleAlert size={ICON_SIZE.sm} uniProps={warningIconMapping} />;
+  }
+  if (state === "attention" || state === "step_complete") {
+    return <ThemedEye size={ICON_SIZE.sm} uniProps={warningIconMapping} />;
+  }
+  if (state === "failed") {
+    return <ThemedCircleX size={ICON_SIZE.sm} uniProps={dangerIconMapping} />;
+  }
+  return <ThemedCheck size={ICON_SIZE.sm} uniProps={extraMutedIconMapping} />;
+}
+
+/**
+ * One agent as two lines: who it is and how long since it moved, then either
+ * what it waits for or where it works. The state it is in decides which,
+ * because an agent that needs a person should say so where the eye lands.
+ */
+function TaskRailAgent({
+  entry,
+  workspaceName,
+  onOpenAgent,
+}: {
+  entry: TaskExecutionEntry;
+  workspaceName: string;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const name = entry.title ?? resolveProviderLabel(entry.provider);
+  const handlePress = useCallback(
+    () => onOpenAgent({ workspaceId: entry.workspaceId, agentId: entry.agentId }),
+    [entry.agentId, entry.workspaceId, onOpenAgent],
+  );
+  const needsPerson = entry.state === "attention" || entry.state === "step_complete";
+  const failed = entry.state === "failed" || entry.state === "needs_input";
+  const elapsed =
+    entry.updatedAtMs === null ? null : formatCompactTimeAgo(new Date(entry.updatedAtMs));
+  const role = entry.role === "reviewer" ? `${t("tasks.detail.reviewerBadge")} · ` : "";
+  return (
+    <Pressable
+      onPress={handlePress}
+      accessibilityRole="button"
+      hitSlop={SPACING[1]}
+      style={styles.railAgent}
+      testID={`task-detail-agent-${entry.agentId}`}
+    >
+      <TaskRailAgentIcon state={entry.state} />
+      <View style={styles.railAgentBody}>
+        <View style={styles.railAgentTitleRow}>
+          <Text style={styles.railDetailLink} numberOfLines={1}>
+            {name}
+          </Text>
+          {elapsed ? <Text style={styles.stepDuration}>{elapsed}</Text> : null}
+        </View>
+        <Text
+          style={[
+            styles.railAgentDetail,
+            needsPerson ? styles.railAgentDetailAttention : null,
+            failed ? styles.railAgentDetailFailed : null,
+          ]}
+          numberOfLines={1}
+        >
+          {needsPerson || failed
+            ? `${role}${TASK_EXECUTION_STATE_LABELS[entry.state]}`
+            : `${role}${resolveProviderLabel(entry.provider)} · ${workspaceName}`}
+        </Text>
+      </View>
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create((theme) => ({
+  section: {
+    gap: theme.spacing[2],
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
+  },
+  sectionTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  card: {
+    backgroundColor: theme.colors.surface1,
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    overflow: "hidden",
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: theme.spacing[3],
+  },
+  rowBorder: {
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+  },
+  rowContent: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: theme.spacing[3],
+  },
+  rowTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+  rowHint: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    marginTop: theme.spacing[1],
+  },
+  rowError: {
+    color: theme.colors.statusDanger,
+    fontSize: theme.fontSize.xs,
+    marginTop: theme.spacing[1],
+  },
   taskKey: {
     color: theme.colors.foregroundMuted,
     fontFamily: theme.fontFamily.mono,
@@ -3000,15 +3593,30 @@ const styles = StyleSheet.create((theme) => ({
   headerBody: {
     gap: theme.spacing[3],
   },
-  headerTitleColumn: {
+  taskKeyBadge: {
+    flexGrow: 0,
+    flexShrink: 0,
+    color: theme.colors.foregroundMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 16,
+    paddingHorizontal: theme.spacing[1.5],
+    paddingVertical: theme.spacing[1],
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.surface2,
+  },
+  headerIdentityRow: {
     flex: 1,
     minWidth: 0,
-    gap: theme.spacing[1],
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
   },
   desktopSplitContent: {
     padding: 0,
     gap: 0,
     flexGrow: 1,
+    backgroundColor: theme.colors.surface0,
   },
   desktopSplit: {
     flexDirection: "row",
@@ -3021,6 +3629,16 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     minHeight: 0,
   },
+  desktopComposer: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexDirection: "row",
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+  },
   desktopPaneScroll: {
     flexShrink: 1,
     minHeight: 0,
@@ -3029,7 +3647,7 @@ const styles = StyleSheet.create((theme) => ({
     flexGrow: 1,
   },
   desktopPaneContent: {
-    padding: theme.spacing[6],
+    padding: theme.spacing[4],
   },
   rail: {
     width: DETAIL_RAIL_WIDTH,
@@ -3037,21 +3655,25 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 0,
     minHeight: 0,
     borderLeftWidth: theme.borderWidth[1],
-    borderLeftColor: theme.colors.surface2,
+    borderLeftColor: theme.colors.borderAccent,
     backgroundColor: theme.colors.surface1,
   },
   railContent: {
     padding: theme.spacing[4],
-    gap: theme.spacing[4],
+    gap: RAIL_GROUP_GAP,
   },
   railGroup: {
     gap: theme.spacing[2],
   },
+  railGroupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+  },
   railHeading: {
-    color: theme.colors.foregroundMuted,
-    fontFamily: theme.fontFamily.mono,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.xs,
-    textTransform: "uppercase",
   },
   railChips: {
     flexDirection: "row",
@@ -3059,9 +3681,185 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[1.5],
   },
+  railFact: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    minWidth: 0,
+  },
+  railFactSpacer: {
+    flex: 1,
+  },
+  railFinished: {
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: DETAIL_TEXT_SIZE,
+  },
+  railAgent: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: theme.spacing[2],
+    minWidth: 0,
+  },
+  railAgentBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: theme.spacing[0.5],
+  },
+  railAgentTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  railAgentDetail: {
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  railAgentDetailAttention: {
+    color: theme.colors.statusWarning,
+  },
+  railAgentDetailFailed: {
+    color: theme.colors.statusDanger,
+  },
   railDetail: {
+    flexShrink: 1,
+    minWidth: 0,
+    color: theme.colors.foregroundMuted,
+    fontSize: DETAIL_TEXT_SIZE,
+  },
+  railDetailLink: {
+    flexShrink: 1,
+    minWidth: 0,
+    color: theme.colors.foreground,
+    fontSize: DETAIL_TEXT_SIZE,
+  },
+  sectionHint: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  headerMenuTrigger: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.md,
+  },
+  bannerStack: {
+    gap: theme.spacing[2],
+  },
+  banner: {
+    gap: theme.spacing[3],
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    borderLeftWidth: 2,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface1,
+    padding: theme.spacing[3],
+  },
+  bannerBlocked: {
+    borderLeftColor: theme.colors.statusDanger,
+  },
+  bannerReview: {
+    borderLeftColor: theme.colors.statusWarning,
+  },
+  bannerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  bannerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: theme.spacing[0.5],
+  },
+  bannerTitle: {
+    flexShrink: 1,
+    minWidth: 0,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+  bannerHint: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  bannerHintBlock: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  stepTrailing: {
+    width: STEP_TRAILING_WIDTH,
+    flexGrow: 0,
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: theme.spacing[2],
+  },
+  stepDot: {
+    width: 8,
+    height: 8,
+    borderRadius: theme.borderRadius.full,
+  },
+  stepDotPending: {
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.surface3,
+  },
+  stepDotActive: {
+    backgroundColor: theme.colors.statusDotRunning,
+  },
+  stepDotSucceeded: {
+    backgroundColor: theme.colors.statusDotSuccess,
+  },
+  stepDotFailed: {
+    backgroundColor: theme.colors.statusDotDanger,
+  },
+  stepActionPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.borderAccent,
+    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
+  },
+  stepActionPillDisabled: {
+    opacity: 0.5,
+  },
+  stepActionLabel: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+    lineHeight: 15,
+  },
+  stepChipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: theme.spacing[2],
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  stepChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.borderAccent,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface1,
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
+  },
+  stepChipLabel: {
+    color: theme.colors.foreground,
+    fontSize: DETAIL_TEXT_SIZE,
+  },
+  stepStatusActive: {
+    color: theme.colors.statusDotRunning,
   },
   planForm: {
     gap: theme.spacing[4],
@@ -3100,17 +3898,21 @@ const styles = StyleSheet.create((theme) => ({
     width: "100%",
     minWidth: 0,
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.lg,
+    fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.medium,
-    lineHeight: 24,
+    lineHeight: 22,
     textAlign: "left",
-    paddingVertical: 0,
-    paddingBottom: theme.spacing[0.5],
-    borderBottomWidth: 1,
-    borderBottomColor: "transparent",
+    paddingVertical: theme.spacing[1],
+    paddingHorizontal: theme.spacing[2],
+    marginVertical: -theme.spacing[1],
+    marginHorizontal: -theme.spacing[2],
+    borderRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderColor: "transparent",
   },
   headerTitleInputFocused: {
-    borderBottomColor: theme.colors.accentBright,
+    backgroundColor: theme.colors.surface2,
+    borderColor: theme.colors.borderAccent,
   },
   chipRow: {
     paddingHorizontal: theme.spacing[6],
@@ -3138,10 +3940,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   tabBar: {
     minHeight: 42,
-    paddingHorizontal: theme.spacing[6],
+    paddingHorizontal: theme.spacing[4],
     flexDirection: "row",
     alignItems: "stretch",
-    gap: theme.spacing[6],
+    gap: theme.spacing[3],
+  },
+  compactTabBar: {
     backgroundColor: theme.colors.surface1,
   },
   desktopTabBar: {
@@ -3150,6 +3954,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   tab: {
     justifyContent: "center",
+    paddingHorizontal: theme.spacing[1],
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
   },
@@ -3164,7 +3969,7 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
   },
   tabContent: {
-    gap: theme.spacing[6],
+    gap: theme.spacing[2],
   },
   tabInner: {
     flexDirection: "row",
@@ -3176,19 +3981,29 @@ const styles = StyleSheet.create((theme) => ({
     fontFamily: theme.fontFamily.mono,
     fontSize: theme.fontSize.xs,
   },
-  planTrailing: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
-    minWidth: 0,
-    flexShrink: 1,
+  metaRows: {
+    gap: theme.spacing[2],
+    paddingTop: theme.spacing[2],
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.surface2,
   },
-  planAutomationSummary: {
-    flexShrink: 1,
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: theme.spacing[3],
+  },
+  metaLabel: {
+    width: 96,
+    flexGrow: 0,
+    flexShrink: 0,
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: DETAIL_TEXT_SIZE,
+  },
+  metaValue: {
+    flex: 1,
     minWidth: 0,
     color: theme.colors.foregroundMuted,
-    fontFamily: theme.fontFamily.mono,
-    fontSize: theme.fontSize.xs,
+    fontSize: DETAIL_TEXT_SIZE,
   },
   planEmpty: {
     gap: theme.spacing[2],
@@ -3197,25 +4012,14 @@ const styles = StyleSheet.create((theme) => ({
   planStepRow: {
     gap: theme.spacing[2],
   },
-  stepIndexBadge: {
-    width: 20,
-    height: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: theme.borderRadius.full,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-  },
-  stepIndexText: {
-    color: theme.colors.foregroundMuted,
-    fontFamily: theme.fontFamily.mono,
-    fontSize: theme.fontSize.xs,
-    lineHeight: 14,
+  planStepOpen: {
+    backgroundColor: theme.colors.surface2,
   },
   stepExpanded: {
     gap: theme.spacing[3],
-    paddingHorizontal: theme.spacing[4],
-    paddingBottom: theme.spacing[4],
+    paddingLeft: theme.spacing[8],
+    paddingRight: theme.spacing[3],
+    paddingBottom: theme.spacing[3],
   },
   stepExpandedFooter: {
     flexDirection: "row",
@@ -3225,10 +4029,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   stepBriefInput: {
     minHeight: 72,
-    borderRadius: theme.borderRadius.lg,
+    borderRadius: theme.borderRadius.md,
     borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface0,
+    borderColor: theme.colors.borderAccent,
+    backgroundColor: theme.colors.surface1,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
     padding: theme.spacing[3],
@@ -3241,17 +4045,22 @@ const styles = StyleSheet.create((theme) => ({
   },
   stepTitle: {
     flex: 1,
-    color: theme.colors.foreground,
+    color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
   stepTitleActive: {
-    color: theme.colors.accentBright,
+    color: theme.colors.foreground,
+    fontWeight: theme.fontWeight.medium,
   },
   stepMeta: {
-    color: theme.colors.foregroundMuted,
-    fontFamily: theme.fontFamily.mono,
+    color: theme.colors.foregroundExtraMuted,
     fontSize: theme.fontSize.xs,
+  },
+  stepDuration: {
+    color: theme.colors.foregroundExtraMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: STEP_DURATION_FONT_SIZE,
   },
   stepStatus: {
     color: theme.colors.foregroundMuted,
@@ -3263,22 +4072,18 @@ const styles = StyleSheet.create((theme) => ({
   stepStatusFailed: {
     color: theme.colors.statusDanger,
   },
-  blocker: {
-    color: theme.colors.statusWarning,
-    fontSize: theme.fontSize.sm,
-  },
   groupContent: {
-    gap: theme.spacing[6],
+    gap: RAIL_GROUP_GAP,
   },
   detailsDescriptionInput: {
-    minHeight: 120,
+    minHeight: 112,
     borderRadius: theme.borderRadius.lg,
-    borderWidth: 1,
+    borderWidth: theme.borderWidth[1],
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.colors.surface1,
     fontSize: theme.fontSize.sm,
-    lineHeight: 20,
-    padding: theme.spacing[4],
+    lineHeight: 22,
+    padding: theme.spacing[3],
   },
   inlineInput: {
     flex: 1,
@@ -3322,6 +4127,14 @@ const styles = StyleSheet.create((theme) => ({
   fieldFill: {
     flex: 1,
     maxHeight: 120,
+  },
+  addRow: {
+    justifyContent: "flex-start",
+    gap: theme.spacing[2],
+  },
+  addRowLabel: {
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: DETAIL_TEXT_SIZE,
   },
   emptyComments: {
     color: theme.colors.foregroundMuted,
