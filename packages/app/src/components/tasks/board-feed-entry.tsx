@@ -1,18 +1,23 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
 import {
+  ArrowRight,
   Bot,
   Check,
   ChevronDown,
   ChevronUp,
   GitBranch,
+  Eye,
+  Hand,
   Pencil,
   SendHorizontal,
 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import type { TaskComment } from "@getpaseo/protocol/tasks/types";
+import { useTranslation } from "react-i18next";
+import type { TaskComment, TaskStatus } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { TASK_STATUS_LABEL_KEYS } from "./task-board-parts";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import { useSessionStore } from "@/stores/session-store";
 import {
@@ -31,12 +36,16 @@ const ThemedPencil = withUnistyles(Pencil);
 const ThemedBot = withUnistyles(Bot);
 const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedCheck = withUnistyles(Check);
+const ThemedEye = withUnistyles(Eye);
+const ThemedHand = withUnistyles(Hand);
+const ThemedArrowRight = withUnistyles(ArrowRight);
 
 const ACTIVITY_ICON_SIZE = 14;
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const extraMutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundExtraMuted });
 const accentIconMapping = (theme: Theme) => ({ color: theme.colors.accentBright });
 const successIconMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
+const warningIconMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
 
 /** Wall-clock time only: a feed you read top to bottom already carries the day. */
 export function formatEntryTime(createdAt: string): string {
@@ -239,10 +248,15 @@ function ActivityFeedEntry({
       {expandControl}
     </>
   );
+  const event = entry.event;
+  const isVerdict = event?.kind === "review_findings";
   return (
-    <View style={styles.activityEntry} testID={`board-feed-entry-${entry.id}`}>
+    <View
+      style={[styles.activityEntry, isVerdict && styles.activityEntryVerdict]}
+      testID={`board-feed-entry-${entry.id}`}
+    >
       <View style={styles.activityMarker}>
-        <ActivityEntryIcon entryKind={entryKind} />
+        <ActivityEntryIcon entryKind={entryKind} event={event} />
       </View>
       <View style={styles.activityContent}>
         {hasHeader ? (
@@ -258,7 +272,11 @@ function ActivityFeedEntry({
           authoredBody
         ) : (
           <View style={styles.activityBodyRow}>
-            {bodyText}
+            {event?.kind === "task_moved" && event.previousStatus && event.status ? (
+              <TaskMoveLine from={event.previousStatus} to={event.status} />
+            ) : (
+              bodyText
+            )}
             <Text style={styles.activityTime}>{time}</Text>
           </View>
         )}
@@ -282,9 +300,17 @@ function ActivityFeedEntry({
 /** What kind of thing happened, as the one glyph the timeline reads by. */
 function ActivityEntryIcon({
   entryKind,
+  event,
 }: {
   entryKind: NonNullable<TaskComment["entryKind"]>;
+  event: TaskComment["event"];
 }): ReactElement {
+  if (event?.kind === "review_findings") {
+    return <ThemedEye size={ACTIVITY_ICON_SIZE} uniProps={warningIconMapping} />;
+  }
+  if (event?.kind === "agent_needs_input") {
+    return <ThemedHand size={ACTIVITY_ICON_SIZE} uniProps={warningIconMapping} />;
+  }
   if (entryKind === "message") {
     return <ThemedSend size={ACTIVITY_ICON_SIZE} uniProps={accentIconMapping} />;
   }
@@ -326,6 +352,19 @@ function MessageRecipientRow({
         {identity}
       </Text>
       <DeliveryMark status={recipient.deliveryStatus} appearance={appearance} />
+    </View>
+  );
+}
+
+/** A status change as the move it was: two states and the step between them,
+ * which a sentence spends a line saying. */
+function TaskMoveLine({ from, to }: { from: TaskStatus; to: TaskStatus }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.activityMove}>
+      <Text style={styles.activityBodySystem}>{t(TASK_STATUS_LABEL_KEYS[from])}</Text>
+      <ThemedArrowRight size={ACTIVITY_ICON_SIZE} uniProps={extraMutedIconMapping} />
+      <Text style={styles.activityMoveTarget}>{t(TASK_STATUS_LABEL_KEYS[to])}</Text>
     </View>
   );
 }
@@ -482,6 +521,24 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "stretch",
     gap: theme.spacing[3],
+  },
+  activityEntryVerdict: {
+    borderLeftWidth: 2,
+    borderLeftColor: theme.colors.statusWarning,
+    paddingLeft: theme.spacing[2],
+    marginLeft: -theme.spacing[2] - 2,
+  },
+  activityMove: {
+    flexShrink: 1,
+    flexGrow: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  activityMoveTarget: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    lineHeight: ACTIVITY_LINE_HEIGHT,
   },
   activityTime: {
     marginLeft: "auto",
