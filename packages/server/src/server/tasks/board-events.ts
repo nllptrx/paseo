@@ -12,6 +12,7 @@ export const BOARD_EVENT_KINDS = [
   "task_auto_start_failed",
   "agent_attached",
   "agent_stalled",
+  "agent_needs_input",
   "review_findings",
   "review_stalled",
   "review_failed",
@@ -47,7 +48,8 @@ export function renderBoardEvent(input: {
     return `The ${input.event.cause}.`;
   }
   const key = `${input.project.prefix}-${input.task.number}`;
-  const separator = input.event.kind === "agent_stalled" ? ":" : "";
+  const separator =
+    input.event.kind === "agent_stalled" || input.event.kind === "agent_needs_input" ? ":" : "";
   return `${key} "${input.task.title}"${separator} ${input.event.cause}.`;
 }
 

@@ -74,6 +74,9 @@ export const REVIEWER_FINDINGS_EXCERPT_LIMIT = 2000;
 export class TaskTransitionEngine {
   private readonly deps: TaskTransitionEngineDeps;
   private readonly unsubscribesByLink = new Map<string, () => void>();
+  /** Links whose agent is currently waiting on a person, so entering that state
+   * is recorded once rather than on every state event that follows. */
+  private readonly waitingLinks = new Set<string>();
   private readonly reviewUnsubscribesByLink = new Map<string, () => void>();
   private readonly reviewTimeoutsByLink = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly reviewAttemptsByTask = new Map<string, number>();
@@ -187,6 +190,7 @@ export class TaskTransitionEngine {
         if (event.type !== "agent_state") {
           return;
         }
+        this.reportWaitingForPerson(input, event.agent);
         const outcome = observer.observeLifecycle(event.agent.lifecycle);
         if (outcome) {
           handleOutcome(outcome);
@@ -217,6 +221,7 @@ export class TaskTransitionEngine {
     const key = this.linkKey(input);
     this.unsubscribesByLink.get(key)?.();
     this.unsubscribesByLink.delete(key);
+    this.waitingLinks.delete(key);
   }
 
   /**
@@ -225,6 +230,51 @@ export class TaskTransitionEngine {
    * said once, in the feed, where the rest of the board's history is. The task
    * does not move: a failure leaves the card where it was.
    */
+  /**
+   * An attached agent stopped to ask a person something — a permission it
+   * cannot grant itself. Until now this state lived only in the agent, so the
+   * card's history said nothing about the hours a task spent waiting on a
+   * decision. Recorded on the edge into waiting, never on the way out: the
+   * answer is already in the transcript, and a pair of lines per prompt would
+   * bury the work the feed is for.
+   */
+  private reportWaitingForPerson(
+    input: { taskId: string; agentId: string },
+    agent: { pendingPermissions?: ReadonlyMap<string, unknown> },
+  ): void {
+    const key = this.linkKey(input);
+    const pending = agent.pendingPermissions?.size ?? 0;
+    const wasWaiting = this.waitingLinks.has(key);
+    if (pending === 0) {
+      this.waitingLinks.delete(key);
+      return;
+    }
+    if (wasWaiting) {
+      return;
+    }
+    this.waitingLinks.add(key);
+    void (async () => {
+      const task = await this.deps.taskService.getTask(input.taskId);
+      if (!task) {
+        return;
+      }
+      await this.deps.taskService.emitBoardEvent({
+        kind: "agent_needs_input",
+        taskId: task.id,
+        agentId: input.agentId,
+        cause:
+          pending === 1
+            ? "its agent is waiting for a permission decision"
+            : `its agent is waiting for ${pending} permission decisions`,
+      });
+    })().catch((error) => {
+      this.deps.logger.warn(
+        { err: error, taskId: input.taskId, agentId: input.agentId },
+        "Could not record a waiting agent in the feed",
+      );
+    });
+  }
+
   private reportStall(input: { taskId: string; agentId: string }, note: string): void {
     void (async () => {
       const task = await this.deps.taskService.getTask(input.taskId);

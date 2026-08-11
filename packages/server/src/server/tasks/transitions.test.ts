@@ -48,6 +48,15 @@ function createFakeAgentManager() {
         listener({ type: "agent_state", agent: { lifecycle } });
       }
     },
+    emitPendingPermissions(agentId: string, pending: number) {
+      const lifecycle = this.snapshots.get(agentId) ?? "running";
+      const pendingPermissions = new Map(
+        Array.from({ length: pending }, (_unused, index) => [`req_${index}`, {}] as const),
+      );
+      for (const listener of listeners.get(agentId) ?? []) {
+        listener({ type: "agent_state", agent: { lifecycle, pendingPermissions } });
+      }
+    },
     listenerCount(agentId: string): number {
       return listeners.get(agentId)?.size ?? 0;
     },
@@ -63,6 +72,15 @@ function indexOfEntryContaining(feed: readonly TaskComment[], needle: string): n
 describe("TaskTransitionEngine", () => {
   let directory: string;
   let service: TaskService;
+
+  async function listWaitingEntries(projectId: string): Promise<readonly TaskComment[]> {
+    const feed = await service.listBoardFeed({ projectId });
+    return feed.filter((entry) => entry.event?.kind === "agent_needs_input");
+  }
+
+  async function countWaitingEntries(projectId: string): Promise<number> {
+    return (await listWaitingEntries(projectId)).length;
+  }
 
   beforeEach(() => {
     directory = mkdtempSync(join(tmpdir(), "paseo-task-transitions-"));
@@ -1220,6 +1238,40 @@ describe("TaskTransitionEngine", () => {
     expect(stalled?.agentId).toBe("agt_1");
     expect((await service.getTask(task.id))?.status).toBe("in_progress");
   });
+  it("records an agent waiting on a permission once, not on every state event", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask();
+    engine.observeAttachment({ taskId: task.id, agentId: "agt_1" });
+
+    agentManager.emitLifecycle("agt_1", "running");
+    agentManager.emitPendingPermissions("agt_1", 1);
+    agentManager.emitPendingPermissions("agt_1", 1);
+    await vi.waitFor(async () => {
+      expect(await countWaitingEntries(projectId)).toBe(1);
+    });
+
+    const waiting = await listWaitingEntries(projectId);
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]?.body).toContain("waiting for a permission decision");
+    expect(waiting[0]?.agentId).toBe("agt_1");
+    expect((await service.getTask(task.id))?.status).toBe("in_progress");
+  });
+
+  it("records the next wait after the agent stops waiting", async () => {
+    const { task, engine, agentManager, projectId } = await seedTask();
+    engine.observeAttachment({ taskId: task.id, agentId: "agt_1" });
+
+    agentManager.emitLifecycle("agt_1", "running");
+    agentManager.emitPendingPermissions("agt_1", 1);
+    agentManager.emitPendingPermissions("agt_1", 0);
+    agentManager.emitPendingPermissions("agt_1", 2);
+    await vi.waitFor(async () => {
+      expect(await countWaitingEntries(projectId)).toBe(2);
+    });
+
+    const waiting = await listWaitingEntries(projectId);
+    expect(waiting.map((entry) => entry.body).join(" ")).toContain("2 permission decisions");
+  });
+
   /** A daemon restart re-arms the observer, but the agent it watches may have
    * been mid-run: it will reach idle without this observer having seen it run,
    * and the settle that moves the card would never fire. */
