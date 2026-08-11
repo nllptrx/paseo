@@ -39,3 +39,14 @@ export function useDropdownMenuClose(): () => void {
   const { setOpen } = useMenuContext("useDropdownMenuClose");
   return useCallback(() => setOpen(false), [setOpen]);
 }
+
+/**
+ * Pops the current page, leaving the menu open on the one behind it. A page
+ * holding a form needs this when the form is spent: on the popover the page is
+ * a flyout floating over the rows it was opened from, so a page that outlives
+ * its purpose covers them and swallows their presses.
+ */
+export function useDropdownMenuBack(): () => void {
+  const { goBack } = useMenuContext("useDropdownMenuBack");
+  return goBack;
+}

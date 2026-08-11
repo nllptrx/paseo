@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  useDropdownMenuBack,
   type MenuPageDefinition,
 } from "@/components/ui/dropdown-menu";
 import { FormTextInput } from "@/components/ui/form-field";
@@ -488,6 +489,7 @@ function CreateTaskLabelPage({
   onCreate: (input: { name: string; color: string }) => Promise<void>;
 }): ReactElement {
   const toast = useToast();
+  const goBack = useDropdownMenuBack();
   const [name, setName] = useState("");
   const [resetKey, setResetKey] = useState(0);
   const [colorName, setColorName] = useState<(typeof IDENTITY_COLOR_NAMES)[number]>("violet");
@@ -501,13 +503,14 @@ function CreateTaskLabelPage({
         await onCreate({ name: trimmedName, color: identityColor(colorName) });
         setName("");
         setResetKey((current) => current + 1);
+        goBack();
       } catch (error) {
         toast.show(toErrorMessage(error));
       } finally {
         setIsCreating(false);
       }
     })();
-  }, [colorName, isCreating, name, onCreate, toast]);
+  }, [colorName, goBack, isCreating, name, onCreate, toast]);
 
   return (
     <View style={styles.labelCreateForm}>
