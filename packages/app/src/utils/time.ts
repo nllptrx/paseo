@@ -146,6 +146,16 @@ export function formatMessageTimestamp(date: Date, now: Date = new Date()): stri
 }
 
 /**
+ * A timestamp that never depends on when it is read: day, short month and the
+ * clock, in the reader's own hour cycle. Records that are compared to each
+ * other — created against updated — need a fixed point, not "Monday".
+ */
+export function formatDateStamp(date: Date): string {
+  const day = date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return `${day}, ${getTimeFormatter().format(date)}`;
+}
+
+/**
  * Format a duration as a compact human-readable string.
  * - 0-60s: whole seconds ("47s")
  * - Minutes/hours: integers only ("2m 12s", "1h 5m")

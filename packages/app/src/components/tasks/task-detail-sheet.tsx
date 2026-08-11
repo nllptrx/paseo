@@ -90,7 +90,7 @@ import {
   useTaskMutations,
 } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
-import { formatCompactTimeAgo, formatDuration, formatMessageTimestamp } from "@/utils/time";
+import { formatCompactTimeAgo, formatDateStamp, formatDuration } from "@/utils/time";
 import { BoardFeedEntryRow } from "./board-feed-entry";
 import {
   resolveSubSurfaceTitle,
@@ -164,6 +164,9 @@ const STEP_TRAILING_WIDTH = 104;
 const RAIL_GROUP_GAP = 20;
 const DETAIL_TEXT_SIZE = 13;
 const STEP_DURATION_FONT_SIZE = 11;
+/** The facts block: one label column, one line height, one rhythm. */
+const META_LABEL_WIDTH = 96;
+const META_LINE_HEIGHT = 18;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Keeps the rail's divider full height when the left pane is short. */
 const DESKTOP_SPLIT_MIN_HEIGHT = 480;
@@ -2161,7 +2164,7 @@ function TaskDetailMetaRow({ label, value }: { label: string; value: string }): 
 
 function formatMetaTimestamp(iso: string): string {
   const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? "—" : formatMessageTimestamp(date);
+  return Number.isNaN(date.getTime()) ? "—" : formatDateStamp(date);
 }
 
 function TaskUpdatesSection({
@@ -4023,9 +4026,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   metaRows: {
     gap: theme.spacing[2],
-    paddingTop: theme.spacing[2],
+    paddingTop: theme.spacing[3],
     borderTopWidth: theme.borderWidth[1],
-    borderTopColor: theme.colors.surface2,
+    borderTopColor: theme.colors.border,
   },
   metaRow: {
     flexDirection: "row",
@@ -4033,17 +4036,19 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[3],
   },
   metaLabel: {
-    width: 96,
+    width: META_LABEL_WIDTH,
     flexGrow: 0,
     flexShrink: 0,
     color: theme.colors.foregroundExtraMuted,
     fontSize: DETAIL_TEXT_SIZE,
+    lineHeight: META_LINE_HEIGHT,
   },
   metaValue: {
     flex: 1,
     minWidth: 0,
     color: theme.colors.foregroundMuted,
     fontSize: DETAIL_TEXT_SIZE,
+    lineHeight: META_LINE_HEIGHT,
   },
   planEmpty: {
     gap: theme.spacing[2],
