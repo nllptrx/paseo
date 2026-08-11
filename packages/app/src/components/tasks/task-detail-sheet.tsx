@@ -1,7 +1,14 @@
-import { useCallback, useMemo, useRef, useState, type ReactElement } from "react";
-import { Pressable, Text, View } from "react-native";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactElement,
+} from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, ChevronUp, SendHorizontal } from "lucide-react-native";
+import { ChevronDown, ChevronRight, ChevronUp, Plus, SendHorizontal } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -53,6 +60,10 @@ import {
   type TaskStepAction,
 } from "@/tasks/use-task-workflow";
 import { resolveStepAgentTarget } from "@/tasks/task-workflow-view";
+import { buildTaskWorkflowSteps } from "@/tasks/task-workflow-form-model";
+import { useTaskWorkflowFormModel } from "@/tasks/use-task-workflow-form-model";
+import { useKanbanProjectCwd } from "@/tasks/use-kanban-project-cwd";
+import { TaskWorkflowStepEditor } from "./task-workflow-step-editor";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import {
   useTaskExecutionPolicySupported,
@@ -62,6 +73,11 @@ import {
 } from "@/tasks/use-tasks";
 import { toErrorMessage } from "@/utils/error-messages";
 import { BoardFeedEntryRow } from "./board-feed-entry";
+import {
+  resolveSubSurfaceTitle,
+  resolveSurfaceStep,
+  type TaskDetailSubSurface,
+} from "./task-detail-sheet.logic";
 import { activityFeedShowsHeader, groupActivityFeedEntries } from "./board-feed-entry.logic";
 import { TaskExecutionStateDot } from "./task-execution-summary";
 import { TASK_STATUS_LABEL_KEYS } from "./task-board-parts";
@@ -83,9 +99,12 @@ import { resolveProviderLabel } from "@/tasks/use-task-available-providers";
 
 type TaskDetailTab = "execution" | "details" | "activity";
 
-/** The body a sub-surface replaces on compact: a step's own screen or the
- * automation & delivery screen, reached with a back arrow (wireframe 1d). */
-type TaskDetailSubSurface = { kind: "automation" } | { kind: "step"; stepId: string };
+/** The rail beside the tabs on desktop: properties, live agents, relations. */
+const DETAIL_RAIL_WIDTH = 250;
+/** Keeps the rail's divider full height when the left pane is short. */
+const DESKTOP_SPLIT_MIN_HEIGHT = 340;
+const DESKTOP_MAX_WIDTH = 880;
+const EMPTY_STEPS: readonly Step[] = [];
 
 const ThemedChevronRight = withUnistyles(ChevronRight);
 const ThemedChevronDown = withUnistyles(ChevronDown);
@@ -95,6 +114,9 @@ const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMute
 
 export interface TaskDetailSheetProps {
   serverId: string;
+  /** The Paseo project the board belongs to; the plan editor resolves provider
+   * capabilities against its checkout. */
+  paseoProjectId: string;
   taskId: string | null;
   tasks: readonly Task[];
   labels: readonly TaskLabel[];
@@ -105,8 +127,9 @@ export interface TaskDetailSheetProps {
   /** Every card's live execution, so a subtask row can show its own state
    * without the sheet refetching what the board already read. */
   executionByTaskId?: ReadonlyMap<string, TaskExecutionSummary> | undefined;
-  /** Opens the workflow editor for this task; the board owns that sheet. */
-  onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
+  /** Opens straight onto a sub-surface — capture's "Create & plan" lands on the
+   * new task with its plan editor already up. */
+  initialSubSurface?: TaskDetailSubSurface | null | undefined;
   onClose: () => void;
 }
 
@@ -117,6 +140,7 @@ export interface TaskDetailSheetProps {
  */
 export function TaskDetailSheet({
   serverId,
+  paseoProjectId,
   taskId,
   tasks,
   labels,
@@ -125,7 +149,7 @@ export function TaskDetailSheet({
   workflows,
   executionSummary,
   executionByTaskId,
-  onEditWorkflow,
+  initialSubSurface,
   onClose,
 }: TaskDetailSheetProps): ReactElement | null {
   const task = taskId ? tasks.find((entry) => entry.id === taskId) : undefined;
@@ -136,6 +160,7 @@ export function TaskDetailSheet({
     <OpenTaskDetailSheet
       key={task.id}
       serverId={serverId}
+      paseoProjectId={paseoProjectId}
       task={task}
       project={projectsById.get(task.projectId)}
       projectsById={projectsById}
@@ -144,7 +169,7 @@ export function TaskDetailSheet({
       workflow={workflows.find((entry) => entry.taskId === task.id) ?? null}
       executionSummary={executionSummary}
       executionByTaskId={executionByTaskId}
-      onEditWorkflow={onEditWorkflow}
+      initialSubSurface={initialSubSurface}
       labels={labels}
       onClose={onClose}
     />
@@ -153,6 +178,7 @@ export function TaskDetailSheet({
 
 function OpenTaskDetailSheet({
   serverId,
+  paseoProjectId,
   task,
   project,
   projectsById,
@@ -161,11 +187,12 @@ function OpenTaskDetailSheet({
   workflow,
   executionSummary,
   executionByTaskId,
-  onEditWorkflow,
+  initialSubSurface,
   labels,
   onClose,
 }: {
   serverId: string;
+  paseoProjectId: string;
   task: Task;
   project: TaskProject | undefined;
   projectsById: ReadonlyMap<string, TaskProject>;
@@ -174,7 +201,7 @@ function OpenTaskDetailSheet({
   workflow: TaskWorkflow | null;
   executionSummary?: TaskExecutionSummary | undefined;
   executionByTaskId?: ReadonlyMap<string, TaskExecutionSummary> | undefined;
-  onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
+  initialSubSurface?: TaskDetailSubSurface | null | undefined;
   labels: readonly TaskLabel[];
   onClose: () => void;
 }): ReactElement {
@@ -194,13 +221,26 @@ function OpenTaskDetailSheet({
   } = useTaskMutations(serverId);
   const supportsLabelDeletion = useTaskLabelDeletionSupported(serverId);
   const isCompact = useIsCompactFormFactor();
-  const [subSurface, setSubSurface] = useState<TaskDetailSubSurface | null>(null);
+  const [subSurface, setSubSurface] = useState<TaskDetailSubSurface | null>(
+    initialSubSurface ?? null,
+  );
   const closeSubSurface = useCallback(() => setSubSurface(null), []);
   const openAutomationSurface = useCallback(() => setSubSurface({ kind: "automation" }), []);
+  const openPlanSurface = useCallback(() => setSubSurface({ kind: "plan" }), []);
   const openStepSurface = useCallback(
     (stepId: string) => setSubSurface({ kind: "step", stepId }),
     [],
   );
+  // Esc, ✕, the backdrop and hardware back all arrive here: each closes the
+  // innermost surface only, so a sub-surface is never the thing that dismisses
+  // the task.
+  const handleClose = useCallback(() => {
+    if (subSurface) {
+      closeSubSurface();
+      return;
+    }
+    onClose();
+  }, [closeSubSurface, onClose, subSurface]);
   const [isAutomationExpanded, setIsAutomationExpanded] = useState(false);
   const toggleAutomationExpanded = useCallback(
     () => setIsAutomationExpanded((current) => !current),
@@ -333,11 +373,6 @@ function OpenTaskDetailSheet({
     },
     [act, task.id, toast],
   );
-  const handleEditWorkflow = useCallback(
-    () => onEditWorkflow(task.id, workflow?.steps),
-    [onEditWorkflow, task.id, workflow?.steps],
-  );
-
   const projectLabels = useMemo(
     () => labels.filter((label) => label.projectId === task.projectId),
     [labels, task.projectId],
@@ -464,17 +499,44 @@ function OpenTaskDetailSheet({
   }, [isPosting, noteDraft, post, task.id, toast]);
 
   const taskKey = formatTaskKey(project, task);
-  const steps = workflow?.steps ?? [];
+  // Stable identity: the plan editor seeds its form from this, and a fresh empty
+  // array on every render would re-run that seeding mid-edit.
+  const steps = useMemo(() => workflow?.steps ?? EMPTY_STEPS, [workflow?.steps]);
   const { surfaceStep, surfaceStepIndex } = resolveSurfaceStep(subSurface, steps);
   const header = useMemo(() => {
     if (subSurface) {
-      let title = "Step";
-      if (subSurface.kind === "automation") {
-        title = "Automation & delivery";
-      } else if (surfaceStep) {
-        title = `Step ${surfaceStepIndex + 1} · ${surfaceStep.name}`;
-      }
-      return { title, back: { onPress: closeSubSurface } };
+      return {
+        title: resolveSubSurfaceTitle({ subSurface, surfaceStep, surfaceStepIndex }),
+        back: { onPress: closeSubSurface },
+      };
+    }
+    // Desktop keeps the title and the one primary action on the header row: the
+    // chips have moved to the rail and the tabs into the left pane.
+    if (!isCompact) {
+      return {
+        title: task.title,
+        titleContent: (
+          <View style={styles.headerTitleColumn}>
+            <Text style={styles.taskKey}>{taskKey}</Text>
+            <TaskDetailTitleInput
+              task={task}
+              isTitleFocused={isTitleFocused}
+              onTitleChange={setTitleDraft}
+              onTitleFocus={focusTitle}
+              onTitleBlur={blurTitle}
+              onTitleSave={saveBrief}
+            />
+          </View>
+        ),
+        actions: (
+          <TaskStartControl
+            presets={presets}
+            isAggregate={isAggregate}
+            disabled={blockers.length > 0 || isDelegating}
+            onStart={handleDelegate}
+          />
+        ),
+      };
     }
     return {
       title: task.title,
@@ -482,7 +544,6 @@ function OpenTaskDetailSheet({
       after: (
         <TaskDetailHeaderBody
           task={task}
-          isCompact={isCompact}
           isTitleFocused={isTitleFocused}
           onTitleChange={setTitleDraft}
           onTitleFocus={focusTitle}
@@ -497,10 +558,6 @@ function OpenTaskDetailSheet({
           onSetLabelIds={handleSetLabelIds}
           onCreateLabel={createLabel}
           onDeleteLabel={deleteLabel}
-          presets={presets}
-          isAggregate={isAggregate}
-          startDisabled={blockers.length > 0 || isDelegating}
-          onStart={handleDelegate}
           stepCount={steps.length}
           activityCount={comments.length}
           activeTab={activeTab}
@@ -594,33 +651,46 @@ function OpenTaskDetailSheet({
 
   const automationSummary = resolveAutomationSummary(task, project, isAggregate);
 
-  return (
-    <AdaptiveModalSheet
-      header={header}
-      visible
-      onClose={onClose}
-      desktopMaxWidth={720}
-      testID="task-detail-sheet"
-      footer={footer}
-      footerContainerStyle={styles.unifiedComposerFooter}
-    >
-      {subSurface ? (
-        <TaskDetailSubSurfaceBody
-          subSurface={subSurface}
-          surfaceStep={surfaceStep}
-          serverId={serverId}
-          task={task}
-          project={project}
-          presets={presets}
-          isAggregate={isAggregate}
-          isActing={isActing}
-          onAct={handleStepAction}
-          onOpenAgent={handleOpenAgent}
-          onSaveBrief={saveStepBrief}
-        />
-      ) : null}
+  const subtasksSection =
+    subtasks.length > 0 || isAggregate ? (
+      <TaskSubtasksSection
+        subtasks={subtasks}
+        projectsById={projectsById}
+        presets={presets}
+        draft={subtaskDraft}
+        draftResetKey={subtaskResetKey}
+        executionByTaskId={executionByTaskId}
+        isBusy={isBusy}
+        isReviewing={isReviewing}
+        onDraftChange={setSubtaskDraft}
+        onCreate={createSubtask}
+        onReview={handleReviewSubtask}
+        onOpenAgent={handleOpenAgent}
+      />
+    ) : null;
 
-      {!subSurface && activeTab === "execution" ? (
+  const body = subSurface ? (
+    <TaskDetailSubSurfaceBody
+      subSurface={subSurface}
+      surfaceStep={surfaceStep}
+      serverId={serverId}
+      paseoProjectId={paseoProjectId}
+      task={task}
+      project={project}
+      presets={presets}
+      steps={steps}
+      isAggregate={isAggregate}
+      isActing={isActing}
+      isBusy={isBusy}
+      onAct={handleStepAction}
+      onOpenAgent={handleOpenAgent}
+      onSaveBrief={saveStepBrief}
+      onSaveWorkflow={setWorkflow}
+      onPlanSaved={closeSubSurface}
+    />
+  ) : (
+    <>
+      {activeTab === "execution" ? (
         <View style={styles.tabContent} testID="task-detail-execution-tab">
           <TaskDetailAttentionSection
             task={task}
@@ -641,7 +711,7 @@ function OpenTaskDetailSheet({
             automationSummary={automationSummary}
             isAutomationExpanded={isAutomationExpanded}
             onChangeAutomation={isCompact ? openAutomationSurface : toggleAutomationExpanded}
-            onEdit={handleEditWorkflow}
+            onEdit={openPlanSurface}
             onAct={handleStepAction}
             onOpenAgent={handleOpenAgent}
             onOpenStep={openStepSurface}
@@ -659,55 +729,98 @@ function OpenTaskDetailSheet({
               <TaskDeliverySection task={task} />
             </View>
           ) : null}
-          <TaskAgentsSection groups={executionGroups} onOpenAgent={handleOpenAgent} />
-          {subtasks.length > 0 || isAggregate ? (
-            <TaskSubtasksSection
-              subtasks={subtasks}
-              projectsById={projectsById}
-              presets={presets}
-              draft={subtaskDraft}
-              draftResetKey={subtaskResetKey}
-              executionByTaskId={executionByTaskId}
-              isBusy={isBusy}
-              isReviewing={isReviewing}
-              onDraftChange={setSubtaskDraft}
-              onCreate={createSubtask}
-              onReview={handleReviewSubtask}
-              onOpenAgent={handleOpenAgent}
-            />
-          ) : null}
+          {subtasksSection}
         </View>
       ) : null}
 
-      {!subSurface && activeTab === "details" ? (
+      {activeTab === "details" ? (
         <View style={styles.tabContent} testID="task-detail-details-tab">
           <TaskOverview task={task} onDescriptionChange={setDescriptionDraft} onSave={saveBrief} />
           <View style={styles.groupContent} testID="task-detail-details-group">
-            <TaskSubtasksSection
-              subtasks={subtasks}
-              projectsById={projectsById}
-              presets={presets}
-              draft={subtaskDraft}
-              draftResetKey={subtaskResetKey}
-              executionByTaskId={executionByTaskId}
-              isBusy={isBusy}
-              isReviewing={isReviewing}
-              onDraftChange={setSubtaskDraft}
-              onCreate={createSubtask}
-              onReview={handleReviewSubtask}
-              onOpenAgent={handleOpenAgent}
-            />
+            {subtasksSection}
             <TaskRelationshipsSection relationships={relationships} projectsById={projectsById} />
             <TaskAttachmentsSection task={task} />
           </View>
         </View>
       ) : null}
 
-      {!subSurface && activeTab === "activity" ? (
+      {activeTab === "activity" ? (
         <View style={styles.tabContent} testID="task-detail-activity-tab">
           <TaskUpdatesSection comments={comments} serverId={serverId} />
         </View>
       ) : null}
+    </>
+  );
+
+  return (
+    <AdaptiveModalSheet
+      header={header}
+      visible
+      onClose={handleClose}
+      enableSwipeToDismiss={subSurface === null}
+      desktopMaxWidth={isCompact ? undefined : DESKTOP_MAX_WIDTH}
+      scrollable={isCompact}
+      contentStyle={isCompact ? undefined : styles.desktopSplitContent}
+      testID="task-detail-sheet"
+      footer={footer}
+      footerContainerStyle={styles.unifiedComposerFooter}
+    >
+      {isCompact ? (
+        body
+      ) : (
+        <View style={styles.desktopSplit}>
+          <View style={styles.desktopLeftPane} testID="task-detail-left-pane">
+            {subSurface ? null : (
+              <View style={[styles.tabBar, styles.desktopTabBar]} accessibilityRole="tablist">
+                <TaskDetailTabButton
+                  tab="execution"
+                  label="Execution"
+                  count={steps.length}
+                  activeTab={activeTab}
+                  onSelect={setActiveTab}
+                />
+                <TaskDetailTabButton
+                  tab="details"
+                  label="Details"
+                  activeTab={activeTab}
+                  onSelect={setActiveTab}
+                />
+                <TaskDetailTabButton
+                  tab="activity"
+                  label="Activity"
+                  count={comments.length}
+                  activeTab={activeTab}
+                  onSelect={setActiveTab}
+                />
+              </View>
+            )}
+            <ScrollView
+              style={styles.desktopPaneScroll}
+              contentContainerStyle={styles.desktopPaneScrollContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.desktopPaneContent}>{body}</View>
+            </ScrollView>
+          </View>
+          <TaskDetailPropertyRail
+            task={task}
+            projectsById={projectsById}
+            projectLabels={projectLabels}
+            selectedLabelIds={labelIdsDraft}
+            supportsLabelDeletion={supportsLabelDeletion}
+            onSelectStatus={handleSelectStatus}
+            onSelectPriority={handleSelectPriority}
+            onSetDueDate={handleSetDueDate}
+            onSetLabelIds={handleSetLabelIds}
+            onCreateLabel={createLabel}
+            onDeleteLabel={deleteLabel}
+            executionGroups={executionGroups}
+            relationships={relationships}
+            subtaskCount={subtasks.length}
+            onOpenAgent={handleOpenAgent}
+          />
+        </View>
+      )}
     </AdaptiveModalSheet>
   );
 }
@@ -735,20 +848,6 @@ function useServerSyncedDraft<T>(
   return [draft, setDraft];
 }
 
-function resolveSurfaceStep(
-  subSurface: TaskDetailSubSurface | null,
-  steps: readonly Step[],
-): { surfaceStep: Step | undefined; surfaceStepIndex: number } {
-  if (subSurface?.kind !== "step") {
-    return { surfaceStep: undefined, surfaceStepIndex: -1 };
-  }
-  const surfaceStepIndex = steps.findIndex((step) => step.id === subSurface.stepId);
-  return {
-    surfaceStep: surfaceStepIndex >= 0 ? steps[surfaceStepIndex] : undefined,
-    surfaceStepIndex,
-  };
-}
-
 /** The one automation line: the delivery branch when there is one, otherwise
  * the effective policy compressed to workspace · review. */
 function resolveAutomationSummary(
@@ -769,29 +868,50 @@ function TaskDetailSubSurfaceBody({
   subSurface,
   surfaceStep,
   serverId,
+  paseoProjectId,
   task,
   project,
   presets,
+  steps,
   isAggregate,
   isActing,
+  isBusy,
   onAct,
   onOpenAgent,
   onSaveBrief,
+  onSaveWorkflow,
+  onPlanSaved,
 }: {
   subSurface: TaskDetailSubSurface;
   surfaceStep: Step | undefined;
   serverId: string;
+  paseoProjectId: string;
   task: Task;
   project: TaskProject | undefined;
   presets: readonly TaskPreset[];
+  steps: readonly Step[];
   isAggregate: boolean;
   isActing: boolean;
+  isBusy: boolean;
   onAct: (stepId: string, action: TaskStepAction) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onSaveBrief: (stepId: string, prompt: string) => void;
+  onSaveWorkflow: (input: { taskId: string; steps: StepInput[] }) => Promise<unknown>;
+  onPlanSaved: () => void;
 }): ReactElement {
   return (
     <View style={styles.tabContent} testID="task-detail-sub-surface">
+      {subSurface.kind === "plan" ? (
+        <TaskDetailPlanSurface
+          serverId={serverId}
+          paseoProjectId={paseoProjectId}
+          taskId={task.id}
+          existingSteps={steps}
+          isBusy={isBusy}
+          onSaveWorkflow={onSaveWorkflow}
+          onSaved={onPlanSaved}
+        />
+      ) : null}
       {subSurface.kind === "automation" ? (
         <>
           <TaskAutomationSection
@@ -819,6 +939,226 @@ function TaskDetailSubSurfaceBody({
         </Text>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * The plan editor as a sub-surface of the task: the same form the board used to
+ * open as a sheet of its own, so leaving it returns to the task instead of
+ * popping the whole stack back to the board.
+ */
+function TaskDetailPlanSurface({
+  serverId,
+  paseoProjectId,
+  taskId,
+  existingSteps,
+  isBusy,
+  onSaveWorkflow,
+  onSaved,
+}: {
+  serverId: string;
+  paseoProjectId: string;
+  taskId: string;
+  existingSteps: readonly Step[];
+  isBusy: boolean;
+  onSaveWorkflow: (input: { taskId: string; steps: StepInput[] }) => Promise<unknown>;
+  onSaved: () => void;
+}): ReactElement {
+  const cwd = useKanbanProjectCwd(serverId, paseoProjectId);
+  const snapshot = useMemo(
+    () => ({ serverId, taskId, cwd, existingSteps }),
+    [cwd, existingSteps, serverId, taskId],
+  );
+  const model = useTaskWorkflowFormModel(snapshot);
+  const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const canSubmit = state.canSubmit && !isBusy;
+  const handleAutoContinue = useCallback((value: boolean) => model.setAutoContinue(value), [model]);
+  const handleSubmit = useCallback(() => {
+    if (!canSubmit) {
+      return;
+    }
+    const steps = buildTaskWorkflowSteps(state);
+    if (!steps) {
+      return;
+    }
+    model.setSubmitError(null);
+    void onSaveWorkflow({ taskId: state.taskId, steps })
+      .then(onSaved)
+      .catch((submitError: unknown) => model.setSubmitError(toErrorMessage(submitError)));
+  }, [canSubmit, model, onSaveWorkflow, onSaved, state]);
+
+  return (
+    <View style={styles.planForm} testID="task-detail-plan-surface">
+      <View style={styles.planContinuation} testID="task-detail-plan-auto-continue">
+        <View style={styles.planContinuationCopy}>
+          <Text style={settingsStyles.rowTitle}>Continue automatically</Text>
+          <Text style={settingsStyles.rowHint}>
+            Start each next step when the previous step succeeds. Turn this off to pause between
+            steps.
+          </Text>
+        </View>
+        <Switch
+          value={state.autoContinue}
+          onValueChange={handleAutoContinue}
+          accessibilityLabel="Continue automatically"
+          testID="task-detail-plan-auto-continue-switch"
+        />
+      </View>
+      <View style={styles.planFormHeader}>
+        <Text style={settingsStyles.rowTitle}>
+          {state.steps.length} {state.steps.length === 1 ? "step" : "steps"}
+        </Text>
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={Plus}
+          onPress={model.addStep}
+          testID="task-detail-plan-add-step"
+        >
+          Add step
+        </Button>
+      </View>
+      <View style={styles.planFormSteps}>
+        {state.steps.map((step, index) => (
+          <TaskWorkflowStepEditor
+            key={step.key}
+            step={step}
+            index={index}
+            stepCount={state.steps.length}
+            state={state}
+            model={model}
+          />
+        ))}
+      </View>
+      {state.submitError ? (
+        <Text style={styles.planFormError} testID="task-detail-plan-error">
+          {state.submitError}
+        </Text>
+      ) : null}
+      <Button
+        variant="default"
+        onPress={handleSubmit}
+        disabled={!canSubmit}
+        loading={isBusy}
+        testID="task-detail-plan-submit"
+      >
+        Save plan
+      </Button>
+    </View>
+  );
+}
+
+/**
+ * The rail beside the tabs on desktop: the properties a card is triaged by, the
+ * agents running right now, and what the task hangs off. It survives every tab
+ * and every sub-surface, so glanceable state is never the thing that scrolled
+ * away.
+ */
+function TaskDetailPropertyRail({
+  task,
+  projectsById,
+  projectLabels,
+  selectedLabelIds,
+  supportsLabelDeletion,
+  onSelectStatus,
+  onSelectPriority,
+  onSetDueDate,
+  onSetLabelIds,
+  onCreateLabel,
+  onDeleteLabel,
+  executionGroups,
+  relationships,
+  subtaskCount,
+  onOpenAgent,
+}: {
+  task: Task;
+  projectsById: ReadonlyMap<string, TaskProject>;
+  projectLabels: readonly TaskLabel[];
+  selectedLabelIds: readonly string[];
+  supportsLabelDeletion: boolean;
+  onSelectStatus: (status: TaskStatus) => void;
+  onSelectPriority: (priority: TaskPriority) => void;
+  onSetDueDate: (dueDate: string | null) => Promise<Task>;
+  onSetLabelIds: (labelIds: string[]) => Promise<Task>;
+  onCreateLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
+  onDeleteLabel: (labelId: string) => Promise<void>;
+  executionGroups: readonly TaskExecutionWorkspaceGroup[];
+  relationships: readonly { label: string; task: Task }[];
+  subtaskCount: number;
+  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <ScrollView
+      style={styles.rail}
+      contentContainerStyle={styles.railContent}
+      testID="task-detail-rail"
+    >
+      <View style={styles.railGroup}>
+        <Text style={styles.railHeading}>Properties</Text>
+        <View style={styles.railChips}>
+          <TaskStatusChip
+            status={task.status}
+            onSelect={onSelectStatus}
+            testID="task-detail-status-trigger"
+          />
+          <TaskPriorityChip
+            priority={task.priority}
+            onSelect={onSelectPriority}
+            testID="task-detail-priority-trigger"
+          />
+          <TaskDueDateChip
+            dueDate={task.dueDate}
+            onSetDueDate={onSetDueDate}
+            testID="task-detail-due-trigger"
+          />
+          <TaskLabelsChip
+            projectId={task.projectId}
+            projectLabels={projectLabels}
+            selectedLabelIds={selectedLabelIds}
+            supportsDeletion={supportsLabelDeletion}
+            onSetLabelIds={onSetLabelIds}
+            onCreateLabel={onCreateLabel}
+            onDeleteLabel={onDeleteLabel}
+            testID="task-detail-labels-trigger"
+          />
+        </View>
+      </View>
+      {executionGroups.length > 0 ? (
+        <View style={styles.railGroup}>
+          <Text style={styles.railHeading}>{t("tasks.detail.agentsHeading")}</Text>
+          <View style={styles.executionGroups}>
+            {executionGroups.map((group) => (
+              <WorkspaceExecutionGroupCard
+                key={group.workspaceId}
+                group={group}
+                onOpenAgent={onOpenAgent}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+      {relationships.length > 0 || subtaskCount > 0 ? (
+        <View style={styles.railGroup} testID="task-detail-rail-relations">
+          <Text style={styles.railHeading}>Relations</Text>
+          {relationships.map((relationship) => (
+            <Text
+              key={`${relationship.label}-${relationship.task.id}`}
+              style={styles.railDetail}
+              numberOfLines={1}
+            >
+              {relationship.label} ·{" "}
+              {formatTaskKey(projectsById.get(relationship.task.projectId), relationship.task)}
+            </Text>
+          ))}
+          {subtaskCount > 0 ? (
+            <Text style={styles.railDetail}>
+              {subtaskCount} {subtaskCount === 1 ? "subtask" : "subtasks"}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </ScrollView>
   );
 }
 
@@ -870,9 +1210,46 @@ function TaskDetailAttentionSection({
 
 /** The header below the key row: full-width editable title, the property chip
  * rail, and the tab bar — one surface for identity and properties. */
+/** The task title, edited in place and written on blur. */
+function TaskDetailTitleInput({
+  task,
+  isTitleFocused,
+  onTitleChange,
+  onTitleFocus,
+  onTitleBlur,
+  onTitleSave,
+}: {
+  task: Task;
+  isTitleFocused: boolean;
+  onTitleChange: (title: string) => void;
+  onTitleFocus: () => void;
+  onTitleBlur: () => void;
+  onTitleSave: () => void;
+}): ReactElement {
+  return (
+    <AdaptiveTextInput
+      initialValue={task.title}
+      resetKey={task.title}
+      onChangeText={onTitleChange}
+      onFocus={onTitleFocus}
+      onBlur={onTitleBlur}
+      onEndEditing={onTitleSave}
+      placeholder="What needs to be done?"
+      style={[
+        styles.headerTitleInput,
+        isTitleFocused ? styles.headerTitleInputFocused : null,
+        isWeb ? { outlineWidth: 0, outlineColor: "transparent" } : null,
+      ]}
+      testID="task-detail-title-input"
+    />
+  );
+}
+
+/** The compact header below the title row: chips under the title, then the
+ * sticky tabs. Desktop puts the chips in the rail and the tabs in the left
+ * pane, so this is compact-only. */
 function TaskDetailHeaderBody({
   task,
-  isCompact,
   isTitleFocused,
   onTitleChange,
   onTitleFocus,
@@ -887,17 +1264,12 @@ function TaskDetailHeaderBody({
   onSetLabelIds,
   onCreateLabel,
   onDeleteLabel,
-  presets,
-  isAggregate,
-  startDisabled,
-  onStart,
   stepCount,
   activityCount,
   activeTab,
   onSelectTab,
 }: {
   task: Task;
-  isCompact: boolean;
   isTitleFocused: boolean;
   onTitleChange: (title: string) => void;
   onTitleFocus: () => void;
@@ -912,10 +1284,6 @@ function TaskDetailHeaderBody({
   onSetLabelIds: (labelIds: string[]) => Promise<Task>;
   onCreateLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
   onDeleteLabel: (labelId: string) => Promise<void>;
-  presets: readonly TaskPreset[];
-  isAggregate: boolean;
-  startDisabled: boolean;
-  onStart: (presetId: string) => void;
   stepCount: number;
   activityCount: number;
   activeTab: TaskDetailTab;
@@ -924,20 +1292,13 @@ function TaskDetailHeaderBody({
   return (
     <View style={styles.headerBody}>
       <View style={styles.headerTitleBlock}>
-        <AdaptiveTextInput
-          initialValue={task.title}
-          resetKey={task.title}
-          onChangeText={onTitleChange}
-          onFocus={onTitleFocus}
-          onBlur={onTitleBlur}
-          onEndEditing={onTitleSave}
-          placeholder="What needs to be done?"
-          style={[
-            styles.headerTitleInput,
-            isTitleFocused ? styles.headerTitleInputFocused : null,
-            isWeb ? { outlineWidth: 0, outlineColor: "transparent" } : null,
-          ]}
-          testID="task-detail-title-input"
+        <TaskDetailTitleInput
+          task={task}
+          isTitleFocused={isTitleFocused}
+          onTitleChange={onTitleChange}
+          onTitleFocus={onTitleFocus}
+          onTitleBlur={onTitleBlur}
+          onTitleSave={onTitleSave}
         />
       </View>
       <View style={styles.chipRow}>
@@ -966,16 +1327,6 @@ function TaskDetailHeaderBody({
           onDeleteLabel={onDeleteLabel}
           testID="task-detail-labels-trigger"
         />
-        {isCompact ? null : (
-          <View style={styles.chipRowTrailing}>
-            <TaskStartControl
-              presets={presets}
-              isAggregate={isAggregate}
-              disabled={startDisabled}
-              onStart={onStart}
-            />
-          </View>
-        )}
       </View>
       <View style={styles.tabBar} accessibilityRole="tablist">
         <TaskDetailTabButton
@@ -1446,30 +1797,6 @@ function TaskAttachmentsSection({ task }: { task: Task }): ReactElement | null {
               </Text>
             </View>
           </View>
-        ))}
-      </View>
-    </SettingsSection>
-  );
-}
-
-function TaskAgentsSection({
-  groups,
-  onOpenAgent,
-}: {
-  groups: readonly TaskExecutionWorkspaceGroup[];
-  onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-}): ReactElement | null {
-  const { t } = useTranslation();
-  if (groups.length === 0) return null;
-  return (
-    <SettingsSection title={t("tasks.detail.agentsHeading")} flush>
-      <View style={styles.executionGroups}>
-        {groups.map((group) => (
-          <WorkspaceExecutionGroupCard
-            key={group.workspaceId}
-            group={group}
-            onOpenAgent={onOpenAgent}
-          />
         ))}
       </View>
     </SettingsSection>
@@ -2673,6 +3000,99 @@ const styles = StyleSheet.create((theme) => ({
   headerBody: {
     gap: theme.spacing[3],
   },
+  headerTitleColumn: {
+    flex: 1,
+    minWidth: 0,
+    gap: theme.spacing[1],
+  },
+  desktopSplitContent: {
+    padding: 0,
+    gap: 0,
+    flexGrow: 1,
+  },
+  desktopSplit: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    flexShrink: 1,
+    minHeight: DESKTOP_SPLIT_MIN_HEIGHT,
+  },
+  desktopLeftPane: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+  },
+  desktopPaneScroll: {
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  desktopPaneScrollContent: {
+    flexGrow: 1,
+  },
+  desktopPaneContent: {
+    padding: theme.spacing[6],
+  },
+  rail: {
+    width: DETAIL_RAIL_WIDTH,
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 0,
+    borderLeftWidth: theme.borderWidth[1],
+    borderLeftColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface1,
+  },
+  railContent: {
+    padding: theme.spacing[4],
+    gap: theme.spacing[4],
+  },
+  railGroup: {
+    gap: theme.spacing[2],
+  },
+  railHeading: {
+    color: theme.colors.foregroundMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
+    textTransform: "uppercase",
+  },
+  railChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[1.5],
+  },
+  railDetail: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
+  planForm: {
+    gap: theme.spacing[4],
+  },
+  planFormSteps: {
+    gap: theme.spacing[3],
+  },
+  planFormHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  planFormError: {
+    color: theme.colors.statusDanger,
+    fontSize: theme.fontSize.sm,
+  },
+  planContinuation: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[4],
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface1,
+    padding: theme.spacing[3],
+  },
+  planContinuationCopy: {
+    minWidth: 0,
+    flex: 1,
+    gap: theme.spacing[1],
+  },
   headerTitleBlock: {
     paddingHorizontal: theme.spacing[6],
   },
@@ -2699,9 +3119,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[1.5],
   },
-  chipRowTrailing: {
-    marginLeft: "auto",
-  },
   startFooter: {
     flex: 1,
     alignItems: "stretch",
@@ -2726,6 +3143,10 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "stretch",
     gap: theme.spacing[6],
     backgroundColor: theme.colors.surface1,
+  },
+  desktopTabBar: {
+    borderBottomWidth: theme.borderWidth[1],
+    borderBottomColor: theme.colors.surface2,
   },
   tab: {
     justifyContent: "center",

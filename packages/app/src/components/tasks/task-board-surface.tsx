@@ -33,6 +33,7 @@ import {
 } from "@/stores/task-surface-preferences-store";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { TaskDetailSheet } from "./task-detail-sheet";
+import type { TaskDetailSubSurface } from "./task-detail-sheet.logic";
 import { useTaskExecutionSummaries, useUntrackedTaskExecutions } from "@/tasks/use-task-execution";
 import type { TaskExecutionEntry } from "@/tasks/task-execution";
 import { UntrackedTaskWork } from "./untracked-task-work";
@@ -40,6 +41,7 @@ import { TaskThreads } from "./task-threads";
 
 const EMPTY_DEPENDENCIES: TaskDependencyEdge[] = [];
 const EMPTY_WORKFLOWS: TaskWorkflow[] = [];
+const PLAN_SUB_SURFACE: TaskDetailSubSurface = { kind: "plan" };
 
 function selectVisibleBoardTasks(
   board: ProjectBoardSelection,
@@ -127,6 +129,7 @@ export function TaskBoardSurface({
   const [capturingStatus, setCapturingStatus] = useState<TaskStatus | null>(null);
   const [capturingAgent, setCapturingAgent] = useState<TaskExecutionEntry | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [openTaskSubSurface, setOpenTaskSubSurface] = useState<TaskDetailSubSurface | null>(null);
 
   const board = useMemo(
     () =>
@@ -387,17 +390,21 @@ export function TaskBoardSurface({
     setCapturingStatus(null);
     setCapturingAgent(null);
   }, []);
-  // Editing a workflow closes the card it belongs to: the editor is a sheet of
-  // its own, and two stacked sheets leave no obvious way back.
-  const handleEditWorkflow = useCallback(
-    (taskId: string, existingSteps?: readonly Step[]) => {
-      setOpenTaskId(null);
-      onCreateWorkflowForTask?.(taskId, existingSteps);
-    },
-    [onCreateWorkflowForTask],
-  );
-  const handleOpenTask = useCallback((taskId: string) => setOpenTaskId(taskId), []);
-  const handleCloseTask = useCallback(() => setOpenTaskId(null), []);
+  const handleOpenTask = useCallback((taskId: string) => {
+    setOpenTaskId(taskId);
+    setOpenTaskSubSurface(null);
+  }, []);
+  const handleCloseTask = useCallback(() => {
+    setOpenTaskId(null);
+    setOpenTaskSubSurface(null);
+  }, []);
+  // "Create & plan" lands on the task it just created with the plan editor
+  // already up, so backing out of the editor leaves you on the new card rather
+  // than on the board it was captured from.
+  const handleCreatedAndPlan = useCallback((taskId: string) => {
+    setOpenTaskId(taskId);
+    setOpenTaskSubSurface(PLAN_SUB_SURFACE);
+  }, []);
 
   useEffect(() => {
     if (!requestedTaskId) {
@@ -514,18 +521,19 @@ export function TaskBoardSurface({
         status={capturingStatus}
         agent={capturingAgent}
         onTaskCreated={handleAttachCreatedTask}
-        onCreateWorkflowForTask={onCreateWorkflowForTask}
+        onCreatedAndPlan={handleCreatedAndPlan}
         onClose={handleCloseCapture}
       />
       <SurfaceTaskDetail
         serverId={serverId}
+        paseoProjectId={paseoProjectId}
         openTaskId={openTaskId}
+        openTaskSubSurface={openTaskSubSurface}
         snapshot={snapshot}
         tasks={board.tasks}
         labels={board.labels}
         projectsById={projectsById}
         executionByTaskId={executionByTaskId}
-        onEditWorkflow={handleEditWorkflow}
         onClose={handleCloseTask}
       />
     </>
@@ -541,7 +549,7 @@ function TaskCaptureSheet({
   status,
   agent,
   onTaskCreated,
-  onCreateWorkflowForTask,
+  onCreatedAndPlan,
   onClose,
 }: {
   serverId: string;
@@ -552,7 +560,7 @@ function TaskCaptureSheet({
   status: TaskStatus | null;
   agent: TaskExecutionEntry | null;
   onTaskCreated: (taskId: string) => void;
-  onCreateWorkflowForTask?: TaskBoardSurfaceProps["onCreateWorkflowForTask"];
+  onCreatedAndPlan: (taskId: string) => void;
   onClose: () => void;
 }): ReactElement | null {
   if (!status) return null;
@@ -566,7 +574,7 @@ function TaskCaptureSheet({
       initialStatus={status}
       initialTitle={agent?.title?.trim() || agent?.workspaceName}
       onTaskCreated={agent ? onTaskCreated : undefined}
-      onCreated={onCreateWorkflowForTask}
+      onCreated={onCreatedAndPlan}
       onClose={onClose}
     />
   );
@@ -574,30 +582,34 @@ function TaskCaptureSheet({
 
 function SurfaceTaskDetail({
   serverId,
+  paseoProjectId,
   openTaskId,
+  openTaskSubSurface,
   snapshot,
   tasks,
   labels,
   projectsById,
   executionByTaskId,
-  onEditWorkflow,
   onClose,
 }: {
   serverId: string;
+  paseoProjectId: string;
   openTaskId: string | null;
+  openTaskSubSurface: TaskDetailSubSurface | null;
   snapshot: TaskSnapshot | null;
   tasks: readonly Task[];
   labels: ProjectBoardSelection["labels"];
   projectsById: ReadonlyMap<string, TaskProject>;
   executionByTaskId: ReturnType<typeof useTaskExecutionSummaries>;
-  onEditWorkflow: (taskId: string, existingSteps?: readonly Step[]) => void;
   onClose: () => void;
 }): ReactElement {
   const executionSummary = openTaskId ? executionByTaskId.get(openTaskId) : undefined;
   return (
     <TaskDetailSheet
       serverId={serverId}
+      paseoProjectId={paseoProjectId}
       taskId={openTaskId}
+      initialSubSurface={openTaskSubSurface}
       tasks={tasks}
       labels={labels}
       projectsById={projectsById}
@@ -605,7 +617,6 @@ function SurfaceTaskDetail({
       workflows={snapshot?.workflows ?? EMPTY_WORKFLOWS}
       executionSummary={executionSummary}
       executionByTaskId={executionByTaskId}
-      onEditWorkflow={onEditWorkflow}
       onClose={onClose}
     />
   );
