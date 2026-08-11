@@ -41,6 +41,7 @@ interface TrackerSeedClient {
         description?: string;
         status: string;
         priority: string;
+        dueDate: string | null;
         parentTaskId?: string | null;
         executionPolicy?: {
           review?: string;
@@ -58,6 +59,12 @@ interface TrackerSeedClient {
 }
 
 const DRAG_ACTIVATION_DISTANCE_PX = 6;
+
+async function readTestIds(locator: Locator): Promise<Array<string | null>> {
+  return locator.evaluateAll((elements) =>
+    elements.map((element) => element.getAttribute("data-testid")),
+  );
+}
 
 function trackerClient(workspace: SeededWorkspace): TrackerSeedClient {
   return workspace.client as unknown as TrackerSeedClient;
@@ -114,6 +121,11 @@ async function readTaskPriority(
 ): Promise<string | null> {
   const payload = await trackerClient(workspace).tasksSnapshot();
   return payload.snapshot?.tasks.find((task) => task.id === taskId)?.priority ?? null;
+}
+
+async function readTaskDueDate(workspace: SeededWorkspace, taskId: string): Promise<string | null> {
+  const payload = await trackerClient(workspace).tasksSnapshot();
+  return payload.snapshot?.tasks.find((task) => task.id === taskId)?.dueDate ?? null;
 }
 
 async function readTaskBriefAndPolicy(workspace: SeededWorkspace, taskId: string) {
@@ -717,9 +729,71 @@ test.describe("Kanbans board", () => {
     await expect(sheet.getByTestId("task-detail-title-input")).toHaveValue(title);
 
     const note = `Update ${Date.now()}`;
-    await sheet.getByTestId("task-detail-comment-input").fill(note);
-    await sheet.getByTestId("task-detail-comment-send").click();
+    await sheet.getByTestId("task-detail-composer-note").click();
+    await sheet.getByTestId("task-detail-note-input").fill(note);
+    await sheet.getByTestId("task-detail-note-send").click();
+    await sheet.getByTestId("task-detail-tab-activity").click();
     await expect(sheet).toContainText(note, { timeout: 30_000 });
+  });
+
+  test("edits a due date from the task-detail quick property", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("@paseo:app-settings", JSON.stringify({ theme: "dark" }));
+    });
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-task-due-date-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `Due date task ${Date.now()}`);
+
+    await openBoard(page, seeded.projectId);
+    await page.getByTestId(`task-card-${seeded.taskId}`).click();
+    const sheet = page.getByTestId("task-detail-sheet");
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+
+    const propertyIds = await readTestIds(sheet.locator('[data-testid^="task-detail-property-"]'));
+    expect(propertyIds).toEqual([
+      "task-detail-property-status",
+      "task-detail-property-priority",
+      "task-detail-property-due",
+      "task-detail-property-labels",
+    ]);
+
+    const dueTrigger = sheet.getByTestId("task-detail-due-trigger");
+    await expect(dueTrigger).toContainText("Set due date");
+    await dueTrigger.click();
+    const dueMenu = page.getByTestId("task-detail-due-menu");
+    await expect(dueMenu.getByText("Today", { exact: true })).toBeVisible();
+    await expect(dueMenu.getByText("Tomorrow", { exact: true })).toBeVisible();
+    await expect(dueMenu.getByText("Next week", { exact: true })).toBeVisible();
+    await expect(dueMenu.getByText("Custom", { exact: true })).toBeVisible();
+    await expect(dueMenu.getByText("Clear", { exact: true })).toBeVisible();
+
+    const today = await page.evaluate(() => {
+      const now = new Date();
+      const year = String(now.getFullYear()).padStart(4, "0");
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    });
+    await dueMenu.getByTestId("task-detail-due-today").click();
+    await expect(dueTrigger).toContainText(today, { timeout: 30_000 });
+    await expect.poll(() => readTaskDueDate(workspace, seeded.taskId)).toBe(today);
+
+    await dueTrigger.click();
+    await page.getByTestId("task-detail-due-custom").click();
+    const customSheet = page.getByTestId("task-due-date-custom-sheet");
+    await expect(customSheet).toBeVisible();
+    const customInput = customSheet.getByTestId("task-due-date-custom-input");
+    await expect(customInput).toHaveCSS("color-scheme", "dark");
+    await customInput.fill("2031-06-14");
+    await customSheet.getByTestId("task-due-date-custom-save").click();
+    await expect(customSheet).toHaveCount(0);
+    await expect(dueTrigger).toContainText("2031-06-14", { timeout: 30_000 });
+    await expect.poll(() => readTaskDueDate(workspace, seeded.taskId)).toBe("2031-06-14");
+
+    await dueTrigger.click();
+    await page.getByTestId("task-detail-due-clear").click();
+    await expect(dueTrigger).toContainText("Set due date", { timeout: 30_000 });
+    await expect.poll(() => readTaskDueDate(workspace, seeded.taskId)).toBeNull();
   });
 
   test("a task edits its agent brief, automation, and subtask execution order", async ({
@@ -734,11 +808,59 @@ test.describe("Kanbans board", () => {
     const sheet = page.getByTestId("task-detail-sheet");
     await expect(sheet).toBeVisible({ timeout: 10_000 });
 
+    const executionTabLabel = sheet.getByTestId("task-detail-tab-execution").getByText("Execution");
+    const detailsTabLabel = sheet.getByTestId("task-detail-tab-details").getByText("Details");
+    const activityTabLabel = sheet.getByTestId("task-detail-tab-activity").getByText("Activity");
+    await expect(executionTabLabel).toHaveCSS("font-weight", "400");
+    await expect(detailsTabLabel).toHaveCSS("font-weight", "400");
+    await expect(activityTabLabel).toHaveCSS("font-weight", "400");
+
+    const planHeading = sheet.getByTestId("task-detail-workflow").getByText("Agent plan", {
+      exact: true,
+    });
+    const automationHeading = sheet
+      .getByTestId("task-detail-automation-delivery")
+      .getByText("Automation & delivery", { exact: true });
+    await expect(planHeading).toHaveCSS("font-weight", "500");
+    await expect(automationHeading).toHaveCSS("font-weight", "500");
+    const automationCard = sheet.getByTestId("task-detail-automation-delivery-toggle");
+    const [executionTabBox, planHeadingBox, automationHeadingBox, automationCardBox] =
+      await Promise.all([
+        executionTabLabel.boundingBox(),
+        planHeading.boundingBox(),
+        automationHeading.boundingBox(),
+        automationCard.boundingBox(),
+      ]);
+    if (!executionTabBox || !planHeadingBox || !automationHeadingBox || !automationCardBox) {
+      throw new Error("Task detail navigation and section headings are not laid out");
+    }
+    expect(Math.abs(executionTabBox.x - planHeadingBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(planHeadingBox.x - automationHeadingBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(planHeadingBox.x - automationCardBox.x)).toBeLessThanOrEqual(1);
+
     const refinedTitle = `Refined outcome ${Date.now()}`;
     await sheet.getByTestId("task-detail-title-input").fill(refinedTitle);
+    await sheet.getByTestId("task-detail-tab-details").click();
+    const taskDescriptionHeading = sheet.getByText("Task description", { exact: true });
+    const detailsSubtaskHeading = sheet.getByText("Subtasks", { exact: true });
+    await expect(taskDescriptionHeading).toHaveCSS("font-size", "12px");
+    await expect(taskDescriptionHeading).toHaveCSS("font-weight", "500");
+    await expect(detailsSubtaskHeading).toHaveCSS("font-size", "12px");
+    await expect(sheet.getByText("Breakdown", { exact: true })).toHaveCount(0);
+    const [taskDescriptionHeadingBox, detailsSubtaskHeadingBox] = await Promise.all([
+      taskDescriptionHeading.boundingBox(),
+      detailsSubtaskHeading.boundingBox(),
+    ]);
+    if (!taskDescriptionHeadingBox || !detailsSubtaskHeadingBox) {
+      throw new Error("Task detail headings are not laid out");
+    }
+    expect(Math.abs(planHeadingBox.x - taskDescriptionHeadingBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(planHeadingBox.x - detailsSubtaskHeadingBox.x)).toBeLessThanOrEqual(1);
     await sheet
       .getByTestId("task-detail-description-input")
       .fill("Implement this outcome with the constraints in the task.");
+    await sheet.getByTestId("task-detail-tab-execution").click();
+    await sheet.getByTestId("task-detail-automation-delivery-toggle").click();
     await sheet.getByTestId("task-detail-automation-edit").click();
     await sheet.getByTestId("task-detail-policy-review").click();
     await page.getByTestId("task-detail-policy-review-required").click();
@@ -752,6 +874,7 @@ test.describe("Kanbans board", () => {
         policy: { review: "required", workspace: "dedicated" },
       });
 
+    await sheet.getByTestId("task-detail-tab-details").click();
     const firstTitle = `First child ${Date.now()}`;
     await sheet.getByTestId("task-detail-subtask-input").fill(firstTitle);
     await sheet.getByTestId("task-detail-subtask-add").click();
@@ -770,6 +893,51 @@ test.describe("Kanbans board", () => {
         }),
       )
       .toBe(true);
+
+    await sheet.getByTestId("task-detail-tab-execution").click();
+    const subtaskHeading = sheet.getByText("Subtasks", { exact: true });
+    await expect(subtaskHeading).toHaveCount(1);
+    await expect(subtaskHeading).toHaveCSS("font-weight", "500");
+    const subtaskHeadingBox = await subtaskHeading.boundingBox();
+    if (!subtaskHeadingBox) throw new Error("Subtasks heading is not laid out");
+    expect(Math.abs(planHeadingBox.x - subtaskHeadingBox.x)).toBeLessThanOrEqual(1);
+  });
+
+  test("a task manages project labels from its label dropdown", async ({ page }) => {
+    const workspace = await seedWorkspace({ repoPrefix: "kanban-task-labels-" });
+    cleanupTasks.push(() => workspace.cleanup());
+    const seeded = await seedTrackerTask(workspace, `Label task ${Date.now()}`);
+
+    await openBoard(page, seeded.projectId);
+    await page.getByTestId(`task-card-${seeded.taskId}`).click();
+    const sheet = page.getByTestId("task-detail-sheet");
+    const trigger = sheet.getByTestId("task-detail-labels-trigger");
+    const labelName = `Needs review ${Date.now()}`;
+
+    await trigger.click();
+    await page.getByTestId("task-detail-label-create").click();
+    await page.getByTestId("task-detail-label-name").fill(labelName);
+    await page.getByTestId("task-detail-label-color-orange").click();
+    await page.getByTestId("task-detail-label-create-submit").click();
+    await expect(trigger).toContainText(labelName, { timeout: 30_000 });
+
+    const labelItem = page.locator('[data-testid^="task-detail-label-tlbl_"]').filter({
+      hasText: labelName,
+    });
+    await labelItem.click();
+    await expect(trigger).toContainText("Add label", { timeout: 30_000 });
+    await labelItem.click();
+    await expect(trigger).toContainText(labelName, { timeout: 30_000 });
+
+    await page.getByTestId("task-detail-label-delete").click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page
+      .locator('[data-testid^="task-detail-label-delete-tlbl_"]')
+      .filter({
+        hasText: labelName,
+      })
+      .click();
+    await expect(trigger).toContainText("Add label", { timeout: 30_000 });
   });
 
   /** The feed is where an automatic move says what it did, and where a note you

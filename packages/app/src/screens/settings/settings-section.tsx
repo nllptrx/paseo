@@ -51,7 +51,6 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "space-between",
     gap: theme.spacing[2],
     marginBottom: theme.spacing[3],
-    marginLeft: theme.spacing[1],
   },
   content: {
     gap: theme.spacing[3],

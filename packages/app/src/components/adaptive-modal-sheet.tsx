@@ -81,6 +81,7 @@ const styles = StyleSheet.create((theme) => ({
     maxHeight: "85%",
     flexShrink: 1,
     minHeight: 0,
+    overflow: "hidden",
     backgroundColor: theme.colors.surface1,
     borderRadius: theme.borderRadius.xl,
     borderWidth: 1,
@@ -360,7 +361,6 @@ export function SheetHeaderView({
     },
     [search],
   );
-
   return (
     <View style={styles.headerContainer} testID={testID}>
       <View style={styles.headerRow}>

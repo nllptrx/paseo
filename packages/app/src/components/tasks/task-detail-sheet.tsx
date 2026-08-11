@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, SendHorizontal } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { isWeb } from "@/constants/platform";
 import type {
   Task,
   TaskComment,
@@ -18,22 +19,28 @@ import type { Step, TaskWorkflow } from "@getpaseo/protocol/tasks/workflow";
 import { TASK_STATUSES } from "@getpaseo/protocol/tasks/types";
 import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSubTrigger,
+  type MenuPageDefinition,
+} from "@/components/ui/dropdown-menu";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
 import { FormTextInput } from "@/components/ui/form-field";
 import { Switch } from "@/components/ui/switch";
-import { SettingsGroup } from "@/screens/settings/settings-group";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
-import { ICON_SIZE, type Theme } from "@/styles/theme";
+import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
+import { IDENTITY_COLOR_NAMES, identityColor } from "@/styles/identity-colors";
 import { useToast } from "@/contexts/toast-context";
+import { confirmDialog } from "@/utils/confirm-dialog";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
-import {
-  formatTaskKey,
-  resolveTaskLabels,
-  selectBlockers,
-  type TaskDependencyEdge,
-} from "@/tasks/task-views";
+import { useWorkspace } from "@/stores/session-store-hooks";
+import { useSessionStore } from "@/stores/session-store";
+import { formatTaskKey, selectBlockers, type TaskDependencyEdge } from "@/tasks/task-views";
 import {
   AGGREGATE_WORK_REFUSAL,
   applyReviewMode,
@@ -60,6 +67,7 @@ import { resolveStepAgentTarget } from "@/tasks/task-workflow-view";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import {
   useTaskExecutionPolicySupported,
+  useTaskLabelDeletionSupported,
   useTaskMessagesSupported,
   useTaskMutations,
 } from "@/tasks/use-tasks";
@@ -81,6 +89,8 @@ import {
   type TaskExecutionWorkspaceGroup,
 } from "@/tasks/task-execution";
 import { resolveProviderLabel } from "@/tasks/use-task-available-providers";
+import { resolveTaskDueDatePreset, type TaskDueDatePreset } from "@/tasks/task-due-date";
+import { TaskDueDateFormSheet } from "./task-due-date-form-sheet";
 
 const TASK_PRIORITIES: readonly TaskPriority[] = ["none", "urgent", "high", "medium", "low"];
 
@@ -178,6 +188,8 @@ function OpenTaskDetailSheet({
 }): ReactElement {
   const toast = useToast();
   const {
+    createLabel,
+    deleteLabel,
     setStatus,
     setPriority,
     reviewTask,
@@ -187,6 +199,7 @@ function OpenTaskDetailSheet({
     isReviewing,
     isBusy,
   } = useTaskMutations(serverId);
+  const supportsLabelDeletion = useTaskLabelDeletionSupported(serverId);
   const { entries } = useBoardFeed({ serverId, projectId: task.projectId });
   const { post, sendMessage, isPosting } = useBoardFeedComposer({
     serverId,
@@ -201,6 +214,7 @@ function OpenTaskDetailSheet({
   const [subtaskDraft, setSubtaskDraft] = useState<SubtaskDraft>(EMPTY_SUBTASK_DRAFT);
   const [noteResetKey, setNoteResetKey] = useState(0);
   const [subtaskResetKey, setSubtaskResetKey] = useState(0);
+  const [isTitleFocused, setIsTitleFocused] = useState(false);
   const executionGroups = useMemo(
     () => groupTaskExecutionsByWorkspace(executionSummary),
     [executionSummary],
@@ -315,7 +329,10 @@ function OpenTaskDetailSheet({
     [onEditWorkflow, task.id, workflow?.steps],
   );
 
-  const taskLabels = useMemo(() => resolveTaskLabels(task, labels), [task, labels]);
+  const projectLabels = useMemo(
+    () => labels.filter((label) => label.projectId === task.projectId),
+    [labels, task.projectId],
+  );
   const comments = useMemo(
     () => entries.filter((entry) => entry.taskId === task.id),
     [entries, task.id],
@@ -338,6 +355,14 @@ function OpenTaskDetailSheet({
     },
     [setPriority, task.id, toast],
   );
+  const handleSetDueDate = useCallback(
+    (dueDate: string | null) => updateTask({ taskId: task.id, dueDate }),
+    [task.id, updateTask],
+  );
+  const handleSetLabelIds = useCallback(
+    (labelIds: string[]) => updateTask({ taskId: task.id, labelIds }),
+    [task.id, updateTask],
+  );
 
   const saveBrief = useCallback(() => {
     const title = titleDraft.trim();
@@ -348,6 +373,11 @@ function OpenTaskDetailSheet({
       toast.show(toErrorMessage(error));
     });
   }, [descriptionDraft, task.description, task.id, task.title, titleDraft, toast, updateTask]);
+  const focusTitle = useCallback(() => setIsTitleFocused(true), []);
+  const blurTitle = useCallback(() => {
+    setIsTitleFocused(false);
+    saveBrief();
+  }, [saveBrief]);
 
   const createSubtask = useCallback(() => {
     const input = toSubtaskCreateInput(subtaskDraft, task);
@@ -394,18 +424,25 @@ function OpenTaskDetailSheet({
     () => ({
       title: task.title,
       titleContent: (
-        <AdaptiveTextInput
-          initialValue={task.title}
-          resetKey={task.title}
-          onChangeText={setTitleDraft}
-          onBlur={saveBrief}
-          onEndEditing={saveBrief}
-          placeholder="What needs to be done?"
-          style={styles.headerTitleInput}
-          testID="task-detail-title-input"
-        />
+        <View style={styles.headerIdentity}>
+          <Text style={styles.taskKey}>{taskKey}</Text>
+          <AdaptiveTextInput
+            initialValue={task.title}
+            resetKey={task.title}
+            onChangeText={setTitleDraft}
+            onFocus={focusTitle}
+            onBlur={blurTitle}
+            onEndEditing={saveBrief}
+            placeholder="What needs to be done?"
+            style={[
+              styles.headerTitleInput,
+              isTitleFocused ? styles.headerTitleInputFocused : null,
+              isWeb ? { outlineWidth: 0, outlineColor: "transparent" } : null,
+            ]}
+            testID="task-detail-title-input"
+          />
+        </View>
       ),
-      leading: <Text style={styles.taskKey}>{taskKey}</Text>,
       actions: (
         <TaskStartControl
           presets={presets}
@@ -417,11 +454,16 @@ function OpenTaskDetailSheet({
       after: (
         <TaskDetailNavigation
           task={task}
-          labels={taskLabels}
+          projectLabels={projectLabels}
+          supportsLabelDeletion={supportsLabelDeletion}
           activeTab={activeTab}
           onSelectTab={setActiveTab}
           onSelectStatus={handleSelectStatus}
           onSelectPriority={handleSelectPriority}
+          onSetDueDate={handleSetDueDate}
+          onCreateLabel={createLabel}
+          onDeleteLabel={deleteLabel}
+          onSetLabelIds={handleSetLabelIds}
         />
       ),
     }),
@@ -431,18 +473,27 @@ function OpenTaskDetailSheet({
       handleDelegate,
       handleSelectPriority,
       handleSelectStatus,
+      handleSetDueDate,
+      handleSetLabelIds,
+      blurTitle,
+      focusTitle,
       isAggregate,
       isDelegating,
+      isTitleFocused,
+      createLabel,
+      deleteLabel,
       presets,
+      projectLabels,
       saveBrief,
       task,
       taskKey,
-      taskLabels,
+      supportsLabelDeletion,
     ],
   );
   const footer = useMemo(
     () => (
       <TaskUnifiedComposer
+        serverId={serverId}
         task={task}
         supportsMessages={supportsMessages}
         noteDraft={noteDraft}
@@ -453,7 +504,7 @@ function OpenTaskDetailSheet({
         sendMessage={sendMessage}
       />
     ),
-    [isPosting, noteDraft, noteResetKey, sendMessage, submitNote, supportsMessages, task],
+    [isPosting, noteDraft, noteResetKey, sendMessage, serverId, submitNote, supportsMessages, task],
   );
 
   return (
@@ -469,7 +520,7 @@ function OpenTaskDetailSheet({
       {activeTab === "execution" ? (
         <View style={styles.tabContent} testID="task-detail-execution-tab">
           {task.status === "in_review" || blockers.length > 0 ? (
-            <TaskDetailGroup title="Needs attention" testID="task-detail-attention">
+            <View style={styles.groupContent} testID="task-detail-attention">
               {task.status === "in_review" ? (
                 <TaskReviewSection
                   iteration={task.reviewIteration}
@@ -484,7 +535,7 @@ function OpenTaskDetailSheet({
               {blockers.length > 0 ? (
                 <TaskBlockersSection blockers={blockers} projectsById={projectsById} />
               ) : null}
-            </TaskDetailGroup>
+            </View>
           ) : null}
           <TaskPlanSection
             workflow={workflow}
@@ -496,22 +547,20 @@ function OpenTaskDetailSheet({
           />
           <TaskAgentsSection groups={executionGroups} onOpenAgent={handleOpenAgent} />
           {subtasks.length > 0 || isAggregate ? (
-            <TaskDetailGroup title="Subtasks" testID="task-detail-breakdown-group">
-              <TaskSubtasksSection
-                subtasks={subtasks}
-                projectsById={projectsById}
-                presets={presets}
-                draft={subtaskDraft}
-                draftResetKey={subtaskResetKey}
-                executionByTaskId={executionByTaskId}
-                isBusy={isBusy}
-                isReviewing={isReviewing}
-                onDraftChange={setSubtaskDraft}
-                onCreate={createSubtask}
-                onReview={handleReviewSubtask}
-                onOpenAgent={handleOpenAgent}
-              />
-            </TaskDetailGroup>
+            <TaskSubtasksSection
+              subtasks={subtasks}
+              projectsById={projectsById}
+              presets={presets}
+              draft={subtaskDraft}
+              draftResetKey={subtaskResetKey}
+              executionByTaskId={executionByTaskId}
+              isBusy={isBusy}
+              isReviewing={isReviewing}
+              onDraftChange={setSubtaskDraft}
+              onCreate={createSubtask}
+              onReview={handleReviewSubtask}
+              onOpenAgent={handleOpenAgent}
+            />
           ) : null}
           <TaskAutomationDeliverySection
             serverId={serverId}
@@ -526,7 +575,7 @@ function OpenTaskDetailSheet({
       {activeTab === "details" ? (
         <View style={styles.tabContent} testID="task-detail-details-tab">
           <TaskOverview task={task} onDescriptionChange={setDescriptionDraft} onSave={saveBrief} />
-          <TaskDetailGroup title="Breakdown" testID="task-detail-details-group">
+          <View style={styles.groupContent} testID="task-detail-details-group">
             <TaskSubtasksSection
               subtasks={subtasks}
               projectsById={projectsById}
@@ -543,7 +592,7 @@ function OpenTaskDetailSheet({
             />
             <TaskRelationshipsSection relationships={relationships} projectsById={projectsById} />
             <TaskAttachmentsSection task={task} />
-          </TaskDetailGroup>
+          </View>
         </View>
       ) : null}
 
@@ -621,20 +670,33 @@ function TaskStartPresetItem({
 
 function TaskDetailNavigation({
   task,
-  labels,
+  projectLabels,
+  supportsLabelDeletion,
   activeTab,
   onSelectTab,
   onSelectStatus,
   onSelectPriority,
+  onSetDueDate,
+  onCreateLabel,
+  onDeleteLabel,
+  onSetLabelIds,
 }: {
   task: Task;
-  labels: readonly TaskLabel[];
+  projectLabels: readonly TaskLabel[];
+  supportsLabelDeletion: boolean;
   activeTab: TaskDetailTab;
   onSelectTab: (tab: TaskDetailTab) => void;
   onSelectStatus: (status: TaskStatus) => void;
   onSelectPriority: (priority: TaskPriority) => void;
+  onSetDueDate: (dueDate: string | null) => Promise<Task>;
+  onCreateLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
+  onDeleteLabel: (labelId: string) => Promise<void>;
+  onSetLabelIds: (labelIds: string[]) => Promise<Task>;
 }): ReactElement {
   const { t } = useTranslation();
+  const [isCustomDueDateOpen, setIsCustomDueDateOpen] = useState(false);
+  const openCustomDueDate = useCallback(() => setIsCustomDueDateOpen(true), []);
+  const closeCustomDueDate = useCallback(() => setIsCustomDueDateOpen(false), []);
   return (
     <View>
       <ScrollView
@@ -643,7 +705,7 @@ function TaskDetailNavigation({
         contentContainerStyle={styles.propertyRow}
         style={styles.propertyScroller}
       >
-        <TaskProperty label="Status">
+        <TaskProperty label="Status" testID="task-detail-property-status">
           <DropdownMenu>
             <DropdownTrigger testID="task-detail-status-trigger">
               <Text style={styles.propertyValue}>{t(TASK_STATUS_LABEL_KEYS[task.status])}</Text>
@@ -660,10 +722,16 @@ function TaskDetailNavigation({
             </DropdownMenuContent>
           </DropdownMenu>
         </TaskProperty>
-        <TaskProperty label="Priority">
+        <TaskProperty label="Priority" testID="task-detail-property-priority">
           <DropdownMenu>
             <DropdownTrigger testID="task-detail-priority-trigger">
-              <Text style={styles.propertyValue}>
+              <Text
+                style={[
+                  styles.propertyPriorityValue,
+                  task.priority === "urgent" ? styles.priorityValueDanger : null,
+                  task.priority === "high" ? styles.priorityValueWarning : null,
+                ]}
+              >
                 {task.priority === "none"
                   ? t("tasks.detail.priorityNone")
                   : t(TASK_PRIORITY_LABEL_KEYS[task.priority])}
@@ -681,18 +749,23 @@ function TaskDetailNavigation({
             </DropdownMenuContent>
           </DropdownMenu>
         </TaskProperty>
-        <TaskProperty label="Labels">
-          {labels.length > 0 ? (
-            <TaskLabelChips labels={labels} />
-          ) : (
-            <Text style={styles.propertyEmpty}>None</Text>
-          )}
+        <TaskProperty label="Due" testID="task-detail-property-due">
+          <TaskDueDateMenu
+            dueDate={task.dueDate}
+            onSetDueDate={onSetDueDate}
+            onCustom={openCustomDueDate}
+          />
         </TaskProperty>
-        {task.dueDate ? (
-          <TaskProperty label="Due">
-            <Text style={styles.propertyValue}>{task.dueDate}</Text>
-          </TaskProperty>
-        ) : null}
+        <TaskProperty label="Labels" testID="task-detail-property-labels">
+          <TaskLabelsMenu
+            task={task}
+            projectLabels={projectLabels}
+            supportsDeletion={supportsLabelDeletion}
+            onCreateLabel={onCreateLabel}
+            onDeleteLabel={onDeleteLabel}
+            onSetLabelIds={onSetLabelIds}
+          />
+        </TaskProperty>
       </ScrollView>
       <View style={styles.tabBar} accessibilityRole="tablist">
         <TaskDetailTabButton
@@ -714,13 +787,389 @@ function TaskDetailNavigation({
           onSelect={onSelectTab}
         />
       </View>
+      {isCustomDueDateOpen ? (
+        <TaskDueDateFormSheet
+          key={task.dueDate ?? "empty"}
+          currentDueDate={task.dueDate}
+          onSubmit={onSetDueDate}
+          onClose={closeCustomDueDate}
+        />
+      ) : null}
     </View>
   );
 }
 
-function TaskProperty({ label, children }: { label: string; children: ReactNode }): ReactElement {
+function TaskDueDateMenu({
+  dueDate,
+  onSetDueDate,
+  onCustom,
+}: {
+  dueDate: string | null;
+  onSetDueDate: (dueDate: string | null) => Promise<Task>;
+  onCustom: () => void;
+}): ReactElement {
+  const toast = useToast();
+  const setQuickDueDate = useCallback(
+    (preset: TaskDueDatePreset) => {
+      void onSetDueDate(resolveTaskDueDatePreset(preset)).catch((error) => {
+        toast.show(toErrorMessage(error));
+      });
+    },
+    [onSetDueDate, toast],
+  );
+  const clearDueDate = useCallback(() => {
+    void onSetDueDate(null).catch((error) => toast.show(toErrorMessage(error)));
+  }, [onSetDueDate, toast]);
+
   return (
-    <View style={styles.property}>
+    <DropdownMenu compactMode="sheet">
+      <DropdownTrigger testID="task-detail-due-trigger">
+        <Text style={dueDate ? styles.propertyValue : styles.propertyEmpty}>
+          {dueDate ?? "Set due date"}
+        </Text>
+      </DropdownTrigger>
+      <DropdownMenuContent align="start" sheetTitle="Due date" testID="task-detail-due-menu">
+        <DueDatePresetMenuItem preset="today" label="Today" onSelect={setQuickDueDate} />
+        <DueDatePresetMenuItem preset="tomorrow" label="Tomorrow" onSelect={setQuickDueDate} />
+        <DueDatePresetMenuItem preset="next-week" label="Next week" onSelect={setQuickDueDate} />
+        <DropdownMenuItem onSelect={onCustom} testID="task-detail-due-custom">
+          Custom
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={clearDueDate}
+          disabled={dueDate === null}
+          testID="task-detail-due-clear"
+        >
+          Clear
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DueDatePresetMenuItem({
+  preset,
+  label,
+  onSelect,
+}: {
+  preset: TaskDueDatePreset;
+  label: string;
+  onSelect: (preset: TaskDueDatePreset) => void;
+}): ReactElement {
+  const handleSelect = useCallback(() => onSelect(preset), [onSelect, preset]);
+  return (
+    <DropdownMenuItem onSelect={handleSelect} testID={`task-detail-due-${preset}`}>
+      {label}
+    </DropdownMenuItem>
+  );
+}
+
+function TaskLabelsMenu({
+  task,
+  projectLabels,
+  supportsDeletion,
+  onCreateLabel,
+  onDeleteLabel,
+  onSetLabelIds,
+}: {
+  task: Task;
+  projectLabels: readonly TaskLabel[];
+  supportsDeletion: boolean;
+  onCreateLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
+  onDeleteLabel: (labelId: string) => Promise<void>;
+  onSetLabelIds: (labelIds: string[]) => Promise<Task>;
+}): ReactElement {
+  const toast = useToast();
+  const [selectedLabelIds, setSelectedLabelIds] = useState<Set<string>>(
+    () => new Set(task.labelIds),
+  );
+  const [isChanging, setIsChanging] = useState(false);
+  const selectedLabels = useMemo(
+    () => projectLabels.filter((label) => selectedLabelIds.has(label.id)),
+    [projectLabels, selectedLabelIds],
+  );
+
+  const toggleLabel = useCallback(
+    (labelId: string) => {
+      if (isChanging) return;
+      const previous = selectedLabelIds;
+      const next = new Set(previous);
+      if (next.has(labelId)) next.delete(labelId);
+      else next.add(labelId);
+      setSelectedLabelIds(next);
+      setIsChanging(true);
+      void onSetLabelIds([...next])
+        .catch((error) => {
+          setSelectedLabelIds(previous);
+          toast.show(toErrorMessage(error));
+        })
+        .finally(() => setIsChanging(false));
+    },
+    [isChanging, onSetLabelIds, selectedLabelIds, toast],
+  );
+
+  const createAndSelectLabel = useCallback(
+    async (input: { name: string; color: string }) => {
+      const labelId = await onCreateLabel({ projectId: task.projectId, ...input });
+      const previous = selectedLabelIds;
+      const next = new Set(selectedLabelIds);
+      next.add(labelId);
+      setSelectedLabelIds(next);
+      try {
+        await onSetLabelIds([...next]);
+      } catch (error) {
+        setSelectedLabelIds(previous);
+        throw error;
+      }
+    },
+    [onCreateLabel, onSetLabelIds, selectedLabelIds, task.projectId],
+  );
+
+  const deleteProjectLabel = useCallback(
+    (label: TaskLabel) => {
+      void (async () => {
+        const confirmed = await confirmDialog({
+          title: "Delete label?",
+          message: `Delete “${label.name}” from this project and every task that uses it?`,
+          confirmLabel: "Delete",
+          destructive: true,
+        });
+        if (!confirmed) return;
+        try {
+          await onDeleteLabel(label.id);
+          setSelectedLabelIds((current) => {
+            const next = new Set(current);
+            next.delete(label.id);
+            return next;
+          });
+        } catch (error) {
+          toast.show(toErrorMessage(error));
+        }
+      })();
+    },
+    [onDeleteLabel, toast],
+  );
+
+  const pages = useMemo<MenuPageDefinition[]>(
+    () => [
+      {
+        id: "create-label",
+        title: "New label",
+        content: <CreateTaskLabelPage onCreate={createAndSelectLabel} />,
+      },
+      {
+        id: "delete-label",
+        title: "Delete label",
+        content:
+          projectLabels.length > 0 ? (
+            projectLabels.map((label) => (
+              <DeleteTaskLabelItem key={label.id} label={label} onDelete={deleteProjectLabel} />
+            ))
+          ) : (
+            <DropdownMenuLabel>No project labels</DropdownMenuLabel>
+          ),
+      },
+    ],
+    [createAndSelectLabel, deleteProjectLabel, projectLabels],
+  );
+
+  return (
+    <DropdownMenu compactMode="sheet">
+      <DropdownTrigger testID="task-detail-labels-trigger">
+        {selectedLabels.length > 0 ? (
+          <TaskLabelChips labels={selectedLabels} />
+        ) : (
+          <Text style={styles.propertyEmpty}>Add label</Text>
+        )}
+      </DropdownTrigger>
+      <DropdownMenuContent
+        align="start"
+        width={260}
+        maxHeight={360}
+        pages={pages}
+        sheetTitle="Labels"
+        testID="task-detail-labels-menu"
+      >
+        {projectLabels.length > 0 ? (
+          projectLabels.map((label) => (
+            <TaskLabelMenuItem
+              key={label.id}
+              label={label}
+              selected={selectedLabelIds.has(label.id)}
+              disabled={isChanging}
+              onToggle={toggleLabel}
+            />
+          ))
+        ) : (
+          <DropdownMenuLabel>No project labels</DropdownMenuLabel>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuSubTrigger id="create-label" testID="task-detail-label-create">
+          New label
+        </DropdownMenuSubTrigger>
+        {supportsDeletion && projectLabels.length > 0 ? (
+          <DropdownMenuSubTrigger id="delete-label" testID="task-detail-label-delete">
+            Delete label
+          </DropdownMenuSubTrigger>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function TaskLabelMenuItem({
+  label,
+  selected,
+  disabled,
+  onToggle,
+}: {
+  label: TaskLabel;
+  selected: boolean;
+  disabled: boolean;
+  onToggle: (labelId: string) => void;
+}): ReactElement {
+  const handleSelect = useCallback(() => onToggle(label.id), [label.id, onToggle]);
+  const leading = useMemo(
+    () => <View style={[styles.labelDot, { backgroundColor: label.color }]} />,
+    [label.color],
+  );
+  return (
+    <DropdownMenuItem
+      selected={selected}
+      showSelectedCheck
+      leading={leading}
+      closeOnSelect={false}
+      disabled={disabled}
+      onSelect={handleSelect}
+      testID={`task-detail-label-${label.id}`}
+    >
+      {label.name}
+    </DropdownMenuItem>
+  );
+}
+
+function DeleteTaskLabelItem({
+  label,
+  onDelete,
+}: {
+  label: TaskLabel;
+  onDelete: (label: TaskLabel) => void;
+}): ReactElement {
+  const handleSelect = useCallback(() => onDelete(label), [label, onDelete]);
+  const leading = useMemo(
+    () => <View style={[styles.labelDot, { backgroundColor: label.color }]} />,
+    [label.color],
+  );
+  return (
+    <DropdownMenuItem
+      destructive
+      closeOnSelect={false}
+      leading={leading}
+      onSelect={handleSelect}
+      testID={`task-detail-label-delete-${label.id}`}
+    >
+      {label.name}
+    </DropdownMenuItem>
+  );
+}
+
+function CreateTaskLabelPage({
+  onCreate,
+}: {
+  onCreate: (input: { name: string; color: string }) => Promise<void>;
+}): ReactElement {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [resetKey, setResetKey] = useState(0);
+  const [colorName, setColorName] = useState<(typeof IDENTITY_COLOR_NAMES)[number]>("violet");
+  const [isCreating, setIsCreating] = useState(false);
+  const submit = useCallback(() => {
+    const trimmedName = name.trim();
+    if (!trimmedName || isCreating) return;
+    setIsCreating(true);
+    void (async () => {
+      try {
+        await onCreate({ name: trimmedName, color: identityColor(colorName) });
+        setName("");
+        setResetKey((current) => current + 1);
+      } catch (error) {
+        toast.show(toErrorMessage(error));
+      } finally {
+        setIsCreating(false);
+      }
+    })();
+  }, [colorName, isCreating, name, onCreate, toast]);
+
+  return (
+    <View style={styles.labelCreateForm}>
+      <FormTextInput
+        initialValue=""
+        resetKey={resetKey}
+        onChangeText={setName}
+        onSubmitEditing={submit}
+        placeholder="Label name"
+        testID="task-detail-label-name"
+      />
+      <View style={styles.labelPalette} accessibilityRole="radiogroup">
+        {IDENTITY_COLOR_NAMES.map((candidate) => (
+          <TaskLabelColorSwatch
+            key={candidate}
+            colorName={candidate}
+            selected={candidate === colorName}
+            onSelect={setColorName}
+          />
+        ))}
+      </View>
+      <Button
+        variant="default"
+        size="sm"
+        onPress={submit}
+        disabled={!name.trim() || isCreating}
+        loading={isCreating}
+        testID="task-detail-label-create-submit"
+      >
+        Create label
+      </Button>
+    </View>
+  );
+}
+
+function TaskLabelColorSwatch({
+  colorName,
+  selected,
+  onSelect,
+}: {
+  colorName: (typeof IDENTITY_COLOR_NAMES)[number];
+  selected: boolean;
+  onSelect: (colorName: (typeof IDENTITY_COLOR_NAMES)[number]) => void;
+}): ReactElement {
+  const handlePress = useCallback(() => onSelect(colorName), [colorName, onSelect]);
+  const accessibilityState = useMemo(() => ({ checked: selected }), [selected]);
+  const colorStyle = useMemo(() => ({ backgroundColor: identityColor(colorName) }), [colorName]);
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityLabel={colorName}
+      accessibilityState={accessibilityState}
+      onPress={handlePress}
+      style={[styles.labelSwatch, colorStyle, selected ? styles.labelSwatchSelected : null]}
+      testID={`task-detail-label-color-${colorName}`}
+    />
+  );
+}
+
+function TaskProperty({
+  label,
+  children,
+  testID,
+}: {
+  label: string;
+  children: ReactNode;
+  testID?: string;
+}): ReactElement {
+  return (
+    <View style={styles.property} testID={testID}>
       <Text style={styles.propertyLabel}>{label}</Text>
       {children}
     </View>
@@ -746,6 +1195,7 @@ function TaskDetailTabButton({
       onPress={handlePress}
       accessibilityRole="tab"
       accessibilityState={accessibilityState}
+      hitSlop={SPACING[1]}
       style={[styles.tab, active ? styles.tabActive : null]}
       testID={`task-detail-tab-${tab}`}
     >
@@ -757,6 +1207,7 @@ function TaskDetailTabButton({
 type TaskComposerMode = "instruction" | "note";
 
 function TaskUnifiedComposer({
+  serverId,
   task,
   supportsMessages,
   noteDraft,
@@ -766,6 +1217,7 @@ function TaskUnifiedComposer({
   onSubmitNote,
   sendMessage,
 }: {
+  serverId: string;
   task: Task;
   supportsMessages: boolean;
   noteDraft: string;
@@ -784,33 +1236,59 @@ function TaskUnifiedComposer({
   const [mode, setMode] = useState<TaskComposerMode>(canInstruct ? "instruction" : "note");
   const [instructionDraft, setInstructionDraft] = useState("");
   const [instructionResetKey, setInstructionResetKey] = useState(0);
+  const [selectedRecipientAgentIds, setSelectedRecipientAgentIds] = useState<Set<string>>(
+    () => new Set(task.agents.map((agent) => agent.agentId)),
+  );
+  const recipientAgentIds = useMemo(
+    () =>
+      task.agents
+        .map((agent) => agent.agentId)
+        .filter((agentId) => selectedRecipientAgentIds.has(agentId)),
+    [selectedRecipientAgentIds, task.agents],
+  );
+  const activeMode = mode === "instruction" && canInstruct ? "instruction" : "note";
   const useInstruction = useCallback(() => setMode("instruction"), []);
   const useNote = useCallback(() => setMode("note"), []);
+  const toggleRecipient = useCallback((agentId: string) => {
+    setSelectedRecipientAgentIds((current) => {
+      const next = new Set(current);
+      if (next.has(agentId)) {
+        next.delete(agentId);
+      } else {
+        next.add(agentId);
+      }
+      return next;
+    });
+  }, []);
   const submitInstruction = useCallback(() => {
     const body = instructionDraft.trim();
-    if (!body || !canInstruct || isPosting) return;
+    if (!body || !canInstruct || recipientAgentIds.length === 0 || isPosting) return;
     setInstructionDraft("");
     setInstructionResetKey((current) => current + 1);
     void sendMessage({
       body,
       taskId: task.id,
-      recipientAgentIds: task.agents.map((agent) => agent.agentId),
+      recipientAgentIds,
     }).catch((error) => {
       setInstructionDraft(body);
       setInstructionResetKey((current) => current + 1);
       toast.show(toErrorMessage(error));
     });
-  }, [canInstruct, instructionDraft, isPosting, sendMessage, task.agents, task.id, toast]);
-  const submit = mode === "instruction" ? submitInstruction : onSubmitNote;
-  const draft = mode === "instruction" ? instructionDraft : noteDraft;
-  const resetKey = mode === "instruction" ? instructionResetKey : noteResetKey;
-  const onChange = mode === "instruction" ? setInstructionDraft : onNoteChange;
+  }, [canInstruct, instructionDraft, isPosting, recipientAgentIds, sendMessage, task.id, toast]);
+  const submit = activeMode === "instruction" ? submitInstruction : onSubmitNote;
+  const draft = activeMode === "instruction" ? instructionDraft : noteDraft;
+  const resetKey = activeMode === "instruction" ? instructionResetKey : noteResetKey;
+  const onChange = activeMode === "instruction" ? setInstructionDraft : onNoteChange;
+  const recipientSummary =
+    recipientAgentIds.length === task.agents.length
+      ? "All agents"
+      : `${recipientAgentIds.length} of ${task.agents.length} agents`;
 
   return (
     <View style={styles.unifiedComposer} testID="task-detail-unified-composer">
       <View style={styles.composerModeRow}>
         <Button
-          variant={mode === "instruction" ? "secondary" : "ghost"}
+          variant={activeMode === "instruction" ? "secondary" : "ghost"}
           size="xs"
           onPress={useInstruction}
           disabled={!canInstruct}
@@ -819,26 +1297,47 @@ function TaskUnifiedComposer({
           Agent instruction
         </Button>
         <Button
-          variant={mode === "note" ? "secondary" : "ghost"}
+          variant={activeMode === "note" ? "secondary" : "ghost"}
           size="xs"
           onPress={useNote}
           testID="task-detail-composer-note"
         >
           Internal note
         </Button>
+        {activeMode === "instruction" ? (
+          <View style={styles.composerRecipientMenu}>
+            <DropdownMenu>
+              <DropdownTrigger testID="task-detail-composer-recipients">
+                <Text style={styles.composerRecipientSummary}>{recipientSummary}</Text>
+              </DropdownTrigger>
+              <DropdownMenuContent align="end">
+                {task.agents.map((agent) => (
+                  <TaskRecipientMenuItem
+                    key={agent.agentId}
+                    serverId={serverId}
+                    agentId={agent.agentId}
+                    workspaceId={agent.workspaceId}
+                    selected={selectedRecipientAgentIds.has(agent.agentId)}
+                    onToggle={toggleRecipient}
+                  />
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </View>
+        ) : null}
       </View>
       <View style={styles.composerInputRow}>
         <View style={styles.fieldFill}>
           <FormTextInput
             initialValue={draft}
-            resetKey={`${mode}-${resetKey}`}
+            resetKey={`${activeMode}-${resetKey}`}
             onChangeText={onChange}
             onSubmitEditing={submit}
             placeholder={
-              mode === "instruction" ? "Instruct the agent..." : "Write an internal note..."
+              activeMode === "instruction" ? "Instruct the agent..." : "Write an internal note..."
             }
             multiline
-            testID={`task-detail-${mode}-input`}
+            testID={`task-detail-${activeMode}-input`}
           />
         </View>
         <Button
@@ -846,8 +1345,12 @@ function TaskUnifiedComposer({
           size="sm"
           leftIcon={SendHorizontal}
           onPress={submit}
-          disabled={!draft.trim() || isPosting || (mode === "instruction" && !canInstruct)}
-          testID={`task-detail-${mode}-send`}
+          disabled={
+            !draft.trim() ||
+            isPosting ||
+            (activeMode === "instruction" && (!canInstruct || recipientAgentIds.length === 0))
+          }
+          testID={`task-detail-${activeMode}-send`}
         >
           Send
         </Button>
@@ -856,19 +1359,33 @@ function TaskUnifiedComposer({
   );
 }
 
-function TaskDetailGroup({
-  title,
-  testID,
-  children,
+function TaskRecipientMenuItem({
+  serverId,
+  agentId,
+  workspaceId,
+  selected,
+  onToggle,
 }: {
-  title: string;
-  testID: string;
-  children: ReactNode;
+  serverId: string;
+  agentId: string;
+  workspaceId: string;
+  selected: boolean;
+  onToggle: (agentId: string) => void;
 }): ReactElement {
+  const workspace = useWorkspace(serverId, workspaceId);
+  const agent = useSessionStore((state) => state.sessions[serverId]?.agents.get(agentId));
+  const name = agent?.title ?? workspace?.title ?? workspace?.name ?? agent?.provider ?? "Agent";
+  const handleSelect = useCallback(() => onToggle(agentId), [agentId, onToggle]);
   return (
-    <SettingsGroup title={title} testID={testID}>
-      <View style={styles.groupContent}>{children}</View>
-    </SettingsGroup>
+    <DropdownMenuItem
+      selected={selected}
+      showSelectedCheck
+      closeOnSelect={false}
+      onSelect={handleSelect}
+      testID={`task-detail-composer-recipient-${agentId}`}
+    >
+      {name}
+    </DropdownMenuItem>
   );
 }
 
@@ -882,7 +1399,7 @@ function TaskOverview({
   onSave: () => void;
 }): ReactElement {
   return (
-    <SettingsGroup title="Task description" testID="task-detail-brief">
+    <SettingsSection title="Task description" flush testID="task-detail-brief">
       <AdaptiveTextInput
         initialValue={task.description}
         resetKey={task.description}
@@ -894,7 +1411,7 @@ function TaskOverview({
         multiline
         testID="task-detail-description-input"
       />
-    </SettingsGroup>
+    </SettingsSection>
   );
 }
 
@@ -1423,39 +1940,44 @@ function TaskAutomationDeliverySection({
     ? task.integration.branch
     : formatAutomationSummary(effectivePolicy, presets, reviewMode);
   return (
-    <View style={styles.automationDelivery} testID="task-detail-automation-delivery">
-      <Pressable
-        onPress={toggleExpanded}
-        accessibilityRole="button"
-        accessibilityState={accessibilityState}
-        style={styles.automationDeliveryHeader}
-        testID="task-detail-automation-delivery-toggle"
-      >
-        <View style={styles.automationDeliveryTitleGroup}>
-          <Text style={styles.automationDeliveryTitle}>Automation &amp; delivery</Text>
-          <Text style={styles.automationDeliverySummary} numberOfLines={1}>
+    <SettingsSection title="Automation & delivery" flush testID="task-detail-automation-delivery">
+      <View style={styles.automationDeliveryCard}>
+        <Pressable
+          onPress={toggleExpanded}
+          accessibilityRole="button"
+          accessibilityState={accessibilityState}
+          style={styles.automationDeliveryHeader}
+          testID="task-detail-automation-delivery-toggle"
+        >
+          <Text
+            style={[
+              styles.automationDeliverySummary,
+              task.integration?.branch ? styles.automationDeliveryBranchSummary : null,
+            ]}
+            numberOfLines={1}
+          >
             {summary}
           </Text>
-        </View>
+          {expanded ? (
+            <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+          ) : (
+            <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+          )}
+        </Pressable>
         {expanded ? (
-          <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
-        ) : (
-          <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
-        )}
-      </Pressable>
-      {expanded ? (
-        <View style={styles.automationDeliveryContent}>
-          <TaskAutomationSection
-            serverId={serverId}
-            task={task}
-            project={project}
-            presets={presets}
-            hasSubtasks={hasSubtasks}
-          />
-          <TaskDeliverySection task={task} />
-        </View>
-      ) : null}
-    </View>
+          <View style={styles.automationDeliveryContent}>
+            <TaskAutomationSection
+              serverId={serverId}
+              task={task}
+              project={project}
+              presets={presets}
+              hasSubtasks={hasSubtasks}
+            />
+            <TaskDeliverySection task={task} />
+          </View>
+        ) : null}
+      </View>
+    </SettingsSection>
   );
 }
 
@@ -2226,15 +2748,29 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontFamily: theme.fontFamily.mono,
     fontSize: theme.fontSize.xs,
+    lineHeight: 16,
+  },
+  headerIdentity: {
+    minWidth: 0,
+    alignItems: "flex-start",
+    gap: theme.spacing[0.5],
   },
   headerTitleInput: {
-    flex: 1,
+    width: "100%",
     minWidth: 0,
+    maxWidth: 360,
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.lg,
+    fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.medium,
-    textAlign: "center",
-    paddingVertical: theme.spacing[1],
+    lineHeight: 20,
+    textAlign: "left",
+    paddingVertical: 0,
+    paddingBottom: theme.spacing[0.5],
+    borderBottomWidth: 1,
+    borderBottomColor: "transparent",
+  },
+  headerTitleInputFocused: {
+    borderBottomColor: theme.colors.accentBright,
   },
   startWorkTrigger: {
     minHeight: 32,
@@ -2255,15 +2791,16 @@ const styles = StyleSheet.create((theme) => ({
     borderTopColor: theme.colors.border,
   },
   propertyRow: {
-    minHeight: 44,
+    minHeight: 58,
     paddingHorizontal: theme.spacing[6],
-    alignItems: "center",
+    paddingVertical: theme.spacing[2],
+    alignItems: "flex-start",
     gap: theme.spacing[6],
   },
   property: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
+    minWidth: 96,
+    alignItems: "flex-start",
+    gap: theme.spacing[1],
   },
   propertyLabel: {
     color: theme.colors.foregroundExtraMuted,
@@ -2279,6 +2816,42 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
   },
+  propertyPriorityValue: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+  },
+  priorityValueDanger: {
+    color: theme.colors.statusDanger,
+  },
+  priorityValueWarning: {
+    color: theme.colors.statusWarning,
+  },
+  labelDot: {
+    width: 8,
+    height: 8,
+    borderRadius: theme.borderRadius.full,
+  },
+  labelCreateForm: {
+    width: "100%",
+    gap: theme.spacing[3],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+  },
+  labelPalette: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing[2],
+  },
+  labelSwatch: {
+    width: 22,
+    height: 22,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  labelSwatchSelected: {
+    borderColor: theme.colors.foreground,
+  },
   tabBar: {
     minHeight: 42,
     paddingHorizontal: theme.spacing[6],
@@ -2289,7 +2862,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   tab: {
     justifyContent: "center",
-    paddingHorizontal: theme.spacing[1],
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
   },
@@ -2302,7 +2874,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   tabLabelActive: {
     color: theme.colors.foreground,
-    fontWeight: theme.fontWeight.medium,
   },
   tabContent: {
     gap: theme.spacing[6],
@@ -2419,7 +2990,7 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
-  automationDelivery: {
+  automationDeliveryCard: {
     overflow: "hidden",
     borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
@@ -2435,20 +3006,14 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "space-between",
     gap: theme.spacing[3],
   },
-  automationDeliveryTitleGroup: {
+  automationDeliverySummary: {
     flex: 1,
     minWidth: 0,
-    gap: theme.spacing[1],
-  },
-  automationDeliveryTitle: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-  },
-  automationDeliverySummary: {
     color: theme.colors.foregroundMuted,
-    fontFamily: theme.fontFamily.mono,
     fontSize: theme.fontSize.xs,
+  },
+  automationDeliveryBranchSummary: {
+    fontFamily: theme.fontFamily.mono,
   },
   automationDeliveryContent: {
     gap: theme.spacing[6],
@@ -2507,6 +3072,14 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
+  },
+  composerRecipientMenu: {
+    marginLeft: "auto",
+  },
+  composerRecipientSummary: {
+    color: theme.colors.foregroundMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
   },
   composerInputRow: {
     flexDirection: "row",

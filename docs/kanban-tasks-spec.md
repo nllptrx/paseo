@@ -368,7 +368,9 @@ same id addresses the column and the board it opens.
 
 The detail sheet is the task's working surface. Its title and agent brief are
 editable in place. It shows comments, labels, due date, subtasks, dependencies,
-attachments, agents, the agent plan and review actions. Attached agents are
+attachments, agents, the agent plan and review actions. Labels belong to the
+project; the label dropdown creates, selects and deletes them without leaving
+the task. Attached agents are
 grouped by workspace; each workspace shows its branch, pull request and every
 agent's exact execution state. Automation is summarized in plain language and
 expands to task-specific controls; the board menu only sets defaults. The

@@ -9,12 +9,11 @@ export const settingsStyles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: theme.spacing[3],
-    marginLeft: theme.spacing[1],
   },
   sectionHeaderTitle: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
-    fontWeight: theme.fontWeight.normal,
+    fontWeight: theme.fontWeight.medium,
   },
   sectionHeaderLink: {
     alignItems: "center",

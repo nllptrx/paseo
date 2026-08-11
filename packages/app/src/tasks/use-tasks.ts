@@ -38,6 +38,13 @@ export function useTaskMessagesSupported(serverId: string): boolean {
   );
 }
 
+/** Deleting a project label requires a daemon newer than label creation. */
+export function useTaskLabelDeletionSupported(serverId: string): boolean {
+  return useSessionStore(
+    (state) => state.sessions[serverId]?.serverInfo?.features?.taskLabelDeletion === true,
+  );
+}
+
 /**
  * Whether a card sits in Working with nothing that would make it move on its
  * own: no plan, no agent already on it, and no subtasks carrying plans of their
@@ -140,6 +147,8 @@ export interface UseTaskMutationsResult {
     color: string;
     paseoProjectId?: string | null;
   }) => Promise<string>;
+  createLabel: (input: { projectId: string; name: string; color: string }) => Promise<string>;
+  deleteLabel: (labelId: string) => Promise<void>;
   /** Resolves with the new task's id: the snapshot has not refetched yet, so a
    * caller that needs to act on the task cannot read it back from there. */
   createTask: (input: {
@@ -173,7 +182,9 @@ export interface UseTaskMutationsResult {
     description?: string;
     status?: TaskStatus;
     priority?: TaskPriority;
+    dueDate?: string | null;
     parentTaskId?: string | null;
+    labelIds?: string[];
     executionPolicy?: TaskExecutionPolicy | null;
   }) => Promise<Task>;
   configureBoard: (input: {
@@ -245,6 +256,27 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
         throw new Error(payload.error ?? "The host created no task");
       }
       return payload.task.id;
+    },
+    onSettled: invalidate,
+  });
+
+  const createLabel = useMutation({
+    mutationFn: async (input: { projectId: string; name: string; color: string }) => {
+      const payload = await require().tasksLabelCreate(input);
+      if (payload.error || !payload.labelId) {
+        throw new Error(payload.error ?? "The host created no label");
+      }
+      return payload.labelId;
+    },
+    onSettled: invalidate,
+  });
+
+  const deleteLabel = useMutation({
+    mutationFn: async (labelId: string) => {
+      const payload = await require().tasksLabelDelete(labelId);
+      if (payload.error) {
+        throw new Error(payload.error);
+      }
     },
     onSettled: invalidate,
   });
@@ -373,6 +405,8 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
 
   return {
     createProject: (input) => createProject.mutateAsync(input),
+    createLabel: (input) => createLabel.mutateAsync(input),
+    deleteLabel: (labelId) => deleteLabel.mutateAsync(labelId),
     configureBoard: (input) => configureBoard.mutateAsync(input),
     setWorkflow: (input) => setWorkflow.mutateAsync(input),
     clearWorkflow: (taskId) => clearWorkflow.mutateAsync(taskId),
@@ -389,6 +423,8 @@ export function useTaskMutations(serverId: string): UseTaskMutationsResult {
     isReviewing: review.isPending || startReview.isPending,
     isBusy:
       createProject.isPending ||
+      createLabel.isPending ||
+      deleteLabel.isPending ||
       createTask.isPending ||
       attachAgent.isPending ||
       update.isPending ||
