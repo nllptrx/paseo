@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { Pressable, Text, View } from "react-native";
+import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { TaskComment } from "@getpaseo/protocol/tasks/types";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,11 @@ const INLINE_HIT_SLOP = 8;
 
 const ACTIVITY_LINE_HEIGHT = 20;
 const ACTIVITY_PIP_SIZE = 7;
+
+function resolveDisclosureIcon(isExpanded: boolean): typeof ChevronDown {
+  if (isExpanded) return ChevronUp;
+  return ChevronDown;
+}
 
 export function BoardFeedEntryRow({
   entry,
@@ -137,6 +143,7 @@ export function BoardFeedEntryRow({
         <Button
           variant="ghost"
           size="xs"
+          leftIcon={resolveDisclosureIcon(isExpanded)}
           onPress={toggleExpanded}
           style={styles.expandButton}
           testID={`board-feed-entry-${entry.id}-expand`}
@@ -189,13 +196,42 @@ function ActivityFeedEntry({
   const isSystem = entryKind === "system_event";
   const hasHeader = showHeader && !isSystem;
   const time = formatEntryTime(entry.createdAt);
+  const repeatLabel =
+    repeatCount > 1 && firstCreatedAt
+      ? ` · ×${repeatCount} since ${formatEntryTime(firstCreatedAt)}`
+      : null;
+  const hasEmphasizedBody = !isSystem && (canCollapse || entryKind === "note");
   const bodyText = (
     <Text
       style={[styles.activityBody, isSystem && styles.activityBodySystem, styles.activityBodyFlex]}
       numberOfLines={canCollapse && !isExpanded ? 3 : undefined}
     >
       {body}
+      {repeatLabel ? <Text style={styles.activityRepeat}>{repeatLabel}</Text> : null}
     </Text>
+  );
+  const expandControl = canCollapse ? (
+    <Button
+      variant="ghost"
+      size="xs"
+      leftIcon={resolveDisclosureIcon(isExpanded)}
+      onPress={onToggleExpanded}
+      style={hasEmphasizedBody ? styles.activityExpandButtonInset : styles.activityExpandButton}
+      testID={`board-feed-entry-${entry.id}-expand`}
+    >
+      {isExpanded ? "Show less" : "Show more"}
+    </Button>
+  ) : null;
+  const authoredBody = hasEmphasizedBody ? (
+    <View style={styles.activityBodySurface}>
+      {bodyText}
+      {expandControl}
+    </View>
+  ) : (
+    <>
+      {bodyText}
+      {expandControl}
+    </>
   );
   return (
     <View style={styles.activityEntry} testID={`board-feed-entry-${entry.id}`}>
@@ -227,29 +263,13 @@ function ActivityFeedEntry({
           </View>
         ) : null}
         {hasHeader ? (
-          bodyText
+          authoredBody
         ) : (
           <View style={styles.activityBodyRow}>
             {bodyText}
             <Text style={styles.activityTime}>{time}</Text>
           </View>
         )}
-        {repeatCount > 1 && firstCreatedAt ? (
-          <Text style={styles.activityRepeat}>
-            ×{repeatCount} since {formatEntryTime(firstCreatedAt)}
-          </Text>
-        ) : null}
-        {canCollapse ? (
-          <Button
-            variant="ghost"
-            size="xs"
-            onPress={onToggleExpanded}
-            style={styles.activityExpandButton}
-            testID={`board-feed-entry-${entry.id}-expand`}
-          >
-            {isExpanded ? "Show less" : "Show more"}
-          </Button>
-        ) : null}
         {entryKind === "message" && entry.recipients ? (
           <View style={styles.activityRecipients}>
             {entry.recipients.map((recipient) => (
@@ -257,6 +277,7 @@ function ActivityFeedEntry({
                 key={recipient.agentId}
                 serverId={serverId}
                 recipient={recipient}
+                appearance="activity"
               />
             ))}
           </View>
@@ -269,9 +290,11 @@ function ActivityFeedEntry({
 function MessageRecipientRow({
   serverId,
   recipient,
+  appearance = "standard",
 }: {
   serverId: string | undefined;
   recipient: NonNullable<TaskComment["recipients"]>[number];
+  appearance?: "standard" | "activity";
 }): ReactElement {
   const workspace = useWorkspace(serverId ?? null, recipient.workspaceId ?? null);
   const agent = useSessionStore((state) =>
@@ -279,14 +302,26 @@ function MessageRecipientRow({
   );
   const name = agent?.title ?? workspace?.title ?? workspace?.name ?? agent?.provider ?? "Agent";
   const provider = agent?.provider ? ` · ${agent.provider}` : "";
+  const identity =
+    appearance === "activity" ? `To ${name}` : `To ${name}${provider} · ${recipient.agentId}`;
   return (
     <View style={styles.recipientRow} testID={`board-feed-recipient-${recipient.agentId}`}>
-      <Text style={styles.recipientIdentity} numberOfLines={1}>
-        To {name}
-        {provider} · {recipient.agentId}
+      <Text
+        style={[
+          styles.recipientIdentity,
+          appearance === "activity" && styles.activityRecipientIdentity,
+        ]}
+        numberOfLines={1}
+      >
+        {identity}
       </Text>
       <Text
-        style={[styles.delivery, recipient.deliveryStatus === "failed" && styles.deliveryFailed]}
+        style={[
+          styles.delivery,
+          appearance === "activity" && styles.activityDelivery,
+          recipient.deliveryStatus === "delivered" && styles.deliverySucceeded,
+          recipient.deliveryStatus === "failed" && styles.deliveryFailed,
+        ]}
       >
         {recipient.deliveryStatus}
       </Text>
@@ -410,6 +445,9 @@ const styles = StyleSheet.create((theme) => ({
   deliveryFailed: {
     color: theme.colors.statusDanger,
   },
+  deliverySucceeded: {
+    color: theme.colors.statusSuccess,
+  },
   activityEntry: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -500,6 +538,14 @@ const styles = StyleSheet.create((theme) => ({
   activityBodySystem: {
     color: theme.colors.foregroundMuted,
   },
+  activityBodySurface: {
+    gap: theme.spacing[1],
+    padding: theme.spacing[3],
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface2,
+  },
   activityRepeat: {
     color: theme.colors.foregroundExtraMuted,
     fontFamily: theme.fontFamily.mono,
@@ -511,8 +557,18 @@ const styles = StyleSheet.create((theme) => ({
     // label ink sits on the content rail.
     marginLeft: -theme.spacing[3],
   },
+  activityExpandButtonInset: {
+    alignSelf: "flex-start",
+  },
   activityRecipients: {
     gap: theme.spacing[1],
     paddingTop: theme.spacing[1],
+  },
+  activityRecipientIdentity: {
+    fontFamily: theme.fontFamily.mono,
+    color: theme.colors.foregroundExtraMuted,
+  },
+  activityDelivery: {
+    fontFamily: theme.fontFamily.mono,
   },
 }));
