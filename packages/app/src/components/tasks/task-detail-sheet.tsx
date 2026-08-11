@@ -71,8 +71,6 @@ import {
   REVIEW_MODE_LABELS,
   REVIEW_MODES,
   toSubtaskCreateInput,
-  withSubtaskParallel,
-  withSubtaskPreset,
   withSubtaskTitle,
   type ReviewMode,
   type SubtaskDraft,
@@ -858,7 +856,6 @@ function OpenTaskDetailSheet({
     <TaskSubtasksSection
       subtasks={subtasks}
       projectsById={projectsById}
-      presets={presets}
       draft={subtaskDraft}
       draftResetKey={subtaskResetKey}
       executionByTaskId={executionByTaskId}
@@ -2767,6 +2764,19 @@ function StepWorkspaceMenuItem({
   );
 }
 
+/** A subtask's own status as one dot, the same vocabulary the plan uses. */
+function TaskStatusDot({ status }: { status: TaskStatus }): ReactElement {
+  return <View style={[styles.stepDot, resolveTaskDotTone(status)]} />;
+}
+
+function resolveTaskDotTone(status: TaskStatus) {
+  if (status === "done") return styles.stepDotSucceeded;
+  if (status === "in_progress") return styles.stepDotActive;
+  if (status === "in_review") return styles.stepDotReview;
+  if (status === "canceled") return styles.stepDotFailed;
+  return styles.stepDotPending;
+}
+
 /** The step's state as the one mark the eye lands on first, before any word. */
 /** The plan's right column: how long the last run took, then the one thing the
  * step can do or the state it is in. */
@@ -3009,7 +3019,6 @@ function TaskStepSurface({
 function TaskSubtasksSection({
   subtasks,
   projectsById,
-  presets,
   draft,
   draftResetKey,
   executionByTaskId,
@@ -3022,7 +3031,6 @@ function TaskSubtasksSection({
 }: {
   subtasks: readonly Task[];
   projectsById: ReadonlyMap<string, TaskProject>;
-  presets: readonly TaskPreset[];
   draft: SubtaskDraft;
   draftResetKey: number;
   executionByTaskId: ReadonlyMap<string, TaskExecutionSummary> | undefined;
@@ -3037,86 +3045,58 @@ function TaskSubtasksSection({
     (title: string) => onDraftChange(withSubtaskTitle(draft, title)),
     [draft, onDraftChange],
   );
-  const handlePreset = useCallback(
-    (presetId: string) =>
-      onDraftChange(withSubtaskPreset(draft, presetId === "none" ? "" : presetId)),
-    [draft, onDraftChange],
-  );
-  const handleParallel = useCallback(
-    (parallel: boolean) => onDraftChange(withSubtaskParallel(draft, parallel)),
-    [draft, onDraftChange],
-  );
-  const presetLabel = draft.presetId
-    ? (presets.find((preset) => preset.id === draft.presetId)?.name ?? "Missing preset")
-    : "Start by hand";
+  const [isAdding, setIsAdding] = useState(subtasks.length === 0);
+  const startAdding = useCallback(() => setIsAdding(true), []);
 
   return (
     <DetailSection title="Subtasks" testID="task-detail-subtasks">
-      {subtasks.length > 0 ? (
-        <View style={styles.executionGroups}>
-          {subtasks.map((subtask) => (
-            <SubtaskRow
-              key={subtask.id}
-              subtask={subtask}
-              project={projectsById.get(subtask.projectId)}
-              execution={executionByTaskId?.get(subtask.id)}
-              isReviewing={isReviewing}
-              onReview={onReview}
-              onOpenAgent={onOpenAgent}
-            />
-          ))}
-        </View>
-      ) : null}
       <View style={styles.card}>
-        <View style={styles.row}>
-          <AdaptiveTextInput
-            initialValue={draft.title}
-            resetKey={draftResetKey}
-            onChangeText={handleTitle}
-            onSubmitEditing={onCreate}
-            placeholder="Add a subtask"
-            style={styles.inlineInput}
-            testID="task-detail-subtask-input"
+        {subtasks.map((subtask, index) => (
+          <SubtaskRow
+            key={subtask.id}
+            subtask={subtask}
+            project={projectsById.get(subtask.projectId)}
+            execution={executionByTaskId?.get(subtask.id)}
+            withBorder={index > 0}
+            isReviewing={isReviewing}
+            onReview={onReview}
+            onOpenAgent={onOpenAgent}
           />
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={onCreate}
-            disabled={!canCreateSubtask(draft) || isBusy}
-            testID="task-detail-subtask-add"
-          >
-            Add
-          </Button>
-        </View>
-        {presets.length > 0 ? (
-          <PolicySelect
-            label="Runs as"
-            value={presetLabel}
-            options={[
-              { id: "none", label: "Start by hand" },
-              ...presets.map((preset) => ({ id: preset.id, label: preset.name })),
-            ]}
-            selected={draft.presetId || "none"}
-            onSelect={handlePreset}
-            testID="task-detail-subtask-preset"
-          />
-        ) : null}
-        <View style={[styles.row, styles.rowBorder]}>
-          <View style={styles.rowContent}>
-            <Text style={styles.rowTitle}>Run beside the previous subtask</Text>
-            <Text style={styles.rowHint}>
-              {draft.parallel
-                ? "Ready as soon as it is created."
-                : "Waits for the subtask created before it."}
-            </Text>
+        ))}
+        {isAdding ? (
+          <View style={[styles.subtaskDraft, subtasks.length > 0 ? styles.rowBorder : null]}>
+            <View style={styles.subtaskDraftRow}>
+              <AdaptiveTextInput
+                initialValue={draft.title}
+                resetKey={draftResetKey}
+                onChangeText={handleTitle}
+                onSubmitEditing={onCreate}
+                placeholder="What should the subtask deliver?"
+                style={[styles.inlineInput, isWeb ? styles.rowInputNoRing : null]}
+                testID="task-detail-subtask-input"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={onCreate}
+                disabled={!canCreateSubtask(draft) || isBusy}
+                testID="task-detail-subtask-add"
+              >
+                Add
+              </Button>
+            </View>
           </View>
-          <Switch
-            value={draft.parallel}
-            onValueChange={handleParallel}
-            accessibilityLabel="Run beside the previous subtask"
-            testID="task-detail-subtask-parallel"
-          />
-        </View>
+        ) : (
+          <Pressable
+            onPress={startAdding}
+            accessibilityRole="button"
+            style={[styles.row, styles.addRow, subtasks.length > 0 ? styles.rowBorder : null]}
+            testID="task-detail-subtask-open"
+          >
+            <ThemedPlus size={ICON_SIZE.sm} uniProps={extraMutedIconMapping} />
+            <Text style={styles.addRowLabel}>Add subtask</Text>
+          </Pressable>
+        )}
       </View>
     </DetailSection>
   );
@@ -3128,6 +3108,7 @@ function SubtaskRow({
   subtask,
   project,
   execution,
+  withBorder,
   isReviewing,
   onReview,
   onOpenAgent,
@@ -3135,6 +3116,7 @@ function SubtaskRow({
   subtask: Task;
   project: TaskProject | undefined;
   execution: TaskExecutionSummary | undefined;
+  withBorder: boolean;
   isReviewing: boolean;
   onReview: (input: { taskId: string; verdict: "approve" | "reject"; feedback?: string }) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
@@ -3152,34 +3134,32 @@ function SubtaskRow({
       onReview({ taskId: subtask.id, verdict: "reject", feedback: feedback.trim() || undefined }),
     [feedback, onReview, subtask.id],
   );
-  const leadEntry = execution?.entries[0];
 
   return (
-    <View style={styles.card} testID={`task-detail-subtask-${subtask.id}`}>
+    <View style={withBorder ? styles.rowBorder : null} testID={`task-detail-subtask-${subtask.id}`}>
       <Pressable
         onPress={toggle}
         accessibilityRole="button"
         accessibilityLabel={`${isExpanded ? "Collapse" : "Expand"} ${subtask.title}`}
-        style={styles.row}
+        style={[styles.row, styles.subtaskRow]}
         testID={`task-detail-subtask-toggle-${subtask.id}`}
       >
-        <View style={styles.agentIdentity}>
-          {leadEntry ? <TaskExecutionStateDot state={leadEntry.state} /> : null}
-          <View style={styles.rowContent}>
-            <Text style={styles.rowTitle} numberOfLines={1}>
-              {subtask.title}
-            </Text>
+        <TaskStatusDot status={subtask.status} />
+        <View style={[styles.rowContent, styles.stepTitleColumn]}>
+          <Text style={styles.subtaskTitle} numberOfLines={1}>
+            {subtask.title}
+          </Text>
+          {isExpanded ? (
             <Text style={styles.rowHint} numberOfLines={1}>
               {formatSubtaskDetail({
                 subtask,
-                project,
                 execution,
                 statusLabel: t(TASK_STATUS_LABEL_KEYS[subtask.status]),
               })}
             </Text>
-          </View>
+          ) : null}
         </View>
-        <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
+        <Text style={styles.subtaskKey}>{formatTaskKey(project, subtask)}</Text>
       </Pressable>
       {isExpanded ? (
         <>
@@ -3227,11 +3207,10 @@ function SubtaskRow({
 
 function formatSubtaskDetail(input: {
   subtask: Task;
-  project: TaskProject | undefined;
   execution: TaskExecutionSummary | undefined;
   statusLabel: string;
 }): string {
-  const details = [formatTaskKey(input.project, input.subtask), input.statusLabel];
+  const details = [input.statusLabel];
   const entry = input.execution?.entries[0];
   if (entry) {
     details.push(TASK_EXECUTION_STATE_LABELS[entry.state]);
@@ -4157,6 +4136,33 @@ const styles = StyleSheet.create((theme) => ({
   stepDotFailed: {
     backgroundColor: theme.colors.statusDotDanger,
   },
+  stepDotReview: {
+    backgroundColor: theme.colors.statusDotWarning,
+  },
+  subtaskDraft: {
+    padding: theme.spacing[3],
+    gap: theme.spacing[2],
+  },
+  subtaskDraftRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  subtaskRow: {
+    gap: theme.spacing[2],
+  },
+  subtaskTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  subtaskKey: {
+    flexGrow: 0,
+    flexShrink: 0,
+    color: theme.colors.foregroundExtraMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.xs,
+  },
   stepActionPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -4441,6 +4447,13 @@ const styles = StyleSheet.create((theme) => ({
   inlineInput: {
     flex: 1,
     fontSize: theme.fontSize.sm,
+  },
+  /** The shared focus ring frames a field's own box. A field that is a bare row
+   * in a card has none, so the ring would outline something that is not there;
+   * the caret carries the focus instead. */
+  rowInputNoRing: {
+    outlineWidth: 0,
+    outlineColor: "transparent",
   },
   actionRow: {
     flexDirection: "row",
