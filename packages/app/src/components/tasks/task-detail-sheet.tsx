@@ -22,7 +22,7 @@ import {
   CornerUpLeft,
   Eye,
   GitBranch,
-  Layers,
+  ListTree,
   MoreHorizontal,
   Play,
   Plus,
@@ -173,6 +173,13 @@ const STEP_STATUS_WIDTH = 56;
 const RAIL_GROUP_GAP = 20;
 const DETAIL_TEXT_SIZE = 13;
 const STEP_DURATION_FONT_SIZE = 11;
+/** The automation grid: a row taller than a list row, so a settings screen of
+ * one-line rows still breathes without a card around it. */
+const POLICY_ROW_PADDING = 14;
+/** A tab's own side padding widens its hit area and carries its underline past
+ * the label. The bar pulls back by the same amount so the first label still
+ * lands on the pane's content rail instead of sitting a few pixels inside it. */
+const TAB_HIT_PADDING = SPACING[1];
 /** The facts block: one label column, one line height, one rhythm. */
 const META_LABEL_WIDTH = 96;
 const META_LINE_HEIGHT = 18;
@@ -210,7 +217,7 @@ const ThemedEye = withUnistyles(Eye);
 const ThemedMoreHorizontal = withUnistyles(MoreHorizontal);
 const ThemedGitBranch = withUnistyles(GitBranch);
 const ThemedArchive = withUnistyles(Archive);
-const ThemedLayers = withUnistyles(Layers);
+const ThemedListTree = withUnistyles(ListTree);
 const ThemedPlus = withUnistyles(Plus);
 const ThemedCornerUpLeft = withUnistyles(CornerUpLeft);
 const ThemedCheck = withUnistyles(Check);
@@ -662,10 +669,31 @@ function OpenTaskDetailSheet({
   const steps = useMemo(() => workflow?.steps ?? EMPTY_STEPS, [workflow?.steps]);
   const { surfaceStep, surfaceStepIndex } = resolveSurfaceStep(subSurface, steps);
   const header = useMemo(() => {
+    // Starting the task and the overflow belong to the task, not to the screen
+    // the user happens to have drilled into, so a sub-surface keeps them: going
+    // back out to start work would lose the place they were editing.
+    const desktopActions = (
+      <View style={styles.headerActions}>
+        <TaskStartControl
+          presets={presets}
+          isAggregate={isAggregate}
+          disabled={blockers.length > 0 || isDelegating}
+          onStart={handleDelegate}
+        />
+        <TaskDetailOverflowMenu
+          isAggregate={isAggregate}
+          onEditPlan={openPlanSurface}
+          onChangeAutomation={openAutomationSurface}
+          onDelete={handleDelete}
+        />
+      </View>
+    );
     if (subSurface) {
       return {
         title: resolveSubSurfaceTitle({ subSurface, surfaceStep, surfaceStepIndex }),
         back: { onPress: closeSubSurface },
+        // Compact has one column: back, title and close already fill the row.
+        actions: isCompact ? undefined : desktopActions,
       };
     }
     // Desktop keeps the title and the one primary action on the header row: the
@@ -688,22 +716,7 @@ function OpenTaskDetailSheet({
             />
           </View>
         ),
-        actions: (
-          <View style={styles.headerActions}>
-            <TaskStartControl
-              presets={presets}
-              isAggregate={isAggregate}
-              disabled={blockers.length > 0 || isDelegating}
-              onStart={handleDelegate}
-            />
-            <TaskDetailOverflowMenu
-              isAggregate={isAggregate}
-              onEditPlan={openPlanSurface}
-              onChangeAutomation={openAutomationSurface}
-              onDelete={handleDelete}
-            />
-          </View>
-        ),
+        actions: desktopActions,
       };
     }
     return {
@@ -1112,16 +1125,13 @@ function TaskDetailSubSurfaceBody({
         />
       ) : null}
       {subSurface.kind === "automation" ? (
-        <>
-          <TaskAutomationSection
-            serverId={serverId}
-            task={task}
-            project={project}
-            presets={presets}
-            hasSubtasks={isAggregate}
-          />
-          <TaskDeliverySection task={task} />
-        </>
+        <TaskAutomationSection
+          serverId={serverId}
+          task={task}
+          project={project}
+          presets={presets}
+          hasSubtasks={isAggregate}
+        />
       ) : null}
       {subSurface.kind === "step" && surfaceStep ? (
         <TaskStepSurface
@@ -1365,7 +1375,7 @@ function TaskDetailPropertyRail({
           ))}
           {subtasks.length > 0 ? (
             <TaskRailFact
-              icon={ThemedLayers}
+              icon={ThemedListTree}
               label={`${subtasks.length} ${subtasks.length === 1 ? "subtask" : "subtasks"} · ${openSubtaskCount} open`}
             />
           ) : null}
@@ -3241,7 +3251,10 @@ function formatSubtaskDetail(input: {
   return details.join(" · ");
 }
 
-function TaskDeliverySection({ task }: { task: Task }): ReactElement | null {
+/** Where the work lands, as one more row of the automation grid: the surface is
+ * automation and delivery, and a card of its own made delivery read as a second
+ * kind of setting rather than the last fact about the same run. */
+function TaskDeliveryRow({ task }: { task: Task }): ReactElement | null {
   if (!task.integration) return null;
   let status = "Task branch ready";
   if (task.integration.status === "integrated") {
@@ -3252,21 +3265,17 @@ function TaskDeliverySection({ task }: { task: Task }): ReactElement | null {
     status = "Will deliver to parent when complete";
   }
   return (
-    <DetailSection title="Delivery" testID="task-detail-delivery">
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <View style={styles.rowContent}>
-            <Text style={styles.rowTitle}>{status}</Text>
-            <Text style={styles.deliveryBranch} numberOfLines={1}>
-              {task.integration.branch}
-            </Text>
-            {task.integration.error ? (
-              <Text style={styles.rowError}>{task.integration.error}</Text>
-            ) : null}
-          </View>
-        </View>
+    <View style={styles.policyRow} testID="task-detail-delivery">
+      <View style={styles.rowContent}>
+        <Text style={styles.rowTitle}>{status}</Text>
+        {task.integration.error ? (
+          <Text style={styles.rowError}>{task.integration.error}</Text>
+        ) : null}
       </View>
-    </DetailSection>
+      <Text style={styles.deliveryBranch} numberOfLines={1}>
+        {task.integration.branch}
+      </Text>
+    </View>
   );
 }
 
@@ -3304,15 +3313,6 @@ function StepActionButton({
       <Text style={styles.stepActionLabel}>{t(`tasks.detail.stepAction.${action}`)}</Text>
     </Pressable>
   );
-}
-
-function formatReviewPolicy(
-  policy: TaskExecutionPolicy,
-  effective: ReturnType<typeof resolveTaskExecutionPolicy>,
-): string {
-  if (policy.review === "required") return "Required";
-  if (policy.review === "disabled") return "Disabled";
-  return `Board default (${effective.reviewEnabled ? "required" : "off"})`;
 }
 
 function formatWorkspacePolicy(policy: TaskExecutionPolicy): string {
@@ -3388,8 +3388,11 @@ function TaskAutomationSection({
     },
     [policy, task.id, toast, updateTask],
   );
-  const setReview = useCallback(
-    (review: "inherit" | "required" | "disabled") => writePolicy({ ...policy, review }),
+  // A leaf task asks one yes-or-no question about review, so it gets a switch.
+  // Flipping it always states the answer on the task; "Use defaults" is what
+  // hands the decision back to the board.
+  const toggleReview = useCallback(
+    (enabled: boolean) => writePolicy({ ...policy, review: enabled ? "required" : "disabled" }),
     [policy, writePolicy],
   );
   const setReviewMode = useCallback(
@@ -3461,118 +3464,162 @@ function TaskAutomationSection({
       ) : null,
     [canReset, resetPolicy, supportsExecutionPolicy],
   );
+  // Turning review off leaves the reviewer, the rounds and the rejection target
+  // with nothing to act on. They stay in place, dimmed, so the shape of the
+  // surface does not change under the user when they flip review back on.
+  const reviewActive = reviewMode
+    ? reviewMode !== "off" && (reviewMode !== "inherit" || effectivePolicy.reviewEnabled)
+    : effectivePolicy.reviewEnabled;
 
-  return (
-    <DetailSection title="Automation" trailing={trailing} testID="task-detail-automation">
-      {supportsExecutionPolicy ? (
-        <View style={styles.card}>
-          <View style={styles.row}>
-            <Text style={styles.rowHint}>Board defaults apply until this task overrides them.</Text>
-          </View>
-          {reviewMode ? (
-            <PolicySelect
-              label="Review"
-              value={REVIEW_MODE_LABELS[reviewMode]}
-              options={REVIEW_MODES.map((mode) => ({ id: mode, label: REVIEW_MODE_LABELS[mode] }))}
-              selected={reviewMode}
-              onSelect={setReviewMode}
-              testID="task-detail-policy-review"
-            />
-          ) : (
-            <PolicySelect
-              label="Review"
-              value={formatReviewPolicy(policy, effectivePolicy)}
-              options={[
-                { id: "inherit", label: "Board default" },
-                { id: "required", label: "Required" },
-                { id: "disabled", label: "Disabled" },
-              ]}
-              selected={policy.review ?? "inherit"}
-              onSelect={setReview}
-              testID="task-detail-policy-review"
-            />
-          )}
-          <PolicySelect
-            label="Workspace"
-            value={formatWorkspacePolicy(policy)}
-            options={[
-              { id: "inherit", label: "Preset default" },
-              { id: "dedicated", label: "Dedicated worktree" },
-              { id: "reuse", label: "Reuse task workspace" },
-            ]}
-            selected={policy.workspace ?? "inherit"}
-            onSelect={setWorkspace}
-            testID="task-detail-policy-workspace"
-          />
-          <PolicySelect
-            label="Reviewer"
-            value={formatReviewerPolicy(policy, effectivePolicy, presets)}
-            options={[
-              { id: "inherit", label: "Board default" },
-              { id: "human", label: "Human" },
-              ...presets.map((preset) => ({ id: preset.id, label: preset.name })),
-            ]}
-            selected={selectReviewerPolicy(policy)}
-            onSelect={setReviewer}
-            testID="task-detail-policy-reviewer"
-          />
-          <PolicySelect
-            label="Correction rounds"
-            value={
-              policy.maxReviewIterations
-                ? String(policy.maxReviewIterations)
-                : `Board default (${effectivePolicy.maxReviewIterations})`
-            }
-            options={[
-              { id: "inherit", label: "Board default" },
-              { id: "1", label: "1 round" },
-              { id: "2", label: "2 rounds" },
-              { id: "3", label: "3 rounds" },
-              { id: "5", label: "5 rounds" },
-              { id: "10", label: "10 rounds" },
-            ]}
-            selected={policy.maxReviewIterations?.toString() ?? "inherit"}
-            onSelect={setRounds}
-            testID="task-detail-policy-rounds"
-          />
-          <PolicySelect
-            label="On rejection"
-            value={
-              policy.reviewOnReject
-                ? policy.reviewOnReject.replaceAll("_", " ")
-                : `Board default (${effectivePolicy.reviewOnReject.replaceAll("_", " ")})`
-            }
-            options={[
-              { id: "inherit", label: "Board default" },
-              { id: "in_progress", label: "Working" },
-              { id: "todo", label: "Todo" },
-              { id: "backlog", label: "Backlog" },
-            ]}
-            selected={policy.reviewOnReject ?? "inherit"}
-            onSelect={setRejectTarget}
-            testID="task-detail-policy-reject-target"
-          />
-          <PolicySelect
-            label="On completion"
-            value={formatCleanupPolicy(policy, effectivePolicy)}
-            options={[
-              { id: "inherit", label: "Board default" },
-              { id: "archive", label: "Archive workspaces" },
-              { id: "keep", label: "Keep workspaces" },
-            ]}
-            selected={selectCleanupPolicy(policy)}
-            onSelect={setCleanup}
-            testID="task-detail-policy-cleanup"
-          />
-        </View>
-      ) : null}
-      {!supportsExecutionPolicy ? (
-        <Text style={styles.emptyComments}>
+  // An older host cannot take a per-task policy, but the task still delivers
+  // somewhere, so the delivery row survives the missing controls.
+  if (!supportsExecutionPolicy) {
+    return (
+      <View style={styles.policyList} testID="task-detail-automation">
+        <Text style={styles.policyIntroText}>
           Update this host to customize automation for individual tasks.
         </Text>
-      ) : null}
-    </DetailSection>
+        <TaskDeliveryRow task={task} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.policyList} testID="task-detail-automation">
+      <View style={styles.policyIntro}>
+        <Text style={styles.policyIntroText}>
+          {formatAutomationIntro(effectivePolicy, reviewMode)}
+        </Text>
+        {trailing}
+      </View>
+      {reviewMode ? (
+        <PolicySelect
+          label="Review"
+          value={REVIEW_MODE_LABELS[reviewMode]}
+          options={REVIEW_MODES.map((mode) => ({ id: mode, label: REVIEW_MODE_LABELS[mode] }))}
+          selected={reviewMode}
+          onSelect={setReviewMode}
+          testID="task-detail-policy-review"
+        />
+      ) : (
+        <View style={styles.policyRow}>
+          <View style={styles.rowContent}>
+            <Text style={styles.rowTitle}>Review</Text>
+          </View>
+          <Switch
+            value={effectivePolicy.reviewEnabled}
+            onValueChange={toggleReview}
+            accessibilityLabel="Review"
+            style={styles.policySwitch}
+            testID="task-detail-policy-review"
+          />
+        </View>
+      )}
+      <PolicySelect
+        label="Workspace"
+        value={formatWorkspacePolicy(policy)}
+        options={[
+          { id: "inherit", label: "Preset default" },
+          { id: "dedicated", label: "Dedicated worktree" },
+          { id: "reuse", label: "Reuse task workspace" },
+        ]}
+        selected={policy.workspace ?? "inherit"}
+        onSelect={setWorkspace}
+        testID="task-detail-policy-workspace"
+      />
+      <PolicySelect
+        label="Reviewer"
+        value={formatReviewerPolicy(policy, effectivePolicy, presets)}
+        options={[
+          { id: "inherit", label: "Board default" },
+          { id: "human", label: "Human" },
+          ...presets.map((preset) => ({ id: preset.id, label: preset.name })),
+        ]}
+        selected={selectReviewerPolicy(policy)}
+        onSelect={setReviewer}
+        dimmed={!reviewActive}
+        testID="task-detail-policy-reviewer"
+      />
+      <PolicySelect
+        label="Correction rounds"
+        value={
+          policy.maxReviewIterations
+            ? String(policy.maxReviewIterations)
+            : `Board default (${effectivePolicy.maxReviewIterations})`
+        }
+        options={[
+          { id: "inherit", label: "Board default" },
+          { id: "1", label: "1 round" },
+          { id: "2", label: "2 rounds" },
+          { id: "3", label: "3 rounds" },
+          { id: "5", label: "5 rounds" },
+          { id: "10", label: "10 rounds" },
+        ]}
+        selected={policy.maxReviewIterations?.toString() ?? "inherit"}
+        onSelect={setRounds}
+        dimmed={!reviewActive}
+        testID="task-detail-policy-rounds"
+      />
+      <PolicySelect
+        label="On rejection"
+        value={
+          policy.reviewOnReject
+            ? policy.reviewOnReject.replaceAll("_", " ")
+            : `Board default (${effectivePolicy.reviewOnReject.replaceAll("_", " ")})`
+        }
+        options={[
+          { id: "inherit", label: "Board default" },
+          { id: "in_progress", label: "Working" },
+          { id: "todo", label: "Todo" },
+          { id: "backlog", label: "Backlog" },
+        ]}
+        selected={policy.reviewOnReject ?? "inherit"}
+        onSelect={setRejectTarget}
+        dimmed={!reviewActive}
+        testID="task-detail-policy-reject-target"
+      />
+      <PolicySelect
+        label="On completion"
+        value={formatCleanupPolicy(policy, effectivePolicy)}
+        options={[
+          { id: "inherit", label: "Board default" },
+          { id: "archive", label: "Archive workspaces" },
+          { id: "keep", label: "Keep workspaces" },
+        ]}
+        selected={selectCleanupPolicy(policy)}
+        onSelect={setCleanup}
+        testID="task-detail-policy-cleanup"
+      />
+      <TaskDeliveryRow task={task} />
+      {reviewActive ? null : (
+        <Text style={styles.policyNote}>Rows that review turns off stay visible, dimmed.</Text>
+      )}
+    </View>
   );
+}
+
+/** The effective policy as the sentence the surface opens with: what the rows
+ * below add up to before anyone touches them. */
+function formatAutomationIntro(
+  effective: ReturnType<typeof resolveTaskExecutionPolicy>,
+  reviewMode: ReviewMode | null,
+): string {
+  let workspace = "Agents use the preset's workspace.";
+  if (effective.workspace === "dedicated") {
+    workspace = "Every agent works in a dedicated worktree.";
+  } else if (effective.workspace === "reuse") {
+    workspace = "Agents reuse the task workspace.";
+  }
+  if (reviewMode && reviewMode !== "inherit") {
+    const review =
+      reviewMode === "off"
+        ? "No review is required."
+        : `Review covers ${REVIEW_MODE_LABELS[reviewMode].toLowerCase()}.`;
+    return `${workspace} ${review}`;
+  }
+  if (!effective.reviewEnabled) return `${workspace} No review is required.`;
+  const rounds = effective.maxReviewIterations === 1 ? "round" : "rounds";
+  return `${workspace} Review is required, up to ${effective.maxReviewIterations} correction ${rounds}.`;
 }
 
 function PolicySelect<T extends string>({
@@ -3581,6 +3628,7 @@ function PolicySelect<T extends string>({
   options,
   selected,
   onSelect,
+  dimmed = false,
   testID,
 }: {
   label: string;
@@ -3588,15 +3636,17 @@ function PolicySelect<T extends string>({
   options: readonly { id: T; label: string }[];
   selected: T;
   onSelect: (value: T) => void;
+  /** Nothing this row sets applies right now: it stays readable but inert. */
+  dimmed?: boolean;
   testID: string;
 }): ReactElement {
   return (
-    <View style={[styles.row, styles.rowBorder]}>
+    <View style={[styles.policyRow, dimmed ? styles.policyRowDimmed : null]}>
       <View style={styles.rowContent}>
         <Text style={styles.rowTitle}>{label}</Text>
       </View>
       <DropdownMenu>
-        <DropdownTrigger testID={testID}>
+        <DropdownTrigger disabled={dimmed} testID={testID}>
           <Text style={styles.policyValue} numberOfLines={1}>
             {value}
           </Text>
@@ -4321,10 +4371,11 @@ const styles = StyleSheet.create((theme) => ({
   desktopTabBar: {
     borderBottomWidth: theme.borderWidth[1],
     borderBottomColor: theme.colors.surface2,
+    paddingHorizontal: theme.spacing[4] - TAB_HIT_PADDING,
   },
   tab: {
     justifyContent: "center",
-    paddingHorizontal: theme.spacing[1],
+    paddingHorizontal: TAB_HIT_PADDING,
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
   },
@@ -4484,7 +4535,6 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontFamily: theme.fontFamily.mono,
     fontSize: theme.fontSize.xs,
-    marginTop: theme.spacing[1],
   },
   agentIdentity: {
     flex: 1,
@@ -4517,8 +4567,47 @@ const styles = StyleSheet.create((theme) => ({
     textAlign: "center",
   },
   policyValue: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    fontSize: DETAIL_TEXT_SIZE,
+  },
+  policyList: {
+    gap: theme.spacing[1],
+  },
+  policyIntro: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
+    paddingBottom: theme.spacing[1],
+  },
+  policyIntroText: {
+    flex: 1,
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: DETAIL_TEXT_SIZE,
+    lineHeight: META_LINE_HEIGHT,
+  },
+  policyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: POLICY_ROW_PADDING,
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
+  },
+  policyRowDimmed: {
+    opacity: 0.45,
+  },
+  /** The switch keeps its tap target through hitSlop, so the row does not have
+   * to carry the shared control's minimum height and stand taller than the
+   * rows it sits between. */
+  policySwitch: {
+    minHeight: 0,
+  },
+  policyNote: {
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: theme.fontSize.xs,
+    lineHeight: META_LINE_HEIGHT,
+    paddingTop: theme.spacing[1.5],
   },
   relationshipStatus: {
     color: theme.colors.foregroundMuted,

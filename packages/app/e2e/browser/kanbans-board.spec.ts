@@ -840,8 +840,9 @@ test.describe("Kanbans board", () => {
       .getByTestId("task-detail-description-input")
       .fill("Implement this outcome with the constraints in the task.");
     await sheet.getByTestId("task-detail-automation-change").click();
+    // A leaf task's review is a switch: the board leaves it off, so one press
+    // is what requires it on this task.
     await sheet.getByTestId("task-detail-policy-review").click();
-    await page.getByTestId("task-detail-policy-review-required").click();
     await sheet.getByTestId("task-detail-policy-workspace").click();
     await page.getByTestId("task-detail-policy-workspace-dedicated").click();
     await expect
