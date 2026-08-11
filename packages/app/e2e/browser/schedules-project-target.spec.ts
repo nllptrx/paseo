@@ -195,8 +195,8 @@ test.describe("Schedules project target", () => {
     await expect(page.getByTestId("schedules-empty")).toBeVisible();
     const [calendarColor, descriptionColor] = await Promise.all([
       page
-        .getByTestId("schedules-empty-icon")
-        .evaluate((element) => getComputedStyle(element).color),
+        .locator('svg[data-testid="schedules-empty-icon"]')
+        .evaluate((element) => getComputedStyle(element).stroke),
       page
         .getByText("Schedules run agents on a cadence.", { exact: true })
         .evaluate((element) => getComputedStyle(element).color),
