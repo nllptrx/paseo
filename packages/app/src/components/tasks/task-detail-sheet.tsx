@@ -177,6 +177,7 @@ const STEP_DURATION_FONT_SIZE = 11;
 const META_LABEL_WIDTH = 96;
 const META_LINE_HEIGHT = 18;
 const EMPTY_MODELS: readonly AgentModelDefinition[] = [];
+const TITLE_INPUT_TEST_ID = "task-detail-title-input";
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /** The workspace strategies a step can be moved between from the plan. The
@@ -379,7 +380,7 @@ function OpenTaskDetailSheet({
   const [subtaskDraft, setSubtaskDraft] = useState<SubtaskDraft>(EMPTY_SUBTASK_DRAFT);
   const [noteResetKey, setNoteResetKey] = useState(0);
   const [subtaskResetKey, setSubtaskResetKey] = useState(0);
-  const [isTitleFocused, setIsTitleFocused] = useState(false);
+  const [isTitleEditing, setIsTitleEditing] = useState(false);
   const executionGroups = useMemo(
     () => groupTaskExecutionsByWorkspace(executionSummary),
     [executionSummary],
@@ -598,9 +599,9 @@ function OpenTaskDetailSheet({
       toast.show(toErrorMessage(error));
     });
   }, [descriptionDraft, task.description, task.id, task.title, titleDraft, toast, updateTask]);
-  const focusTitle = useCallback(() => setIsTitleFocused(true), []);
-  const blurTitle = useCallback(() => {
-    setIsTitleFocused(false);
+  const startTitleEdit = useCallback(() => setIsTitleEditing(true), []);
+  const endTitleEdit = useCallback(() => {
+    setIsTitleEditing(false);
     saveBrief();
   }, [saveBrief]);
 
@@ -676,10 +677,10 @@ function OpenTaskDetailSheet({
             </Text>
             <TaskDetailTitleInput
               task={task}
-              isTitleFocused={isTitleFocused}
+              isTitleEditing={isTitleEditing}
               onTitleChange={setTitleDraft}
-              onTitleFocus={focusTitle}
-              onTitleBlur={blurTitle}
+              onTitleEdit={startTitleEdit}
+              onTitleBlur={endTitleEdit}
               onTitleSave={saveBrief}
             />
           </View>
@@ -708,10 +709,10 @@ function OpenTaskDetailSheet({
       after: (
         <TaskDetailHeaderBody
           task={task}
-          isTitleFocused={isTitleFocused}
+          isTitleEditing={isTitleEditing}
           onTitleChange={setTitleDraft}
-          onTitleFocus={focusTitle}
-          onTitleBlur={blurTitle}
+          onTitleEdit={startTitleEdit}
+          onTitleBlur={endTitleEdit}
           onTitleSave={saveBrief}
           projectLabels={projectLabels}
           selectedLabelIds={labelIdsDraft}
@@ -744,12 +745,12 @@ function OpenTaskDetailSheet({
     handleSelectStatus,
     handleSetDueDate,
     handleSetLabelIds,
-    blurTitle,
-    focusTitle,
+    endTitleEdit,
+    startTitleEdit,
     isAggregate,
     isCompact,
     isDelegating,
-    isTitleFocused,
+    isTitleEditing,
     labelIdsDraft,
     presets,
     projectLabels,
@@ -1505,37 +1506,51 @@ function TaskDetailAttentionSection({
 
 /** The header below the key row: full-width editable title, the property chip
  * rail, and the tab bar — one surface for identity and properties. */
-/** The task title, edited in place and written on blur. */
+/**
+ * The task title, edited in place and written on blur.
+ *
+ * The editing frame follows the writing, not the focus: a web overlay hands its
+ * initial focus to the first focusable node in scope (see lib/overlay-root.ts),
+ * which here is this field, so a sheet opened to read a plan would arrive
+ * looking like a rename in progress. Focus itself is left alone — Tab order and
+ * keyboard entry are unchanged — and the caret already says where typing lands.
+ */
 function TaskDetailTitleInput({
   task,
-  isTitleFocused,
+  isTitleEditing,
   onTitleChange,
-  onTitleFocus,
+  onTitleEdit,
   onTitleBlur,
   onTitleSave,
 }: {
   task: Task;
-  isTitleFocused: boolean;
+  isTitleEditing: boolean;
   onTitleChange: (title: string) => void;
-  onTitleFocus: () => void;
+  onTitleEdit: () => void;
   onTitleBlur: () => void;
   onTitleSave: () => void;
 }): ReactElement {
+  const handleChangeText = useCallback(
+    (title: string) => {
+      onTitleEdit();
+      onTitleChange(title);
+    },
+    [onTitleChange, onTitleEdit],
+  );
   return (
     <AdaptiveTextInput
       initialValue={task.title}
       resetKey={task.title}
-      onChangeText={onTitleChange}
-      onFocus={onTitleFocus}
+      onChangeText={handleChangeText}
       onBlur={onTitleBlur}
       onEndEditing={onTitleSave}
       placeholder="What needs to be done?"
       style={[
         styles.headerTitleInput,
-        isTitleFocused ? styles.headerTitleInputFocused : null,
+        isTitleEditing ? styles.headerTitleEditing : null,
         isWeb ? { outlineWidth: 0, outlineColor: "transparent" } : null,
       ]}
-      testID="task-detail-title-input"
+      testID={TITLE_INPUT_TEST_ID}
     />
   );
 }
@@ -1545,9 +1560,9 @@ function TaskDetailTitleInput({
  * pane, so this is compact-only. */
 function TaskDetailHeaderBody({
   task,
-  isTitleFocused,
+  isTitleEditing,
   onTitleChange,
-  onTitleFocus,
+  onTitleEdit,
   onTitleBlur,
   onTitleSave,
   projectLabels,
@@ -1565,9 +1580,9 @@ function TaskDetailHeaderBody({
   onSelectTab,
 }: {
   task: Task;
-  isTitleFocused: boolean;
+  isTitleEditing: boolean;
   onTitleChange: (title: string) => void;
-  onTitleFocus: () => void;
+  onTitleEdit: () => void;
   onTitleBlur: () => void;
   onTitleSave: () => void;
   projectLabels: readonly TaskLabel[];
@@ -1589,9 +1604,9 @@ function TaskDetailHeaderBody({
       <View style={styles.headerTitleBlock}>
         <TaskDetailTitleInput
           task={task}
-          isTitleFocused={isTitleFocused}
+          isTitleEditing={isTitleEditing}
           onTitleChange={onTitleChange}
-          onTitleFocus={onTitleFocus}
+          onTitleEdit={onTitleEdit}
           onTitleBlur={onTitleBlur}
           onTitleSave={onTitleSave}
         />
@@ -1985,7 +2000,7 @@ function TaskOverview({
   onSave: () => void;
 }): ReactElement {
   const trailing = useMemo(
-    () => <Text style={styles.sectionHint}>Saved on blur · sent with every step</Text>,
+    () => <Text style={styles.sectionHint}>Saved · sent with every step</Text>,
     [],
   );
   return (
@@ -4260,7 +4275,7 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: theme.borderWidth[1],
     borderColor: "transparent",
   },
-  headerTitleInputFocused: {
+  headerTitleEditing: {
     backgroundColor: theme.colors.surface2,
     borderColor: theme.colors.borderAccent,
   },
