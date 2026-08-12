@@ -7,8 +7,7 @@ import { isWeb } from "@/constants/platform";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 import { Button } from "@/components/ui/button";
 import { Field, FormTextInput } from "@/components/ui/form-field";
-import { TaskAgentConfigurationFields } from "@/components/tasks/task-agent-configuration-fields";
-import { SelectField } from "@/components/ui/select-field";
+import { TaskAgentControlsRow } from "@/components/tasks/task-agent-controls-row";
 import { Switch } from "@/components/ui/switch";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import {
@@ -18,13 +17,15 @@ import {
   type TaskWorkflowFormModel,
   type TaskWorkflowFormState,
   type TaskWorkflowFormStep,
-  type TaskWorkflowFormWorkspaceMode,
 } from "@/tasks/task-workflow-form-model";
 
 const ThemedTrash = withUnistyles(Trash2);
 const ThemedChevronUp = withUnistyles(ChevronUp);
 const ThemedChevronDown = withUnistyles(ChevronDown);
 const mutedIconMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+/** The step's ordinal, sized to sit under the name input rather than beside a
+ * heading — off the type scale because it is a list marker, not text. */
+const STEP_INDEX_FONT_SIZE = 11;
 const resizableBriefStyle = isWeb
   ? ({ overflowY: "auto", resize: "vertical" } as TextStyle)
   : undefined;
@@ -51,7 +52,6 @@ export function TaskWorkflowStepEditor({
 }: TaskWorkflowStepEditorProps): ReactElement {
   const { t } = useTranslation();
   const { key } = step;
-  const [expanded, setExpanded] = useState(() => !step.source);
   const [advanced, setAdvanced] = useState(
     Boolean(
       step.source &&
@@ -86,25 +86,10 @@ export function TaskWorkflowStepEditor({
       model.setStepFeatureValues(key, featureValues),
     [key, model],
   );
-  const handleWorkspace = useCallback(
-    (mode: TaskWorkflowFormWorkspaceMode) => model.setStepWorkspaceMode(key, mode),
-    [key, model],
-  );
   const handleRemove = useCallback(() => model.removeStep(key), [key, model]);
   const handleMoveUp = useCallback(() => model.moveStep(key, -1), [key, model]);
   const handleMoveDown = useCallback(() => model.moveStep(key, 1), [key, model]);
   const toggleAdvanced = useCallback(() => setAdvanced((value) => !value), []);
-  const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
-  const toggleIcon = useMemo(
-    () =>
-      expanded ? (
-        <ThemedChevronUp size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
-      ) : (
-        <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedIconMapping} />
-      ),
-    [expanded],
-  );
-  const toggleAccessibilityState = useMemo(() => ({ expanded }), [expanded]);
 
   // The first step has nothing before it, so the two choices that name a
   // previous step are not offered there. A mode the form cannot author but the
@@ -126,6 +111,32 @@ export function TaskWorkflowStepEditor({
     () => ({ label: t(TASK_WORKFLOW_WORKSPACE_LABEL_KEYS[step.workspaceMode]) }),
     [step.workspaceMode, t],
   );
+  const handleSelectWorkspaceId = useCallback(
+    (id: string) => {
+      const selected = workspaceOptions.find((option) => option.id === id);
+      if (!selected) return;
+      model.setStepWorkspaceMode(key, selected.value);
+    },
+    [key, model, workspaceOptions],
+  );
+  const workspaceControl = useMemo(
+    () => ({
+      selectedLabel: workspaceDisplay.label,
+      options: workspaceOptions,
+      selectedId: step.workspaceMode,
+      onSelect: handleSelectWorkspaceId,
+      menuTitle: t("tasks.workflow.workspaceLabel"),
+      testID: `task-workflow-form-workspace-trigger-${index}`,
+    }),
+    [
+      handleSelectWorkspaceId,
+      index,
+      step.workspaceMode,
+      t,
+      workspaceDisplay.label,
+      workspaceOptions,
+    ],
+  );
   const handleRequireChanges = useCallback(
     (value: boolean) => model.setStepRequireChanges(key, value),
     [key, model],
@@ -146,19 +157,19 @@ export function TaskWorkflowStepEditor({
 
   return (
     <View style={styles.step} testID={`task-workflow-form-step-${index}`}>
-      <View style={styles.header}>
-        <Button
-          variant="ghost"
-          size="sm"
-          style={styles.stepToggle}
-          textStyle={styles.heading}
-          trailing={toggleIcon}
-          onPress={toggleExpanded}
-          accessibilityState={toggleAccessibilityState}
-          testID={`task-workflow-form-step-toggle-${index}`}
-        >
-          {t("tasks.workflow.stepHeading", { index: index + 1, total: stepCount })}
-        </Button>
+      <View style={styles.identityRow}>
+        <Text style={styles.stepIndex}>{formatStepIndex(index)}</Text>
+        <View style={styles.identityInput}>
+          <FormTextInput
+            initialValue={step.name}
+            resetKey={step.key}
+            value={step.name}
+            onChangeText={handleName}
+            placeholder="Build, verify, document…"
+            style={styles.fieldSurface}
+            testID={`task-workflow-form-step-name-input-${index}`}
+          />
+        </View>
         <View style={styles.headerActions}>
           <Button
             variant="ghost"
@@ -193,145 +204,107 @@ export function TaskWorkflowStepEditor({
         </View>
       </View>
 
-      {expanded ? (
-        <>
-          <Field label="Step" testID={`task-workflow-form-step-name-${index}`}>
+      <FormTextInput
+        initialValue={step.prompt}
+        resetKey={step.key}
+        value={step.prompt}
+        onChangeText={handlePrompt}
+        placeholder="What should the agent do in this step?"
+        multiline
+        style={[resizableBriefStyle, styles.fieldSurface]}
+        testID={`task-workflow-form-step-prompt-input-${index}`}
+      />
+
+      <View style={styles.controls}>
+        <TaskAgentControlsRow
+          serverId={state.serverId}
+          cwd={state.cwd}
+          provider={step.provider}
+          model={step.model}
+          modeId={step.modeId}
+          thinkingOptionId={step.thinkingOptionId}
+          featureValues={step.featureValues}
+          onSelectAgent={handleAgent}
+          onSelectMode={handleMode}
+          onSelectThinking={handleThinking}
+          onChangeFeatureValues={handleFeatureValues}
+          workspace={workspaceControl}
+          testID={`task-workflow-form-agent-${index}`}
+        />
+        <Button
+          variant="ghost"
+          size="xs"
+          leftIcon={Settings2}
+          onPress={toggleAdvanced}
+          testID={`task-workflow-form-step-advanced-${index}`}
+        >
+          {advanced ? "Hide settings" : "Advanced"}
+        </Button>
+      </View>
+      {step.trigger === "schedule" ? (
+        <Text style={styles.executionSummaryText}>{executionSummary}</Text>
+      ) : null}
+
+      {advanced ? (
+        <View style={styles.advanced} testID={`task-workflow-form-step-advanced-fields-${index}`}>
+          <Field
+            label="Completion evidence"
+            hint="Require a changed checkout before this step can pass."
+            testID={`task-workflow-form-step-evidence-${index}`}
+          >
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>{t("tasks.workflow.requireChanges")}</Text>
+              <Switch
+                value={step.requireChanges}
+                onValueChange={handleRequireChanges}
+                accessibilityLabel={t("tasks.workflow.requireChanges")}
+                testID={`task-workflow-form-step-require-changes-${index}`}
+              />
+            </View>
+          </Field>
+
+          <Field
+            label="Check command"
+            hint="Optional command that must pass, for example npm test."
+            testID={`task-workflow-form-step-verify-${index}`}
+          >
             <FormTextInput
-              initialValue={step.name}
+              initialValue={step.verifyCommand}
               resetKey={step.key}
-              value={step.name}
-              onChangeText={handleName}
-              placeholder="Build, verify, document…"
-              testID={`task-workflow-form-step-name-input-${index}`}
+              value={step.verifyCommand}
+              onChangeText={handleVerifyCommand}
+              placeholder={t("tasks.workflow.verifyPlaceholder")}
+              style={styles.fieldSurface}
+              testID={`task-workflow-form-step-verify-input-${index}`}
             />
           </Field>
 
           <Field
-            label="Agent brief"
-            hint="The task title and description are included automatically. Add only what this step needs."
-            testID={`task-workflow-form-step-prompt-${index}`}
+            label={t("tasks.workflow.timeoutLabel")}
+            hint={t("tasks.workflow.timeoutHint")}
+            testID={`task-workflow-form-step-timeout-${index}`}
           >
             <FormTextInput
-              initialValue={step.prompt}
+              initialValue={step.timeoutMinutes}
               resetKey={step.key}
-              value={step.prompt}
-              onChangeText={handlePrompt}
-              placeholder="What should the agent do in this step?"
-              multiline
-              style={resizableBriefStyle}
-              testID={`task-workflow-form-step-prompt-input-${index}`}
+              value={step.timeoutMinutes}
+              onChangeText={handleTimeoutMinutes}
+              placeholder={t("tasks.workflow.timeoutPlaceholder")}
+              keyboardType="number-pad"
+              style={styles.fieldSurface}
+              testID={`task-workflow-form-step-timeout-input-${index}`}
             />
           </Field>
-
-          <TaskAgentConfigurationFields
-            serverId={state.serverId}
-            cwd={state.cwd}
-            label={t("tasks.workflow.agentLabel")}
-            provider={step.provider}
-            model={step.model}
-            modeId={step.modeId}
-            thinkingOptionId={step.thinkingOptionId}
-            featureValues={step.featureValues}
-            onSelectAgent={handleAgent}
-            onSelectMode={handleMode}
-            onSelectThinking={handleThinking}
-            onChangeFeatureValues={handleFeatureValues}
-            placeholder={t("tasks.workflow.providerPlaceholder")}
-            testID={`task-workflow-form-agent-${index}`}
-          />
-          <View style={styles.executionSummary}>
-            <Text style={styles.executionSummaryText}>{executionSummary}</Text>
-            <Button
-              variant="ghost"
-              size="xs"
-              leftIcon={Settings2}
-              onPress={toggleAdvanced}
-              testID={`task-workflow-form-step-advanced-${index}`}
-            >
-              {advanced ? "Hide settings" : "Advanced"}
-            </Button>
-          </View>
-
-          {advanced ? (
-            <View
-              style={styles.advanced}
-              testID={`task-workflow-form-step-advanced-fields-${index}`}
-            >
-              <View style={styles.rowItem}>
-                <SelectField
-                  label={t("tasks.workflow.workspaceLabel")}
-                  value={step.workspaceMode}
-                  selectedDisplay={workspaceDisplay}
-                  options={workspaceOptions}
-                  onChange={handleWorkspace}
-                  placeholder={t("tasks.workflow.workspaceLabel")}
-                  emptyText={t("tasks.workflow.workspaceLabel")}
-                  testID={`task-workflow-form-workspace-${index}`}
-                  triggerTestID={`task-workflow-form-workspace-trigger-${index}`}
-                />
-              </View>
-
-              <Field
-                label="Completion evidence"
-                hint="Require a changed checkout before this step can pass."
-                testID={`task-workflow-form-step-evidence-${index}`}
-              >
-                <View style={styles.toggleRow}>
-                  <Text style={styles.toggleLabel}>{t("tasks.workflow.requireChanges")}</Text>
-                  <Switch
-                    value={step.requireChanges}
-                    onValueChange={handleRequireChanges}
-                    accessibilityLabel={t("tasks.workflow.requireChanges")}
-                    testID={`task-workflow-form-step-require-changes-${index}`}
-                  />
-                </View>
-              </Field>
-
-              <Field
-                label="Check command"
-                hint="Optional command that must pass, for example npm test."
-                testID={`task-workflow-form-step-verify-${index}`}
-              >
-                <FormTextInput
-                  initialValue={step.verifyCommand}
-                  resetKey={step.key}
-                  value={step.verifyCommand}
-                  onChangeText={handleVerifyCommand}
-                  placeholder={t("tasks.workflow.verifyPlaceholder")}
-                  testID={`task-workflow-form-step-verify-input-${index}`}
-                />
-              </Field>
-
-              <Field
-                label={t("tasks.workflow.timeoutLabel")}
-                hint={t("tasks.workflow.timeoutHint")}
-                testID={`task-workflow-form-step-timeout-${index}`}
-              >
-                <FormTextInput
-                  initialValue={step.timeoutMinutes}
-                  resetKey={step.key}
-                  value={step.timeoutMinutes}
-                  onChangeText={handleTimeoutMinutes}
-                  placeholder={t("tasks.workflow.timeoutPlaceholder")}
-                  keyboardType="number-pad"
-                  testID={`task-workflow-form-step-timeout-input-${index}`}
-                />
-              </Field>
-            </View>
-          ) : null}
-        </>
-      ) : (
-        <View style={styles.collapsedSummary}>
-          <Text style={styles.collapsedSummaryText} numberOfLines={1}>
-            {step.name || "Untitled step"}
-          </Text>
-          <Text style={styles.executionSummaryText} numberOfLines={1}>
-            {step.provider ?? "No agent"} · {executionSummary}
-          </Text>
         </View>
-      )}
+      ) : null}
     </View>
   );
+}
+
+/** Steps read as a numbered list, so the index is zero-padded like the plan
+ * prints it rather than counted out as "step 1 of 4". */
+function formatStepIndex(index: number): string {
+  return String(index + 1).padStart(2, "0");
 }
 
 const styles = StyleSheet.create((theme) => ({
@@ -366,44 +339,44 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
   },
-  collapsedSummary: {
-    gap: theme.spacing[1],
-  },
-  collapsedSummaryText: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-  },
   advanced: {
-    gap: theme.spacing[3],
-    paddingTop: theme.spacing[2],
+    gap: theme.spacing[4],
+    paddingTop: theme.spacing[3],
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
   },
-  header: {
+  /** Text in a step sits on the same surface as text everywhere else in the
+   * task, so a step does not read as a denser kind of form. */
+  fieldSurface: {
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+  },
+  identityRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: theme.spacing[2],
   },
-  stepToggle: {
+  stepIndex: {
+    color: theme.colors.foregroundExtraMuted,
+    fontFamily: theme.fontFamily.mono,
+    fontSize: STEP_INDEX_FONT_SIZE,
+    fontWeight: theme.fontWeight.semibold,
+  },
+  identityInput: {
     flex: 1,
-    justifyContent: "flex-start",
-  },
-  heading: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
+    minWidth: 0,
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[1],
   },
-  row: {
+  controls: {
     flexDirection: "row",
-    gap: theme.spacing[3],
-  },
-  rowItem: {
-    flex: 1,
-    minWidth: 0,
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: theme.spacing[2],
   },
 }));

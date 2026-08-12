@@ -117,6 +117,7 @@ interface ControlledAgentControlsProps {
   modeControl?: AgentModeControlValue | null;
   modelSelectorServerId?: string | null;
   isCompactLayout?: boolean;
+  alwaysShowCarets?: boolean;
 }
 
 export interface DraftAgentControlsProps {
@@ -145,6 +146,13 @@ export interface DraftAgentControlsProps {
   disabled?: boolean;
   modelSelectorServerId?: string | null;
   isCompactLayout?: boolean;
+  /**
+   * Keep the carets even when the row is too narrow for full density. The
+   * composer's toolbar drops them to buy width beside a growing text field; a
+   * host that lays these controls out as a settings row has no such pressure and
+   * needs them to read as pickers.
+   */
+  alwaysShowCarets?: boolean;
 }
 
 interface AgentControlsProps {
@@ -427,6 +435,7 @@ function ControlledAgentControls({
   modeControl,
   modelSelectorServerId = null,
   isCompactLayout,
+  alwaysShowCarets = false,
 }: ControlledAgentControlsProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
@@ -496,7 +505,10 @@ function ControlledAgentControls({
     }),
     [canSelectModel, canSelectThinking, featureControls, fontScale, modeControl],
   );
-  const presentation = useMemo(() => resolveComposerControlPresentation(density), [density]);
+  const presentation = useMemo(() => {
+    const resolved = resolveComposerControlPresentation(density);
+    return alwaysShowCarets ? { ...resolved, showCarets: true } : resolved;
+  }, [alwaysShowCarets, density]);
   const layoutContextValue = useMemo(
     () => ({
       glyphSize: resolveComposerToolbarGlyphSize(isNative ? "native" : "web"),
@@ -1691,6 +1703,7 @@ export function DraftAgentControls({
   disabled = false,
   modelSelectorServerId = null,
   isCompactLayout,
+  alwaysShowCarets,
 }: DraftAgentControlsProps) {
   const { preferences, updatePreferences } = useFormPreferences();
   const mappedThinkingOptions = useMemo<AgentControlOption[]>(() => {
@@ -1766,6 +1779,7 @@ export function DraftAgentControls({
       modeControl={modeControl}
       modelSelectorServerId={modelSelectorServerId}
       isCompactLayout={isCompactLayout}
+      alwaysShowCarets={alwaysShowCarets}
     />
   );
 }
