@@ -8,7 +8,14 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  type NativeSyntheticEvent,
+  type TextLayoutEventData,
+} from "react-native";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
@@ -46,10 +53,11 @@ import type {
   Step,
   StepAgentSpec,
   StepInput,
-  StepWorkspaceStrategy,
   TaskWorkflow,
 } from "@getpaseo/protocol/tasks/workflow";
-import type { AgentModelDefinition, AgentProvider } from "@getpaseo/protocol/agent-types";
+import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
+import { formatThinkingOptionLabel } from "@/agent-controls/labels";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { AdaptiveModalSheet, AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -86,8 +94,8 @@ import { resolveStepAgentTarget } from "@/tasks/task-workflow-view";
 import { buildTaskWorkflowSteps } from "@/tasks/task-workflow-form-model";
 import { useTaskWorkflowFormModel } from "@/tasks/use-task-workflow-form-model";
 import { useKanbanProjectCwd } from "@/tasks/use-kanban-project-cwd";
-import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { TaskWorkflowStepEditor } from "./task-workflow-step-editor";
+import { TASK_WORKFLOW_TRIGGER_LABEL_KEYS } from "@/tasks/task-workflow-form-model";
 import { useBoardFeed, useBoardFeedComposer } from "@/tasks/use-board-feed";
 import {
   useTaskExecutionPolicySupported,
@@ -183,7 +191,6 @@ const TAB_HIT_PADDING = SPACING[1];
 /** The facts block: one label column, one line height, one rhythm. */
 const META_LABEL_WIDTH = 96;
 const META_LINE_HEIGHT = 18;
-const EMPTY_MODELS: readonly AgentModelDefinition[] = [];
 const TITLE_INPUT_TEST_ID = "task-detail-title-input";
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 /** The composer reads as one control: the field and its send button share a
@@ -192,19 +199,7 @@ const COMPOSER_CONTROL_HEIGHT = 44;
 
 /** The workspace strategies a step can be moved between from the plan. The
  * fourth, `existing`, names a checkout and is only authored in the editor. */
-type StepWorkspaceChoice = "worktree" | "worktree_per_agent" | "reuse_previous";
 
-const STEP_WORKSPACE_CHOICES: readonly StepWorkspaceChoice[] = [
-  "worktree",
-  "worktree_per_agent",
-  "reuse_previous",
-];
-
-const STEP_WORKSPACE_CHOICE_LABELS: Record<StepWorkspaceChoice, string> = {
-  worktree: "New worktree",
-  worktree_per_agent: "Worktree per agent",
-  reuse_previous: "Previous workspace",
-};
 /** Keeps the rail's divider full height when the left pane is short. */
 const DESKTOP_SPLIT_MIN_HEIGHT = 480;
 const DESKTOP_MAX_WIDTH = 900;
@@ -554,51 +549,6 @@ function OpenTaskDetailSheet({
   );
   /** Rewrites the saved plan with one step changed; `existingStepId` keeps every
    * step's identity and run history intact. */
-  const patchStep = useCallback(
-    (stepId: string, patch: (definition: StepInput) => StepInput) => {
-      if (!workflow) return;
-      const steps: StepInput[] = workflow.steps.map((step) => {
-        const { id, runs: _runs, ...definition } = step;
-        const base: StepInput = { ...definition, existingStepId: id };
-        return id === stepId ? patch(base) : base;
-      });
-      void setWorkflow({ taskId: task.id, steps }).catch((error) => {
-        toast.show(toErrorMessage(error));
-      });
-    },
-    [setWorkflow, task.id, toast, workflow],
-  );
-  const saveStepBrief = useCallback(
-    (stepId: string, prompt: string) => {
-      const trimmed = prompt.trim();
-      if (!trimmed) return;
-      patchStep(stepId, (definition) => ({ ...definition, prompt: trimmed }));
-    },
-    [patchStep],
-  );
-  const saveStepAgent = useCallback(
-    (stepId: string, selection: { provider: AgentProvider; model: string | null }) => {
-      patchStep(stepId, (definition) => {
-        const [lead, ...rest] = definition.agents;
-        const next: StepAgentSpec = {
-          ...lead,
-          provider: selection.provider,
-          ...(selection.model ? { model: selection.model } : {}),
-        };
-        if (!selection.model) {
-          delete next.model;
-        }
-        return { ...definition, agents: [next, ...rest] };
-      });
-    },
-    [patchStep],
-  );
-  const saveStepWorkspace = useCallback(
-    (stepId: string, workspace: StepWorkspaceStrategy) => {
-      patchStep(stepId, (definition) => ({ ...definition, workspace }));
-    },
-    [patchStep],
-  );
 
   const saveBrief = useCallback(() => {
     const title = titleDraft.trim();
@@ -900,7 +850,6 @@ function OpenTaskDetailSheet({
       isBusy={isBusy}
       onAct={handleStepAction}
       onOpenAgent={handleOpenAgent}
-      onSaveBrief={saveStepBrief}
       onSaveWorkflow={setWorkflow}
       onPlanSaved={closeSubSurface}
     />
@@ -933,9 +882,6 @@ function OpenTaskDetailSheet({
             onAct={handleStepAction}
             onOpenAgent={handleOpenAgent}
             onOpenStep={openStepSurface}
-            onSaveBrief={saveStepBrief}
-            onSaveAgent={saveStepAgent}
-            onSaveWorkspace={saveStepWorkspace}
           />
         </View>
       ) : null}
@@ -1090,7 +1036,6 @@ function TaskDetailSubSurfaceBody({
   isBusy,
   onAct,
   onOpenAgent,
-  onSaveBrief,
   onSaveWorkflow,
   onPlanSaved,
 }: {
@@ -1107,10 +1052,10 @@ function TaskDetailSubSurfaceBody({
   isBusy: boolean;
   onAct: (stepId: string, action: TaskStepAction) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-  onSaveBrief: (stepId: string, prompt: string) => void;
   onSaveWorkflow: (input: { taskId: string; steps: StepInput[] }) => Promise<unknown>;
   onPlanSaved: () => void;
 }): ReactElement {
+  const cwd = useKanbanProjectCwd(serverId, paseoProjectId);
   return (
     <View style={styles.tabContent} testID="task-detail-sub-surface">
       {subSurface.kind === "plan" ? (
@@ -1122,6 +1067,7 @@ function TaskDetailSubSurfaceBody({
           isBusy={isBusy}
           onSaveWorkflow={onSaveWorkflow}
           onSaved={onPlanSaved}
+          onCancel={onPlanSaved}
         />
       ) : null}
       {subSurface.kind === "automation" ? (
@@ -1135,11 +1081,12 @@ function TaskDetailSubSurfaceBody({
       ) : null}
       {subSurface.kind === "step" && surfaceStep ? (
         <TaskStepSurface
+          serverId={serverId}
+          cwd={cwd}
           step={surfaceStep}
           disabled={isActing || isAggregate}
           onAct={onAct}
           onOpenAgent={onOpenAgent}
-          onSaveBrief={onSaveBrief}
         />
       ) : null}
       {subSurface.kind === "step" && !surfaceStep ? (
@@ -1164,6 +1111,7 @@ function TaskDetailPlanSurface({
   isBusy,
   onSaveWorkflow,
   onSaved,
+  onCancel,
 }: {
   serverId: string;
   paseoProjectId: string;
@@ -1172,6 +1120,7 @@ function TaskDetailPlanSurface({
   isBusy: boolean;
   onSaveWorkflow: (input: { taskId: string; steps: StepInput[] }) => Promise<unknown>;
   onSaved: () => void;
+  onCancel: () => void;
 }): ReactElement {
   const cwd = useKanbanProjectCwd(serverId, paseoProjectId);
   const snapshot = useMemo(
@@ -1198,35 +1147,9 @@ function TaskDetailPlanSurface({
 
   return (
     <View style={styles.planForm} testID="task-detail-plan-surface">
-      <View style={styles.planContinuation} testID="task-detail-plan-auto-continue">
-        <View style={styles.planContinuationCopy}>
-          <Text style={styles.rowTitle}>Continue automatically</Text>
-          <Text style={styles.rowHint}>
-            Start each next step when the previous step succeeds. Turn this off to pause between
-            steps.
-          </Text>
-        </View>
-        <Switch
-          value={state.autoContinue}
-          onValueChange={handleAutoContinue}
-          accessibilityLabel="Continue automatically"
-          testID="task-detail-plan-auto-continue-switch"
-        />
-      </View>
-      <View style={styles.planFormHeader}>
-        <Text style={styles.rowTitle}>
-          {state.steps.length} {state.steps.length === 1 ? "step" : "steps"}
-        </Text>
-        <Button
-          variant="ghost"
-          size="sm"
-          leftIcon={Plus}
-          onPress={model.addStep}
-          testID="task-detail-plan-add-step"
-        >
-          Add step
-        </Button>
-      </View>
+      <Text style={styles.policyIntroText}>
+        The task brief is sent with every step. Add instructions only where they differ.
+      </Text>
       <View style={styles.planFormSteps}>
         {state.steps.map((step, index) => (
           <TaskWorkflowStepEditor
@@ -1239,20 +1162,45 @@ function TaskDetailPlanSurface({
           />
         ))}
       </View>
+      <Button
+        variant="ghost"
+        size="sm"
+        leftIcon={Plus}
+        style={styles.planAddStep}
+        onPress={model.addStep}
+        testID="task-detail-plan-add-step"
+      >
+        Add step
+      </Button>
       {state.submitError ? (
         <Text style={styles.planFormError} testID="task-detail-plan-error">
           {state.submitError}
         </Text>
       ) : null}
-      <Button
-        variant="default"
-        onPress={handleSubmit}
-        disabled={!canSubmit}
-        loading={isBusy}
-        testID="task-detail-plan-submit"
-      >
-        Save plan
-      </Button>
+      <View style={styles.planActions}>
+        <View style={styles.planContinuation} testID="task-detail-plan-auto-continue">
+          <Text style={styles.rowTitle}>Continue automatically</Text>
+          <Switch
+            value={state.autoContinue}
+            onValueChange={handleAutoContinue}
+            accessibilityLabel="Continue automatically"
+            testID="task-detail-plan-auto-continue-switch"
+          />
+        </View>
+        <Button variant="ghost" size="sm" onPress={onCancel} testID="task-detail-plan-cancel">
+          Cancel
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          onPress={handleSubmit}
+          disabled={!canSubmit}
+          loading={isBusy}
+          testID="task-detail-plan-submit"
+        >
+          Save plan
+        </Button>
+      </View>
     </View>
   );
 }
@@ -2360,9 +2308,6 @@ function TaskPlanSection({
   onAct,
   onOpenAgent,
   onOpenStep,
-  onSaveBrief,
-  onSaveAgent,
-  onSaveWorkspace,
 }: {
   serverId: string;
   cwd: string | null;
@@ -2376,12 +2321,6 @@ function TaskPlanSection({
   onAct: (stepId: string, action: TaskStepAction) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenStep: (stepId: string) => void;
-  onSaveBrief: (stepId: string, prompt: string) => void;
-  onSaveAgent: (
-    stepId: string,
-    selection: { provider: AgentProvider; model: string | null },
-  ) => void;
-  onSaveWorkspace: (stepId: string, workspace: StepWorkspaceStrategy) => void;
 }): ReactElement {
   const steps = workflow?.steps ?? [];
   const trailing = useMemo(
@@ -2409,12 +2348,8 @@ function TaskPlanSection({
               disabled={isActing || isAggregate}
               isCompact={isCompact}
               onAct={onAct}
-              onEdit={onEdit}
               onOpenAgent={onOpenAgent}
               onOpenStep={onOpenStep}
-              onSaveBrief={onSaveBrief}
-              onSaveAgent={onSaveAgent}
-              onSaveWorkspace={onSaveWorkspace}
             />
           ))}
           {isAggregate ? null : (
@@ -2482,12 +2417,8 @@ function PlanStepRow({
   disabled,
   isCompact,
   onAct,
-  onEdit,
   onOpenAgent,
   onOpenStep,
-  onSaveBrief,
-  onSaveAgent,
-  onSaveWorkspace,
 }: {
   serverId: string;
   cwd: string | null;
@@ -2497,34 +2428,29 @@ function PlanStepRow({
   disabled: boolean;
   isCompact: boolean;
   onAct: (stepId: string, action: TaskStepAction) => void;
-  /** Everything a step carries beyond its agent, workspace and brief is chosen
-   * in the plan editor, so the expanded row leads there for the rest. */
-  onEdit: () => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
   onOpenStep: (stepId: string) => void;
-  onSaveBrief: (stepId: string, prompt: string) => void;
-  onSaveAgent: (
-    stepId: string,
-    selection: { provider: AgentProvider; model: string | null },
-  ) => void;
-  onSaveWorkspace: (stepId: string, workspace: StepWorkspaceStrategy) => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(false);
+  // What is running is what you opened the task to read, so it starts open. A
+  // press is a decision about this row and outlives the run that ends under it:
+  // re-deriving the default would close what someone is reading the moment the
+  // next step picks up.
+  const [expansionOverride, setExpansionOverride] = useState<boolean | null>(null);
   const { status, actions, error } = resolveStepState(step);
   const primaryAction = actions.find((action) => action !== "skip");
   const hasSkip = actions.includes("skip");
   const agentTarget = resolveStepAgentTarget(step);
   const elapsed = formatSettledRunDuration(step);
   const isActive = status === "running" || status === "queued";
-  const isSettled = status === "succeeded" || status === "skipped";
+  const isExpanded = expansionOverride ?? isActive;
   const handlePress = useCallback(() => {
     if (isCompact) {
       onOpenStep(step.id);
       return;
     }
-    setIsExpanded((current) => !current);
-  }, [isCompact, onOpenStep, step.id]);
+    setExpansionOverride((current) => !(current ?? isActive));
+  }, [isActive, isCompact, onOpenStep, step.id]);
   const handleOpenAgent = useCallback(() => {
     if (agentTarget) onOpenAgent(agentTarget);
   }, [agentTarget, onOpenAgent]);
@@ -2540,7 +2466,6 @@ function PlanStepRow({
     >
       <Pressable
         onPress={handlePress}
-        disabled={!isCompact && isSettled}
         accessibilityRole="button"
         accessibilityState={accessibilityState}
         accessibilityLabel={`Step ${index + 1}: ${step.name}`}
@@ -2561,13 +2486,7 @@ function PlanStepRow({
             </Text>
           ) : null}
         </View>
-        <StepModelControl
-          serverId={serverId}
-          cwd={cwd}
-          step={step}
-          editable={!disabled && !isSettled}
-          onSaveAgent={onSaveAgent}
-        />
+        <StepModelLabel step={step} />
         <PlanStepTrailing
           stepId={step.id}
           status={status}
@@ -2578,18 +2497,11 @@ function PlanStepRow({
         />
         {isCompact ? <ThemedChevronRight size={ICON_SIZE.sm} uniProps={mutedIconMapping} /> : null}
       </Pressable>
-      {!isCompact && isExpanded && !isSettled ? (
+      {!isCompact && isExpanded ? (
         <View style={styles.stepExpanded} testID={`task-detail-step-expanded-${step.id}`}>
-          <StepBriefEditor step={step} editable={!disabled} onSaveBrief={onSaveBrief} />
+          <StepReading serverId={serverId} cwd={cwd} step={step} />
           <View style={styles.stepExpandedFooter}>
-            <View style={styles.stepChipRow}>
-              <StepWorkspaceControl
-                step={step}
-                editable={!disabled && status === "pending"}
-                onSaveWorkspace={onSaveWorkspace}
-                onEdit={onEdit}
-              />
-            </View>
+            <View style={styles.stepChipRow} />
             <View style={styles.actionRow}>
               {agentTarget ? (
                 <Button
@@ -2621,176 +2533,16 @@ function PlanStepRow({
 }
 
 /**
- * Which model the step runs on, stated beside its duration. A step that already
- * ran is history and says so as plain text; anything still ahead can be pointed
- * at another model from here, because that is the choice worth changing after
- * reading a plan.
+ * Which model the step runs on, stated beside its duration and only stated: the
+ * plan reads as a plan, and the one place that changes what a step runs is the
+ * plan editor, where the model sits next to the effort and the permissions it
+ * has to agree with.
  */
-function StepModelControl({
-  serverId,
-  cwd,
-  step,
-  editable,
-  onSaveAgent,
-}: {
-  serverId: string;
-  cwd: string | null;
-  step: Step;
-  editable: boolean;
-  onSaveAgent: (
-    stepId: string,
-    selection: { provider: AgentProvider; model: string | null },
-  ) => void;
-}): ReactElement {
-  const snapshot = useProvidersSnapshot(serverId, { cwd });
-  const lead = step.agents[0];
-  const entry =
-    snapshot.entries?.find((candidate) => candidate.provider === lead?.provider) ?? null;
-  const models = entry?.models ?? EMPTY_MODELS;
-  const label = formatStepAgentLabel(step);
-  if (!editable || !lead || models.length === 0) {
-    return (
-      <Text style={styles.stepMeta} numberOfLines={1}>
-        {label}
-      </Text>
-    );
-  }
+function StepModelLabel({ step }: { step: Step }): ReactElement {
   return (
-    <DropdownMenu>
-      <DropdownTrigger
-        style={styles.stepModelTrigger}
-        chevron={null}
-        testID={`task-detail-step-model-${step.id}`}
-      >
-        <Text style={styles.stepMeta} numberOfLines={1}>
-          {label}
-        </Text>
-        <ThemedChevronDown size={ICON_SIZE.xs} uniProps={extraMutedIconMapping} />
-      </DropdownTrigger>
-      <DropdownMenuContent align="end">
-        {models.map((model) => (
-          <StepModelMenuItem
-            key={model.id}
-            stepId={step.id}
-            provider={lead.provider}
-            model={model}
-            selected={model.id === lead.model}
-            onSaveAgent={onSaveAgent}
-          />
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function StepModelMenuItem({
-  stepId,
-  provider,
-  model,
-  selected,
-  onSaveAgent,
-}: {
-  stepId: string;
-  provider: AgentProvider;
-  model: AgentModelDefinition;
-  selected: boolean;
-  onSaveAgent: (
-    stepId: string,
-    selection: { provider: AgentProvider; model: string | null },
-  ) => void;
-}): ReactElement {
-  const handleSelect = useCallback(
-    () => onSaveAgent(stepId, { provider, model: model.id }),
-    [model.id, onSaveAgent, provider, stepId],
-  );
-  return (
-    <DropdownMenuItem
-      selected={selected}
-      showSelectedCheck
-      onSelect={handleSelect}
-      testID={`task-detail-step-model-${stepId}-${model.id}`}
-    >
-      {model.label ?? model.id}
-    </DropdownMenuItem>
-  );
-}
-
-/**
- * Where the step checks out. Only a step that has not run yet can be moved: a
- * run already happened somewhere, and rewriting that would describe history
- * that never was.
- */
-function StepWorkspaceControl({
-  step,
-  editable,
-  onSaveWorkspace,
-  onEdit,
-}: {
-  step: Step;
-  editable: boolean;
-  onSaveWorkspace: (stepId: string, workspace: StepWorkspaceStrategy) => void;
-  onEdit: () => void;
-}): ReactElement {
-  if (!editable || step.workspace.mode === "existing") {
-    return (
-      <StepFactChip
-        label={formatWorkspaceMode(step)}
-        onPress={onEdit}
-        testID={`task-detail-step-workspace-${step.id}`}
-      />
-    );
-  }
-  return (
-    <DropdownMenu>
-      <DropdownTrigger
-        style={styles.stepChip}
-        chevron={null}
-        testID={`task-detail-step-workspace-${step.id}`}
-      >
-        <Text style={styles.stepChipLabel} numberOfLines={1}>
-          {formatWorkspaceMode(step)}
-        </Text>
-        <ThemedChevronDown size={ICON_SIZE.xs} uniProps={extraMutedIconMapping} />
-      </DropdownTrigger>
-      <DropdownMenuContent align="start">
-        {STEP_WORKSPACE_CHOICES.map((mode) => (
-          <StepWorkspaceMenuItem
-            key={mode}
-            stepId={step.id}
-            mode={mode}
-            selected={mode === step.workspace.mode}
-            onSaveWorkspace={onSaveWorkspace}
-          />
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function StepWorkspaceMenuItem({
-  stepId,
-  mode,
-  selected,
-  onSaveWorkspace,
-}: {
-  stepId: string;
-  mode: StepWorkspaceChoice;
-  selected: boolean;
-  onSaveWorkspace: (stepId: string, workspace: StepWorkspaceStrategy) => void;
-}): ReactElement {
-  const handleSelect = useCallback(
-    () => onSaveWorkspace(stepId, { mode }),
-    [mode, onSaveWorkspace, stepId],
-  );
-  return (
-    <DropdownMenuItem
-      selected={selected}
-      showSelectedCheck
-      onSelect={handleSelect}
-      testID={`task-detail-step-workspace-${stepId}-${mode}`}
-    >
-      {STEP_WORKSPACE_CHOICE_LABELS[mode]}
-    </DropdownMenuItem>
+    <Text style={styles.stepMeta} numberOfLines={1}>
+      {formatStepAgentLabel(step)}
+    </Text>
   );
 }
 
@@ -2830,7 +2582,7 @@ function PlanStepTrailing({
   const isFailed = status === "failed" || status === "interrupted" || status === "canceled";
   return (
     <View style={styles.stepTrailing}>
-      <Text style={styles.stepDuration}>{elapsed ?? ""}</Text>
+      {elapsed ? <Text style={styles.stepDuration}>{elapsed}</Text> : null}
       <View style={styles.stepStatusSlot}>
         {action ? (
           <StepActionButton stepId={stepId} action={action} disabled={disabled} onAct={onAct} />
@@ -2864,32 +2616,6 @@ function resolveStepDotTone(status: TaskStepDisplayStatus) {
   return styles.stepDotPending;
 }
 
-/** One fact of the step, stated as a chip that leads to where it is chosen. */
-function StepFactChip({
-  label,
-  onPress,
-  testID,
-}: {
-  label: string;
-  onPress: () => void;
-  testID: string;
-}): ReactElement {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      hitSlop={SPACING[1]}
-      style={styles.stepChip}
-      testID={testID}
-    >
-      <Text style={styles.stepChipLabel} numberOfLines={1}>
-        {label}
-      </Text>
-      <ThemedChevronDown size={ICON_SIZE.xs} uniProps={mutedIconMapping} />
-    </Pressable>
-  );
-}
-
 /** Which agent runs the step: the model when it names one, else the provider. */
 function formatStepAgentLabel(step: Step): string {
   const agent = step.agents[0];
@@ -2915,53 +2641,156 @@ function formatSettledRunDuration(step: Step): string | null {
   return formatDuration(ended - started);
 }
 
-/** The step's brief where it is read: saves on blur, only when it changed. */
-function StepBriefEditor({
-  step,
-  editable,
-  onSaveBrief,
-}: {
+/** How many lines of a brief the plan shows before it asks. */
+const STEP_BRIEF_LINES = 4;
+
+interface StepFact {
+  label: string;
+  value: string;
+}
+
+/**
+ * What a step is set up to do, in the order it was decided: who runs it and
+ * how, where, and what it has to satisfy. A setting the step does not carry is
+ * left out rather than stated as a default — the list says what was chosen.
+ */
+function buildStepFacts(input: {
   step: Step;
-  editable: boolean;
-  onSaveBrief: (stepId: string, prompt: string) => void;
+  entries: readonly ProviderSnapshotEntry[] | undefined;
+  t: (key: string) => string;
+}): StepFact[] {
+  const { step, entries, t } = input;
+  return [
+    { label: "Agent", value: formatStepAgentLabel(step) },
+    ...buildStepAgentFacts({ agent: step.agents[0], entries, t }),
+    { label: t("tasks.workflow.workspaceLabel"), value: formatWorkspaceMode(step) },
+    ...buildStepRuleFacts({ step, t }),
+  ];
+}
+
+function buildStepAgentFacts(input: {
+  agent: StepAgentSpec | undefined;
+  entries: readonly ProviderSnapshotEntry[] | undefined;
+  t: (key: string) => string;
+}): StepFact[] {
+  const { agent, entries, t } = input;
+  if (!agent) return [];
+  const entry = entries?.find((candidate) => candidate.provider === agent.provider) ?? null;
+  const model = entry?.models?.find((candidate) => candidate.id === agent.model) ?? null;
+  const thinking =
+    model?.thinkingOptions?.find((option) => option.id === agent.thinkingOptionId) ?? null;
+  const facts: StepFact[] = [];
+  if (agent.thinkingOptionId) {
+    facts.push({
+      label: t("tasks.presets.effortLabel"),
+      value: thinking ? formatThinkingOptionLabel(thinking) : agent.thinkingOptionId,
+    });
+  }
+  if (agent.modeId) {
+    facts.push({
+      label: t("tasks.presets.permissionLabel"),
+      value: entry?.modes?.find((mode) => mode.id === agent.modeId)?.label ?? agent.modeId,
+    });
+  }
+  if (agent.featureValues?.fast_mode === true) {
+    facts.push({ label: "Fast mode", value: "On" });
+  }
+  return facts;
+}
+
+function buildStepRuleFacts(input: { step: Step; t: (key: string) => string }): StepFact[] {
+  const { step, t } = input;
+  const facts: StepFact[] = [];
+  if (step.trigger.type === "schedule") {
+    facts.push({ label: "Starts", value: t(TASK_WORKFLOW_TRIGGER_LABEL_KEYS.schedule) });
+  }
+  if (step.verify) {
+    facts.push({ label: "Check", value: step.verify.command.join(" ") });
+  }
+  if (step.timeoutMs) {
+    facts.push({ label: "Time limit", value: formatDuration(step.timeoutMs) });
+  }
+  if (step.requireChanges === false) {
+    facts.push({ label: "Completion", value: "No changes required" });
+  }
+  return facts;
+}
+
+/**
+ * A step as the plan states it: the brief it sends, and the setup it runs
+ * under. Nothing here is editable — the plan is where a step is read, and the
+ * plan editor is the one place it is written, so the same field can never be
+ * changed from two screens that disagree.
+ */
+function StepReading({
+  serverId,
+  cwd,
+  step,
+}: {
+  serverId: string;
+  cwd: string | null;
+  step: Step;
 }): ReactElement {
-  const [draft, setDraft] = useState(step.prompt);
-  const save = useCallback(() => {
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== step.prompt) {
-      onSaveBrief(step.id, trimmed);
-    }
-  }, [draft, onSaveBrief, step.id, step.prompt]);
+  const { t } = useTranslation();
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [briefClamped, setBriefClamped] = useState(false);
+  const toggleBrief = useCallback(() => setBriefOpen((current) => !current), []);
+  // The clamp is what says whether there is more to show: a brief that fits asks
+  // nothing of the reader.
+  const handleBriefLayout = useCallback((event: NativeSyntheticEvent<TextLayoutEventData>) => {
+    if (event.nativeEvent.lines.length >= STEP_BRIEF_LINES) setBriefClamped(true);
+  }, []);
+  const snapshot = useProvidersSnapshot(serverId, { cwd });
+  const facts = buildStepFacts({ step, entries: snapshot.entries, t });
   return (
-    <AdaptiveTextInput
-      initialValue={step.prompt}
-      resetKey={`${step.id}-${step.prompt}`}
-      onChangeText={setDraft}
-      onBlur={save}
-      onEndEditing={save}
-      editable={editable}
-      placeholder="What should the agent do in this step?"
-      style={styles.stepBriefInput}
-      multiline
-      testID={`task-detail-step-brief-${step.id}`}
-    />
+    <View style={styles.stepReading}>
+      <Text
+        style={styles.stepBrief}
+        numberOfLines={briefOpen ? undefined : STEP_BRIEF_LINES}
+        onTextLayout={handleBriefLayout}
+        testID={`task-detail-step-brief-${step.id}`}
+      >
+        {step.prompt}
+      </Text>
+      {briefClamped ? (
+        <Pressable
+          onPress={toggleBrief}
+          hitSlop={SPACING[1]}
+          testID={`task-detail-step-brief-toggle-${step.id}`}
+        >
+          <Text style={styles.stepBriefToggle}>{briefOpen ? "Show less" : "Show more"}</Text>
+        </Pressable>
+      ) : null}
+      <View style={styles.metaRows}>
+        {facts.map((fact) => (
+          <View key={fact.label} style={styles.metaRow}>
+            <Text style={styles.metaLabel}>{fact.label}</Text>
+            <Text style={styles.metaValue} numberOfLines={2}>
+              {fact.value}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
   );
 }
 
 /** A step's own screen on compact: the brief, the facts, and the actions the
  * last run allows — the same content the desktop row expands in place. */
 function TaskStepSurface({
+  serverId,
+  cwd,
   step,
   disabled,
   onAct,
   onOpenAgent,
-  onSaveBrief,
 }: {
+  serverId: string;
+  cwd: string | null;
   step: Step;
   disabled: boolean;
   onAct: (stepId: string, action: TaskStepAction) => void;
   onOpenAgent: (input: { workspaceId: string; agentId: string }) => void;
-  onSaveBrief: (stepId: string, prompt: string) => void;
 }): ReactElement {
   const { t } = useTranslation();
   const { status, actions, error } = resolveStepState(step);
@@ -2977,32 +2806,12 @@ function TaskStepSurface({
   const handleSkip = useCallback(() => onAct(step.id, "skip"), [onAct, step.id]);
   return (
     <View style={styles.groupContent} testID={`task-detail-step-surface-${step.id}`}>
-      <DetailSection title="Agent brief">
-        <StepBriefEditor step={step} editable={!disabled} onSaveBrief={onSaveBrief} />
-      </DetailSection>
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <View style={styles.rowContent}>
-            <Text style={styles.rowTitle}>Agent</Text>
-          </View>
-          <Text style={styles.policyValue}>
-            {step.agents[0]?.model ?? step.agents[0]?.provider ?? "Agent"}
-          </Text>
-        </View>
-        <View style={[styles.row, styles.rowBorder]}>
-          <View style={styles.rowContent}>
-            <Text style={styles.rowTitle}>Workspace</Text>
-          </View>
-          <Text style={styles.policyValue}>{formatWorkspaceMode(step)}</Text>
-        </View>
-        <View style={[styles.row, styles.rowBorder]}>
-          <View style={styles.rowContent}>
-            <Text style={styles.rowTitle}>Status</Text>
-            {error ? <Text style={styles.rowError}>{error}</Text> : null}
-          </View>
-          <Text style={styles.policyValue}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
-        </View>
+      <StepReading serverId={serverId} cwd={cwd} step={step} />
+      <View style={styles.metaRow}>
+        <Text style={styles.metaLabel}>Status</Text>
+        <Text style={styles.metaValue}>{t(`tasks.detail.stepStatus.${status}`)}</Text>
       </View>
+      {error ? <Text style={styles.rowError}>{error}</Text> : null}
       <View style={styles.actionRow}>
         {primaryAction ? (
           <Button
@@ -4282,34 +4091,34 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.statusDotRunning,
   },
   planForm: {
-    gap: theme.spacing[4],
+    gap: theme.spacing[3],
   },
   planFormSteps: {
     gap: theme.spacing[3],
-  },
-  planFormHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
   },
   planFormError: {
     color: theme.colors.statusDanger,
     fontSize: theme.fontSize.sm,
   },
-  planContinuation: {
+  planAddStep: {
+    alignSelf: "flex-start",
+  },
+  /** What the plan does when it is saved, on one closing row: the switch states
+   * the plan's own behaviour, the two buttons end the edit. */
+  planActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: theme.spacing[4],
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surface1,
-    padding: theme.spacing[3],
+    gap: theme.spacing[2],
+    paddingTop: theme.spacing[3],
+    borderTopWidth: theme.borderWidth[1],
+    borderTopColor: theme.colors.border,
   },
-  planContinuationCopy: {
-    minWidth: 0,
+  planContinuation: {
     flex: 1,
-    gap: theme.spacing[1],
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
   },
   headerTitleBlock: {
     paddingHorizontal: theme.spacing[6],
@@ -4452,6 +4261,19 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "space-between",
     gap: theme.spacing[2],
+  },
+  stepReading: {
+    gap: theme.spacing[2],
+  },
+  stepBrief: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  stepBriefToggle: {
+    alignSelf: "flex-start",
+    color: theme.colors.accentBright,
+    fontSize: DETAIL_TEXT_SIZE,
   },
   stepBriefInput: {
     minHeight: 72,

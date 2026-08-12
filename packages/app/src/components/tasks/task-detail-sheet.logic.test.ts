@@ -47,7 +47,7 @@ describe("resolveSubSurfaceTitle", () => {
         surfaceStep: undefined,
         surfaceStepIndex: -1,
       }),
-    ).toBe("Agent plan");
+    ).toBe("Edit plan");
   });
 
   it("titles the automation surface", () => {

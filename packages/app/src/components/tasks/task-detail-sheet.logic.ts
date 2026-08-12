@@ -35,7 +35,7 @@ export function resolveSubSurfaceTitle(input: {
     return "Automation & delivery";
   }
   if (input.subSurface.kind === "plan") {
-    return "Agent plan";
+    return "Edit plan";
   }
   if (input.surfaceStep) {
     return `Step ${input.surfaceStepIndex + 1} · ${input.surfaceStep.name}`;
