@@ -513,7 +513,8 @@ test.describe("Kanbans board", () => {
     // still the board's own entry point, covered above.
     const form = detail.getByTestId("task-detail-plan-surface");
     await expect(form).toBeVisible({ timeout: 10_000 });
-    await form.getByTestId("task-workflow-form-step-toggle-0").click();
+    // A saved step opens already showing its name and brief: the card is short
+    // enough that collapsing it hid more than it saved.
     await expect(form.getByTestId("task-workflow-form-step-name-input-0")).toHaveValue(
       "Inspect the project",
     );
@@ -553,7 +554,9 @@ test.describe("Kanbans board", () => {
       "task-workflow-form-step-prompt-input-1-resize-handle",
     );
     await expect(secondPromptResizeHandle).toHaveCount(1);
-    await secondPromptInput.scrollIntoViewIfNeeded();
+    // The grip hangs below its input, so scrolling the input into view can still
+    // leave the thing being dragged under the pane's bottom edge.
+    await secondPromptResizeHandle.scrollIntoViewIfNeeded();
     const secondBeforeResize = await secondPromptInput.boundingBox();
     const secondResizeHandleBox = await secondPromptResizeHandle.boundingBox();
     if (!secondBeforeResize) throw new Error("Second agent brief is not laid out");
