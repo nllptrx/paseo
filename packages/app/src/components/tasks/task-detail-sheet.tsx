@@ -1,6 +1,7 @@
 import {
   Fragment,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -381,11 +382,17 @@ function OpenTaskDetailSheet({
   // value), so the parallel drafts must follow — a stale draft would win the
   // comparison in saveBrief and silently revert the concurrent edit on blur.
   const [titleDraft, setTitleDraft] = useServerSyncedDraft(task.title, Object.is);
-  const [descriptionDraft, setDescriptionDraft] = useServerSyncedDraft(task.description, Object.is);
+  const {
+    draft: descriptionDraft,
+    setDraft: setDescriptionDraft,
+    resetKey: descriptionResetKey,
+    markSent: markDescriptionSent,
+  } = useEchoAwareDraft(task.description);
   const [subtaskDraft, setSubtaskDraft] = useState<SubtaskDraft>(EMPTY_SUBTASK_DRAFT);
   const [noteResetKey, setNoteResetKey] = useState(0);
   const [subtaskResetKey, setSubtaskResetKey] = useState(0);
   const [isTitleEditing, setIsTitleEditing] = useState(false);
+  const [isSavingBrief, setIsSavingBrief] = useState(false);
   const executionGroups = useMemo(
     () => groupTaskExecutionsByWorkspace(executionSummary),
     [executionSummary],
@@ -555,10 +562,36 @@ function OpenTaskDetailSheet({
     if (!title || (title === task.title && descriptionDraft === task.description)) {
       return;
     }
-    void updateTask({ taskId: task.id, title, description: descriptionDraft }).catch((error) => {
-      toast.show(toErrorMessage(error));
-    });
-  }, [descriptionDraft, task.description, task.id, task.title, titleDraft, toast, updateTask]);
+    setIsSavingBrief(true);
+    markDescriptionSent(descriptionDraft);
+    void updateTask({ taskId: task.id, title, description: descriptionDraft })
+      .catch((error) => {
+        toast.show(toErrorMessage(error));
+      })
+      .finally(() => setIsSavingBrief(false));
+  }, [
+    descriptionDraft,
+    markDescriptionSent,
+    task.description,
+    task.id,
+    task.title,
+    titleDraft,
+    toast,
+    updateTask,
+  ]);
+  const isBriefDirty = descriptionDraft !== task.description;
+  // The brief writes itself: a keystroke schedules the write, so a draft that
+  // differs is a write already on its way rather than one waiting for the user
+  // to leave the field.
+  const briefSaveState = resolveBriefSaveState({
+    isSaving: isSavingBrief,
+    isDirty: isBriefDirty,
+  });
+  useEffect(() => {
+    if (!isBriefDirty) return;
+    const timer = setTimeout(saveBrief, BRIEF_AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [isBriefDirty, saveBrief]);
   const startTitleEdit = useCallback(() => setIsTitleEditing(true), []);
   const endTitleEdit = useCallback(() => {
     setIsTitleEditing(false);
@@ -888,7 +921,13 @@ function OpenTaskDetailSheet({
 
       {activeTab === "details" ? (
         <View style={styles.tabContent} testID="task-detail-details-tab">
-          <TaskOverview task={task} onDescriptionChange={setDescriptionDraft} onSave={saveBrief} />
+          <TaskOverview
+            task={task}
+            saveState={briefSaveState}
+            resetKey={descriptionResetKey}
+            onDescriptionChange={setDescriptionDraft}
+            onSave={saveBrief}
+          />
           <View style={styles.groupContent} testID="task-detail-details-group">
             {subtasksSection}
             {isCompact ? (
@@ -985,6 +1024,38 @@ function OpenTaskDetailSheet({
 
 function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+/**
+ * A draft that follows the host, except when the host is only echoing this
+ * client's own write. Re-deriving on an echo would drop whatever was typed while
+ * the write was in flight and send the cursor back into older text, which is
+ * exactly what happens when a field saves as you type.
+ *
+ * `resetKey` changes only on a foreign edit, so the uncontrolled input reseeds
+ * for a change made elsewhere and is left alone for our own.
+ */
+function useEchoAwareDraft(serverValue: string): {
+  draft: string;
+  setDraft: (value: string) => void;
+  resetKey: string;
+  markSent: (value: string) => void;
+} {
+  const [draft, setDraft] = useState(serverValue);
+  const [foreignEdits, setForeignEdits] = useState(0);
+  const serverValueRef = useRef(serverValue);
+  const sentValueRef = useRef(serverValue);
+  if (serverValueRef.current !== serverValue) {
+    serverValueRef.current = serverValue;
+    if (serverValue !== sentValueRef.current) {
+      setDraft(serverValue);
+      setForeignEdits((current) => current + 1);
+    }
+  }
+  const markSent = useCallback((value: string) => {
+    sentValueRef.current = value;
+  }, []);
+  return { draft, setDraft, resetKey: String(foreignEdits), markSent };
 }
 
 /**
@@ -1953,24 +2024,68 @@ function TaskRecipientMenuItem({
   );
 }
 
+/** Where the brief stands with the host. There is no "unsaved": a keystroke
+ * schedules the write, so anything not yet stored is on its way. */
+type TaskBriefSaveState = "saved" | "saving";
+
+function resolveBriefSaveState(input: { isSaving: boolean; isDirty: boolean }): TaskBriefSaveState {
+  return input.isSaving || input.isDirty ? "saving" : "saved";
+}
+
+/** How long the brief waits for the typing to settle before it writes. Long
+ * enough that a sentence is one write, short enough that leaving the screen
+ * straight after typing has nothing left to lose. */
+const BRIEF_AUTOSAVE_DELAY_MS = 600;
+
+/** How long a dot waits before the next one joins it. */
+const SAVING_DOT_INTERVAL_MS = 400;
+const SAVING_DOT_COUNT = 3;
+
+/**
+ * The brief's standing, stated where the brief is. The dots animate only while a
+ * write is actually in flight — a label that says "saving" over an idle field
+ * teaches people to ignore it.
+ */
+function TaskBriefSaveHint({ state }: { state: TaskBriefSaveState }): ReactElement {
+  const [dots, setDots] = useState(1);
+  useEffect(() => {
+    if (state !== "saving") {
+      setDots(1);
+      return;
+    }
+    const timer = setInterval(
+      () => setDots((current) => (current % SAVING_DOT_COUNT) + 1),
+      SAVING_DOT_INTERVAL_MS,
+    );
+    return () => clearInterval(timer);
+  }, [state]);
+  const standing = state === "saving" ? `Saving${".".repeat(dots)}` : "Saved";
+  return (
+    <Text style={styles.sectionHint} testID="task-detail-brief-save-state">
+      {standing} · sent with every step
+    </Text>
+  );
+}
+
 function TaskOverview({
   task,
+  saveState,
+  resetKey,
   onDescriptionChange,
   onSave,
 }: {
   task: Task;
+  saveState: TaskBriefSaveState;
+  resetKey: string;
   onDescriptionChange: (description: string) => void;
   onSave: () => void;
 }): ReactElement {
-  const trailing = useMemo(
-    () => <Text style={styles.sectionHint}>Saved · sent with every step</Text>,
-    [],
-  );
+  const trailing = useMemo(() => <TaskBriefSaveHint state={saveState} />, [saveState]);
   return (
     <DetailSection title="Brief" testID="task-detail-brief" trailing={trailing}>
       <AdaptiveTextInput
         initialValue={task.description}
-        resetKey={task.description}
+        resetKey={resetKey}
         onChangeText={onDescriptionChange}
         onBlur={onSave}
         onEndEditing={onSave}
