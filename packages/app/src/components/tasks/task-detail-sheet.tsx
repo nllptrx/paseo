@@ -2911,7 +2911,7 @@ function TaskSubtasksSection({
                 onChangeText={handleTitle}
                 onSubmitEditing={onCreate}
                 placeholder="What should the subtask deliver?"
-                style={[styles.inlineInput, isWeb ? styles.rowInputNoRing : null]}
+                style={styles.inlineInput}
                 testID="task-detail-subtask-input"
               />
               <Button
@@ -4344,10 +4344,6 @@ const styles = StyleSheet.create((theme) => ({
   /** The shared focus ring frames a field's own box. A field that is a bare row
    * in a card has none, so the ring would outline something that is not there;
    * the caret carries the focus instead. */
-  rowInputNoRing: {
-    outlineWidth: 0,
-    outlineColor: "transparent",
-  },
   actionRow: {
     flexDirection: "row",
     alignItems: "center",

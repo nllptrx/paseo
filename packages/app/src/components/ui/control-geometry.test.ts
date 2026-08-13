@@ -18,6 +18,7 @@ const theme = {
   colors: {
     accent: "#20744A",
     borderAccent: "#2F3534",
+    foregroundExtraMuted: "#717574",
   },
   fontSize: {
     xs: 12,
@@ -47,18 +48,16 @@ describe("control geometry", () => {
     });
   });
 
-  it("uses the shared hover border and active focus ring values", () => {
+  it("shows focus through the field's own border and never draws a ring", () => {
     const geometry = createControlGeometry(theme);
 
     expect(geometry.controlHover).toEqual({
       borderColor: "#2F3534",
     });
     expect(geometry.controlActive).toEqual({
-      borderColor: "#2F3534",
-      outlineColor: "#20744A",
-      outlineOffset: 1,
-      outlineStyle: "solid",
-      outlineWidth: 2,
+      borderColor: "#717574",
+      outlineColor: "transparent",
+      outlineWidth: 0,
     });
   });
 

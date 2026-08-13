@@ -26,7 +26,6 @@ import {
   useIsolatedBottomSheetVisibility,
 } from "@/components/ui/isolated-bottom-sheet-modal";
 import { getCompactSheetSafeAreaPadding } from "@/components/adaptive-modal-sheet-layout";
-import { createControlGeometry } from "@/components/ui/control-geometry";
 import { isNative, isWeb } from "@/constants/platform";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -210,8 +209,11 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "space-between",
     gap: theme.spacing[2],
   },
-  adaptiveInputOutline: {
-    ...createControlGeometry(theme).controlFocusRingColor,
+  // The field's frame is what shows focus, so the leaf input draws no ring of
+  // its own: a browser default would land inside a frame that already moved.
+  adaptiveInputNoOutline: {
+    outlineWidth: 0,
+    outlineColor: "transparent",
   },
   adaptiveInputText: {
     color: theme.colors.foreground,
@@ -315,11 +317,11 @@ export const AdaptiveTextInput = forwardRef<TextInput, AdaptiveTextInputProps>(
     const isMobile = useIsCompactFormFactor();
     const { value: _value, initialValue, resetKey, defaultValue, style, ...inputProps } = props;
     // Leaf-owned color goes LAST so callers cannot override it with a stale
-    // theme read. Outline color is theme-aware on web :focus-visible.
+    // theme read.
     const textInputProps = {
       ...inputProps,
       defaultValue: initialValue ?? defaultValue,
-      style: [styles.adaptiveInputOutline, style, styles.adaptiveInputText],
+      style: [styles.adaptiveInputNoOutline, style, styles.adaptiveInputText],
     };
 
     if (isMobile && isNative) {

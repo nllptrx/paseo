@@ -31,8 +31,6 @@ const SEGMENTED_FIELD_INSET = 3;
 const SWITCH_TRACK_WIDTH = 34;
 const SWITCH_TRACK_HEIGHT = 20;
 const SWITCH_THUMB_SIZE = 16;
-const CONTROL_FOCUS_RING_WIDTH = 2;
-const CONTROL_FOCUS_RING_OFFSET = 1;
 const CONTROL_CENTER_JUSTIFY_CONTENT = "center";
 const FIELD_TEXT_LINE_HEIGHT_RATIO = 1.4;
 
@@ -178,15 +176,13 @@ export function createControlGeometry(theme: Theme) {
     controlHover: {
       borderColor: theme.colors.borderAccent,
     },
+    // Focus is the field's own frame changing, not a ring drawn around it: a
+    // control already has a border, and an outline offset outside it reads as a
+    // second box stacked on the first.
     controlActive: {
-      borderColor: theme.colors.borderAccent,
-      outlineColor: theme.colors.accent,
-      outlineOffset: CONTROL_FOCUS_RING_OFFSET,
-      outlineStyle: "solid" as const,
-      outlineWidth: CONTROL_FOCUS_RING_WIDTH,
-    },
-    controlFocusRingColor: {
-      outlineColor: theme.colors.accent,
+      borderColor: theme.colors.foregroundExtraMuted,
+      outlineWidth: 0,
+      outlineColor: "transparent",
     },
     controlDisabled: {
       opacity: theme.opacity[50],
