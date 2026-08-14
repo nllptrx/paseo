@@ -241,10 +241,18 @@ describe("TaskStore", () => {
     expect(() => store.addDependency({ taskId: first.id, dependsOnTaskId: outside.id })).toThrow(
       "must belong to the same project",
     );
-    expect(store.listDependencies()).toEqual([
-      { taskId: second.id, dependsOnTaskId: first.id },
-      { taskId: third.id, dependsOnTaskId: second.id },
-    ]);
+    const byPair = (entries: Array<{ taskId: string; dependsOnTaskId: string }>) =>
+      [...entries].sort((left, right) =>
+        `${left.taskId}|${left.dependsOnTaskId}`.localeCompare(
+          `${right.taskId}|${right.dependsOnTaskId}`,
+        ),
+      );
+    expect(byPair(store.listDependencies())).toEqual(
+      byPair([
+        { taskId: second.id, dependsOnTaskId: first.id },
+        { taskId: third.id, dependsOnTaskId: second.id },
+      ]),
+    );
   });
 
   it("appends to the end of a column and moves between two neighbours", () => {

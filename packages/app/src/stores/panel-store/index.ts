@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   buildExplorerCheckoutKey,
@@ -28,6 +28,7 @@ import {
   MIN_ORCHESTRATOR_PANEL_WIDTH,
   MIN_SIDEBAR_WIDTH,
   migratePanelState,
+  PanelPersistedStateSchema,
   selectIsAgentListOpen,
   selectIsFileExplorerOpen,
   setMobilePanelTarget,
@@ -41,6 +42,7 @@ import {
   type SortOption,
 } from "./state";
 import { isWeb } from "@/constants/platform";
+import { createValidatedPersistStorage } from "@/storage/validated-persist-storage";
 export type { ExplorerTab } from "../explorer-tab-memory";
 export type { ExplorerCheckoutContext } from "../explorer-checkout-context";
 export type {
@@ -327,9 +329,8 @@ export const usePanelStore = create<PanelState>()(
     {
       name: "panel-state",
       version: 12,
-      storage: createJSONStorage(() => AsyncStorage),
-      migrate: (persistedState, version) =>
-        migratePanelState(persistedState, version, { isWeb }) as unknown as PanelState,
+      storage: createValidatedPersistStorage(AsyncStorage, PanelPersistedStateSchema),
+      migrate: (persistedState, version) => migratePanelState(persistedState, version, { isWeb }),
       partialize: (state) => ({
         desktop: state.desktop,
         explorerTab: state.explorerTab,

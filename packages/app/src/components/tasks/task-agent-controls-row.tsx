@@ -10,6 +10,7 @@ import type {
   ProviderSnapshotEntry,
 } from "@getpaseo/protocol/agent-types";
 import { DraftAgentControls } from "@/composer/agent-controls";
+import type { MaterializedAgentProfile } from "@/agent-profiles/internal/materialize-profile";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -141,10 +142,6 @@ export function TaskAgentControlsRow({
     [entries, onChangeFeatureValues, onSelectAgent, onSelectMode, onSelectThinking, provider],
   );
 
-  const handleSelectProvider = useCallback(
-    (nextProvider: AgentProvider) => applyProvider(nextProvider, null),
-    [applyProvider],
-  );
   const handleSelectProviderAndModel = useCallback(
     (nextProvider: AgentProvider, modelId: string) => applyProvider(nextProvider, modelId),
     [applyProvider],
@@ -161,6 +158,22 @@ export function TaskAgentControlsRow({
       );
     },
     [onSelectAgent, onSelectThinking, provider, providerEntry],
+  );
+  const handleApplyProfile = useCallback(
+    (profile: MaterializedAgentProfile) => {
+      const entry = entries?.find((candidate) => candidate.provider === profile.provider) ?? null;
+      const nextModel = resolveModel(entry, profile.modelId || null);
+      onSelectAgent({
+        provider: profile.provider as AgentProvider,
+        model: profile.modelId || (nextModel?.id ?? null),
+      });
+      onSelectMode(profile.modeId || (entry?.defaultModeId ?? null));
+      onSelectThinking(profile.thinkingOptionId || null);
+      onChangeFeatureValues(
+        Object.keys(profile.featureValues).length > 0 ? profile.featureValues : undefined,
+      );
+    },
+    [entries, onChangeFeatureValues, onSelectAgent, onSelectMode, onSelectThinking],
   );
   const handleSelectMode = useCallback(
     (value: string) => onSelectMode(value || null),
@@ -191,7 +204,6 @@ export function TaskAgentControlsRow({
       <DraftAgentControls
         providerDefinitions={providerDefinitions}
         selectedProvider={provider}
-        onSelectProvider={handleSelectProvider}
         modeOptions={modeOptions}
         selectedMode={modeId ?? ""}
         onSelectMode={handleSelectMode}
@@ -202,6 +214,7 @@ export function TaskAgentControlsRow({
         modelSelectorProviders={modelSelectorProviders}
         isAllModelsLoading={snapshot.isLoading}
         onSelectProviderAndModel={handleSelectProviderAndModel}
+        onApplyAgentProfile={handleApplyProfile}
         thinkingOptions={thinkingOptions}
         selectedThinkingOptionId={thinkingOptionId ?? ""}
         onSelectThinkingOption={handleSelectThinking}
