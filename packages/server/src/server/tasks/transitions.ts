@@ -191,7 +191,10 @@ export class TaskTransitionEngine {
           return;
         }
         this.reportWaitingForPerson(input, event.agent);
-        const outcome = observer.observeLifecycle(event.agent.lifecycle);
+        const outcome = observer.observe({
+          lifecycle: event.agent.lifecycle,
+          hasPendingPermissions: event.agent.pendingPermissions.size > 0,
+        });
         if (outcome) {
           handleOutcome(outcome);
         }
@@ -210,7 +213,10 @@ export class TaskTransitionEngine {
     // so absence proves nothing and the observer simply waits.
     const snapshot = this.deps.agentManager.getAgent(input.agentId);
     if (snapshot) {
-      const initial = observer.observeLifecycle(snapshot.lifecycle);
+      const initial = observer.observe({
+        lifecycle: snapshot.lifecycle,
+        hasPendingPermissions: snapshot.pendingPermissions.size > 0,
+      });
       if (initial) {
         handleOutcome(initial);
       }
@@ -706,7 +712,10 @@ export class TaskTransitionEngine {
         if (event.type !== "agent_state") {
           return;
         }
-        const outcome = observer.observeLifecycle(event.agent.lifecycle);
+        const outcome = observer.observe({
+          lifecycle: event.agent.lifecycle,
+          hasPendingPermissions: event.agent.pendingPermissions.size > 0,
+        });
         if (outcome) {
           finish(outcome);
         }
@@ -720,7 +729,10 @@ export class TaskTransitionEngine {
     );
     const snapshot = this.deps.agentManager.getAgent(input.agentId);
     if (snapshot) {
-      const initial = observer.observeLifecycle(snapshot.lifecycle);
+      const initial = observer.observe({
+        lifecycle: snapshot.lifecycle,
+        hasPendingPermissions: snapshot.pendingPermissions.size > 0,
+      });
       if (initial) {
         finish(initial);
       }

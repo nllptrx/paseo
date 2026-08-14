@@ -40,12 +40,12 @@ function createFakeAgentManager() {
     },
     getAgent(agentId: string) {
       const lifecycle = this.snapshots.get(agentId);
-      return lifecycle ? ({ lifecycle } as ManagedAgent) : null;
+      return lifecycle ? ({ lifecycle, pendingPermissions: new Map() } as ManagedAgent) : null;
     },
     emitLifecycle(agentId: string, lifecycle: ManagedAgent["lifecycle"]) {
       this.snapshots.set(agentId, lifecycle);
       for (const listener of listeners.get(agentId) ?? []) {
-        listener({ type: "agent_state", agent: { lifecycle } });
+        listener({ type: "agent_state", agent: { lifecycle, pendingPermissions: new Map() } });
       }
     },
     emitPendingPermissions(agentId: string, pending: number) {

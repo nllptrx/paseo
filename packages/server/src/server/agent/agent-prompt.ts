@@ -8,6 +8,7 @@ import type {
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import type { AgentStorage } from "./agent-storage.js";
 import { ensureAgentLoaded } from "./agent-loading.js";
+import { observeAgentCompletion } from "./agent-completion.js";
 import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
 
 export type AgentUnarchiveController = Pick<AgentManager, "notifyAgentState" | "unarchiveSnapshot">;
@@ -307,7 +308,7 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
     requireParentOwnership = false,
     logger,
   } = params;
-  let hasSeenRunning = false;
+  const completion = observeAgentCompletion();
   let stopped = false;
   const notifiedPermissionRequestIds = new Set<string>();
   let unsubscribe: (() => void) | null = null;
@@ -377,32 +378,21 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
             notifiedPermissionRequestIds.delete(requestId);
           }
         }
-        if (event.agent.lifecycle === "running") {
-          if (event.agent.pendingPermissions.size === 0) {
-            hasSeenRunning = true;
-          }
-          return;
-        }
-        if (event.agent.lifecycle === "error") {
+        const outcome = completion.observe({
+          lifecycle: event.agent.lifecycle,
+          hasPendingPermissions: event.agent.pendingPermissions.size > 0,
+        });
+        if (outcome === "errored") {
           notifySafely("errored");
-          return;
-        }
-        if (event.agent.lifecycle === "idle" && hasSeenRunning) {
+        } else if (outcome === "finished") {
           notifySafely("finished");
-          return;
-        }
-        if (event.agent.lifecycle === "closed") {
+        } else if (outcome === "closed") {
           notifySafely("was closed");
-          return;
         }
         return;
       }
 
       if (event.event.type === "permission_requested") {
-        // A permission pause is an intermediate checkpoint. Forget the run
-        // observed before it so an idle state during follow-up startup cannot
-        // masquerade as the final completion.
-        hasSeenRunning = false;
         if (!notifiedPermissionRequestIds.has(event.event.request.id)) {
           notifiedPermissionRequestIds.add(event.event.request.id);
           notifySafely("needs permission", {
@@ -416,8 +406,11 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
       if (event.event.type === "permission_resolved") {
         notifiedPermissionRequestIds.delete(event.event.requestId);
         const childAgent = agentManager.getAgent(childAgentId);
-        if (childAgent?.pendingPermissions.size === 0) {
-          hasSeenRunning = childAgent.lifecycle === "running";
+        if (childAgent) {
+          completion.observe({
+            lifecycle: childAgent.lifecycle,
+            hasPendingPermissions: childAgent.pendingPermissions.size > 0,
+          });
         }
       }
     },
@@ -431,9 +424,11 @@ export function setupFinishNotification(params: SetupFinishNotificationParams): 
     stop();
     return;
   }
-  if (childSnapshot.lifecycle === "running") {
-    hasSeenRunning = true;
-  } else if (childSnapshot.lifecycle === "error") {
+  const initialOutcome = completion.observe({
+    lifecycle: childSnapshot.lifecycle,
+    hasPendingPermissions: childSnapshot.pendingPermissions.size > 0,
+  });
+  if (initialOutcome === "errored") {
     notifySafely("errored");
   }
 }

@@ -1215,6 +1215,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Top-level agent" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const ensureWorkspace = vi.fn(async () => "workspace-created");
     const server = await createAgentMcpServer({
@@ -1300,6 +1301,7 @@ describe("create_agent MCP tool", () => {
       cwd: existingCwd,
       provider: "codex",
       currentModeId: "full-access",
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const server = await createAgentMcpServer({
       agentManager,
@@ -1330,6 +1332,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Existing workspace" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const server = await createAgentMcpServer({
       agentManager,
@@ -1369,6 +1372,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Feature test", featureValues: { fast_mode: true } },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -1422,6 +1426,7 @@ describe("create_agent MCP tool", () => {
         },
       ],
       config: { title: "Mode test" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -1597,6 +1602,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Fix auth bug" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -1633,6 +1639,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Fix auth" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -1668,6 +1675,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Config test", model: "claude-sonnet-4-20250514" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -2989,6 +2997,7 @@ describe("create_agent MCP tool", () => {
       workspaceId: "wks_voice",
       provider: "codex",
       currentModeId: "full-access",
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
@@ -2997,6 +3006,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -3043,6 +3053,7 @@ describe("create_agent MCP tool", () => {
       workspaceId: "wks_parent",
       provider: "codex",
       currentModeId: "full-access",
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -3089,6 +3100,7 @@ describe("create_agent MCP tool", () => {
       workspaceId: "wks_parent",
       provider: "codex",
       currentModeId: "full-access",
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     const childAgent = {
       id: "child-agent",
@@ -3097,6 +3109,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     spies.agentManager.getAgent.mockImplementation((agentId: string) => {
       if (agentId === "parent-agent") return parentAgent;
@@ -3134,6 +3147,7 @@ describe("create_agent MCP tool", () => {
       workspaceId: "wks_parent",
       provider: "codex",
       currentModeId: "full-access",
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "detached-agent",
@@ -3142,6 +3156,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Detached" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -3186,6 +3201,7 @@ describe("create_agent MCP tool", () => {
       workspaceId: "wks_parent",
       provider: "claude",
       currentModeId: "bypassPermissions",
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
@@ -3194,6 +3210,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child", featureValues: { fast_mode: true } },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const providerSnapshot = createOpenCodeManager();
     providerSnapshot.stub.resolveCreateConfig.mockImplementation(async (input) => {
@@ -3252,6 +3269,7 @@ describe("create_agent MCP tool", () => {
           sandbox_workspace_write: { writable_roots: ["/tmp/shared"] },
         },
       },
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     spies.agentManager.getAgent.mockReturnValue(parentAgent);
     spies.agentManager.createAgent.mockResolvedValue({
@@ -3261,6 +3279,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const server = await createAgentMcpServer({
       agentManager,
@@ -3345,6 +3364,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Injected config test" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -3411,6 +3431,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: "dynamic",
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const dynamicModes: AgentMode[] = [
       { id: "dynamic", label: "Dynamic", description: "Runtime mode" },
@@ -3462,6 +3483,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: "build",
       availableModes: [],
       config: { title: "Child", featureValues: { auto_accept: true } },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const providerSnapshot = createOpenCodeManager();
     providerSnapshot.stub.resolveCreateConfig.mockResolvedValue({
@@ -3500,6 +3522,7 @@ describe("create_agent MCP tool", () => {
       workspaceId: "wks_parent",
       provider: "claude",
       currentModeId: "bypassPermissions",
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     spies.agentManager.getAgent.mockReturnValue(parentAgent);
     spies.agentManager.createAgent.mockResolvedValue({
@@ -3509,6 +3532,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: "resolver-mode",
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const providerSnapshot = createOpenCodeManager();
     providerSnapshot.stub.resolveCreateConfig.mockResolvedValue({
@@ -3552,6 +3576,7 @@ describe("create_agent MCP tool", () => {
       workspaceId: "wks_parent",
       provider: "claude",
       currentModeId: "bypassPermissions",
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
@@ -3560,6 +3585,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: "build",
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -3598,6 +3624,7 @@ describe("send_agent_prompt MCP tool", () => {
       workspaceId: "wks_parent",
       provider: "codex",
       currentModeId: "full-access",
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     const childAgent = {
       id: "child-agent",
@@ -3606,6 +3633,7 @@ describe("send_agent_prompt MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     spies.agentManager.getAgent.mockImplementation((agentId: string) => {
       if (agentId === "parent-agent") return parentAgent;
@@ -3653,6 +3681,7 @@ describe("send_agent_prompt MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
 
     const server = await createAgentMcpServer({
@@ -3693,6 +3722,7 @@ describe("send_agent_prompt MCP tool", () => {
       workspaceId: "wks_parent",
       provider: "codex",
       currentModeId: "full-access",
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     const childAgent = {
       id: "child-agent",
@@ -3701,6 +3731,7 @@ describe("send_agent_prompt MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child" },
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     spies.agentManager.getAgent.mockImplementation((agentId: string) => {
       if (agentId === "parent-agent") return parentAgent;
@@ -4125,6 +4156,7 @@ describe("create_schedule MCP tool", () => {
         model: "openai/gpt-5.5",
         featureValues: { auto_accept: true },
       },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const createOrReplace = vi.fn(async (input: CreateScheduleInput) =>
       createStoredSchedule(input),
@@ -4270,6 +4302,7 @@ describe("create_heartbeat MCP tool", () => {
       currentModeId: "build",
       availableModes: [],
       config: { title: "Parent agent" },
+      pendingPermissions: new Map(),
     } as ManagedAgent);
     const createOrReplace = vi.fn(async (input: CreateScheduleInput) =>
       createStoredSchedule(input),
@@ -5734,6 +5767,7 @@ describe("agent snapshot MCP serialization", () => {
     const snapshot = {
       id: "archived-activity-agent",
       currentModeId: "default",
+      pendingPermissions: new Map(),
     } as ManagedAgent;
     spies.agentManager.getAgent
       .mockReturnValueOnce(null)

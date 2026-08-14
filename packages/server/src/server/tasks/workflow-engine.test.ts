@@ -42,13 +42,18 @@ class FakeAgentManager {
     this.lifecycles.set(agentId, lifecycle);
   }
 
-  getAgent(agentId: string): { lifecycle: Lifecycle } | null {
+  getAgent(
+    agentId: string,
+  ): { lifecycle: Lifecycle; pendingPermissions: Map<string, unknown> } | null {
     const lifecycle = this.lifecycles.get(agentId);
-    return lifecycle ? { lifecycle } : null;
+    return lifecycle ? { lifecycle, pendingPermissions: new Map() } : null;
   }
 
   subscribe(
-    callback: (event: { type: "agent_state"; agent: { lifecycle: Lifecycle } }) => void,
+    callback: (event: {
+      type: "agent_state";
+      agent: { lifecycle: Lifecycle; pendingPermissions: Map<string, unknown> };
+    }) => void,
     options?: { agentId?: string },
   ): () => void {
     const entry = { callback, agentId: options?.agentId };
@@ -62,7 +67,10 @@ class FakeAgentManager {
     this.lifecycles.set(agentId, lifecycle);
     for (const subscriber of this.subscribers) {
       if (!subscriber.agentId || subscriber.agentId === agentId) {
-        subscriber.callback({ type: "agent_state", agent: { lifecycle } });
+        subscriber.callback({
+          type: "agent_state",
+          agent: { lifecycle, pendingPermissions: new Map() },
+        });
       }
     }
   }

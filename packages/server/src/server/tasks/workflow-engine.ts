@@ -2301,7 +2301,10 @@ export class TaskWorkflowEngine {
           if (event.type !== "agent_state") {
             return;
           }
-          const outcome = observer.observeLifecycle(event.agent.lifecycle);
+          const outcome = observer.observe({
+            lifecycle: event.agent.lifecycle,
+            hasPendingPermissions: event.agent.pendingPermissions.size > 0,
+          });
           if (outcome) {
             this.settleTrackedAgent(runId, agentId, outcome);
           }
@@ -2313,7 +2316,10 @@ export class TaskWorkflowEngine {
       // Catch the race where the agent already reached a terminal lifecycle
       // before the subscription above was registered.
       const snapshot: ManagedAgent | null = this.agentManager.getAgent(agentId);
-      const initialOutcome = observer.observeLifecycle(snapshot?.lifecycle ?? "closed");
+      const initialOutcome = observer.observe({
+        lifecycle: snapshot?.lifecycle ?? "closed",
+        hasPendingPermissions: (snapshot?.pendingPermissions.size ?? 0) > 0,
+      });
       if (initialOutcome) {
         this.settleTrackedAgent(runId, agentId, initialOutcome);
       }
