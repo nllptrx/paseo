@@ -594,7 +594,7 @@ test.describe("Kanbans board", () => {
     const presetName = `Implementer ${Date.now()}`;
     await page.getByTestId("task-presets-name-input").fill(presetName);
     await page.getByTestId("task-presets-agent-trigger").click();
-    const modelOption = page.locator('[data-testid^="model-option-"]').first();
+    const modelOption = page.locator('[data-testid^="model-row-"]').first();
     if (!(await modelOption.isVisible().catch(() => false))) {
       await page.locator('[data-testid^="model-provider-"]').first().click();
     }
